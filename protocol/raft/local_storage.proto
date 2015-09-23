@@ -1,0 +1,29 @@
+import "raft.proto";
+
+package raft.local_storage;
+
+message EntryMeta {
+    required int64 term = 1;
+    required raft.protocol.EntryType type = 2;
+    repeated string peers = 3;
+};
+
+message LogMeta {
+    required int64 start_index = 1;
+};
+
+message ConfigurationMeta {
+    required int64 committed_index = 1;
+    repeated string peers = 2;
+};
+
+message StableMeta {
+    required int64 term = 1;
+    required string votedfor_peer = 2;
+};
+
+message SnapshotMeta {
+    required int64 last_included_term = 1;
+    required int64 last_included_index = 2;
+    repeated string peers = 3;
+};

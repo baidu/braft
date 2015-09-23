@@ -1,3 +1,5 @@
 * text=auto !eol
 /OWNER -text
+protocol/raft/local_storage.proto -text
+protocol/raft/raft.proto -text
 src/raft/raft.h -text

@@ -124,14 +124,38 @@ struct LogEntry {
     LogType type; // log type
     int64_t index; // log index
     int64_t term; // leader term
+    std::vector<std::string>* peers; // peers
     int len; // data len
     void* data; // data ptr
+
+    LogEntry(): type(NO_OP), index(0), term(0), peers(NULL), len(0), data(NULL) {}
+    ~LogEntry() {
+        if (peers) {
+            delete peers;
+            peers = NULL;
+        }
+        if (data) {
+            free(data);
+            data = NULL;
+        }
+    }
+
+    void add_peer(const std::vector<std::string>& peers_) {
+        peers = new std::vector<std::string>(peers_);
+    }
+    void set_data(void* data_, int len_) {
+        len = len_;
+        data = data_;
+    }
 };
 
 class LogStorage {
 public:
     LogStorage(const std::string& uri) {}
     virtual ~LogStorage() {}
+
+    // init log storage, check consistency and integrity
+    virtual int init();
 
     // first log index in log
     virtual int64_t first_log_index();
@@ -143,16 +167,22 @@ public:
     virtual LogEntry* get_log(const int64_t index);
 
     // append entries to log
-    virtual int append_logs(const int64_t index, const std::vector<LogEntry*>& entries);
+    virtual int append_logs(const std::vector<LogEntry*>& entries);
 
-    // delete logs in range, used by log compaction and trucate uncommitted logs
-    virtual int delete_logs(const int64_t begin_index, const int64_t end_index);
+    // delete logs from storage's head, [1, first_index_kept) will be discarded
+    virtual int truncate_prefix(const int64_t first_index_kept);
+
+    // delete uncommitted logs from storage's tail, (first_index_kept, infinity) will be discarded
+    virtual int truncate_suffix(const int64_t last_index_kept);
 };
 
 class StableStorage {
 public:
     StableStorage(const std::string& uri) {}
     virtual ~StableStorage() {}
+
+    // init stable storage, check consistency and integrity
+    virtual int init();
 
     // set current term
     virtual int set_term(const int64_t term);
@@ -175,6 +205,9 @@ class ConfigurationStorage {
 public:
     ConfigurationStorage(const std::string& uri) {}
     virtual ~ConfigurationStorage() {}
+
+    // init configuration storage, check consistency and integrity
+    virtual int init();
 
     // append new configuration to storage
     virtual int append_configuration(const int64_t index, const Configuration* config);

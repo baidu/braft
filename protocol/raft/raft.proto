@@ -1,0 +1,75 @@
+package raft.protocol;
+
+enum EntryType {
+    UNKNOWN = 0;
+    NO_OP = 1;
+    DATA = 2;
+    ADD_PEER = 3;
+    REMOVE_PEER = 4;
+};
+
+// data store in baidu-rpc's attachment
+message Entry {
+    required int64 term = 1;
+    required EntryType type = 2;
+    repeated string peers = 3;
+    optional int32 data_len = 4;
+};
+
+message RequestVoteRequest {
+    required string group_id = 1;
+    required string peer_id = 2;
+    required string candidate_peer_id = 3;
+    required int64 term = 4;
+    required int64 last_log_term = 5;
+    required int64 last_log_index = 6;
+};
+
+message RequestVoteResponse {
+    required string group_id = 1;
+    required int64 term = 2;
+    required bool granted = 3;
+};
+
+message AppendEntriesRequest {
+    required string group_id = 1;
+    required string peer_id = 2;
+    required string leader_peer_id = 3;
+    required int64 term = 4;
+    required int64 prev_log_term = 5;
+    required int64 prev_log_index = 6;
+    repeated Entry entries = 7;
+    required int64 committed_index = 8;
+};
+
+message AppendEntriesResponse {
+    required string group_id = 1;
+    required int64 term = 2;
+    required bool success = 3;
+    optional int64 last_log_index = 4;
+};
+
+message InstallSnapshotRequest {
+    required string group_id = 1;
+    required string peer_id = 2;
+    required int64 term = 3;
+    required int64 last_included_log_term = 4;
+    required int64 last_included_log_index = 5;
+    repeated string peers = 6;
+    required string uri = 7;
+};
+
+message InstallSnapshotResponse {
+    required string group_id = 1;
+    required int64 term = 2;
+    required bool success = 3;
+};
+
+
+service RaftService {
+    rpc request_vote(RequestVoteRequest) returns (RequestVoteResponse);
+
+    rpc append_entries(AppendEntriesRequest) returns (AppendEntriesResponse);
+
+    rpc install_snapshot(InstallSnapshotRequest) returns (InstallSnapshotResponse);
+};
