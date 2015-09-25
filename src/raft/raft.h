@@ -19,12 +19,15 @@
 #define PUBLIC_RAFT_RAFT_H
 
 #include <string>
+#include <cassert>
 #include <base/endpoint.h>
 #include <base/callback.h>
 
-#include <raft/configuration.h>
-#include <raft/log.h>
-#include <raft/manifest.h>
+#include "raft/raft.pb.h"
+
+//#include <raft/configuration.h>
+//#include <raft/log.h>
+//#include <raft/manifest.h>
 
 namespace raft {
 
@@ -33,102 +36,57 @@ struct PeerId {
     base::EndPoint addr; // addr
     int idx; // idx in same addr, default 0
 
+    PeerId() : idx(0) {}
     PeerId(base::EndPoint addr_) : addr(addr_), idx(0) {}
     PeerId(base::EndPoint addr_, int idx_) : addr(addr_), idx(idx_) {}
+
+    int parse(const std::string& str) {
+        char ip_str[64];
+        //
+        //char port_str[16];
+        //char idx_str[64];
+        //if (3 != sscanf(str.c_str(), "%[^:]:%[^:]:%[^:]s", ip_str, port_str, idx_str)) {
+        //    return -1;
+        //}
+        //if (0 != base::str2ip(ip_str, &addr.ip)) {
+        //    return -1;
+        //}
+        //addr.port = atoi(port_str);
+        //idx = atoi(idx_str);
+        //
+        if (3 != sscanf(str.c_str(), "%[^:]%*[:]%d%*[:]%d", ip_str, &addr.port, &idx)) {
+            return -1;
+        }
+        if (0 != base::str2ip(ip_str, &addr.ip)) {
+            return -1;
+        }
+        return 0;
+    }
+
+    std::string to_str() {
+        char str[128];
+        snprintf(str, sizeof(str), "%s:%d", base::endpoint2str(addr).c_str(), idx);
+        return std::string(str);
+    }
 };
 
-struct NodeOptions {
-    PeerId peer_id; // peer id
-    int election_timeout; //ms, follower to candidate timeout
-    int heartbeat_period; //ms, leader to other heartbeat period
-    int rpc_timeout; //ms, rpc retry timeout
-    int max_append_entries; // max entries in per AppendEntries RPC
-    int snapshot_interval; // s, snapshot interval
-    int snapshot_lowlevel_threshold; // at least logs not in snapshot
-    int snapshot_highlevel_threshold; // at most log not in snapshot
-    bool enable_pipeline; // pipeline switch
-    NodeUser* user; // user defined function
-    LogStorage* log_storage; // user defined log storage
-    ManifestStorage* manifest_storage; // user defined manifest storage
-    ConfigurationStorage* configuration_storage; // user defined configuration storage
-
-    NodeOptions()
-        : election_timeout(1000), heartbeat_period(100),
-        rpc_timeout(1000), max_append_entries(100),
-        snapshot_interval(86400), snapshot_lowlevel_threshold(100000),
-        snapshot_highlevel_threshold(10000000), enable_pipeline(false),
-        user(NULL), log_storage(NULL), manifest_storage(NULL), configuration_storage(NULL) {}
-};
-
-class NodeUser {
-public:
-    NodeUser() {}
-    virtual ~NodeUser() {}
-
-    // user defined logentry proc function
-    // done is transformed by apply(), leader is valid, follower is NULL
-    virtual int apply(const LogEntry& entry, base::Closure* done);
-
-    // user defined snapshot generate function
-    // done can't be defined by user
-    virtual int snapshot_save(base::Closure* done);
-
-    // user defined snapshot load function
-    // done can't be defined by user
-    virtual int snapshot_load(base::Closure* done);
-};
-
-class Node {
-public:
-    Node() {};
-    virtual ~Node() {};
-
-    // create raft node, group_id is user defined id's string format
-    // set NodeUser ptr in option to proc apply and snapshot
-    // set LogStorage/ManifestStorage/ConfigurationStorage ptr in option to define special storage
-    static Node* create(const GroupId& group_id, const NodeOptions* option);
-
-    // destroy raft node
-    static int destroy(Node* node);
-
-    // apply data to replicated-state-machine
-    // done is user defined function, maybe response to client, transform to on_applied
-    int apply(const void* data, const int len, base::Closure* done);
-
-    // add peer to replicated-state-machine
-    // done is user defined function, maybe response to client
-    int add_peer(const std::vector<PeerId>& old_peers, const PeerId& peer, base::Closure* done);
-
-    // remove peer from replicated-state-machine
-    // done is user defined function, maybe response to client
-    int remove_peer(const std::vector<PeerId>& old_peers, const PeerId& peer, base::Closure* done);
-
-    // set peer to local replica
-    // done is user defined function, maybe response to client
-    int set_peer(const std::vector<PeerId>& old_peers, const std::vector<PeerId>& new_peers,
-                 base::Closure* done);
-
-    // shutdown local replica
-    // done is user defined function, maybe response to client or clean some resource
-    int shutdown(base::Closure* done);
-};
-
-enum LogType {
-    NO_OP = 0, // no operatue, used by new leader fence and log barrier
-    DATA = 1, // normal data
-    ADD_PEER = 2, // add peer
-    REMOVE_PEER = 3, // remove peer
+enum EntryType {
+    UNKNOWN = 0,
+    NO_OP = 1,
+    DATA = 2,
+    ADD_PEER = 3,
+    REMOVE_PEER = 4
 };
 
 struct LogEntry {
-    LogType type; // log type
+    EntryType type; // log type
     int64_t index; // log index
     int64_t term; // leader term
     std::vector<std::string>* peers; // peers
     int len; // data len
     void* data; // data ptr
 
-    LogEntry(): type(NO_OP), index(0), term(0), peers(NULL), len(0), data(NULL) {}
+    LogEntry(): type(UNKNOWN), index(0), term(0), peers(NULL), len(0), data(NULL) {}
     ~LogEntry() {
         if (peers) {
             delete peers;
@@ -155,25 +113,28 @@ public:
     virtual ~LogStorage() {}
 
     // init log storage, check consistency and integrity
-    virtual int init();
+    virtual int init() = 0;
 
     // first log index in log
-    virtual int64_t first_log_index();
+    virtual int64_t first_log_index() = 0;
 
     // last log index in log
-    virtual int64_t last_log_index();
+    virtual int64_t last_log_index() = 0;
 
     // get logentry by index
-    virtual LogEntry* get_log(const int64_t index);
+    virtual LogEntry* get_log(const int64_t index) = 0;
 
     // append entries to log
-    virtual int append_logs(const std::vector<LogEntry*>& entries);
+    virtual int append_log(const LogEntry* entry) = 0;
+
+    // append entries to log, return append success number
+    virtual int append_logs(const std::vector<LogEntry*>& entries) = 0;
 
     // delete logs from storage's head, [1, first_index_kept) will be discarded
-    virtual int truncate_prefix(const int64_t first_index_kept);
+    virtual int truncate_prefix(const int64_t first_index_kept) = 0;
 
     // delete uncommitted logs from storage's tail, (first_index_kept, infinity) will be discarded
-    virtual int truncate_suffix(const int64_t last_index_kept);
+    virtual int truncate_suffix(const int64_t last_index_kept) = 0;
 };
 
 class StableStorage {
@@ -182,23 +143,24 @@ public:
     virtual ~StableStorage() {}
 
     // init stable storage, check consistency and integrity
-    virtual int init();
+    virtual int init() = 0;
 
     // set current term
-    virtual int set_term(const int64_t term);
+    virtual int set_term(const int64_t term) = 0;
 
     // get current term
-    virtual int64_t get_term();
+    virtual int64_t get_term() = 0;
 
     // set votefor information
-    virtual int set_votefor(const int64_t term, const PeerId& peer_id);
+    virtual int set_votedfor(const PeerId& peer_id) = 0;
 
     // get votefor information
-    virtual int get_votefor(int64_t* term, PeerId* peer_id);
+    virtual int get_votedfor(PeerId* peer_id) = 0;
 };
 
 struct Configuration {
-    std::vector<PeerId> peer_set;
+    int64_t index;
+    std::vector<PeerId> peers;
 };
 
 class ConfigurationStorage {
@@ -206,20 +168,96 @@ public:
     ConfigurationStorage(const std::string& uri) {}
     virtual ~ConfigurationStorage() {}
 
-    // init configuration storage, check consistency and integrity
-    virtual int init();
+    // load all configuration from stroage
+    virtual int load(std::vector<Configuration*>* configs) = 0;
 
     // append new configuration to storage
-    virtual int append_configuration(const int64_t index, const Configuration* config);
+    virtual int add(const int64_t index, const Configuration* config) = 0;
 
-    // delete staled configuration from storage
-    virtual int delete_configuration(const int64_t begin_index, const int64_t end_index);
+    // delete staled configuration from storage, [1, first_index_kept) will be discarded
+    virtual int truncate_prefix(const int64_t first_index_kept) = 0;
 
-    // load all configuration from stroage
-    virtual int load_configuration(std::vector<Configuration*>* configs);
+    // delete uncommitted configuration from storage, (first_index_kept, infinity) will be discarded
+    virtual int truncate_suffix(const int64_t last_index_kept) = 0;
 };
 
 // SnapshotStore implement in on_snapshot_save() and on_snapshot_load()
+
+class NodeUser {
+public:
+    NodeUser() {}
+    virtual ~NodeUser() {}
+
+    // user defined logentry proc function
+    // done is transformed by apply(), leader is valid, follower is NULL
+    virtual int apply(const LogEntry& entry, base::Closure* done);
+
+    // user defined snapshot generate function
+    // done can't be defined by user
+    virtual int snapshot_save(base::Closure* done);
+
+    // user defined snapshot load function
+    // done can't be defined by user
+    virtual int snapshot_load(base::Closure* done);
+};
+
+struct NodeOptions {
+    PeerId peer_id; // peer id
+    int election_timeout; //ms, follower to candidate timeout
+    int heartbeat_period; //ms, leader to other heartbeat period
+    int rpc_timeout; //ms, rpc retry timeout
+    int max_append_entries; // max entries in per AppendEntries RPC
+    int snapshot_interval; // s, snapshot interval
+    int snapshot_lowlevel_threshold; // at least logs not in snapshot
+    int snapshot_highlevel_threshold; // at most log not in snapshot
+    bool enable_pipeline; // pipeline switch
+    NodeUser* user; // user defined function
+    LogStorage* log_storage; // user defined log storage
+    StableStorage* stable_storage; // user defined manifest storage
+    ConfigurationStorage* configuration_storage; // user defined configuration storage
+
+    NodeOptions()
+        : election_timeout(1000), heartbeat_period(100),
+        rpc_timeout(1000), max_append_entries(100),
+        snapshot_interval(86400), snapshot_lowlevel_threshold(100000),
+        snapshot_highlevel_threshold(10000000), enable_pipeline(false),
+        user(NULL), log_storage(NULL), stable_storage(NULL), configuration_storage(NULL) {}
+};
+
+class Node {
+public:
+    Node() {};
+    virtual ~Node() {};
+
+    // create raft node, group_id is user defined id's string format
+    // set NodeUser ptr in option to proc apply and snapshot
+    // set LogStorage/StableStorage/ConfigurationStorage ptr in option to define special storage
+    static Node* create(const GroupId& group_id, const NodeOptions* option);
+
+    // destroy raft node
+    static int destroy(Node* node);
+
+    // apply data to replicated-state-machine
+    // done is user defined function, maybe response to client, transform to on_applied
+    int apply(const void* data, const int len, base::Closure* done);
+
+    // add peer to replicated-state-machine
+    // done is user defined function, maybe response to client
+    int add_peer(const std::vector<PeerId>& old_peers, const PeerId& peer, base::Closure* done);
+
+    // remove peer from replicated-state-machine
+    // done is user defined function, maybe response to client
+    int remove_peer(const std::vector<PeerId>& old_peers, const PeerId& peer, base::Closure* done);
+
+    // set peer to local replica
+    // done is user defined function, maybe response to client
+    int set_peer(const std::vector<PeerId>& old_peers, const std::vector<PeerId>& new_peers,
+                 base::Closure* done);
+
+    // shutdown local replica
+    // done is user defined function, maybe response to client or clean some resource
+    int shutdown(base::Closure* done);
+};
 
 };
 
