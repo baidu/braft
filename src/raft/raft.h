@@ -22,53 +22,17 @@
 #include <cassert>
 #include <base/endpoint.h>
 #include <base/callback.h>
+#include <base/memory/singleton.h>
 
+#include "bthread.h"
 #include "raft/raft.pb.h"
+#include "raft/configuration.h"
 
 //#include <raft/configuration.h>
 //#include <raft/log.h>
 //#include <raft/manifest.h>
 
 namespace raft {
-
-typedef std::string GroupId; // user defined id, translate to string
-struct PeerId {
-    base::EndPoint addr; // addr
-    int idx; // idx in same addr, default 0
-
-    PeerId() : idx(0) {}
-    PeerId(base::EndPoint addr_) : addr(addr_), idx(0) {}
-    PeerId(base::EndPoint addr_, int idx_) : addr(addr_), idx(idx_) {}
-
-    int parse(const std::string& str) {
-        char ip_str[64];
-        //
-        //char port_str[16];
-        //char idx_str[64];
-        //if (3 != sscanf(str.c_str(), "%[^:]:%[^:]:%[^:]s", ip_str, port_str, idx_str)) {
-        //    return -1;
-        //}
-        //if (0 != base::str2ip(ip_str, &addr.ip)) {
-        //    return -1;
-        //}
-        //addr.port = atoi(port_str);
-        //idx = atoi(idx_str);
-        //
-        if (3 != sscanf(str.c_str(), "%[^:]%*[:]%d%*[:]%d", ip_str, &addr.port, &idx)) {
-            return -1;
-        }
-        if (0 != base::str2ip(ip_str, &addr.ip)) {
-            return -1;
-        }
-        return 0;
-    }
-
-    std::string to_str() {
-        char str[128];
-        snprintf(str, sizeof(str), "%s:%d", base::endpoint2str(addr).c_str(), idx);
-        return std::string(str);
-    }
-};
 
 enum EntryType {
     UNKNOWN = 0,
@@ -78,10 +42,12 @@ enum EntryType {
     REMOVE_PEER = 4
 };
 
+// term start from 1, log index start from 1
 struct LogEntry {
     EntryType type; // log type
     int64_t index; // log index
     int64_t term; // leader term
+    //std::vector<PeerId>* peers; // peers
     std::vector<std::string>* peers; // peers
     int len; // data len
     void* data; // data ptr
@@ -113,7 +79,7 @@ public:
     virtual ~LogStorage() {}
 
     // init log storage, check consistency and integrity
-    virtual int init() = 0;
+    virtual int init(ConfigurationManager* configuration_manager) = 0;
 
     // first log index in log
     virtual int64_t first_log_index() = 0;
@@ -122,18 +88,21 @@ public:
     virtual int64_t last_log_index() = 0;
 
     // get logentry by index
-    virtual LogEntry* get_log(const int64_t index) = 0;
+    virtual LogEntry* get_entry(const int64_t index) = 0;
+
+    // get logentry's term by index
+    virtual int64_t get_term(const int64_t index) = 0;
 
     // append entries to log
-    virtual int append_log(const LogEntry* entry) = 0;
+    virtual int append_entry(const LogEntry* entry) = 0;
 
     // append entries to log, return append success number
-    virtual int append_logs(const std::vector<LogEntry*>& entries) = 0;
+    virtual int append_entries(const std::vector<LogEntry*>& entries) = 0;
 
     // delete logs from storage's head, [1, first_index_kept) will be discarded
     virtual int truncate_prefix(const int64_t first_index_kept) = 0;
 
-    // delete uncommitted logs from storage's tail, (first_index_kept, infinity) will be discarded
+    // delete uncommitted logs from storage's tail, (last_index_kept, infinity) will be discarded
     virtual int truncate_suffix(const int64_t last_index_kept) = 0;
 };
 
@@ -158,29 +127,6 @@ public:
     virtual int get_votedfor(PeerId* peer_id) = 0;
 };
 
-struct Configuration {
-    int64_t index;
-    std::vector<PeerId> peers;
-};
-
-class ConfigurationStorage {
-public:
-    ConfigurationStorage(const std::string& uri) {}
-    virtual ~ConfigurationStorage() {}
-
-    // load all configuration from stroage
-    virtual int load(std::vector<Configuration*>* configs) = 0;
-
-    // append new configuration to storage
-    virtual int add(const int64_t index, const Configuration* config) = 0;
-
-    // delete staled configuration from storage, [1, first_index_kept) will be discarded
-    virtual int truncate_prefix(const int64_t first_index_kept) = 0;
-
-    // delete uncommitted configuration from storage, (first_index_kept, infinity) will be discarded
-    virtual int truncate_suffix(const int64_t last_index_kept) = 0;
-};
-
 // SnapshotStore implement in on_snapshot_save() and on_snapshot_load()
 
 class NodeUser {
@@ -202,7 +148,6 @@ public:
 };
 
 struct NodeOptions {
-    PeerId peer_id; // peer id
     int election_timeout; //ms, follower to candidate timeout
     int heartbeat_period; //ms, leader to other heartbeat period
     int rpc_timeout; //ms, rpc retry timeout
@@ -214,28 +159,21 @@ struct NodeOptions {
     NodeUser* user; // user defined function
     LogStorage* log_storage; // user defined log storage
     StableStorage* stable_storage; // user defined manifest storage
-    ConfigurationStorage* configuration_storage; // user defined configuration storage
 
     NodeOptions()
         : election_timeout(1000), heartbeat_period(100),
         rpc_timeout(1000), max_append_entries(100),
         snapshot_interval(86400), snapshot_lowlevel_threshold(100000),
         snapshot_highlevel_threshold(10000000), enable_pipeline(false),
-        user(NULL), log_storage(NULL), stable_storage(NULL), configuration_storage(NULL) {}
+        user(NULL), log_storage(NULL), stable_storage(NULL) {}
 };
 
 class Node {
 public:
-    Node() {};
-    virtual ~Node() {};
+    Node(const GroupId& group_id, const PeerId& peer_id, const NodeOptions* option) {}
+    virtual ~Node() {}
 
-    // create raft node, group_id is user defined id's string format
-    // set NodeUser ptr in option to proc apply and snapshot
-    // set LogStorage/StableStorage/ConfigurationStorage ptr in option to define special storage
-    static Node* create(const GroupId& group_id, const NodeOptions* option);
-
-    // destroy raft node
-    static int destroy(Node* node);
+    virtual NodeId node_id();
 
     // apply data to replicated-state-machine
     // done is user defined function, maybe response to client, transform to on_applied
@@ -251,12 +189,41 @@ public:
 
     // set peer to local replica
     // done is user defined function, maybe response to client
+    // only used in major node is down, reduce peerset to make group available
     int set_peer(const std::vector<PeerId>& old_peers, const std::vector<PeerId>& new_peers,
                  base::Closure* done);
 
     // shutdown local replica
     // done is user defined function, maybe response to client or clean some resource
     int shutdown(base::Closure* done);
+};
+
+class NodeManager {
+public:
+    static NodeManager* GetInstance() {
+        return Singleton<NodeManager>::get();
+    }
+
+    // create raft node, group_id is user defined id's string format
+    // set NodeUser ptr in option to proc apply and snapshot
+    // set LogStorage/StableStorage ptr in option to define special storage
+    Node* create(const GroupId& group_id, const PeerId& server_id, const NodeOptions* option);
+
+    // destroy raft node
+    int destroy(Node* node);
+
+    // get Node by group_id
+    Node* get(const GroupId& group_id, const PeerId& peer_id);
+
+private:
+    NodeManager();
+    ~NodeManager();
+    DISALLOW_COPY_AND_ASSIGN(NodeManager);
+    friend struct DefaultSingletonTraits<NodeManager>;
+
+    bthread_mutex_t _mutex;
+    typedef std::map<NodeId, Node*> NodeMap;
+    NodeMap _nodes;
 };
 
 };

@@ -17,7 +17,9 @@
  */
 
 #include <zlib.h>
+#include <base/bind.h>
 #include <base/compiler_specific.h>
+#include <base/macros.h>
 #include <base/sys_byteorder.h>
 #include <base/files/dir_reader_posix.h>
 #include <base/logging.h>
@@ -36,7 +38,12 @@ const char* Segment::_s_entry_magic = "LSF1";
 const int32_t SegmentLogStorage::_s_max_segment_size = 8*1024*1024; // 8M
 
 int Segment::create() {
-    assert(_is_open);
+    if (!_is_open) {
+        LOG(WARNING) << "closed segment can not call create(), path: " << _path
+            << " start: " << _start_index;
+        return -1;
+    }
+
     char segment_name[128];
     snprintf(segment_name, sizeof(segment_name), _s_open_pattern, _start_index);
     std::string path(_path);
@@ -57,7 +64,7 @@ int Segment::create() {
     }
 }
 
-int Segment::load() {
+int Segment::load(const base::Callback<void(int64_t, const Configuration&)>& configuration_cb) {
     int ret = 0;
 
     std::string path(_path);
@@ -95,7 +102,60 @@ int Segment::load() {
         if (nr == sizeof(header)) {
             int64_t skip_len = sizeof(header) +
                 base::NetToHost32(header.meta_len) + base::NetToHost32(header.data_len);
+            if (BAIDU_UNLIKELY(0 != strncmp(header.magic, _s_entry_magic,
+                                            strlen(_s_entry_magic)))) {
+                LOG(WARNING) << "magic check failed, path: " << _path << " index: " << i;
+                break;
+            }
+
             if (entry_off + skip_len <= file_size) {
+                // parse meta
+                bool meta_ok = true;
+                if (base::NetToHost32(header.type) == protocol::ADD_PEER ||
+                    base::NetToHost32(header.type) == protocol::REMOVE_PEER) {
+                    int meta_len = base::NetToHost32(header.meta_len);
+                    DEFINE_SMALL_ARRAY(char, meta_buf, meta_len, 128);
+                    do {
+                        nr = ::pread(_fd, meta_buf, meta_len, entry_off + sizeof(header));
+                        if (BAIDU_UNLIKELY(nr != meta_len)) {
+                            meta_ok = false;
+                            break;
+                        }
+
+                        local_storage::ConfigurationMeta meta;
+                        if (BAIDU_UNLIKELY(!meta.ParseFromArray(meta_buf, meta_len))) {
+                            LOG(WARNING) << "local_storage::EntryMeta parse failed, path: " << _path
+                                << " index: " << i;
+                            meta_ok = false;
+                            break;
+                        }
+
+                        EntryType entry_type = static_cast<EntryType>(
+                                base::NetToHost32(header.type));
+                        if (entry_type == ADD_PEER || entry_type == REMOVE_PEER) {
+                            std::vector<PeerId> peers;
+                            for (int j = 0; j < meta.peers_size(); j++) {
+                                PeerId peer_id;
+                                if (0 != peer_id.parse(meta.peers(j))) {
+                                    LOG(WARNING) << "local_storage::ConfigurationMeta parse peers"
+                                        " failed, path: " << _path << " index: " << i;
+                                    meta_ok = false;
+                                    break;
+                                }
+                                peers.push_back(peer_id);
+                            }
+
+                            if (meta_ok) {
+                                configuration_cb.Run(i, Configuration(peers));
+                            }
+                        }
+                    } while (0);
+                }
+                if (BAIDU_UNLIKELY(!meta_ok)) {
+                    break;
+                }
+
+                // index
                 _offset.push_back(entry_off);
                 if (_is_open) {
                     _end_index++;
@@ -133,29 +193,37 @@ int Segment::append(const LogEntry* entry) {
     }
 
     EntryHeader header;
-    local_storage::EntryMeta meta;
-    meta.set_term(entry->term);
+    header.term = base::HostToNet64(entry->term);
+    header.data_len = base::HostToNet32(entry->len);
+
+    std::string meta_str;
     switch (entry->type) {
     case DATA:
-        meta.set_type(protocol::DATA);
+        header.type = base::HostToNet32(protocol::DATA);
         break;
     case NO_OP:
-        meta.set_type(protocol::NO_OP);
+        header.type = base::HostToNet32(protocol::NO_OP);
         break;
     case ADD_PEER: {
-            meta.set_type(protocol::ADD_PEER);
+            header.type = base::HostToNet32(protocol::ADD_PEER);
+            local_storage::ConfigurationMeta meta;
             const std::vector<std::string>& peers = *(entry->peers);
-            for (size_t i = 0; peers.size(); i++) {
+            for (size_t i = 0; i < peers.size(); i++) {
                 meta.add_peers(peers[i]);
             }
+            meta.SerializeToString(&meta_str);
+            header.meta_len = base::HostToNet32(meta_str.size());
         }
         break;
     case REMOVE_PEER: {
-            meta.set_type(protocol::REMOVE_PEER);
+            header.type = base::HostToNet32(protocol::REMOVE_PEER);
+            local_storage::ConfigurationMeta meta;
             const std::vector<std::string>& peers = *(entry->peers);
-            for (size_t i = 0; peers.size(); i++) {
+            for (size_t i = 0; i < peers.size(); i++) {
                 meta.add_peers(peers[i]);
             }
+            meta.SerializeToString(&meta_str);
+            header.meta_len = base::HostToNet32(meta_str.size());
         }
         break;
     default:
@@ -163,16 +231,12 @@ int Segment::append(const LogEntry* entry) {
         return -1;
     }
 
-    // serialize meta
-    std::string meta_str;
-    meta.SerializeToString(&meta_str);
-    header.meta_len = base::HostToNet32(meta_str.size());
-    header.data_len = base::HostToNet32(entry->len);
-
     // crc32 checksum
-    int32_t checksum = crc32(0, (const Bytef*)(&header.meta_len),
+    int32_t checksum = crc32(0, (const Bytef*)(&header.checksum) + sizeof(int32_t),
                              sizeof(header) - sizeof(int32_t) - sizeof(int32_t));
-    checksum = crc32(checksum, (const Bytef*)(meta_str.data()), meta_str.size());
+    if (BAIDU_UNLIKELY(meta_str.size() > 0)) {
+        checksum = crc32(checksum, (const Bytef*)(meta_str.data()), meta_str.size());
+    }
     if (entry->len > 0) {
         checksum = crc32(checksum, (const Bytef*)(entry->data), entry->len);
     }
@@ -250,9 +314,9 @@ LogEntry* Segment::get(const int64_t index) {
     }
 
     bool ok = false;
-    char* meta_buf = NULL;
     char* data_buf = NULL;
     LogEntry* entry = NULL;
+    local_storage::ConfigurationMeta configuration_meta;
     do {
         int64_t entry_cursor = _offset[index - _start_index];
 
@@ -266,24 +330,25 @@ LogEntry* Segment::get(const int64_t index) {
             LOG(WARNING) << "magic check failed, path: " << _path << " index: " << index;
             break;
         }
-        int32_t checksum = crc32(0, (const Bytef*)(&header.meta_len),
+        int32_t checksum = crc32(0, (const Bytef*)(&header.checksum) + sizeof(int32_t),
                          sizeof(header) - sizeof(int32_t) - sizeof(int32_t));
         entry_cursor += sizeof(header);
 
         int meta_len = base::NetToHost32(header.meta_len);
-        meta_buf = (char*)malloc(meta_len);
-        nr = ::pread(_fd, meta_buf, meta_len, entry_cursor);
-        if (BAIDU_UNLIKELY(nr != meta_len)) {
-            LOG(WARNING) << "pread Entry Meta failed, path: " << _path << " index: " << index;
-            break;
+        if (meta_len > 0) {
+            DEFINE_SMALL_ARRAY(char, meta_buf, meta_len, 128);
+            nr = ::pread(_fd, meta_buf, meta_len, entry_cursor);
+            if (BAIDU_UNLIKELY(nr != meta_len)) {
+                LOG(WARNING) << "pread Entry Meta failed, path: " << _path << " index: " << index;
+                break;
+            }
+            if (BAIDU_UNLIKELY(!configuration_meta.ParseFromArray(meta_buf, meta_len))) {
+                LOG(WARNING) << "parse Entry Meta failed, path: " << _path << " index: " << index;
+                break;
+            }
+            checksum = crc32(checksum, (const Bytef*)meta_buf, meta_len);
+            entry_cursor += meta_len;
         }
-        local_storage::EntryMeta meta;
-        if (BAIDU_UNLIKELY(!meta.ParseFromArray(meta_buf, meta_len))) {
-            LOG(WARNING) << "parse Entry Meta failed, path: " << _path << " index: " << index;
-            break;
-        }
-        checksum = crc32(checksum, (const Bytef*)meta_buf, meta_len);
-        entry_cursor += meta_len;
 
         int data_len = base::NetToHost32(header.data_len);
         if (data_len > 0) {
@@ -304,7 +369,7 @@ LogEntry* Segment::get(const int64_t index) {
         }
 
         entry = new LogEntry();
-        switch (meta.type()) {
+        switch (base::NetToHost32(header.type)) {
         case protocol::DATA:
             entry->type = DATA;
             break;
@@ -313,29 +378,61 @@ LogEntry* Segment::get(const int64_t index) {
             break;
         case protocol::ADD_PEER:
             entry->type = ADD_PEER;
+            entry->peers = new std::vector<std::string>;
+            for (int i = 0; i < configuration_meta.peers_size(); i++) {
+                entry->peers->push_back(configuration_meta.peers(i));
+            }
             break;
         case protocol::REMOVE_PEER:
             entry->type = REMOVE_PEER;
+            entry->peers = new std::vector<std::string>;
+            for (int i = 0; i < configuration_meta.peers_size(); i++) {
+                entry->peers->push_back(configuration_meta.peers(i));
+            }
             break;
         default:
             assert(false);
             break;
         }
         entry->index = index;
-        entry->term = meta.term();
+        entry->term = base::NetToHost64(header.term);
         entry->len = data_len;
         entry->data = data_buf;
         ok = true;
     } while (0);
 
-    if (meta_buf) {
-        free(meta_buf);
-    }
     if (BAIDU_UNLIKELY(!ok)) {
+        free(data_buf);
+        entry->data = NULL;
         delete entry;
         entry = NULL;
     }
     return entry;
+}
+
+int64_t Segment::get_term(const int64_t index) {
+    if (BAIDU_UNLIKELY(index > _end_index || index < _start_index)) {
+        // out of range
+        return 0;
+    } else if (BAIDU_UNLIKELY(_end_index == _start_index - 1)) {
+        // empty
+        return 0;
+    }
+
+    int64_t entry_cursor = _offset[index - _start_index];
+
+    EntryHeader header;
+    ssize_t nr = ::pread(_fd, &header, sizeof(header), entry_cursor);
+    if (BAIDU_UNLIKELY(nr != sizeof(header))) {
+        LOG(WARNING) << "pread Entry Header failed, path: " << _path << " index: " << index;
+        return 0;
+    }
+    if (BAIDU_UNLIKELY(0 != strncmp(header.magic, _s_entry_magic, strlen(_s_entry_magic)))) {
+        LOG(WARNING) << "magic check failed, path: " << _path << " index: " << index;
+        return 0;
+    }
+
+    return base::NetToHost64(header.term);
 }
 
 int Segment::close() {
@@ -452,7 +549,7 @@ int Segment::truncate(const int64_t last_index_kept) {
     return ret;
 }
 
-int SegmentLogStorage::init() {
+int SegmentLogStorage::init(ConfigurationManager* configuration_manager) {
     if (_is_inited) {
         return 0;
     }
@@ -461,6 +558,8 @@ int SegmentLogStorage::init() {
     if (!base::CreateDirectory(dir_path)) {
         return -1;
     }
+
+    _configuration_manager = make_scoped_refptr<ConfigurationManager>(configuration_manager);
 
     int ret = 0;
     bool is_empty = false;
@@ -486,6 +585,9 @@ int SegmentLogStorage::init() {
     if (ret == 0) {
         _is_inited = true;
     }
+    if (is_empty) {
+        ret = save_meta(1);
+    }
     return ret;
 }
 
@@ -509,7 +611,7 @@ int64_t SegmentLogStorage::last_log_index() {
     }
 }
 
-int SegmentLogStorage::append_logs(const std::vector<LogEntry*>& entries) {
+int SegmentLogStorage::append_entries(const std::vector<LogEntry*>& entries) {
     if (BAIDU_UNLIKELY(!_is_inited)) {
         LOG(WARNING) << "SegmentLogStorage not init(), path: " << _path;
         return 0;
@@ -530,7 +632,13 @@ int SegmentLogStorage::append_logs(const std::vector<LogEntry*>& entries) {
     return entries.size();
 }
 
-int SegmentLogStorage::append_log(const LogEntry* entry) {
+void SegmentLogStorage::mark_committed(const int64_t committed_index) {
+    if (_committed_log_index < committed_index && committed_index <= last_log_index()) {
+        _committed_log_index = committed_index;
+    }
+}
+
+int SegmentLogStorage::append_entry(const LogEntry* entry) {
     if (BAIDU_UNLIKELY(!_is_inited)) {
         LOG(WARNING) << "SegmentLogStorage not init(), path: " << _path;
         return -1;
@@ -545,7 +653,7 @@ int SegmentLogStorage::append_log(const LogEntry* entry) {
     return segment->sync();
 }
 
-LogEntry* SegmentLogStorage::get_log(const int64_t index) {
+LogEntry* SegmentLogStorage::get_entry(const int64_t index) {
     if (BAIDU_UNLIKELY(!_is_inited)) {
         LOG(WARNING) << "SegmentLogStorage not init(), path: " << _path;
         return NULL;
@@ -568,12 +676,36 @@ LogEntry* SegmentLogStorage::get_log(const int64_t index) {
     return segment->get(index);
 }
 
+int64_t SegmentLogStorage::get_term(const int64_t index) {
+    if (BAIDU_UNLIKELY(!_is_inited)) {
+        LOG(WARNING) << "SegmentLogStorage not init(), path: " << _path;
+        return 0;
+    } else if (BAIDU_UNLIKELY(index < first_log_index() || index > last_log_index())) {
+        LOG(WARNING) << "Attempted to access entry " << index << " outside of log, "
+            << " first_log_index: " << first_log_index()
+            << " last_log_index: " << last_log_index();
+        return 0;
+    }
+
+    Segment* segment = NULL;
+    if (_open_segment && index >= _open_segment->start_index()) {
+        segment = _open_segment;
+    } else {
+        SegmentMap::iterator it = _segments.upper_bound(index);
+        --it;
+        segment = it->second;
+    }
+
+    return segment->get_term(index);
+}
+
 int SegmentLogStorage::truncate_prefix(const int64_t first_index_kept) {
     if (!_is_inited) {
         LOG(WARNING) << "SegmentLogStorage not init(), path: " << _path;
         return -1;
     }
 
+    // segment files
     SegmentMap::iterator it;
     for (it = _segments.begin(); it != _segments.end();) {
         Segment* segment = it->second;
@@ -584,6 +716,9 @@ int SegmentLogStorage::truncate_prefix(const int64_t first_index_kept) {
             break;
         }
     }
+
+    // configurations
+    _configuration_manager->truncate_prefix(first_index_kept);
 
     return save_meta(first_index_kept);
 }
@@ -627,12 +762,14 @@ int SegmentLogStorage::truncate_suffix(const int64_t last_index_kept) {
             break;
         }
     }
-
     for (size_t i = 0; i < delete_segments.size() && ret == 0; i++) {
         Segment* segment = delete_segments[i];
         _segments.erase(segment->start_index());
         ret = segment->unlink();
     }
+
+    // configurations
+    _configuration_manager->truncate_suffix(last_index_kept);
 
     return ret;
 }
@@ -695,26 +832,26 @@ int SegmentLogStorage::list_segments(bool is_empty) {
     for (it = _segments.begin(); it != _segments.end();) {
         Segment* segment = it->second;
         if (segment->start_index() >= segment->end_index()) {
-            LOG(WARNING) << "segment is bad, path: " << _path
+            LOG(WARNING) << "closed segment is bad, path: " << _path
                 << " start_index: " << segment->start_index()
                 << " end_index: " << segment->end_index();
             return -1;
         } else if (last_end_index != -1 &&
                                   segment->start_index() != last_end_index + 1) {
-            LOG(WARNING) << "segment not in order, path: " << _path
+            LOG(WARNING) << "closed segment not in order, path: " << _path
                 << " start_index: " << segment->start_index()
                 << " last_end_index: " << last_end_index;
             return -1;
         } else if (last_end_index == -1 &&
                                   _start_log_index < segment->start_index()) {
-            LOG(WARNING) << "segment has hole, path: " << _path
+            LOG(WARNING) << "closed segment has hole, path: " << _path
                 << " start_log_index: " << _start_log_index
                 << " start_index: " << segment->start_index()
                 << " end_index: " << segment->end_index();
             return -1;
         } else if (last_end_index == -1 &&
                                   _start_log_index > segment->end_index()) {
-            LOG(WARNING) << "segment need discard, path: " << _path
+            LOG(WARNING) << "closed segment need discard, path: " << _path
                 << " start_log_index: " << _start_log_index
                 << " start_index: " << segment->start_index()
                 << " end_index: " << segment->end_index();
@@ -726,10 +863,16 @@ int SegmentLogStorage::list_segments(bool is_empty) {
         last_end_index = segment->end_index();
         it++;
     }
-    if (_open_segment && _start_log_index < _open_segment->start_index()) {
+    if (_open_segment) {
+        if (last_end_index == -1 && _start_log_index < _open_segment->start_index()) {
         LOG(WARNING) << "open segment has hole, path: " << _path
             << " start_log_index: " << _start_log_index
             << " start_index: " << _open_segment->start_index();
+        } else if (last_end_index != -1 && _open_segment->start_index() != last_end_index + 1) {
+            LOG(WARNING) << "open segment has hole, path: " << _path
+                << " start_log_index: " << _start_log_index
+                << " start_index: " << _open_segment->start_index();
+        }
     }
 
     return 0;
@@ -738,6 +881,8 @@ int SegmentLogStorage::list_segments(bool is_empty) {
 int SegmentLogStorage::load_segments() {
     int ret = 0;
 
+    base::Callback<void(const int64_t, const Configuration&)> configuration_cb =
+        base::Bind(&SegmentLogStorage::add_configuration, this);
     // closed segments
     SegmentMap::iterator it;
     for (it = _segments.begin(); it != _segments.end(); ++it) {
@@ -745,7 +890,7 @@ int SegmentLogStorage::load_segments() {
         LOG(TRACE) << "load closed segment, path: " << _path
             << " start_index: " << segment->start_index()
             << " end_index: " << segment->end_index();
-        ret = segment->load();
+        ret = segment->load(configuration_cb);
         if (ret != 0) {
             return ret;
         }
@@ -755,13 +900,25 @@ int SegmentLogStorage::load_segments() {
     if (_open_segment) {
         LOG(TRACE) << "load open segment, path: " << _path
             << " start_index: " << _open_segment->start_index();
-        ret = _open_segment->load();
+        ret = _open_segment->load(configuration_cb);
         if (ret != 0) {
             return ret;
+        }
+        if (_start_log_index > _open_segment->end_index()) {
+            LOG(WARNING) << "open segment need discard, path: " << _path
+                << " start_log_index: " << _start_log_index
+                << " start_index: " << _open_segment->start_index()
+                << " end_index: " << _open_segment->end_index();
+            _open_segment->unlink();
+            _open_segment = NULL;
         }
     }
 
     return 0;
+}
+
+void SegmentLogStorage::add_configuration(const int64_t index, const Configuration& config) {
+    _configuration_manager->add(index, config);
 }
 
 int SegmentLogStorage::save_meta(const int64_t log_index) {

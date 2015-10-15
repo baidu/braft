@@ -1,4 +1,5 @@
 package raft.protocol;
+option cc_generic_services = true;
 
 enum EntryType {
     UNKNOWN = 0;
@@ -18,23 +19,22 @@ message Entry {
 
 message RequestVoteRequest {
     required string group_id = 1;
-    required string peer_id = 2;
-    required string candidate_peer_id = 3;
+    required string server_id = 2;
+    required string peer_id = 3;
     required int64 term = 4;
     required int64 last_log_term = 5;
     required int64 last_log_index = 6;
 };
 
 message RequestVoteResponse {
-    required string group_id = 1;
-    required int64 term = 2;
-    required bool granted = 3;
+    required int64 term = 1;
+    required bool granted = 2;
 };
 
 message AppendEntriesRequest {
     required string group_id = 1;
-    required string peer_id = 2;
-    required string leader_peer_id = 3;
+    required string server_id = 2;
+    required string peer_id = 3;
     required int64 term = 4;
     required int64 prev_log_term = 5;
     required int64 prev_log_index = 6;
@@ -43,26 +43,25 @@ message AppendEntriesRequest {
 };
 
 message AppendEntriesResponse {
-    required string group_id = 1;
-    required int64 term = 2;
-    required bool success = 3;
-    optional int64 last_log_index = 4;
+    required int64 term = 1;
+    required bool success = 2;
+    optional int64 last_log_index = 3;
 };
 
 message InstallSnapshotRequest {
     required string group_id = 1;
-    required string peer_id = 2;
-    required int64 term = 3;
-    required int64 last_included_log_term = 4;
-    required int64 last_included_log_index = 5;
-    repeated string peers = 6;
-    required string uri = 7;
+    required string server_id = 2;
+    required string peer_id = 3;
+    required int64 term = 4;
+    required int64 last_included_log_term = 5;
+    required int64 last_included_log_index = 6;
+    repeated string peers = 7;
+    required string uri = 8;
 };
 
 message InstallSnapshotResponse {
-    required string group_id = 1;
-    required int64 term = 2;
-    required bool success = 3;
+    required int64 term = 1;
+    required bool success = 2;
 };
 
 

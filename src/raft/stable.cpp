@@ -66,6 +66,17 @@ int LocalStableStorage::set_votedfor(const PeerId& peer_id) {
     }
 }
 
+int LocalStableStorage::set_term_and_votedfor(const int64_t term, const PeerId& peer_id) {
+    if (_is_inited) {
+        _term = term;
+        _votedfor = peer_id;
+        return save();
+    } else {
+        LOG(WARNING) << "LocalStableStorage not init(), path: " << _path;
+        return -1;
+    }
+}
+
 int LocalStableStorage::load() {
 
     std::string path(_path);
@@ -89,7 +100,7 @@ int LocalStableStorage::load() {
 int LocalStableStorage::save() {
     local_storage::StableMeta meta;
     meta.set_term(_term);
-    meta.set_votedfor(_votedfor.to_str());
+    meta.set_votedfor(_votedfor.to_string());
 
     std::string path(_path);
     path.append("/");
@@ -98,7 +109,7 @@ int LocalStableStorage::save() {
     ProtoBufFile pb_file(path);
 
     LOG(NOTICE) << "save stable meta, path: " << _path
-        << " term: " << _term << " votedfor: " << _votedfor.to_str();
+        << " term: " << _term << " votedfor: " << _votedfor.to_string();
     return pb_file.save(&meta, true);
 }
 

@@ -2,24 +2,17 @@ import "raft.proto";
 
 package raft.local_storage;
 
-message EntryMeta {
-    required int64 term = 1;
-    required raft.protocol.EntryType type = 2;
-    repeated string peers = 3;
+message ConfigurationMeta {
+    repeated string peers = 1;
 };
 
 message LogMeta {
-    required int64 start_index = 1;
-};
-
-message ConfigurationMeta {
-    required int64 committed_index = 1;
-    repeated string peers = 2;
+    required int64 start_log_index = 1;
 };
 
 message StableMeta {
     required int64 term = 1;
-    required string votedfor_peer = 2;
+    required string votedfor = 2;
 };
 
 message SnapshotMeta {

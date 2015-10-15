@@ -42,6 +42,9 @@ public:
 
     // get votefor information
     virtual int get_votedfor(PeerId* peer_id);
+
+    // set term and peer_id
+    virtual int set_term_and_votedfor(const int64_t term, const PeerId& peer_id);
 private:
     static const char* _s_stable_meta;
     int load();

@@ -1,0 +1,82 @@
+#edit-mode: -*- python -*-
+#coding:gbk
+
+#工作路径.
+WORKROOT('../../')
+
+#使用硬链接copy.
+CopyUsingHardLink(True)
+
+#支持32位/64位平台编译
+#ENABLE_MULTI_LIBS(True)
+
+#C预处理器参数.
+CPPFLAGS('-D_GNU_SOURCE -D__STDC_LIMIT_MACROS -DVERSION=\\\"1.9.8.7\\\"')
+#XXX: remove NDEBUG for assert
+#CPPFLAGS('-DNDEBUG -D__const__=')
+#为32位目标编译指定额外的预处理参数
+#CPPFLAGS_32('-D_XOPEN_SOURE=500')
+
+#C编译参数.
+CFLAGS('-g -pipe -Wall -W -fPIC -Wno-unused-parameter -Wno-unused-variable -Wno-strict-aliasing')
+CFLAGS('-fsanitize=address -fno-omit-frame-pointer')
+
+#C++编译参数.
+CXXFLAGS('-g -pipe -Wall -W -fPIC -Wno-unused-parameter -Wno-unused-variable -Wno-strict-aliasing')
+
+#IDL编译参数
+IDLFLAGS('--compack')
+
+#UBRPC编译参数
+UBRPCFLAGS('--compack')
+
+#头文件路径.
+INCPATHS('. ./src ./protocol ./include ./output ./output/include')
+
+#使用库
+#LIBS('./libraft.a')
+
+#链接参数.
+LDFLAGS('-lpthread -lcrypto -lz -lrt')
+LDFLAGS('-lasan')
+
+#依赖模块
+CONFIGS('lib2-64/ullib@base')
+CONFIGS('public/baidu-rpc@ci-base')
+
+#为32位/64位指定不同的依赖路径.
+#CONFIGS_32('lib2/ullib')
+#CONFIGS_64('lib2-64/ullib')
+
+proto_sources = (
+        'protocol/raft/raft.proto '
+        'protocol/raft/local_storage.proto '
+)
+
+user_sources = (
+        'src/raft/protobuf_file.cpp '
+        'src/raft/log.cpp '
+        'src/raft/stable.cpp '
+        'src/raft/configuration.cpp '
+        'src/raft/node.cpp '
+)
+
+user_headers = (
+        'src/raft/configuration.h '
+        'src/raft/raft.h '
+)
+
+#静态库
+StaticLibrary('raft',Sources(user_sources, proto_sources),HeaderFiles(user_headers))
+
+#可执行文件
+Application('src/raft/test_protobuf_file',Sources('src/raft/test_protobuf_file.cpp'), Libraries('libraft.a'))
+Application('src/raft/test_log',Sources('src/raft/test_log.cpp'), Libraries('libraft.a'))
+Application('src/raft/test_stable',Sources('src/raft/test_stable.cpp'), Libraries('libraft.a'))
+
+#StaticLibrary('raft',Sources(user_sources),HeaderFiles(user_headers))
+#共享库
+#SharedLibrary('raft',Sources(user_sources),HeaderFiles(user_headers))
+#子目录
+#Directory('demo')
+
