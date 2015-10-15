@@ -99,10 +99,10 @@ public:
     // append entries to log, return append success number
     virtual int append_entries(const std::vector<LogEntry*>& entries) = 0;
 
-    // delete logs from storage's head, [1, first_index_kept) will be discarded
+    // delete logs from storage's head, [first_log_index, first_index_kept) will be discarded
     virtual int truncate_prefix(const int64_t first_index_kept) = 0;
 
-    // delete uncommitted logs from storage's tail, (last_index_kept, infinity) will be discarded
+    // delete uncommitted logs from storage's tail, (last_index_kept, last_log_index] will be discarded
     virtual int truncate_suffix(const int64_t last_index_kept) = 0;
 };
 

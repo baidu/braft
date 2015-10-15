@@ -1,12 +1,15 @@
 * text=auto !eol
 /COMAKE -text
 /OWNER -text
+protocol/raft/errno.proto -text
 protocol/raft/local_storage.proto -text
 protocol/raft/raft.proto -text
 src/raft/configuration.cpp -text
 src/raft/configuration.h -text
 src/raft/log.cpp -text
 src/raft/log.h -text
+src/raft/log_manager.cpp -text
+src/raft/log_manager.h -text
 src/raft/node.cpp -text
 src/raft/node.h -text
 src/raft/protobuf_file.cpp -text

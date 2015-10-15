@@ -1,0 +1,8 @@
+package raft;
+
+enum RaftError {
+    // Start from 5000, to avoid HTTP error and RPC error (0 ~100, 1000 ~
+    // 3000);
+    ETERM = 10001;
+};
+
