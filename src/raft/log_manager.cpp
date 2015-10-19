@@ -10,25 +10,24 @@
 
 namespace raft {
 
-LogManagerOptions::LogManagerOptions() 
+LogManagerOptions::LogManagerOptions()
     : log_storage(NULL)
-    , initial_term(0)
 {}
 
-LogManager::LogManager() 
+LogManager::LogManager()
     : _log_storage(NULL)
 {
-    CHECK_EQ(0, bthread_id_list_init(&_wait_list, 16/*FIXEM*/, 16));
+    CHECK_EQ(0, bthread_id_list_init(&_wait_list, 16/*FIXME*/, 16));
     CHECK_EQ(0, bthread_mutex_init(&_mutex));
 }
 
 int LogManager::init(const LogManagerOptions &options) {
+    std::lock_guard<bthread_mutex_t> guard(_mutex);
     if (options.log_storage == NULL) {
         return EINVAL;
     }
     _log_storage = options.log_storage;
-    _first_log_index = _log_storage->first_index_index();
-    _last_log_index = _log_storage->last_log_index();
+    _last_log_index = _log_stroage->last_log_index();
     return 0;
 }
 
@@ -43,126 +42,147 @@ int LogManager::start_disk_thread() {
 }
 
 int LogManager::stop_dist_thread() {
+    LOG(WARNING) << "Not implement yet";
     return 0;
+}
+
+int64_t LogManager::first_log_index() {
+    std::lock_guard<bthread_mutex_t> guard(_mutex);
+    return _log_storage->first_log_index();
+}
+
+int64_t LogManager::last_log_index() {
+    std::lock_guard<bthread_mutex_t> guard(_mutex);
+    if (_last_log_index != 0) {
+        return _last_log_index;
+    }
+    return _log_storage->last_log_index();
 }
 
 int LogManager::truncate_prefix(const int64_t first_index_kept) {
-    CHECK(false) << "Not implement yet";
-    return -1;
+    std::lock_guard<bthread_mutex_t> guard(_mutex);
+
+    while (!_logs_in_memory.empty()) {
+        LogEntry* entry = _logs_in_memory.front();
+        if (entry->index < first_index_kept) {
+            entry->Release();
+            _logs_in_memory.pop_front();
+        } else {
+            break;
+        }
+    }
+
+    return _log_storage->truncate_prefix(first_index_kept);
 }
 
 int LogManager::truncate_suffix(const int64_t last_index_kept) {
-    bthread_mutex_lock(&_mutex);
-    if (last_index_kept > _last_log_index || last_index_kept < _first_log_index) {
-        int64_t saved_first_log_index = _first_log_index;
-        int64_t saved_last_log_index = _last_log_index;
-        bthread_mutex_unlock(&_mutex);
-        LOG(ERROR) << "last_index_kept=" << last_index_kept << " is out of range=["
-                   << saved_first_log_index << ", " << saved_last_log_index << ']';
-        return EINVAL;
+    std::lock_guard<bthread_mutex_t> guard(_mutex);
+
+    while (!_logs_in_memory.empty()) {
+        LogEntry* entry = _logs_in_memory.back();
+        if (entry->index > last_index_kept) {
+            entry->Release();
+            _logs_in_memory.pop_back();
+        } else {
+            break;
+        }
     }
-    for (int64_t i = last_index_kept + 1; 
-            i <= _last_log_index && !_logs_in_memory.empty(); ++i) {
-        _logs_in_memory.pop_back();
-    }
-    _first_log_index_in_memory = std::min(_memory_log_offset, last_index_kept);
     _last_log_index = last_index_kept;
-    bthread_mutex_unlock(&_mutex);
-    // TODO: handle the failure of truncate_suffix
     return _log_storage->truncate_suffix(last_index_kept);
 }
 
-int LogManager::append(const LogEntry& log_entry) {
-    if (_log_storage->append_log(&log_entry) != 0) {
+int LogManager::append_entry(LogEntry* log_entry) {
+    std::lock_guard<bthread_mutex_t> guard(_mutex);
+
+    log_entry->index = _last_log_index + 1;
+    if (_log_storage->append_log(log_entry) != 0) {
         return -1;
     }
-    bthread_mutex_lock(&_mutex);
     _logs_in_memory.push_back(log_entry);
-    _last_log_index++;
-    bthread_id_list_reset(_wait_list, 0);
-    bthread_mutex_unlock(&_mutex);
+    ++_last_log_index;
     return 0;
 }
 
-size LogManager::append_in_batch(const *LogEntry[] entries, size_t size) {
-    std::vector<LogEntry*> entry_vector;
-    entry_vector.reserve(size);
-    for (size_t i = 0; < size; ++i) {
-        entry_vector->push_back(entries[i]);
+int LogManager::append_entries(const std::vector<LogEntry*>& entries) {
+    std::lock_guard<bthread_mutex_t> guard(_mutex);
+
+    //TODO: move index setting to LogStorage
+    for (size_t i = 0; i < entries.size(); i++) {
+        entries[i]->index = _last_log_index + 1 + i;
     }
-    int ret = _log_storage->append_logs(entry_vector);
+
+    int ret = _log_storage->append_logs(entries);
     if (ret <= 0) {
         return 0;
     }
-    bthread_mutex_lock(&_mutex);
-    _last_log_index += ret;
-    for (int i = 0; i < ret; ++i) {
-        _logs_in_memory.push_back(*entries[i]);
+    //TODO: error proc
+    assert(static_cast<size_t>(ret) == entries.size());
+
+    for (size_t i = 0; i < entries.size(); i++) {
+        _logs_in_memory.push_back(entries[i]);
     }
-    bthread_id_list_reset(_wait_list, 0);
-    bthread_mutex_unlock(&_mutex);
+    _last_log_index += entries.size();
+    return entries.size();
 }
 
 void LogManager::append(
-            const LogEntry& log_entry,
+            LogEntry* log_entry,
             int (*on_stable)(void* arg, int64_t log_index, int error_code),
             void* arg) {
+    bthread_mutex_lock(&_mutex);
+    log_entry->index = _last_log_index + 1;
+    _logs_in_memory.push_back(log_entry);
+
     // Fast implementation
-    if (_log_storage->append_log(&log_entry) != 0) {
+    if (_log_storage->append_log(log_entry) != 0) {
+        bthread_mutex_unlock(&_mutex);
         on_stable(arg, -1, EPIPE/*FIXME*/);
         return;
     }
-    bthread_mutex_lock(&_mutex);
-    _logs_in_memory.push_back(log_entry);
-    int last_log_index = ++_last_log_index;
+    ++_last_log_index;
+
+    int64_t last_log_index = log_entry->index;
     bthread_id_list_reset(_wait_list, 0);
     bthread_mutex_unlock(&_mutex);
     on_stable(arg, last_log_index, 0);
 }
 
-int LogManager::get_log(int64_t index, LogEntry *entry) {
-    bthread_mutex_lock(&_mutex);
-    if (index < first_index_index) {
-        bthread_mutex_unlock(&_mutex);
-        return ECOMPACTED;
-    }
-    if (index > last_log_index) {
-        bthread_mutex_unlock(&_mutex);
-        return ENODATA;
-    }
-    if (index < _first_log_index_in_memory) {
-        bthread_mutex_unlock();
-        // FIXME: there's a race condtion with truncate_prefix
-        LogEntry *tmp = _log_storage->get_log(index);
-        if (tmp == NULL) {
-            return ECOMPACTED;  // FIXME
+LogEntry* LogManager::get_entry_from_memory(const int64_t index) {
+    if (!_logs_in_memory.empty()) {
+        LogEntry* first_entry = _logs_in_memory.front();
+        LogEntry* last_entry = _logs_in_memory.back();
+        if (index >= first_entry->index && index <= last_entry->index) {
+            return _logs_in_memory.at(index - first_entry->index);
         }
-        if (entry) {
-            *entry = *tmp;
-        }
-        delete tmp; // FIXME
-        return 0;
     }
+    return NULL;
+}
+
+int64_t LogManager::get_term(const int64_t index) {
+    std::lock_guard<bthread_mutex_t> guard(_mutex);
+
+    LogEntry* entry = get_entry_from_memory(index);
     if (entry) {
-        *entry = _logs_in_memory[index - _first_log_index_in_memory];
+        return entry->term;
     }
-    bthread_mutex_unlock(&_mutex);
-    return 0;
+
+    return _log_storage->get_term(index);
 }
 
-int LogManager::get_term_of_log(int64_t index, int64_t *term) {
-    // Fast implementation
-    LogEntry entry;
-    const int rc = get_log(index, &entry);
-    if (rc != 0) {
-        return rc;
+LogEntry* LogManager::get_entry(const int64_t index) {
+    std::lock_guard<bthread_mutex_t> guard(_mutex);
+
+    LogEntry* entry = get_entry_from_memory(index);
+    if (entry) {
+        entry->AddRef();
+    } else {
+        entry = _log_entry->get_entry(index);
     }
-    if (term) {
-        *term = entry.term
-    }
-    return 0;
+    return entry;
 }
 
+//////////////////////////////////////////
+//
 int on_timed_out(void *arg) {
     bthread_id_t id;
     id.value = reinterpret_cast<int64_t>(arg);
