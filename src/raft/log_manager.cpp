@@ -275,7 +275,7 @@ void LogManager::wait(int64_t expected_last_log_index,
 }
 
 void LogManager::notify_on_new_log(int64_t expected_last_log_index,
-                                  bthread_id_t wait_id) {
+                                   bthread_id_t wait_id) {
     bthread_mutex_lock(&_mutex);
     if (expected_last_log_index != _last_log_index) {
         bthread_mutex_unlock(&_mutex);
