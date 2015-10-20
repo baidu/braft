@@ -6,7 +6,7 @@
  *    Description:  
  *
  *        Version:  1.0
- *        Created:  2015年10月08日 16时57分44秒
+ *        Created:  2015/10/08 16:57:44
  *       Revision:  none
  *       Compiler:  gcc
  *
@@ -23,8 +23,23 @@
 #include <base/memory/ref_counted.h>
 #include <base/iobuf.h>
 #include "raft/raft.h"
+#include "raft/log_manager.h"
+#include "raft/commitment_manager.h"
 
 namespace raft {
+
+class LogEntryCommitmentWaiter : public CommitmentWaiter {
+public:
+    LogEntryCommitmentWaiter(const NodeId& id):_id(id) {}
+    virtual ~LogEntryCommitmentWaiter() {}
+
+    // Called when some logs are commited since the last time this method was
+    // commited
+    virtual int on_committed(int64_t last_commited_index, void *context);
+    virtual int on_cleared(int64_t log_index, void *context, int error_code);
+private:
+    NodeId _id;
+};
 
 class NodeImpl : public Node {
 public:
@@ -102,6 +117,9 @@ public:
     // rpc response proc func
     void handle_request_vote_response(const PeerId& peer_id, const int64_t term,
                                       const protocol::RequestVoteResponse& response);
+
+    // called when leader disk thread on_stable callback and peer thread replicate success
+    int advance_commit_index(const PeerId& peer_id, const int64_t log_index);
 private:
     //friend class base::RefCountedThreadSafe<NodeImpl>;
     virtual ~NodeImpl();
@@ -118,6 +136,8 @@ private:
     // get last log term, through log and snapshot
     int64_t last_log_term();
 
+    // leader async append log entry
+    int append(LogEntry* entry, base::Closure* done);
 private:
     struct VoteCtx {
         size_t needed;
@@ -155,6 +175,7 @@ private:
     int64_t _current_term;
     PeerId _leader_id;
     PeerId _voted_id;
+    Configuration _conf;
 
     //int64_t _committed_index;
     int64_t _last_snapshot_term;
@@ -168,6 +189,8 @@ private:
     bthread_timer_t _vote_timer; // candidate retry timer
     bthread_timer_t _lease_timer; // leader check lease timer
 
+    LogManager* _log_manager;
+    CommitmentManager* _commit_manager;
     mutable base::AtomicRefCount _ref_count;
 };
 

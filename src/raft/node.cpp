@@ -6,7 +6,7 @@
  *    Description:  
  *
  *        Version:  1.0
- *        Created:  2015年10月08日 17时00分15秒
+ *        Created:  2015/10/08 17:00:15
  *       Revision:  none
  *       Compiler:  gcc
  *
@@ -26,6 +26,26 @@
 #include "baidu/rpc/channel.h"
 
 namespace raft {
+
+int LogEntryCommitmentWaiter::on_committed(int64_t last_commited_index, void *context) {
+    LOG(TRACE) << "node " << _id << " commit " << last_commited_index;
+
+    //TODO: create bthread?
+    base::Closure* done = static_cast<base::Closure*>(context);
+    if (done) {
+        //TODO:
+        done->Run();
+    }
+}
+
+int LogEntryCommitmentWaiter::on_cleared(int64_t log_index, void *context, int error_code) {
+    LOG(TRACE) << "node " << _id << " clear " << last_commited_index << ", maybe stepdown";
+    base::Closure* done = static_cast<base::Closure*>(context);
+    if (done) {
+        //TODO:
+        delete done;
+    }
+}
 
 NodeImpl::NodeImpl(const GroupId& group_id, const PeerId& server_id, const NodeOptions* options)
     : Node(group_id, server_id, options),
@@ -50,7 +70,13 @@ int NodeImpl::apply(const void* data, const int len, base::Closure* done) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id << " can't apply not in LEADER";
         return baidu::rpc::SYS_EINVAL;
     }
-    return 0;
+
+    LogEntry* entry = new LogEntry;
+    entry->term = _current_term;
+    entry->type = DATA;
+    entry->len = len;
+    entry->data = data;
+    return append(entry, done);
 }
 
 int NodeImpl::add_peer(const std::vector<PeerId>& old_peers, const PeerId& peer,
@@ -223,26 +249,25 @@ void NodeImpl::elect_self() {
     bthread_timer_add(&_vote_timer, base::milliseconds_from_now(vote_timeout), on_vote_timer, this);
     LOG(DEBUG) << "node " << _group_id << ":" << _server_id << " start vote_timer";
 
-    std::vector<PeerId> _peers;
-    for (size_t i = 0; i < _peers.size(); i++) {
+    for (size_t i = 0; i < _conf.peers.size(); i++) {
         baidu::rpc::ChannelOptions options;
         options.connection_type = baidu::rpc::CONNECTION_TYPE_SINGLE;
         options.max_retry = 0;
         baidu::rpc::Channel channel;
-        if (0 != channel.Init(_peers[i].addr, &options)) {
-            LOG(WARNING) << "channel init failed, addr " << _peers[i].addr;
+        if (0 != channel.Init(_conf.peers[i].addr, &options)) {
+            LOG(WARNING) << "channel init failed, addr " << _conf.peers[i].addr;
             continue;
         }
 
         protocol::RequestVoteRequest request;
         request.set_group_id(_group_id);
         request.set_server_id(_server_id.to_string());
-        request.set_peer_id(_peers[i].to_string());
+        request.set_peer_id(_conf.peers[i].to_string());
         request.set_term(_current_term);
         request.set_last_log_term(last_log_term());
         request.set_last_log_index(_log->last_log_index());
 
-        OnRequestVoteRPCDone* done = new OnRequestVoteRPCDone(_peers[i], _current_term, this);
+        OnRequestVoteRPCDone* done = new OnRequestVoteRPCDone(_conf.peers[i], _current_term, this);
         protocol::RaftService_Stub stub(&channel);
         stub.request_vote(&done->cntl, &request, &done->response, done);
     }
@@ -265,6 +290,9 @@ void NodeImpl::step_down(const int64_t term) {
         } else {
             assert(ret == 1);
         }
+    } else {
+        assert(_state == LEADER);
+        _commit_manager->clear_pending_applications();
     }
 
     _state = FOLLOWER;
@@ -299,21 +327,49 @@ void NodeImpl::become_leader() {
     //bthread_timer_add(&_lease_timer, base::milliseconds_from_now(_options.election_timeout),
     //                  on_election_timer, this);
 
+    _commit_manager->reset_pending_index(_log->last_log_index() + 1);
+
     LogEntry* entry = new LogEntry;
     entry->term = _current_term;
     entry->type = NO_OP;
 
-    append(entry);
+    append(entry, NULL);
 }
 
-int NodeImpl::append(LogEntry* entry) {
-    _log->append();
+static int on_leader_stable(void* arg, int64_t log_index, int error_code) {
+    NodeImpl* node = static_cast<NodeImpl*>(arg);
+    //TODO
+    int ret = 0;
+    if (error_code == 0) {
+        ret = node->advance_commit_index(PeerId(), log_index);
+    }
+    node->Release();
+    return ret;
+}
+
+int NodeImpl::advance_commit_index(const PeerId& peer_id, const int64_t log_index) {
+    std::lock_guard<bthread_mutex_t> guard(_mutex);
+    if (peer_id.is_empty()) {
+        // leader thread
+        _commit_manager->set_stable_at_peer_reentrant(log_index, _server_id);
+    } else {
+        // peer thread
+        _commit_manager->set_stable_at_peer_reentrant(log_index, peer_id);
+    }
+}
+
+int NodeImpl::append(LogEntry* entry, base::Closure* done) {
+    _commit_manager->append_pending_application(_conf, done);
+    AddRef();
+    _log->append(log_entry, on_leader_stable, this);
+    return 0;
 }
 
 int NodeImpl::handle_request_vote_request(const protocol::RequestVoteRequest* request,
                                           protocol::RequestVoteResponse* response) {
     std::lock_guard<bthread_mutex_t> guard(_mutex);
 
+    //TODO: leader call _log->xxx() after stepdown() ?
     int64_t last_log_index = _log->last_log_index();
     int64_t last_log_term = this->last_log_term();
     bool log_is_ok = (request->last_log_term() > last_log_term ||
@@ -494,13 +550,8 @@ int NodeImpl::handle_append_entries_request(base::IOBuf& data_buf,
     if (success) {
         //TODO:
         response->set_last_log_index(_log->last_log_index());
-        _log->mark_committed(request->committed_index());
+        _commit_manager->set_last_committed_index(request->committed_index());
         _last_leader_timestamp = base::monotonic_time_ms();
-        /*
-        if (_committed_index < request->committed_index()) {
-            _committed_index = request->committed_index();
-        }
-        //*/
     }
     return 0;
 }

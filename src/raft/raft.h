@@ -43,7 +43,8 @@ enum EntryType {
 };
 
 // term start from 1, log index start from 1
-struct LogEntry {
+struct LogEntry : public base::RefCountedThreadSafe<LogEntry> {
+public:
     EntryType type; // log type
     int64_t index; // log index
     int64_t term; // leader term
@@ -53,7 +54,17 @@ struct LogEntry {
     void* data; // data ptr
 
     LogEntry(): type(UNKNOWN), index(0), term(0), peers(NULL), len(0), data(NULL) {}
-    ~LogEntry() {
+
+    void add_peer(const std::vector<std::string>& peers_) {
+        peers = new std::vector<std::string>(peers_);
+    }
+    void set_data(void* data_, int len_) {
+        len = len_;
+        data = data_;
+    }
+private:
+    friend class base::RefCountedThreadSafe<LogEntry>;
+    virtual ~LogEntry() {
         if (peers) {
             delete peers;
             peers = NULL;
@@ -62,14 +73,6 @@ struct LogEntry {
             free(data);
             data = NULL;
         }
-    }
-
-    void add_peer(const std::vector<std::string>& peers_) {
-        peers = new std::vector<std::string>(peers_);
-    }
-    void set_data(void* data_, int len_) {
-        len = len_;
-        data = data_;
     }
 };
 

@@ -188,7 +188,7 @@ int Segment::load(const base::Callback<void(int64_t, const Configuration&)>& con
 int Segment::append(const LogEntry* entry) {
     if (BAIDU_UNLIKELY(!entry || !_is_open)) {
         return -1;
-    } else if (BAIDU_UNLIKELY(_end_index != _end_index)) {
+    } else if (BAIDU_UNLIKELY(entry->index != _end_index + 1)) {
         return -1;
     }
 
@@ -404,7 +404,7 @@ LogEntry* Segment::get(const int64_t index) {
     if (BAIDU_UNLIKELY(!ok)) {
         free(data_buf);
         entry->data = NULL;
-        delete entry;
+        entry->Release();
         entry = NULL;
     }
     return entry;
