@@ -16,13 +16,13 @@ namespace raft {
 struct LogManagerOptions {
     LogManagerOptions();
     LogStorage* log_storage;
-}
+};
 
-class BAIDU_CACHELINE_ALIGNMENT LogStorage {
+class BAIDU_CACHELINE_ALIGNMENT LogManager {
 public:
     LogManager();
     ~LogManager();
-    int init(const LogManager& options);
+    int init(const LogManagerOptions& options);
 
     // Start a independent thread to append log to LogStorage
     int start_disk_thread();
@@ -32,7 +32,7 @@ public:
     int append_entry(LogEntry* log_entry);
     // Append log entry vector and wait until it's stable (NOT COMMITTED!)
     // return success number
-    int append_entries(const std::vector<LogEntry *> entries);
+    int append_entries(const std::vector<LogEntry *>& entries);
     // Append a log entry and call on_stable when it's stable
     void append(LogEntry* log_entry,
                 int (*on_stable)(void* arg, int64_t log_index, int error_code),
@@ -51,7 +51,7 @@ public:
     // Get the log at |index|
     // Returns:
     //  success return ptr, fail return null
-    LogEntry* get_log(const int64_t index);
+    LogEntry* get_entry(const int64_t index);
 
     // Get the log term at |index|
     // Returns:
@@ -82,16 +82,18 @@ public:
               int (*on_new_log)(void *arg, int error_code), void *arg);
 
 private:
+    LogEntry* get_entry_from_memory(const int64_t index);
+
     void notify_on_new_log(int64_t expected_last_log_index, bthread_id_t wait_id);
     // Fast implementation with one lock
     // TODO(chenzhangyi01): reduce the critical section
     LogStorage *_log_storage;
 
     bthread_mutex_t _mutex;
-    bthread_id_list _wait_list;
+    bthread_id_list_t _wait_list;
 
     // TODO(chenzhangyi01): replace deque with a thread-safe data struture
-    std::deque<LogEntry> _logs_in_memory;
+    std::deque<LogEntry* /*FIXME*/> _logs_in_memory;
     int64_t _last_log_index;
 };
 

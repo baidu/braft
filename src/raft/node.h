@@ -191,6 +191,7 @@ private:
 
     LogManager* _log_manager;
     CommitmentManager* _commit_manager;
+    StableStorage *_stable;
     mutable base::AtomicRefCount _ref_count;
 };
 

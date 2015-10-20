@@ -10,6 +10,7 @@
 #include <set>                                  // std::set
 #include <base/containers/bounded_queue.h>      // base::BoundedQueue
 #include <bthread.h>                            // bthread_mutex_t
+#include "raft/raft.h"
 
 namespace raft {
 
@@ -17,24 +18,24 @@ class CommitmentWaiter {
 public:
     // Called when some logs are commited since the last time this method was
     // called
-    virtual int on_committed(int64_t last_commited_index, void *context) const = 0;
+    virtual int on_committed(int64_t last_commited_index, void *context) = 0;
     virtual int on_cleared(int64_t log_index, void *context, 
-                           int error_code) const = 0;
+                           int error_code) = 0;
 };
 
 struct CommitmentManagerOptions {
-    CommitmentManagerOptions();
+    CommitmentManagerOptions() {}
     uint32_t max_pending_size;
     CommitmentWaiter *waiter;
     int64_t last_committed_index;
-}
+};
 
 class CommitmentManager {
 public:
     CommitmentManager();
     ~CommitmentManager();
 
-    int init(const CommitmentManager& options);
+    int init(const CommitmentManagerOptions& options);
 
     // Called by leader, otherwise the behavior is undefined
     // Set log at |index| is stable at |peer|.
@@ -51,7 +52,7 @@ public:
     // According the the raft algorithm, the logs from pervious terms can't be 
     // committed until a log at the new term becomes committed, so 
     // |new_pending_index| should be |last_log_index| + 1.
-    void reset_pending_index(size_t new_pending_index);
+    int reset_pending_index(int64_t new_pending_index);
 
     // Called by leader, otherwise the behavior is undefined
     // Store application context before replication.
@@ -59,7 +60,7 @@ public:
 
     // Called by follower, otherwise the behavior is undefined.
     // Set commited index received from leader
-    void set_last_committed_index(int64_t last_committed_index);
+    int set_last_committed_index(int64_t last_committed_index);
 
     int64_t get_last_committed_index();
 

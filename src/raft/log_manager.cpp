@@ -5,8 +5,11 @@
 
 #include "raft/log_manager.h"
 
-#include <base/loggings.h>
+#include <base/logging.h>
 #include <bthread_unstable.h>
+#include "raft/util.h"
+#include "raft.h"
+#include <bthread.h>
 
 namespace raft {
 
@@ -18,7 +21,7 @@ LogManager::LogManager()
     : _log_storage(NULL)
 {
     CHECK_EQ(0, bthread_id_list_init(&_wait_list, 16/*FIXME*/, 16));
-    CHECK_EQ(0, bthread_mutex_init(&_mutex));
+    CHECK_EQ(0, bthread_mutex_init(&_mutex, NULL));
 }
 
 int LogManager::init(const LogManagerOptions &options) {
@@ -27,7 +30,7 @@ int LogManager::init(const LogManagerOptions &options) {
         return EINVAL;
     }
     _log_storage = options.log_storage;
-    _last_log_index = _log_stroage->last_log_index();
+    _last_log_index = _log_storage->last_log_index();
     return 0;
 }
 
@@ -95,7 +98,7 @@ int LogManager::append_entry(LogEntry* log_entry) {
     std::lock_guard<bthread_mutex_t> guard(_mutex);
 
     log_entry->index = _last_log_index + 1;
-    if (_log_storage->append_log(log_entry) != 0) {
+    if (_log_storage->append_entry(log_entry) != 0) {
         return -1;
     }
     _logs_in_memory.push_back(log_entry);
@@ -111,7 +114,7 @@ int LogManager::append_entries(const std::vector<LogEntry*>& entries) {
         entries[i]->index = _last_log_index + 1 + i;
     }
 
-    int ret = _log_storage->append_logs(entries);
+    int ret = _log_storage->append_entries(entries);
     if (ret <= 0) {
         return 0;
     }
@@ -134,7 +137,7 @@ void LogManager::append(
     _logs_in_memory.push_back(log_entry);
 
     // Fast implementation
-    if (_log_storage->append_log(log_entry) != 0) {
+    if (_log_storage->append_entry(log_entry) != 0) {
         bthread_mutex_unlock(&_mutex);
         on_stable(arg, -1, EPIPE/*FIXME*/);
         return;
@@ -142,7 +145,7 @@ void LogManager::append(
     ++_last_log_index;
 
     int64_t last_log_index = log_entry->index;
-    bthread_id_list_reset(_wait_list, 0);
+    bthread_id_list_reset(&_wait_list, 0);
     bthread_mutex_unlock(&_mutex);
     on_stable(arg, last_log_index, 0);
 }
@@ -176,14 +179,14 @@ LogEntry* LogManager::get_entry(const int64_t index) {
     if (entry) {
         entry->AddRef();
     } else {
-        entry = _log_entry->get_entry(index);
+        entry = _log_storage->get_entry(index);
     }
     return entry;
 }
 
 //////////////////////////////////////////
 //
-int on_timed_out(void *arg) {
+void on_timed_out(void *arg) {
     bthread_id_t id;
     id.value = reinterpret_cast<int64_t>(arg);
     bthread_id_error(id, ETIMEDOUT);
@@ -204,11 +207,11 @@ int LogManager::wait(int64_t expected_last_log_index,
     }
     bthread_timer_t timer_id;
     if (due_time) {
-        CHECK_EQ(0, bthread_timer_add(&timer_id, on_timed_out,
-                                      reinterpret_cast<void*>(wait_id)));
+        CHECK_EQ(0, bthread_timer_add(&timer_id, *due_time, on_timed_out,
+                                      reinterpret_cast<void*>(wait_id.value)));
     }
     notify_on_new_log(expected_last_log_index, wait_id);
-    bthread_id_join(id);
+    bthread_id_join(wait_id);
     if (due_time) {
         bthread_timer_del(timer_id);
     }
@@ -233,7 +236,7 @@ struct WaitMeta {
 void* run_on_new_log(void *arg) {
     WaitMeta* wm = (WaitMeta*)arg;
     if (wm->has_timer) {
-        bthread_timer_del(wm->timer_id());
+        bthread_timer_del(wm->timer_id);
     }
     wm->on_new_log(wm->arg, wm->error_code);
     delete wm;
@@ -244,7 +247,7 @@ int on_wait_notified(bthread_id_t id, void *arg, int error_code) {
     WaitMeta* wm = (WaitMeta*)arg;
     wm->error_code = error_code;
     bthread_t tid;
-    if (bthread_start(&tid, &BTHRED_ATTR_NORMAL, run_on_new_log, wm) != 0) {
+    if (bthread_start_background(&tid, &BTHREAD_ATTR_NORMAL, run_on_new_log, wm) != 0) {
         run_on_new_log(wm);
     }
     return bthread_id_unlock_and_destroy(id);
@@ -262,11 +265,11 @@ void LogManager::wait(int64_t expected_last_log_index,
         on_new_log(arg, rc);
         return;
     }
-    bthread_id_lock(wait_id);
+    CHECK_EQ(0, bthread_id_lock(wait_id, NULL));
     bthread_timer_t timer_id;
     if (due_time) {
         CHECK_EQ(0, bthread_timer_add(&timer_id, *due_time, on_timed_out,
-                                      reinterpret_cast<void*>(wait_id)));
+                                      reinterpret_cast<void*>(wait_id.value)));
         wm->timer_id = timer_id;
         wm->has_timer = true;
     }
@@ -279,12 +282,12 @@ void LogManager::notify_on_new_log(int64_t expected_last_log_index,
     bthread_mutex_lock(&_mutex);
     if (expected_last_log_index != _last_log_index) {
         bthread_mutex_unlock(&_mutex);
-        bthread_id_error(wait_id);
+        bthread_id_error(wait_id, 0);
         return;
     }
     if (bthread_id_list_add(&_wait_list, wait_id) != 0) {
         bthread_mutex_unlock(&_mutex);
-        bthread_id_error(wait_id);
+        bthread_id_error(wait_id, EAGAIN);
         return;
     }
     bthread_mutex_unlock(&_mutex);

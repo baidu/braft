@@ -49,7 +49,7 @@ struct PeerId {
         idx = 0;
     }
 
-    bool is_empty() {
+    bool is_empty() const {
         return (addr.ip == base::IP_ANY && addr.port == 0 && idx == 0);
     }
 

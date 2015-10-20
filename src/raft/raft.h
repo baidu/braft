@@ -62,8 +62,7 @@ public:
         len = len_;
         data = data_;
     }
-private:
-    friend class base::RefCountedThreadSafe<LogEntry>;
+    // FIXME: Temporarily make dctor public to make it compilied
     virtual ~LogEntry() {
         if (peers) {
             delete peers;
@@ -74,6 +73,8 @@ private:
             data = NULL;
         }
     }
+private:
+    friend class base::RefCountedThreadSafe<LogEntry>;
 };
 
 class LogStorage {
@@ -128,6 +129,8 @@ public:
 
     // get votefor information
     virtual int get_votedfor(PeerId* peer_id) = 0;
+
+    virtual int set_term_and_votedfor(const int64_t term, const PeerId& peer_id) = 0;
 };
 
 // SnapshotStore implement in on_snapshot_save() and on_snapshot_load()
