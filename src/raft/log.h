@@ -59,7 +59,7 @@ public:
         int32_t reserved;
 
         EntryHeader()
-            : checksum(0), term(0), type(UNKNOWN),
+            : checksum(0), term(0), type(ENTRY_TYPE_UNKNOWN),
             meta_len(0), data_len(0), reserved(0) {
             memcpy(magic, _s_entry_magic, strlen(_s_entry_magic));
         }

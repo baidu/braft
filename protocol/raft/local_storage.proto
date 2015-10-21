@@ -1,6 +1,6 @@
 import "raft.proto";
 
-package raft.local_storage;
+package raft;
 
 message ConfigurationMeta {
     repeated string peers = 1;

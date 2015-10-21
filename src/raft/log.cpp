@@ -111,8 +111,8 @@ int Segment::load(const base::Callback<void(int64_t, const Configuration&)>& con
             if (entry_off + skip_len <= file_size) {
                 // parse meta
                 bool meta_ok = true;
-                if (base::NetToHost32(header.type) == protocol::ADD_PEER ||
-                    base::NetToHost32(header.type) == protocol::REMOVE_PEER) {
+                if (base::NetToHost32(header.type) == ENTRY_TYPE_ADD_PEER ||
+                    base::NetToHost32(header.type) == ENTRY_TYPE_REMOVE_PEER) {
                     int meta_len = base::NetToHost32(header.meta_len);
                     DEFINE_SMALL_ARRAY(char, meta_buf, meta_len, 128);
                     do {
@@ -122,9 +122,9 @@ int Segment::load(const base::Callback<void(int64_t, const Configuration&)>& con
                             break;
                         }
 
-                        local_storage::ConfigurationMeta meta;
+                        ConfigurationMeta meta;
                         if (BAIDU_UNLIKELY(!meta.ParseFromArray(meta_buf, meta_len))) {
-                            LOG(WARNING) << "local_storage::EntryMeta parse failed, path: " << _path
+                            LOG(WARNING) << "EntryMeta parse failed, path: " << _path
                                 << " index: " << i;
                             meta_ok = false;
                             break;
@@ -132,12 +132,13 @@ int Segment::load(const base::Callback<void(int64_t, const Configuration&)>& con
 
                         EntryType entry_type = static_cast<EntryType>(
                                 base::NetToHost32(header.type));
-                        if (entry_type == ADD_PEER || entry_type == REMOVE_PEER) {
+                        if (entry_type == ENTRY_TYPE_ADD_PEER 
+                                || entry_type == ENTRY_TYPE_REMOVE_PEER) {
                             std::vector<PeerId> peers;
                             for (int j = 0; j < meta.peers_size(); j++) {
                                 PeerId peer_id;
                                 if (0 != peer_id.parse(meta.peers(j))) {
-                                    LOG(WARNING) << "local_storage::ConfigurationMeta parse peers"
+                                    LOG(WARNING) << "ConfigurationMeta parse peers"
                                         " failed, path: " << _path << " index: " << i;
                                     meta_ok = false;
                                     break;
@@ -198,15 +199,15 @@ int Segment::append(const LogEntry* entry) {
 
     std::string meta_str;
     switch (entry->type) {
-    case DATA:
-        header.type = base::HostToNet32(protocol::DATA);
+    case ENTRY_TYPE_DATA:
+        header.type = base::HostToNet32(ENTRY_TYPE_DATA);
         break;
-    case NO_OP:
-        header.type = base::HostToNet32(protocol::NO_OP);
+    case ENTRY_TYPE_NO_OP:
+        header.type = base::HostToNet32(ENTRY_TYPE_NO_OP);
         break;
-    case ADD_PEER: {
-            header.type = base::HostToNet32(protocol::ADD_PEER);
-            local_storage::ConfigurationMeta meta;
+    case ENTRY_TYPE_ADD_PEER: {
+            header.type = base::HostToNet32(ENTRY_TYPE_ADD_PEER);
+            ConfigurationMeta meta;
             const std::vector<std::string>& peers = *(entry->peers);
             for (size_t i = 0; i < peers.size(); i++) {
                 meta.add_peers(peers[i]);
@@ -215,9 +216,9 @@ int Segment::append(const LogEntry* entry) {
             header.meta_len = base::HostToNet32(meta_str.size());
         }
         break;
-    case REMOVE_PEER: {
-            header.type = base::HostToNet32(protocol::REMOVE_PEER);
-            local_storage::ConfigurationMeta meta;
+    case ENTRY_TYPE_REMOVE_PEER: {
+            header.type = base::HostToNet32(ENTRY_TYPE_REMOVE_PEER);
+            ConfigurationMeta meta;
             const std::vector<std::string>& peers = *(entry->peers);
             for (size_t i = 0; i < peers.size(); i++) {
                 meta.add_peers(peers[i]);
@@ -316,7 +317,7 @@ LogEntry* Segment::get(const int64_t index) {
     bool ok = false;
     char* data_buf = NULL;
     LogEntry* entry = NULL;
-    local_storage::ConfigurationMeta configuration_meta;
+    ConfigurationMeta configuration_meta;
     do {
         int64_t entry_cursor = _offset[index - _start_index];
 
@@ -370,21 +371,21 @@ LogEntry* Segment::get(const int64_t index) {
 
         entry = new LogEntry();
         switch (base::NetToHost32(header.type)) {
-        case protocol::DATA:
-            entry->type = DATA;
+        case ENTRY_TYPE_DATA:
+            entry->type = ENTRY_TYPE_DATA;
             break;
-        case protocol::NO_OP:
-            entry->type = NO_OP;
+        case ENTRY_TYPE_NO_OP:
+            entry->type = ENTRY_TYPE_NO_OP;
             break;
-        case protocol::ADD_PEER:
-            entry->type = ADD_PEER;
+        case ENTRY_TYPE_ADD_PEER:
+            entry->type = ENTRY_TYPE_ADD_PEER;
             entry->peers = new std::vector<std::string>;
             for (int i = 0; i < configuration_meta.peers_size(); i++) {
                 entry->peers->push_back(configuration_meta.peers(i));
             }
             break;
-        case protocol::REMOVE_PEER:
-            entry->type = REMOVE_PEER;
+        case ENTRY_TYPE_REMOVE_PEER:
+            entry->type = ENTRY_TYPE_REMOVE_PEER;
             entry->peers = new std::vector<std::string>;
             for (int i = 0; i < configuration_meta.peers_size(); i++) {
                 entry->peers->push_back(configuration_meta.peers(i));
@@ -929,7 +930,7 @@ int SegmentLogStorage::save_meta(const int64_t log_index) {
     _start_log_index = log_index;
 
     ProtoBufFile pb_file(meta_path);
-    local_storage::LogMeta meta;
+    LogMeta meta;
     meta.set_start_log_index(log_index);
     return pb_file.save(&meta, true);
 }
@@ -940,7 +941,7 @@ int SegmentLogStorage::load_meta() {
     meta_path.append(Segment::_s_meta_file);
 
     ProtoBufFile pb_file(meta_path);
-    local_storage::LogMeta meta;
+    LogMeta meta;
     if (0 != pb_file.load(&meta)) {
         return -1;
     }

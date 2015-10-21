@@ -44,18 +44,16 @@ user_sources = (
         'src/raft/node.cpp '
         'src/raft/log_manager.cpp '
         'src/raft/commitment_manager.cpp '
+        'src/raft/fsm_caller.cpp'
 )
 
-user_headers = (
-        'src/raft/configuration.h '
-        'src/raft/raft.h '
-)
+user_headers = GLOB('src/raft/*.h')
 
 StaticLibrary('raft',Sources(user_sources, proto_sources),HeaderFiles(user_headers))
 
-Application('src/raft/test_protobuf_file',Sources('src/raft/test_protobuf_file.cpp'), Libraries('libraft.a'))
-Application('src/raft/test_log',Sources('src/raft/test_log.cpp'), Libraries('libraft.a'))
-Application('src/raft/test_stable',Sources('src/raft/test_stable.cpp'), Libraries('libraft.a'))
+Application('test_protobuf_file',Sources('src/raft/test_protobuf_file.cpp'), Libraries('libraft.a'))
+Application('test_log',Sources('src/raft/test_log.cpp'), Libraries('libraft.a'))
+Application('test_stable',Sources('src/raft/test_stable.cpp'), Libraries('libraft.a'))
 
 #StaticLibrary('raft',Sources(user_sources),HeaderFiles(user_headers))
 #SharedLibrary('raft',Sources(user_sources),HeaderFiles(user_headers))

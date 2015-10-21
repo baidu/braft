@@ -8,6 +8,8 @@ src/raft/commitment_manager.cpp -text
 src/raft/commitment_manager.h -text
 src/raft/configuration.cpp -text
 src/raft/configuration.h -text
+src/raft/fsm_caller.cpp -text
+src/raft/fsm_caller.h -text
 src/raft/log.cpp -text
 src/raft/log.h -text
 src/raft/log_manager.cpp -text

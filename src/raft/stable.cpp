@@ -85,7 +85,7 @@ int LocalStableStorage::load() {
 
     ProtoBufFile pb_file(path);
 
-    local_storage::StableMeta meta;
+    StableMeta meta;
     int ret = pb_file.load(&meta);
     if (ret == 0) {
         _term = meta.term();
@@ -98,7 +98,7 @@ int LocalStableStorage::load() {
 }
 
 int LocalStableStorage::save() {
-    local_storage::StableMeta meta;
+    StableMeta meta;
     meta.set_term(_term);
     meta.set_votedfor(_votedfor.to_string());
 

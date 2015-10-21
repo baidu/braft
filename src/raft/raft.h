@@ -34,14 +34,6 @@
 
 namespace raft {
 
-enum EntryType {
-    UNKNOWN = 0,
-    NO_OP = 1,
-    DATA = 2,
-    ADD_PEER = 3,
-    REMOVE_PEER = 4
-};
-
 // term start from 1, log index start from 1
 struct LogEntry : public base::RefCountedThreadSafe<LogEntry> {
 public:
@@ -53,7 +45,7 @@ public:
     int len; // data len
     void* data; // data ptr
 
-    LogEntry(): type(UNKNOWN), index(0), term(0), peers(NULL), len(0), data(NULL) {}
+    LogEntry(): type(ENTRY_TYPE_UNKNOWN), index(0), term(0), peers(NULL), len(0), data(NULL) {}
 
     void add_peer(const std::vector<std::string>& peers_) {
         peers = new std::vector<std::string>(peers_);

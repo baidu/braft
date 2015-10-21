@@ -25,21 +25,9 @@
 #include "raft/raft.h"
 #include "raft/log_manager.h"
 #include "raft/commitment_manager.h"
+#include "raft/fsm_caller.h"
 
 namespace raft {
-
-class LogEntryCommitmentWaiter : public CommitmentWaiter {
-public:
-    LogEntryCommitmentWaiter(const NodeId& id):_id(id) {}
-    virtual ~LogEntryCommitmentWaiter() {}
-
-    // Called when some logs are commited since the last time this method was
-    // commited
-    virtual int on_committed(int64_t last_commited_index, void *context);
-    virtual int on_cleared(int64_t log_index, void *context, int error_code);
-private:
-    NodeId _id;
-};
 
 class NodeImpl : public Node {
 public:
@@ -70,17 +58,17 @@ public:
     virtual int shutdown(base::Closure* done);
 
     // handle received RequestVote
-    int handle_request_vote_request(const protocol::RequestVoteRequest* request,
-                     protocol::RequestVoteResponse* response);
+    int handle_request_vote_request(const RequestVoteRequest* request,
+                     RequestVoteResponse* response);
 
     // handle received AppendEntries
     int handle_append_entries_request(base::IOBuf& data_buf,
-                       const protocol::AppendEntriesRequest* request,
-                       protocol::AppendEntriesResponse* response);
+                       const AppendEntriesRequest* request,
+                       AppendEntriesResponse* response);
 
     // handle received InstallSnapshot
-    int handle_install_snapshot_request(const protocol::InstallSnapshotRequest* request,
-                       protocol::InstallSnapshotResponse* response);
+    int handle_install_snapshot_request(const InstallSnapshotRequest* request,
+                       InstallSnapshotResponse* response);
 
     enum State {
         FOLLOWER = 0,
@@ -116,7 +104,7 @@ public:
 
     // rpc response proc func
     void handle_request_vote_response(const PeerId& peer_id, const int64_t term,
-                                      const protocol::RequestVoteResponse& response);
+                                      const RequestVoteResponse& response);
 
     // called when leader disk thread on_stable callback and peer thread replicate success
     int advance_commit_index(const PeerId& peer_id, const int64_t log_index);
@@ -192,6 +180,8 @@ private:
     LogManager* _log_manager;
     CommitmentManager* _commit_manager;
     StableStorage *_stable;
+    FSMCaller *_fsm_caller;
+    
     mutable base::AtomicRefCount _ref_count;
 };
 

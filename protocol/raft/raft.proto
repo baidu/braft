@@ -1,12 +1,12 @@
-package raft.protocol;
+package raft;
 option cc_generic_services = true;
 
 enum EntryType {
-    UNKNOWN = 0;
-    NO_OP = 1;
-    DATA = 2;
-    ADD_PEER = 3;
-    REMOVE_PEER = 4;
+    ENTRY_TYPE_UNKNOWN = 0;
+    ENTRY_TYPE_NO_OP = 1;
+    ENTRY_TYPE_DATA = 2;
+    ENTRY_TYPE_ADD_PEER = 3;
+    ENTRY_TYPE_REMOVE_PEER = 4;
 };
 
 // data store in baidu-rpc's attachment

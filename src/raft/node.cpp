@@ -27,27 +27,27 @@
 
 namespace raft {
 
-int LogEntryCommitmentWaiter::on_committed(int64_t last_commited_index, void *context) {
-    LOG(TRACE) << "node " << _id << " commit " << last_commited_index;
-
-    //TODO: create bthread?
-    base::Closure* done = static_cast<base::Closure*>(context);
-    if (done) {
-        //TODO:
-        done->Run();
-    }
-    return 0;
-}
-
-int LogEntryCommitmentWaiter::on_cleared(int64_t log_index, void *context, int error_code) {
-    LOG(TRACE) << "node " << _id << " clear " << log_index << ", maybe stepdown";
-    base::Closure* done = static_cast<base::Closure*>(context);
-    if (done) {
-        //TODO:
-        delete done;
-    }
-    return 0;
-}
+//int LogEntryCommitmentWaiter::on_committed(int64_t last_commited_index, void *context) {
+//    LOG(TRACE) << "node " << _id << " commit " << last_commited_index;
+//
+//    //TODO: create bthread?
+//    base::Closure* done = static_cast<base::Closure*>(context);
+//    if (done) {
+//        //TODO:
+//        done->Run();
+//    }
+//    return 0;
+//}
+//
+//int LogEntryCommitmentWaiter::on_cleared(int64_t log_index, void *context, int error_code) {
+//    LOG(TRACE) << "node " << _id << " clear " << log_index << ", maybe stepdown";
+//    base::Closure* done = static_cast<base::Closure*>(context);
+//    if (done) {
+//        //TODO:
+//        delete done;
+//    }
+//    return 0;
+//}
 
 NodeImpl::NodeImpl(const GroupId& group_id, const PeerId& server_id, const NodeOptions* options)
     : Node(group_id, server_id, options),
@@ -56,6 +56,7 @@ NodeImpl::NodeImpl(const GroupId& group_id, const PeerId& server_id, const NodeO
     _last_snapshot_term(0), _last_snapshot_index(0),
     _last_leader_timestamp(base::monotonic_time_ms()),
     _ref_count(0) {
+
         add_ref();
         if (options) {
             _options = *options;
@@ -75,7 +76,7 @@ int NodeImpl::apply(const void* data, const int len, base::Closure* done) {
 
     LogEntry* entry = new LogEntry;
     entry->term = _current_term;
-    entry->type = DATA;
+    entry->type = ENTRY_TYPE_DATA;
     entry->len = len;
     entry->data = (void*)data; //FIXME
     return append(entry, done);
@@ -156,7 +157,7 @@ void NodeImpl::handle_vote_timeout() {
 }
 
 void NodeImpl::handle_request_vote_response(const PeerId& peer_id, const int64_t term,
-                                            const protocol::RequestVoteResponse& response) {
+                                            const RequestVoteResponse& response) {
     std::lock_guard<bthread_mutex_t> guard(_mutex);
 
     // check state
@@ -194,8 +195,7 @@ void NodeImpl::handle_request_vote_response(const PeerId& peer_id, const int64_t
     }
 }
 
-class OnRequestVoteRPCDone : public google::protobuf::Closure {
-public:
+struct OnRequestVoteRPCDone : public google::protobuf::Closure {
     OnRequestVoteRPCDone(const PeerId& peer_id_, const int64_t term_, NodeImpl* node_)
         : peer(peer_id_), term(term_), node(node_) {
             node->add_ref();
@@ -212,7 +212,7 @@ public:
     }
     PeerId peer;
     int64_t term;
-    protocol::RequestVoteResponse response;
+    RequestVoteResponse response;
     baidu::rpc::Controller cntl;
     NodeImpl* node;
 };
@@ -261,7 +261,7 @@ void NodeImpl::elect_self() {
             continue;
         }
 
-        protocol::RequestVoteRequest request;
+        RequestVoteRequest request;
         request.set_group_id(_group_id);
         request.set_server_id(_server_id.to_string());
         request.set_peer_id(_conf.peers[i].to_string());
@@ -270,7 +270,7 @@ void NodeImpl::elect_self() {
         request.set_last_log_index(_log_manager->last_log_index());
 
         OnRequestVoteRPCDone* done = new OnRequestVoteRPCDone(_conf.peers[i], _current_term, this);
-        protocol::RaftService_Stub stub(&channel);
+        RaftService_Stub stub(&channel);
         stub.request_vote(&done->cntl, &request, &done->response, done);
     }
 
@@ -333,7 +333,7 @@ void NodeImpl::become_leader() {
 
     LogEntry* entry = new LogEntry;
     entry->term = _current_term;
-    entry->type = NO_OP;
+    entry->type = ENTRY_TYPE_NO_OP;
 
     append(entry, NULL);
 }
@@ -368,8 +368,8 @@ int NodeImpl::append(LogEntry* entry, base::Closure* done) {
     return 0;
 }
 
-int NodeImpl::handle_request_vote_request(const protocol::RequestVoteRequest* request,
-                                          protocol::RequestVoteResponse* response) {
+int NodeImpl::handle_request_vote_request(const RequestVoteRequest* request,
+                                          RequestVoteResponse* response) {
     std::lock_guard<bthread_mutex_t> guard(_mutex);
 
     //TODO: leader call _log_manager->xxx() after stepdown() ?
@@ -432,8 +432,8 @@ int NodeImpl::handle_request_vote_request(const protocol::RequestVoteRequest* re
 }
 
 int NodeImpl::handle_append_entries_request(base::IOBuf& data_buf,
-                                            const protocol::AppendEntriesRequest* request,
-                                            protocol::AppendEntriesResponse* response) {
+                                            const AppendEntriesRequest* request,
+                                            AppendEntriesResponse* response) {
     std::lock_guard<bthread_mutex_t> guard(_mutex);
 
     PeerId server_id;
@@ -496,7 +496,7 @@ int NodeImpl::handle_append_entries_request(base::IOBuf& data_buf,
         for (int i = 0; i < request->entries_size(); i++) {
             index++;
 
-            const protocol::Entry& entry = request->entries(i);
+            const Entry& entry = request->entries(i);
 
             if (index < _log_manager->first_log_index()) {
                 // log maybe discard after snapshot, skip retry AppendEntries rpc
@@ -518,7 +518,7 @@ int NodeImpl::handle_append_entries_request(base::IOBuf& data_buf,
                 //TODO: truncate configuration
             }
 
-            if (entry.type() != protocol::UNKNOWN) {
+            if (entry.type() != ENTRY_TYPE_UNKNOWN) {
                 LogEntry* log_entry = new LogEntry();
                 log_entry->term = entry.term();
                 log_entry->type = (EntryType)entry.type();
@@ -559,8 +559,8 @@ int NodeImpl::handle_append_entries_request(base::IOBuf& data_buf,
     return 0;
 }
 
-int NodeImpl::handle_install_snapshot_request(const protocol::InstallSnapshotRequest* request,
-                                              protocol::InstallSnapshotResponse* response) {
+int NodeImpl::handle_install_snapshot_request(const InstallSnapshotRequest* request,
+                                              InstallSnapshotResponse* response) {
     std::lock_guard<bthread_mutex_t> guard(_mutex);
 
     return 0;
