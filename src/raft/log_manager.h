@@ -68,6 +68,11 @@ public:
     //  success return last memory and logstorage index, empty return 0
     int64_t last_log_index();
 
+    // check and set configuration
+    // Returns:
+    //  change return true; else return false
+    bool check_and_set_configuration(std::pair<int64_t, Configuration>& current);
+
     // Wait until there are more logs since |last_log_index| or error occurs
     // Returns:
     //  0: success, indicating that there are more logs
@@ -87,7 +92,8 @@ private:
     void notify_on_new_log(int64_t expected_last_log_index, bthread_id_t wait_id);
     // Fast implementation with one lock
     // TODO(chenzhangyi01): reduce the critical section
-    LogStorage *_log_storage;
+    LogStorage* _log_storage;
+    ConfigurationManager* _config_manager;
 
     bthread_mutex_t _mutex;
     bthread_id_list_t _wait_list;

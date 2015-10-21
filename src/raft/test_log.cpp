@@ -425,10 +425,10 @@ TEST_F(TestUsageSuits, configuration) {
         entry.type = raft::ENTRY_TYPE_ADD_PEER;
         entry.term = 1;
         entry.index = 2;
-        entry.peers = new std::vector<std::string>;
-        entry.peers->push_back("1.1.1.1:1000:0");
-        entry.peers->push_back("1.1.1.1:2000:0");
-        entry.peers->push_back("1.1.1.1:3000:0");
+        entry.peers = new std::vector<raft::PeerId>;
+        entry.peers->push_back(raft::PeerId("1.1.1.1:1000:0"));
+        entry.peers->push_back(raft::PeerId("1.1.1.1:2000:0"));
+        entry.peers->push_back(raft::PeerId("1.1.1.1:3000:0"));
         storage->append_entry(&entry);
 
         std::vector<raft::PeerId> peers;
@@ -475,9 +475,9 @@ TEST_F(TestUsageSuits, configuration) {
         entry.type = raft::ENTRY_TYPE_REMOVE_PEER;
         entry.term = 1;
         entry.index = index;
-        entry.peers = new std::vector<std::string>;
-        entry.peers->push_back("1.1.1.1:1000:0");
-        entry.peers->push_back("1.1.1.1:2000:0");
+        entry.peers = new std::vector<raft::PeerId>;
+        entry.peers->push_back(raft::PeerId("1.1.1.1:1000:0"));
+        entry.peers->push_back(raft::PeerId("1.1.1.1:2000:0"));
         storage->append_entry(&entry);
 
         std::vector<raft::PeerId> peers;

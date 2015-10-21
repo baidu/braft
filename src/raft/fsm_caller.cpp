@@ -15,13 +15,15 @@
 namespace raft {
 
 FSMCaller::FSMCaller()
-    : _log_manager(NULL)
+    : _node(NULL)
+    , _log_manager(NULL)
     , _node_user(NULL)
     , _last_applied_index(0)
     , _last_committed_index(0)
     , _head(NULL)
     , _processing(false) 
 {
+    //TODO: need _node->AddRef()?
     CHECK_EQ(0, bthread_mutex_init(&_mutex, NULL));
 }
 
@@ -34,6 +36,7 @@ int FSMCaller::init(const FSMCallerOptions &options) {
             || options.last_applied_index < 0) {
         return -1;
     }
+    _node = options.node;
     _log_manager = options.log_manager;
     _node_user = options.node_user;
     _last_applied_index = options.last_applied_index;
@@ -77,19 +80,22 @@ void* FSMCaller::call_user_fsm(void* arg) {
             }
             while (true/*FIXME*/) {
                 LogEntry *entry = caller->_log_manager->get_entry(next_applied_index);
+                base::Closure* done = (base::Closure*)context;
                 if (entry != NULL) {
                     switch (entry->type) {
                     case ENTRY_TYPE_DATA:
-                        caller->_node_user->apply(*entry, (base::Closure*)context);
+                        caller->_node_user->apply(*entry, done);
                         break;
                     case ENTRY_TYPE_ADD_PEER:
                     case ENTRY_TYPE_REMOVE_PEER:
                         // TODO(wangyao02): Notify that configuration change is
                         // successfully executed
+                        caller->_node->on_configuration_change_done(*(entry->peers));
+                        done->Run();
                         break;
                     case ENTRY_TYPE_NO_OP:
                         break;
-                    default: 
+                    default:
                         CHECK(false) << "Unknown entry type" << entry->type;
                     }
                     entry->Release();

@@ -40,15 +40,14 @@ public:
     EntryType type; // log type
     int64_t index; // log index
     int64_t term; // leader term
-    //std::vector<PeerId>* peers; // peers
-    std::vector<std::string>* peers; // peers
+    std::vector<PeerId>* peers; // peers
     int len; // data len
     void* data; // data ptr
 
     LogEntry(): type(ENTRY_TYPE_UNKNOWN), index(0), term(0), peers(NULL), len(0), data(NULL) {}
 
-    void add_peer(const std::vector<std::string>& peers_) {
-        peers = new std::vector<std::string>(peers_);
+    void add_peer(const std::vector<PeerId>& peers_) {
+        peers = new std::vector<PeerId>(peers_);
     }
     void set_data(void* data_, int len_) {
         len = len_;

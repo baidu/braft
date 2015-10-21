@@ -13,12 +13,14 @@
 
 namespace raft {
 
+class NodeImpl;
 class LogManager;
 class NodeUser;
 
 struct FSMCallerOptions {
     FSMCallerOptions() {}
     int64_t last_applied_index;
+    NodeImpl* node;
     LogManager *log_manager;
     NodeUser *node_user;
 };
@@ -26,7 +28,7 @@ struct FSMCallerOptions {
 class BAIDU_CACHELINE_ALIGNMENT FSMCaller : public CommitmentWaiter {
 public:
     FSMCaller();
-    ~FSMCaller();
+    virtual ~FSMCaller();
     int init(const FSMCallerOptions &options);
     int on_committed(int64_t committed_index, void *context);
     int on_cleared(int64_t log_index, void *context, int error_code);
@@ -42,6 +44,7 @@ private:
     static void* call_user_fsm(void* arg);
 
 
+    NodeImpl *_node;
     LogManager *_log_manager;
     NodeUser *_node_user;
     bthread_mutex_t _mutex;

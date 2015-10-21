@@ -70,6 +70,8 @@ public:
     int handle_install_snapshot_request(const InstallSnapshotRequest* request,
                        InstallSnapshotResponse* response);
 
+    void on_configuration_change_done(const std::vector<PeerId>& peers);
+
     enum State {
         FOLLOWER = 0,
         CANDIDATE = 1,
@@ -126,6 +128,9 @@ private:
 
     // leader async append log entry
     int append(LogEntry* entry, base::Closure* done);
+
+    // follower sync append log entry
+    int append(const std::vector<LogEntry*>& entries);
 private:
     struct VoteCtx {
         size_t needed;
@@ -163,7 +168,8 @@ private:
     int64_t _current_term;
     PeerId _leader_id;
     PeerId _voted_id;
-    Configuration _conf;
+    bool _conf_changing;
+    std::pair<int64_t, Configuration> _conf;
 
     //int64_t _committed_index;
     int64_t _last_snapshot_term;
@@ -177,11 +183,12 @@ private:
     bthread_timer_t _vote_timer; // candidate retry timer
     bthread_timer_t _lease_timer; // leader check lease timer
 
+    ConfigurationManager* _conf_manager;
     LogManager* _log_manager;
     CommitmentManager* _commit_manager;
     StableStorage *_stable;
     FSMCaller *_fsm_caller;
-    
+
     mutable base::AtomicRefCount _ref_count;
 };
 

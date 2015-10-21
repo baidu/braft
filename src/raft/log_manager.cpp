@@ -75,6 +75,7 @@ int LogManager::truncate_prefix(const int64_t first_index_kept) {
         }
     }
 
+    _config_manager->truncate_prefix(first_index_kept);
     return _log_storage->truncate_prefix(first_index_kept);
 }
 
@@ -91,6 +92,7 @@ int LogManager::truncate_suffix(const int64_t last_index_kept) {
         }
     }
     _last_log_index = last_index_kept;
+    _config_manager->truncate_suffix(last_index_kept);
     return _log_storage->truncate_suffix(last_index_kept);
 }
 
@@ -101,7 +103,11 @@ int LogManager::append_entry(LogEntry* log_entry) {
     if (_log_storage->append_entry(log_entry) != 0) {
         return -1;
     }
+
     _logs_in_memory.push_back(log_entry);
+    if (log_entry->type == ENTRY_TYPE_ADD_PEER || log_entry->type == ENTRY_TYPE_REMOVE_PEER) {
+        _config_manager->add(log_entry->index, Configuration(*(log_entry->peers)));
+    }
     ++_last_log_index;
     return 0;
 }
@@ -123,6 +129,9 @@ int LogManager::append_entries(const std::vector<LogEntry*>& entries) {
 
     for (size_t i = 0; i < entries.size(); i++) {
         _logs_in_memory.push_back(entries[i]);
+        if (entries[i]->type == ENTRY_TYPE_ADD_PEER || entries[i]->type == ENTRY_TYPE_REMOVE_PEER) {
+            _config_manager->add(entries[i]->index, Configuration(*(entries[i]->peers)));
+        }
     }
     _last_log_index += entries.size();
     return entries.size();
@@ -135,6 +144,9 @@ void LogManager::append(
     bthread_mutex_lock(&_mutex);
     log_entry->index = _last_log_index + 1;
     _logs_in_memory.push_back(log_entry);
+    if (log_entry->type == ENTRY_TYPE_ADD_PEER || log_entry->type == ENTRY_TYPE_REMOVE_PEER) {
+        _config_manager->add(log_entry->index, Configuration(*(log_entry->peers)));
+    }
 
     // Fast implementation
     if (_log_storage->append_entry(log_entry) != 0) {
@@ -182,6 +194,25 @@ LogEntry* LogManager::get_entry(const int64_t index) {
         entry = _log_storage->get_entry(index);
     }
     return entry;
+}
+
+bool LogManager::check_and_set_configuration(std::pair<int64_t, Configuration>& current) {
+    std::lock_guard<bthread_mutex_t> guard(_mutex);
+
+    int64_t last_config_index = _config_manager->last_configuration_index();
+    if (BAIDU_UNLIKELY(current.first < last_config_index)) {
+        current = _config_manager->last_configuration();
+        return true;
+    }
+    /*
+    std::pair<int64_t, Configuration> last = _config_manager->last_configuration();
+    if (BAIDU_UNLIKELY(current.first < last.first)) {
+        current = _config_manager->last_configuration();
+        return true;
+    }
+    //*/
+    assert(current.first == last.first);
+    return false;
 }
 
 //////////////////////////////////////////

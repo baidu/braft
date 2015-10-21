@@ -208,9 +208,9 @@ int Segment::append(const LogEntry* entry) {
     case ENTRY_TYPE_ADD_PEER: {
             header.type = base::HostToNet32(ENTRY_TYPE_ADD_PEER);
             ConfigurationMeta meta;
-            const std::vector<std::string>& peers = *(entry->peers);
+            const std::vector<PeerId>& peers = *(entry->peers);
             for (size_t i = 0; i < peers.size(); i++) {
-                meta.add_peers(peers[i]);
+                meta.add_peers(peers[i].to_string());
             }
             meta.SerializeToString(&meta_str);
             header.meta_len = base::HostToNet32(meta_str.size());
@@ -219,9 +219,9 @@ int Segment::append(const LogEntry* entry) {
     case ENTRY_TYPE_REMOVE_PEER: {
             header.type = base::HostToNet32(ENTRY_TYPE_REMOVE_PEER);
             ConfigurationMeta meta;
-            const std::vector<std::string>& peers = *(entry->peers);
+            const std::vector<PeerId>& peers = *(entry->peers);
             for (size_t i = 0; i < peers.size(); i++) {
-                meta.add_peers(peers[i]);
+                meta.add_peers(peers[i].to_string());
             }
             meta.SerializeToString(&meta_str);
             header.meta_len = base::HostToNet32(meta_str.size());
@@ -379,16 +379,16 @@ LogEntry* Segment::get(const int64_t index) {
             break;
         case ENTRY_TYPE_ADD_PEER:
             entry->type = ENTRY_TYPE_ADD_PEER;
-            entry->peers = new std::vector<std::string>;
+            entry->peers = new std::vector<PeerId>;
             for (int i = 0; i < configuration_meta.peers_size(); i++) {
-                entry->peers->push_back(configuration_meta.peers(i));
+                entry->peers->push_back(PeerId(configuration_meta.peers(i)));
             }
             break;
         case ENTRY_TYPE_REMOVE_PEER:
             entry->type = ENTRY_TYPE_REMOVE_PEER;
-            entry->peers = new std::vector<std::string>;
+            entry->peers = new std::vector<PeerId>;
             for (int i = 0; i < configuration_meta.peers_size(); i++) {
-                entry->peers->push_back(configuration_meta.peers(i));
+                entry->peers->push_back(PeerId(configuration_meta.peers(i)));
             }
             break;
         default:

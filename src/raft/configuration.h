@@ -23,6 +23,7 @@
 #include <string>
 #include <ostream>
 #include <vector>
+#include <set>
 #include <map>
 
 namespace raft {
@@ -76,7 +77,7 @@ struct PeerId {
         return 0;
     }
 
-    std::string to_string() {
+    std::string to_string() const {
         char str[128];
         snprintf(str, sizeof(str), "%s:%d", base::endpoint2str(addr).c_str(), idx);
         return std::string(str);
@@ -135,22 +136,73 @@ inline std::ostream& operator << (std::ostream& os, const NodeId& id) {
     return os;
 }
 
-struct Configuration {
-    std::vector<PeerId> peers;
-
+class Configuration {
+public:
     Configuration() {}
-    Configuration(std::vector<PeerId>& peers_) {
-        peers.swap(peers_);
+    Configuration(const std::vector<PeerId>& peers) {
+        _peers.clear();
+        for (size_t i = 0; i < peers.size(); i++) {
+            _peers.insert(peers[i]);
+        }
     }
     Configuration(const Configuration& config) {
-        peers.assign(config.peers.begin(), config.peers.end());
+        _peers.clear();
+        config.peer_set(&_peers);
     }
+
+    bool empty() const {
+        return _peers.size() == 0;
+    }
+    void peer_set(std::set<PeerId>* peers) const {
+        *peers = _peers;
+    }
+    void peer_vector(std::vector<PeerId>* peers) const {
+        std::set<PeerId>::iterator it;
+        for (it = _peers.begin(); it != _peers.end(); ++it) {
+            peers->push_back(*it);
+        }
+    }
+    void set_peer(const std::vector<PeerId>& peers) {
+        _peers.clear();
+        for (size_t i = 0; i < peers.size(); i++) {
+            _peers.insert(peers[i]);
+        }
+    }
+    void add_peer(const PeerId& peer) {
+        _peers.insert(peer);
+    }
+    void remove_peer(const PeerId& peer) {
+        _peers.erase(peer);
+    }
+
+    bool contain(const PeerId& peer_id) {
+        return _peers.find(peer_id) != _peers.end();
+    }
+    bool contain(const std::vector<PeerId>& peers) {
+        for (size_t i = 0; i < peers.size(); i++) {
+            if (_peers.find(peers[i]) == _peers.end()) {
+                return false;
+            }
+        }
+        return true;
+    }
+    bool equal(const std::vector<PeerId>& peers) {
+        if (_peers.size() != peers.size()) {
+            return false;
+        }
+        return contain(peers);
+    }
+private:
+    std::set<PeerId> _peers;
+
 };
 std::ostream& operator<<(std::ostream& os, const Configuration& a);
 
 class ConfigurationManager : public base::RefCountedThreadSafe<ConfigurationManager>{
 public:
-    ConfigurationManager() {}
+    ConfigurationManager() {
+        _snapshot = std::pair<int64_t, Configuration>(0, Configuration());
+    }
 
     // add new configuration at index
     void add(const int64_t index, const Configuration& config);
@@ -164,12 +216,18 @@ public:
     void set_snapshot(const int64_t index, const Configuration& config);
 
     std::pair<int64_t, Configuration> get_configuration(const int64_t last_included_index);
+
+    int64_t last_configuration_index();
+
+    std::pair<int64_t, Configuration> last_configuration();
+
 private:
     friend class base::RefCountedThreadSafe<ConfigurationManager>;
     virtual ~ConfigurationManager() {}
 
     typedef std::map<int64_t, Configuration> ConfigurationMap;
     ConfigurationMap _configurations;
+    Configuration _conf;
     std::pair<int64_t, Configuration> _snapshot;
 };
 

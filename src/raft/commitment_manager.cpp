@@ -94,9 +94,7 @@ int CommitmentManager::reset_pending_index(int64_t new_pending_index) {
 
 int CommitmentManager::append_pending_application(const Configuration& conf, void* context) {
     std::unique_ptr<PendingMeta> pm(new PendingMeta);
-    for (size_t i = 0; i < conf.peers.size(); ++i) {
-        pm->peers.insert(conf.peers[i]);
-    }
+    conf.peer_set(&pm->peers);
     pm->quorum = pm->peers.size() / 2 + 1;
     pm->context = context;
     BAIDU_SCOPED_LOCK(_mutex);
