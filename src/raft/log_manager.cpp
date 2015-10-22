@@ -30,6 +30,11 @@ int LogManager::init(const LogManagerOptions &options) {
         return EINVAL;
     }
     _log_storage = options.log_storage;
+    _config_manager = options.configuration_manager;
+    int ret = _log_storage->init(_config_manager);
+    if (ret != 0) {
+        return ret;
+    }
     _last_log_index = _log_storage->last_log_index();
     return 0;
 }
@@ -250,7 +255,7 @@ int LogManager::wait(int64_t expected_last_log_index,
 }
 
 struct WaitMeta {
-    WaitMeta() 
+    WaitMeta()
         : on_new_log(NULL)
         , arg(NULL)
         , timer_id()

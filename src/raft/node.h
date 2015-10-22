@@ -33,6 +33,8 @@ class NodeImpl : public Node {
 public:
     NodeImpl(const GroupId& group_id, const PeerId& server_id, const NodeOptions* option);
 
+    int init();
+
     // apply data to replicated-state-machine
     // done is user defined function, maybe response to client, transform to on_applied
     virtual int apply(const void* data, const int len, base::Closure* done);
@@ -183,11 +185,12 @@ private:
     bthread_timer_t _vote_timer; // candidate retry timer
     bthread_timer_t _lease_timer; // leader check lease timer
 
-    ConfigurationManager* _conf_manager;
+    LogStorage* _log_storage;
+    StableStorage* _stable_storage;
+    ConfigurationManager* _config_manager;
     LogManager* _log_manager;
+    FSMCaller* _fsm_caller;
     CommitmentManager* _commit_manager;
-    StableStorage *_stable;
-    FSMCaller *_fsm_caller;
 
     mutable base::AtomicRefCount _ref_count;
 };

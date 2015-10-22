@@ -16,6 +16,7 @@ namespace raft {
 struct LogManagerOptions {
     LogManagerOptions();
     LogStorage* log_storage;
+    ConfigurationManager* configuration_manager;
 };
 
 class BAIDU_CACHELINE_ALIGNMENT LogManager {

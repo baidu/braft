@@ -153,6 +153,7 @@ struct NodeOptions {
     int snapshot_lowlevel_threshold; // at least logs not in snapshot
     int snapshot_highlevel_threshold; // at most log not in snapshot
     bool enable_pipeline; // pipeline switch
+    Configuration conf; // peer conf
     NodeUser* user; // user defined function
     LogStorage* log_storage; // user defined log storage
     StableStorage* stable_storage; // user defined manifest storage

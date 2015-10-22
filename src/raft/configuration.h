@@ -69,9 +69,11 @@ struct PeerId {
         //idx = atoi(idx_str);
         //
         if (3 != sscanf(str.c_str(), "%[^:]%*[:]%d%*[:]%d", ip_str, &addr.port, &idx)) {
+            reset();
             return -1;
         }
         if (0 != base::str2ip(ip_str, &addr.ip)) {
+            reset();
             return -1;
         }
         return 0;
@@ -150,6 +152,9 @@ public:
         config.peer_set(&_peers);
     }
 
+    void reset() {
+        _peers.clear();
+    }
     bool empty() const {
         return _peers.size() == 0;
     }
@@ -198,6 +203,7 @@ private:
 };
 std::ostream& operator<<(std::ostream& os, const Configuration& a);
 
+typedef std::pair<int64_t, Configuration> ConfigurationPair;
 class ConfigurationManager : public base::RefCountedThreadSafe<ConfigurationManager>{
 public:
     ConfigurationManager() {
@@ -213,13 +219,11 @@ public:
     // (last_index_kept, infinity) are being discarded
     void truncate_suffix(const int64_t last_index_kept);
 
-    void set_snapshot(const int64_t index, const Configuration& config);
-
-    std::pair<int64_t, Configuration> get_configuration(const int64_t last_included_index);
+    ConfigurationPair get_configuration(const int64_t last_included_index);
 
     int64_t last_configuration_index();
 
-    std::pair<int64_t, Configuration> last_configuration();
+    ConfigurationPair last_configuration();
 
 private:
     friend class base::RefCountedThreadSafe<ConfigurationManager>;
@@ -227,8 +231,7 @@ private:
 
     typedef std::map<int64_t, Configuration> ConfigurationMap;
     ConfigurationMap _configurations;
-    Configuration _conf;
-    std::pair<int64_t, Configuration> _snapshot;
+    ConfigurationPair _snapshot;
 };
 
 }

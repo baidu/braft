@@ -40,6 +40,9 @@ void ConfigurationManager::add(const int64_t index, const Configuration& config)
 }
 
 void ConfigurationManager::truncate_prefix(const int64_t first_index_kept) {
+    ConfigurationPair pair = get_configuration(first_index_kept);
+    assert(pair.first >= _snapshot.first);
+    _snapshot = pair;
     _configurations.erase(_configurations.begin(), _configurations.lower_bound(first_index_kept));
 }
 
@@ -47,12 +50,7 @@ void ConfigurationManager::truncate_suffix(const int64_t last_index_kept) {
     _configurations.erase(_configurations.upper_bound(last_index_kept), _configurations.end());
 }
 
-void ConfigurationManager::set_snapshot(const int64_t index, const Configuration& config) {
-    assert(index >= _snapshot.first);
-    _snapshot = std::pair<int64_t, Configuration>(index, config);
-}
-
-std::pair<int64_t, Configuration> ConfigurationManager::get_configuration(
+ConfigurationPair ConfigurationManager::get_configuration(
         const int64_t last_included_index) {
     if (_configurations.empty()) {
         return std::pair<int64_t, Configuration>(0, Configuration());
@@ -74,7 +72,7 @@ int64_t ConfigurationManager::last_configuration_index() {
     }
 }
 
-std::pair<int64_t, Configuration> ConfigurationManager::last_configuration() {
+ConfigurationPair ConfigurationManager::last_configuration() {
     std::map<int64_t, Configuration>::reverse_iterator rit = _configurations.rbegin();
     if (rit != _configurations.rend()) {
         //return std::pair<int64_t, Configuration>(rit->first, rit->second);

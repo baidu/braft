@@ -19,6 +19,8 @@
 #include "raft/util.h"
 #include "raft/raft.h"
 #include "raft/node.h"
+#include "raft/log.h"
+#include "raft/stable.h"
 #include <bthread_unstable.h>
 
 #include "baidu/rpc/errno.pb.h"
@@ -33,6 +35,9 @@ NodeImpl::NodeImpl(const GroupId& group_id, const PeerId& server_id, const NodeO
     _state(FOLLOWER), _current_term(0), _conf_changing(false),
     _last_snapshot_term(0), _last_snapshot_index(0),
     _last_leader_timestamp(base::monotonic_time_ms()),
+    _log_storage(NULL), _stable_storage(NULL),
+    _config_manager(NULL), _log_manager(NULL),
+    _fsm_caller(NULL), _commit_manager(NULL),
     _ref_count(0) {
 
         add_ref();
@@ -44,6 +49,91 @@ NodeImpl::NodeImpl(const GroupId& group_id, const PeerId& server_id, const NodeO
 
 NodeImpl::~NodeImpl() {
     bthread_mutex_destroy(&_mutex);
+}
+
+int NodeImpl::init() {
+    int ret = 0;
+
+    _config_manager = new ConfigurationManager();
+
+    do {
+        // log storage and log manager init
+        if (_options.log_storage) {
+            _log_storage = _options.log_storage;
+        } else {
+            std::string path;
+            path.append("./data/");
+            path.append(_group_id);
+            path.append("/");
+            path.append(_server_id.to_string());
+            path.append("/log");
+            _log_storage = new SegmentLogStorage(path);
+        }
+        _log_manager = new LogManager();
+        LogManagerOptions log_manager_options;
+        log_manager_options.log_storage = _log_storage;
+        log_manager_options.configuration_manager = _config_manager;
+        ret = _log_manager->init(log_manager_options);
+        if (ret != 0) {
+            break;
+        }
+        // if have log using conf in log, else using conf in options
+        if (_log_manager->last_log_index() > 0) {
+            _log_manager->check_and_set_configuration(_conf);
+        } else {
+            _conf.second = _options.conf;
+        }
+
+        // stable init
+        if (_options.stable_storage) {
+            _stable_storage = _options.stable_storage;
+        } else {
+            std::string path;
+            path.append("./data/");
+            path.append(_group_id);
+            path.append("/");
+            path.append(_server_id.to_string());
+            path.append("/stable");
+            _stable_storage = new LocalStableStorage(path);
+        }
+        ret = _stable_storage->init();
+        if (ret != 0) {
+            break;
+        }
+        _current_term = _stable_storage->get_term();
+        ret = _stable_storage->get_votedfor(&_voted_id);
+        if (ret != 0) {
+            break;
+        }
+
+        //TODO: read snapshot
+
+        // fsm caller init
+        _fsm_caller = new FSMCaller();
+        FSMCallerOptions fsm_caller_options;
+        //TODO: node add ref?
+        fsm_caller_options.last_applied_index = 0; //TODO: get from snapshot or log
+        fsm_caller_options.node = this;
+        fsm_caller_options.log_manager = _log_manager;
+        fsm_caller_options.node_user = _options.user;
+        ret = _fsm_caller->init(fsm_caller_options);
+        if (ret != 0) {
+            break;
+        }
+
+        // commitment manager init
+        _commit_manager = new CommitmentManager();
+        CommitmentManagerOptions commit_manager_options;
+        commit_manager_options.max_pending_size = 1000; //TODO
+        commit_manager_options.waiter = _fsm_caller;
+        commit_manager_options.last_committed_index = 0; //TODO: get from snapshot or log
+        ret = _commit_manager->init(commit_manager_options);
+        if (ret != 0) {
+            break;
+        }
+    } while (0);
+
+    return ret;
 }
 
 int NodeImpl::apply(const void* data, const int len, base::Closure* done) {
@@ -208,6 +298,14 @@ int NodeImpl::set_peer(const std::vector<PeerId>& old_peers, const std::vector<P
 }
 
 int NodeImpl::shutdown(base::Closure* done) {
+    //TODO:
+    //_log_storage
+    //_log_manager
+    //_stable_storage
+    //_config_manager
+    //_fsm_caller
+    //_commit_manager
+
     return 0;
 }
 
@@ -380,7 +478,7 @@ void NodeImpl::elect_self() {
 
     _vote_ctx.grant(_server_id);
     //TODO: outof lock
-    _stable->set_term_and_votedfor(_current_term, _server_id);
+    _stable_storage->set_term_and_votedfor(_current_term, _server_id);
     if (_vote_ctx.quorum()) {
         become_leader();
     }
@@ -406,14 +504,16 @@ void NodeImpl::step_down(const int64_t term) {
     _current_term = term;
     _voted_id.reset();
     //TODO: outof lock
-    _stable->set_term_and_votedfor(term, _voted_id);
+    _stable_storage->set_term_and_votedfor(term, _voted_id);
 
-    // start election timer
-    add_ref();
-    int64_t election_timeout = random_timeout(_options.election_timeout);
-    bthread_timer_add(&_election_timer, base::milliseconds_from_now(election_timeout),
-                      on_election_timer, this);
-    LOG(DEBUG) << "node " << _group_id << ":" << _server_id << " start election_timer";
+    // no empty configuration, start election timer
+    if (!_conf.second.empty()) {
+        add_ref();
+        int64_t election_timeout = random_timeout(_options.election_timeout);
+        bthread_timer_add(&_election_timer, base::milliseconds_from_now(election_timeout),
+                          on_election_timer, this);
+        LOG(DEBUG) << "node " << _group_id << ":" << _server_id << " start election_timer";
+    }
     // TODO: stop stagging new node
     // TODO: wait disk thread empty
 }
@@ -549,7 +649,7 @@ int NodeImpl::handle_request_vote_request(const RequestVoteRequest* request,
         if (log_is_ok && _voted_id.is_empty()) {
             _voted_id = candidate_id;
             //TODO: outof lock
-            _stable->set_votedfor(candidate_id);
+            _stable_storage->set_votedfor(candidate_id);
         }
     } while (0);
 
