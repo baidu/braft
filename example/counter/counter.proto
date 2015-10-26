@@ -1,0 +1,25 @@
+package counter;
+option cc_generic_services = true;
+
+message AddRequest {
+    required int64 value = 1;
+};
+
+message AddResponse {
+    required bool success = 1;
+    optional string leader = 2;
+};
+
+message GetRequest {
+};
+
+message GetResponse {
+    required bool success = 1;
+    optional int64 value = 2;
+    optional string leader = 3;
+};
+
+service CounterService {
+    rpc add(AddRequest) returns (AddResponse);
+    rpc get(GetRequest) returns (GetResponse);
+};

@@ -1,6 +1,13 @@
 * text=auto !eol
 /COMAKE -text
 /OWNER -text
+example/counter/COMAKE -text
+example/counter/counter.cpp -text
+example/counter/counter.h -text
+example/counter/counter.proto -text
+example/counter/counter_service.cpp -text
+example/counter/counter_service.h -text
+example/counter/main.cpp -text
 protocol/raft/errno.proto -text
 protocol/raft/local_storage.proto -text
 protocol/raft/raft.proto -text
