@@ -102,6 +102,8 @@ public:
         }
     }
 
+    int increase_term_to(int64_t new_term);
+
     // timer func
     void handle_election_timeout();
     void handle_vote_timeout();

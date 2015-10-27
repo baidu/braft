@@ -44,7 +44,8 @@ user_sources = (
         'src/raft/node.cpp '
         'src/raft/log_manager.cpp '
         'src/raft/commitment_manager.cpp '
-        'src/raft/fsm_caller.cpp'
+        'src/raft/fsm_caller.cpp '
+        'src/raft/replicator.cpp '
 )
 
 user_headers = GLOB('src/raft/*.h')

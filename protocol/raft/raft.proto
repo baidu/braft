@@ -10,7 +10,7 @@ enum EntryType {
 };
 
 // data store in baidu-rpc's attachment
-message Entry {
+message EntryMeta {
     required int64 term = 1;
     required EntryType type = 2;
     repeated string peers = 3;
@@ -38,7 +38,7 @@ message AppendEntriesRequest {
     required int64 term = 4;
     required int64 prev_log_term = 5;
     required int64 prev_log_index = 6;
-    repeated Entry entries = 7;
+    repeated EntryMeta entries = 7;
     required int64 committed_index = 8;
 };
 

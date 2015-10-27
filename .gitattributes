@@ -28,6 +28,8 @@ src/raft/protobuf_file.h -text
 src/raft/raft.h -text
 src/raft/raft_service.cpp -text
 src/raft/raft_service.h -text
+src/raft/replicator.cpp -text
+src/raft/replicator.h -text
 src/raft/stable.cpp -text
 src/raft/stable.h -text
 src/raft/test/COMAKE -text

@@ -723,7 +723,7 @@ int NodeImpl::handle_append_entries_request(base::IOBuf& data_buf,
         for (int i = 0; i < request->entries_size(); i++) {
             index++;
 
-            const Entry& entry = request->entries(i);
+            const EntryMeta& entry = request->entries(i);
 
             if (index < _log_manager->first_log_index()) {
                 // log maybe discard after snapshot, skip retry AppendEntries rpc
@@ -790,6 +790,15 @@ int NodeImpl::handle_install_snapshot_request(const InstallSnapshotRequest* requ
                                               InstallSnapshotResponse* response) {
     std::lock_guard<bthread_mutex_t> guard(_mutex);
 
+    return 0;
+}
+
+int NodeImpl::increase_term_to(int64_t new_term) {
+    std::lock_guard<bthread_mutex_t> guard(_mutex);
+    if (new_term <= _current_term) {
+        return -1;
+    }
+    step_down(new_term);
     return 0;
 }
 

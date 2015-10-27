@@ -12,7 +12,7 @@ namespace raft {
 
 CommitmentManager::CommitmentManager()
     : _waiter(NULL)
-    , _last_commited_index(0)
+    , _last_committed_index(0)
 {
     CHECK_EQ(0, bthread_mutex_init(&_mutex, NULL));
 }
@@ -35,7 +35,8 @@ int CommitmentManager::init(const CommitmentManagerOptions &options) {
     }
     base::BoundedQueue<PendingMeta*> tmp_queue(queue_spaces, spaces_size, base::OWNS_STORAGE);
     _pending_apps.swap(tmp_queue);
-    _last_commited_index = options.last_committed_index;
+    _last_committed_index.store(
+            options.last_committed_index, boost::memory_order_relaxed);
     _waiter = options.waiter;
     _pending_index = 0;
     return 0;
@@ -43,6 +44,8 @@ int CommitmentManager::init(const CommitmentManagerOptions &options) {
 
 int CommitmentManager::set_stable_at_peer_reentrant(
         int64_t log_index, const PeerId& peer) {
+    // FIXME(chenzhangyi01): The cricital section is unacceptable because it 
+    // blocks all the other Replicators and LogManagers
     BAIDU_SCOPED_LOCK(_mutex);
     CHECK(_pending_index > 0);
     if (log_index < _pending_index) {
@@ -53,21 +56,31 @@ int CommitmentManager::set_stable_at_peer_reentrant(
         return ERANGE;
     }
     PendingMeta *pm = *_pending_apps.top(log_index - _pending_index);
-    std::set<PeerId>::iterator iter = pm->peers.find(peer);
-    if (iter == pm->peers.end()) {
+    if (pm->peers.erase(peer) == 0) {
         return 0;
     }
-    pm->peers.erase(iter); // DON'T touch iter after this point
     if (--pm->quorum > 0) {
         return 0;
     }
-    void* saved_context = pm->context;
-    delete pm;
-    _pending_apps.pop();
-    CHECK(_pending_index == log_index);  // FIXME:
-    ++_pending_index;
-    _last_commited_index = log_index;
-    _waiter->on_committed(log_index, saved_context); // FIXME
+    // When removing a peer off the raft group which contains even number of
+    // peers, the quorum would decrease by 1, e.g. 3 of 4 changes to 2 of 3. In
+    // this case, the log after removal may be committed before some previous
+    // logs, since we use the new configuration to deal the quorum of the
+    // removal request, we think it's safe the commit all the uncommitted 
+    // previous logs which is not well proved right now
+    // TODO: add vlog when committing previous logs
+    for (int64_t index = _pending_index; index <= log_index; ++log_index) {
+        PendingMeta *tmp = *_pending_apps.top();
+        _pending_apps.pop();
+        void *saved_context = tmp->context;
+        delete tmp;
+        // FIXME: remove this off the critical section
+        _waiter->on_committed(index, saved_context);
+    }
+   
+    _pending_index = log_index + 1;
+    _last_committed_index.store(log_index, boost::memory_order_release);
+
     return 0;
 }
 
@@ -87,7 +100,8 @@ int CommitmentManager::clear_pending_applications() {
 int CommitmentManager::reset_pending_index(int64_t new_pending_index) {
     BAIDU_SCOPED_LOCK(_mutex);
     CHECK(_pending_index == 0 && _pending_apps.empty());
-    CHECK(new_pending_index > _last_commited_index);
+    CHECK(new_pending_index > _last_committed_index.load(
+                                    boost::memory_order_relaxed));
     _pending_index = new_pending_index;
     return 0;
 }
@@ -108,13 +122,14 @@ int CommitmentManager::append_pending_application(const Configuration& conf, voi
 }
 
 int CommitmentManager::set_last_committed_index(int64_t last_committed_index) {
+    // FIXME: it seems that lock is not necessary here
     BAIDU_SCOPED_LOCK(_mutex);
     CHECK(_pending_index == 0 && _pending_apps.empty()) << "Must be called by follower";
-    if (last_committed_index < _last_commited_index) {
+    if (last_committed_index < _last_committed_index.load(boost::memory_order_relaxed)) {
         return -1;
     }
-    if (last_committed_index > _last_commited_index) {
-        _last_commited_index = last_committed_index;
+    if (last_committed_index > _last_committed_index.load(boost::memory_order_relaxed)) {
+        _last_committed_index.store(last_committed_index, boost::memory_order_release);
         _waiter->on_committed(last_committed_index, NULL);
     }
     return 0;

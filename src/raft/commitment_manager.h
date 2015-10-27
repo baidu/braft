@@ -8,6 +8,7 @@
 
 #include <stdint.h>                             // int64_t
 #include <set>                                  // std::set
+#include <boost/atomic.hpp>                     // boost::atomic
 #include <base/containers/bounded_queue.h>      // base::BoundedQueue
 #include <bthread.h>                            // bthread_mutex_t
 #include "raft/raft.h"
@@ -62,7 +63,8 @@ public:
     // Set commited index received from leader
     int set_last_committed_index(int64_t last_committed_index);
 
-    int64_t get_last_committed_index();
+    int64_t last_committed_index() 
+    { return _last_committed_index.load(boost::memory_order_acquire); }
 
 private:
     struct PendingMeta {
@@ -73,7 +75,7 @@ private:
 
     bthread_mutex_t                                     _mutex;
     CommitmentWaiter*                                   _waiter;
-    int64_t                                             _last_commited_index;
+    boost::atomic<int64_t>                              _last_committed_index;
     int64_t                                             _pending_index;
     base::BoundedQueue<PendingMeta*>                    _pending_apps;
 };

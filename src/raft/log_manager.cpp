@@ -179,6 +179,9 @@ LogEntry* LogManager::get_entry_from_memory(const int64_t index) {
 }
 
 int64_t LogManager::get_term(const int64_t index) {
+    if (index == 0) {
+        return 0;
+    }
     std::lock_guard<bthread_mutex_t> guard(_mutex);
 
     LogEntry* entry = get_entry_from_memory(index);
