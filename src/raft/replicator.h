@@ -31,15 +31,19 @@ struct ReplicatorOptions {
 
 typedef uint64_t ReplicatorId;
 
+class Closure;
 struct OnCaughtUp {
     OnCaughtUp();
 
     void (*on_caught_up)(
         void* arg, const PeerId &pid,
-        int error_code);
+        int error_code, Closure* done);
     
     // default: NULL
     void* arg;
+
+    // default: NULL
+    Closure* done;
 
     // The minimal margin between |last_log_index| from leader and the very peer.
     // default: 0

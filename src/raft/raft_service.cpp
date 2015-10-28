@@ -16,14 +16,18 @@
  * =====================================================================================
  */
 
+#include <base/logging.h>
+#include <baidu/rpc/server.h>
 #include "raft/raft_service.h"
+#include "raft/raft.h"
+#include "raft/node.h"
 
 namespace raft {
 
-void RaftServiceImpl::request_vote(::google::protobuf::RpcController* controller,
-                          const ::raft::protocol::RequestVoteRequest* request,
-                          ::raft::protocol::RequestVoteResponse* response,
-                          ::google::protobuf::Closure* done) {
+void RaftServiceImpl::request_vote(google::protobuf::RpcController* cntl_base,
+                          const RequestVoteRequest* request,
+                          RequestVoteResponse* response,
+                          google::protobuf::Closure* done) {
     baidu::rpc::ClosureGuard done_guard(done);
     baidu::rpc::Controller* cntl =
         static_cast<baidu::rpc::Controller*>(cntl_base);
@@ -39,17 +43,19 @@ void RaftServiceImpl::request_vote(::google::protobuf::RpcController* controller
         return;
     }
 
-    int rc = node->request_vote(request, response);
+    NodeImpl* node_impl = node->implement();
+    int rc = node_impl->handle_request_vote_request(request, response);
     if (BAIDU_UNLIKELY(rc != 0)) {
-        cntl->SetFailed(rc);
+        //TODO:
+        cntl->SetFailed("TODO");
         return;
     }
 }
 
-void RaftServiceImpl::append_entries(::google::protobuf::RpcController* controller,
-                            const ::raft::protocol::AppendEntriesRequest* request,
-                            ::raft::protocol::AppendEntriesResponse* response,
-                            ::google::protobuf::Closure* done) {
+void RaftServiceImpl::append_entries(google::protobuf::RpcController* cntl_base,
+                            const AppendEntriesRequest* request,
+                            AppendEntriesResponse* response,
+                            google::protobuf::Closure* done) {
     baidu::rpc::ClosureGuard done_guard(done);
     baidu::rpc::Controller* cntl =
         static_cast<baidu::rpc::Controller*>(cntl_base);
@@ -65,17 +71,20 @@ void RaftServiceImpl::append_entries(::google::protobuf::RpcController* controll
         return;
     }
 
-    int rc = node->append_entries(controller->request_attachment(), request, response);
+    NodeImpl* node_impl = node->implement();
+    int rc = node_impl->handle_append_entries_request(cntl->request_attachment(),
+                                                      request, response);
     if (BAIDU_UNLIKELY(rc != 0)) {
-        cntl->SetFailed(rc);
+        //TODO:
+        cntl->SetFailed("TODO");
         return;
     }
 }
 
-void RaftServiceImpl::install_snapshot(::google::protobuf::RpcController* controller,
-                              const ::raft::protocol::InstallSnapshotRequest* request,
-                              ::raft::protocol::InstallSnapshotResponse* response,
-                              ::google::protobuf::Closure* done) {
+void RaftServiceImpl::install_snapshot(google::protobuf::RpcController* cntl_base,
+                              const InstallSnapshotRequest* request,
+                              InstallSnapshotResponse* response,
+                              google::protobuf::Closure* done) {
     baidu::rpc::ClosureGuard done_guard(done);
     baidu::rpc::Controller* cntl =
         static_cast<baidu::rpc::Controller*>(cntl_base);
@@ -91,9 +100,11 @@ void RaftServiceImpl::install_snapshot(::google::protobuf::RpcController* contro
         return;
     }
 
-    int rc = node->install_snapshot(request, response);
+    NodeImpl* node_impl = node->implement();
+    int rc = node_impl->handle_install_snapshot_request(request, response);
     if (BAIDU_UNLIKELY(rc != 0)) {
-        cntl->SetFailed(rc);
+        //TODO:
+        cntl->SetFailed("TODO");
         return;
     }
 }

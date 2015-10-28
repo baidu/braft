@@ -30,9 +30,8 @@
 namespace raft {
 
 NodeImpl::NodeImpl(const GroupId& group_id, const PeerId& server_id, const NodeOptions* options)
-    : Node(group_id, server_id, options),
-    _group_id(group_id), _server_id(server_id),
-    _state(FOLLOWER), _current_term(0), _conf_changing(false),
+    : _group_id(group_id), _server_id(server_id),
+    _state(FOLLOWER), _current_term(0),
     _last_snapshot_term(0), _last_snapshot_index(0),
     _last_leader_timestamp(base::monotonic_time_ms()),
     _log_storage(NULL), _stable_storage(NULL),
@@ -136,10 +135,12 @@ int NodeImpl::init() {
     return ret;
 }
 
-int NodeImpl::apply(const void* data, const int len, base::Closure* done) {
+int NodeImpl::apply(const void* data, const int len, Closure* done) {
+    std::lock_guard<bthread_mutex_t> guard(_mutex);
+
     if (_state != LEADER) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id << " can't apply not in LEADER";
-        return baidu::rpc::SYS_EINVAL;
+        return EINVAL;
     }
 
     LogEntry* entry = new LogEntry;
@@ -150,62 +151,123 @@ int NodeImpl::apply(const void* data, const int len, base::Closure* done) {
     return append(entry, done);
 }
 
-void NodeImpl::on_configuration_change_done(const std::vector<PeerId>& new_peers) {
+void NodeImpl::on_configuration_change_done(const EntryType type,
+                                            const std::vector<PeerId>& new_peers) {
     std::lock_guard<bthread_mutex_t> guard(_mutex);
 
-    //TODO: remove_peer will stop peer replicator or shutdown
-    _conf_changing = false;
+    if (type == ENTRY_TYPE_ADD_PEER) {
+        LOG(NOTICE) << "node " << _group_id << ":" << _server_id << " add_peer to "
+            << _conf.second << " success.";
+    } else if (type == ENTRY_TYPE_REMOVE_PEER) {
+        LOG(NOTICE) << "node " << _group_id << ":" << _server_id << " remove_peer to "
+            << _conf.second << " success.";
+
+        ConfigurationCtx old_conf_ctx = _conf_ctx;
+        // remove_peer will stop peer replicator or shutdown
+        if (!_conf.second.contain(_server_id)) {
+            //TODO: shutdown?
+            step_down(_current_term);
+            _conf.second.reset();
+        } else {
+            Configuration old_conf(_conf_ctx.peers);
+            for (size_t i = 0; i < new_peers.size(); i++) {
+                old_conf.remove_peer(new_peers[i]);
+            }
+            std::vector<PeerId> removed_peers;
+            old_conf.peer_vector(&removed_peers);
+            for (size_t i = 0; i < removed_peers.size(); i++) {
+                _replicator_group.stop_replicator(removed_peers[i]);
+            }
+        }
+    }
+    _conf_ctx.reset();
+}
+
+static void on_peer_caught_up(void* arg, const PeerId& pid, const int error_code, Closure* done) {
+    NodeImpl* node = static_cast<NodeImpl*>(arg);
+    node->on_caughtup_done(pid, error_code, done);
+    node->release();
+}
+
+void NodeImpl::on_caughtup_done(const PeerId& peer, int error_code, Closure* done) {
+    std::lock_guard<bthread_mutex_t> guard(_mutex);
+
+    LOG(NOTICE) << "node " << _group_id << ":" << _server_id << " add_peer " << peer
+        << " to " << _conf.second << ", caughtup " <<  noflush;
+
+    if (error_code == 0) {
+        // add peer to _conf after new peer catchup
+        Configuration new_conf(_conf.second);
+        new_conf.add_peer(peer);
+
+        LogEntry* entry = new LogEntry();
+        entry->term = _current_term;
+        entry->type = ENTRY_TYPE_ADD_PEER;
+        entry->peers = new std::vector<PeerId>;
+        new_conf.peer_vector(entry->peers);
+        append(entry, done);
+
+        LOG(NOTICE) << "success, then append add_peer entry.";
+    } else {
+        _replicator_group.stop_replicator(peer);
+        // call user function
+        Configuration old_conf(_conf_ctx.peers);
+        done->set_error(error_code);
+        //TODO: call in bthread?
+        done->Run();
+        _conf_ctx.reset();
+
+        LOG(NOTICE) << "failed: " << error_code;
+    }
+
+    LOG(NOTICE);
 }
 
 int NodeImpl::add_peer(const std::vector<PeerId>& old_peers, const PeerId& peer,
-                       base::Closure* done) {
+                       Closure* done) {
     std::lock_guard<bthread_mutex_t> guard(_mutex);
 
     // check state
     if (_state != LEADER) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id << " can't apply not in LEADER";
-        return baidu::rpc::SYS_EINVAL;
+        return EINVAL;
     }
     // check concurrent conf change
-    if (_conf_changing) {
+    if (!_conf_ctx.empty()) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id << " remove_peer need wait "
             "current conf change";
-        return -1;
+        return EINVAL;
     }
     // check equal
     if (!_conf.second.equal(old_peers)) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id << " add_peer dismatch old_peers";
-        return -1;
+        return EINVAL;
     }
     // check contain
     if (_conf.second.contain(peer)) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id << " add_peer old_peers "
             "contains new_peer";
-        return -1;
+        return EINVAL;
     }
 
     LOG(NOTICE) << "node " << _group_id << ":" << _server_id << " add_peer " << peer
-        << " to " << _conf.second;
+        << " to " << _conf.second << ", begin caughtup.";
 
-    //TODO: catch up new peer
-
-    // add peer to _conf after new peer catchup
-    Configuration new_conf(_conf.second);
-    new_conf.add_peer(peer);
-
-    LogEntry* entry = new LogEntry();
-    entry->term = _current_term;
-    entry->type = ENTRY_TYPE_ADD_PEER;
-    entry->peers = new std::vector<PeerId>;
-    new_conf.peer_vector(entry->peers);
-    // TODO:
-    append(entry, done);
+    // catch up new peer
+    add_ref();
+    OnCaughtUp caught_up;
+    timespec due_time = base::microseconds_from_now(_options.election_timeout * 10); // TODO
+    caught_up.on_caught_up = on_peer_caught_up;
+    caught_up.done = done;
+    caught_up.arg = this;
+    caught_up.min_margin = 1000; //TODO
+    _replicator_group.add_replicator(peer, caught_up, &due_time);
 
     return 0;
 }
 
 int NodeImpl::remove_peer(const std::vector<PeerId>& old_peers, const PeerId& peer,
-                          base::Closure* done) {
+                          Closure* done) {
     std::lock_guard<bthread_mutex_t> guard(_mutex);
 
     // check state
@@ -214,7 +276,7 @@ int NodeImpl::remove_peer(const std::vector<PeerId>& old_peers, const PeerId& pe
         return EPERM;
     }
     // check concurrent conf change
-    if (_conf_changing) {
+    if (!_conf_ctx.empty()) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id << " remove_peer need wait "
             "current conf change";
         return EAGAIN;
@@ -238,20 +300,18 @@ int NodeImpl::remove_peer(const std::vector<PeerId>& old_peers, const PeerId& pe
     Configuration new_conf(_conf.second);
     new_conf.remove_peer(peer);
 
-    // TODO: remove peer from _conf when REMOVE_PEER committed, shutdown when remove leader self
+    // remove peer from _conf when REMOVE_PEER committed, shutdown when remove leader self
     LogEntry* entry = new LogEntry();
     entry->term = _current_term;
     entry->type = ENTRY_TYPE_REMOVE_PEER;
     entry->peers = new std::vector<PeerId>;
     new_conf.peer_vector(entry->peers);
-    // TODO:
     append(entry, done);
 
     return 0;
 }
 
-int NodeImpl::set_peer(const std::vector<PeerId>& old_peers, const std::vector<PeerId>& new_peers,
-                 base::Closure* done) {
+int NodeImpl::set_peer(const std::vector<PeerId>& old_peers, const std::vector<PeerId>& new_peers) {
     std::lock_guard<bthread_mutex_t> guard(_mutex);
 
     // check bootstrap
@@ -265,27 +325,27 @@ int NodeImpl::set_peer(const std::vector<PeerId>& old_peers, const std::vector<P
     }
 
     // check concurrent conf change
-    if (_state == LEADER && _conf_changing) {
+    if (_state == LEADER && !_conf_ctx.empty()) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id << " remove_peer need wait "
             "current conf change";
-        return -1;
+        return EINVAL;
     }
     // check equal
     if (!_conf.second.equal(std::vector<PeerId>(old_peers))) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id << " set_peer dismatch old_peers";
-        return -1;
+        return EINVAL;
     }
     // check quorum
     if (new_peers.size() >= (old_peers.size() / 2 + 1)) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id << " set_peer new_peers greater "
             "than old_peers'quorum";
-        return -1;
+        return EINVAL;
     }
     // check contain
     if (!_conf.second.contain(new_peers)) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id << " set_peer old_peers not "
             "contains all new_peers";
-        return -1;
+        return EINVAL;
     }
 
     Configuration new_conf(new_peers);
@@ -297,7 +357,7 @@ int NodeImpl::set_peer(const std::vector<PeerId>& old_peers, const std::vector<P
     return 0;
 }
 
-int NodeImpl::shutdown(base::Closure* done) {
+int NodeImpl::shutdown(Closure* done) {
     //TODO:
     //_log_storage
     //_log_manager
@@ -503,18 +563,22 @@ void NodeImpl::step_down(const int64_t term) {
     _leader_id.reset();
     _current_term = term;
     _voted_id.reset();
+    _conf_ctx.reset();
     //TODO: outof lock
     _stable_storage->set_term_and_votedfor(term, _voted_id);
 
     // no empty configuration, start election timer
-    if (!_conf.second.empty()) {
+    if (!_conf.second.empty() && _conf.second.contain(_server_id)) {
         add_ref();
         int64_t election_timeout = random_timeout(_options.election_timeout);
         bthread_timer_add(&_election_timer, base::milliseconds_from_now(election_timeout),
                           on_election_timer, this);
         LOG(DEBUG) << "node " << _group_id << ":" << _server_id << " start election_timer";
     }
-    // TODO: stop stagging new node
+
+    // stop stagging new node
+    _replicator_group.stop_all();
+
     // TODO: wait disk thread empty
 }
 
@@ -532,6 +596,22 @@ void NodeImpl::become_leader() {
     //TODO: add lease timer to check contact timestamp to step down
     //bthread_timer_add(&_lease_timer, base::milliseconds_from_now(_options.election_timeout),
     //                  on_election_timer, this);
+
+    ReplicatorGroupOptions options;
+    options.heartbeat_timeout_ms = _options.heartbeat_period;
+    options.log_manager = _log_manager;
+    options.commit_manager = _commit_manager;
+    options.node = this;
+    options.term = _current_term;
+    _replicator_group.init(options);
+
+    std::vector<PeerId> peers;
+    _conf.second.peer_vector(&peers);
+    for (size_t i = 0; i < peers.size(); i++) {
+        if (peers[i] != _server_id) {
+            _replicator_group.add_replicator(peers[i]);
+        }
+    }
 
     _commit_manager->reset_pending_index(_log_manager->last_log_index() + 1);
 
@@ -565,26 +645,34 @@ int NodeImpl::advance_commit_index(const PeerId& peer_id, const int64_t log_inde
         // peer thread
         _commit_manager->set_stable_at_peer_reentrant(log_index, peer_id);
     }
+
+    // commit_manager check quorum ok, will call fsm_caller
     return 0;
 }
 
-int NodeImpl::append(LogEntry* entry, base::Closure* done) {
-    // TODO: configuration change use old or new peer set?
+int NodeImpl::append(LogEntry* entry, Closure* done) {
+    // configuration change use new peer set
+    std::vector<PeerId> old_peers;
     if (entry->type != ENTRY_TYPE_ADD_PEER && entry->type != ENTRY_TYPE_REMOVE_PEER) {
         _commit_manager->append_pending_application(_conf.second, done);
     } else  {
+        _conf.second.peer_vector(&old_peers);
         _commit_manager->append_pending_application(Configuration(*(entry->peers)), done);
     }
+    //TODO: check log_manager return code
     add_ref();
     _log_manager->append(entry, on_leader_stable, this);
     if (_log_manager->check_and_set_configuration(_conf)) {
-        _conf_changing = true;
+        _conf_ctx.set(old_peers);
     }
 
     return 0;
 }
 
 int NodeImpl::append(const std::vector<LogEntry*>& entries) {
+    if (entries.size() == 0) {
+        return 0;
+    }
     int ret = _log_manager->append_entries(entries);
     if (ret != 0) {
         return ret;
@@ -742,7 +830,7 @@ int NodeImpl::handle_append_entries_request(base::IOBuf& data_buf,
                     << " to " << last_index_kept;
 
                 _log_manager->truncate_suffix(last_index_kept);
-                //TODO: truncate configuration
+                // truncate configuration
                 _log_manager->check_and_set_configuration(_conf);
             }
 
@@ -753,8 +841,6 @@ int NodeImpl::handle_append_entries_request(base::IOBuf& data_buf,
                 if (entry.peers_size() > 0) {
                     log_entry->peers = new std::vector<PeerId>;
                     for (int i = 0; i < entry.peers_size(); i++) {
-                        //TODO: move std::string to PeerId
-                        //peers->push_back(PeerId(entry.peers(i)));
                         log_entry->peers->push_back(entry.peers(i));
                     }
                     assert((log_entry->type == ADD_PEER || log_entry->type == REMOVE_PEER));
@@ -771,15 +857,15 @@ int NodeImpl::handle_append_entries_request(base::IOBuf& data_buf,
                 entries.push_back(log_entry);
             }
         }
-        //TODO: outof lock
+        //TODO: outof lock, check return
         int ret = append(entries);
     } while (0);
 
     response->set_term(_current_term);
     response->set_success(success);
+    response->set_last_log_index(_log_manager->last_log_index());
     if (success) {
-        //TODO:
-        response->set_last_log_index(_log_manager->last_log_index());
+        // commit manager call fsmcaller
         _commit_manager->set_last_committed_index(request->committed_index());
         _last_leader_timestamp = base::monotonic_time_ms();
     }

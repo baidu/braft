@@ -37,6 +37,7 @@ proto_sources = (
 )
 
 user_sources = (
+        'src/raft/raft.cpp '
         'src/raft/protobuf_file.cpp '
         'src/raft/log.cpp '
         'src/raft/stable.cpp '

@@ -80,17 +80,17 @@ void* FSMCaller::call_user_fsm(void* arg) {
             }
             while (true/*FIXME*/) {
                 LogEntry *entry = caller->_log_manager->get_entry(next_applied_index);
-                base::Closure* done = (base::Closure*)context;
+                Closure* done = (Closure*)context;
                 if (entry != NULL) {
                     switch (entry->type) {
                     case ENTRY_TYPE_DATA:
-                        caller->_node_user->apply(*entry, done);
+                        caller->_node_user->apply(entry->data, entry->len, done);
                         break;
                     case ENTRY_TYPE_ADD_PEER:
                     case ENTRY_TYPE_REMOVE_PEER:
                         // TODO(wangyao02): Notify that configuration change is
                         // successfully executed
-                        caller->_node->on_configuration_change_done(*(entry->peers));
+                        caller->_node->on_configuration_change_done(entry->type, *(entry->peers));
                         done->Run();
                         break;
                     case ENTRY_TYPE_NO_OP:

@@ -126,6 +126,43 @@ public:
 
 // SnapshotStore implement in on_snapshot_save() and on_snapshot_load()
 
+class Closure: public google::protobuf::Closure {
+public:
+    Closure() : _err_code(0) {}
+    virtual ~Closure() {}
+
+    void set_error(int err_code) {
+        _err_code = err_code;
+    }
+    virtual void Run() = 0;
+protected:
+    int _err_code;
+};
+
+#if 0
+struct NodeCtx {
+    int msg_no;
+    int err_no;
+    int64_t index;
+    void* user;
+
+    google::protobuf::RpcController* controller;
+    const void* request;
+    void* response;
+    google::protobuf::Closure* done;
+
+    NodeCtx()
+        :msg_no(0), err_no(0), index(0), user(NULL),
+        controller(NULL),
+        request(NULL), response(NULL), done(NULL) {}
+    NodeCtx(google::protobuf::RpcController* controller_,
+            const void* request_, void* response_, google::protobuf::Closure* done_)
+        : msg_no(0), err_no(0), index(0), user(NULL),
+        controller(controller_),
+        request(request_), response(response_), done(done_) {}
+};
+#endif
+
 class NodeUser {
 public:
     NodeUser() {}
@@ -133,7 +170,7 @@ public:
 
     // user defined logentry proc function
     // done is transformed by apply(), leader is valid, follower is NULL
-    virtual int apply(const LogEntry& entry, base::Closure* done);
+    virtual void apply(const void* data, const int len, Closure* done);
 
     // user defined snapshot generate function
     // done can't be defined by user
@@ -154,7 +191,7 @@ struct NodeOptions {
     int snapshot_highlevel_threshold; // at most log not in snapshot
     bool enable_pipeline; // pipeline switch
     Configuration conf; // peer conf
-    NodeUser* user; // user defined function
+    NodeUser* user; // user defined function [MUST]
     LogStorage* log_storage; // user defined log storage
     StableStorage* stable_storage; // user defined manifest storage
 
@@ -166,34 +203,41 @@ struct NodeOptions {
         user(NULL), log_storage(NULL), stable_storage(NULL) {}
 };
 
+class NodeImpl;
 class Node {
 public:
-    Node(const GroupId& group_id, const PeerId& peer_id, const NodeOptions* option) {}
-    virtual ~Node() {}
+    Node(const GroupId& group_id, const PeerId& peer_id, const NodeOptions* option);
+    virtual ~Node();
 
     virtual NodeId node_id();
+    PeerId leader();
 
-    // apply data to replicated-state-machine
+    // apply data to replicated-state-machine [thread-safe]
     // done is user defined function, maybe response to client, transform to on_applied
-    int apply(const void* data, const int len, base::Closure* done);
+    int apply(const void* data, const int len, Closure* done);
 
-    // add peer to replicated-state-machine
+    // add peer to replicated-state-machine [thread-safe]
     // done is user defined function, maybe response to client
-    int add_peer(const std::vector<PeerId>& old_peers, const PeerId& peer, base::Closure* done);
+    int add_peer(const std::vector<PeerId>& old_peers, const PeerId& peer, Closure* done);
 
-    // remove peer from replicated-state-machine
+    // remove peer from replicated-state-machine [thread-safe]
     // done is user defined function, maybe response to client
-    int remove_peer(const std::vector<PeerId>& old_peers, const PeerId& peer, base::Closure* done);
+    int remove_peer(const std::vector<PeerId>& old_peers, const PeerId& peer, Closure* done);
 
-    // set peer to local replica
+    // set peer to local replica [thread-safe]
     // done is user defined function, maybe response to client
     // only used in major node is down, reduce peerset to make group available
-    int set_peer(const std::vector<PeerId>& old_peers, const std::vector<PeerId>& new_peers,
-                 base::Closure* done);
+    int set_peer(const std::vector<PeerId>& old_peers, const std::vector<PeerId>& new_peers);
 
     // shutdown local replica
     // done is user defined function, maybe response to client or clean some resource
-    int shutdown(base::Closure* done);
+    int shutdown(Closure* done);
+
+    NodeImpl* implement() {
+        return _impl;
+    }
+private:
+    NodeImpl* _impl;
 };
 
 class NodeManager {

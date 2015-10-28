@@ -18,27 +18,29 @@
 #ifndef PUBLIC_RAFT_RAFT_SERVICE_H
 #define PUBLIC_RAFT_RAFT_SERVICE_H
 
+#include "raft/raft.pb.h"
+
 namespace raft {
 
-class RaftServiceImpl : public ::raft::protocol::RaftService {
+class RaftServiceImpl : public RaftService {
 public:
     RaftServiceImpl();
     virtual ~RaftServiceImpl();
 
-    virtual void request_vote(::google::protobuf::RpcController* controller,
-                              const ::raft::protocol::RequestVoteRequest* request,
-                              ::raft::protocol::RequestVoteResponse* response,
-                              ::google::protobuf::Closure* done);
+    virtual void request_vote(google::protobuf::RpcController* controller,
+                              const RequestVoteRequest* request,
+                              RequestVoteResponse* response,
+                              google::protobuf::Closure* done);
 
-    virtual void append_entries(::google::protobuf::RpcController* controller,
-                                const ::raft::protocol::AppendEntriesRequest* request,
-                                ::raft::protocol::AppendEntriesResponse* response,
-                                ::google::protobuf::Closure* done);
+    virtual void append_entries(google::protobuf::RpcController* controller,
+                                const AppendEntriesRequest* request,
+                                AppendEntriesResponse* response,
+                                google::protobuf::Closure* done);
 
-    virtual void install_snapshot(::google::protobuf::RpcController* controller,
-                                  const ::raft::protocol::InstallSnapshotRequest* request,
-                                  ::raft::protocol::InstallSnapshotResponse* response,
-                                  ::google::protobuf::Closure* done);
+    virtual void install_snapshot(google::protobuf::RpcController* controller,
+                                  const InstallSnapshotRequest* request,
+                                  InstallSnapshotResponse* response,
+                                  google::protobuf::Closure* done);
 };
 
 }

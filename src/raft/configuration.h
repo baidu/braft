@@ -100,6 +100,10 @@ inline bool operator==(const PeerId& id1, const PeerId& id2) {
     return (id1.addr == id2.addr && id1.idx == id2.idx);
 }
 
+inline bool operator!=(const PeerId& id1, const PeerId& id2) {
+    return (id1.addr != id2.addr || id1.idx != id2.idx);
+}
+
 inline std::ostream& operator << (std::ostream& os, const PeerId& id) {
     char str[128];
     snprintf(str, sizeof(str), "%s:%d", base::endpoint2str(id.addr).c_str(), id.idx);

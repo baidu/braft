@@ -38,6 +38,7 @@ const int ERROR_CODE_UNSET_MAGIC = 0x1234;
 OnCaughtUp::OnCaughtUp()
     : on_caught_up(NULL)
     , arg(NULL)
+    , done(NULL)
     , min_margin(0)
     , pid()
     , timer(0)
@@ -45,7 +46,7 @@ OnCaughtUp::OnCaughtUp()
 {}
 
 void OnCaughtUp::_run() {
-    return on_caught_up(arg, pid, error_code);
+    return on_caught_up(arg, pid, error_code, done);
 }
 
 Replicator::Replicator() {

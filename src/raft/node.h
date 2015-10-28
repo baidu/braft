@@ -26,38 +26,41 @@
 #include "raft/log_manager.h"
 #include "raft/commitment_manager.h"
 #include "raft/fsm_caller.h"
+#include "raft/replicator.h"
 
 namespace raft {
 
-class NodeImpl : public Node {
+class NodeImpl {
+friend class RaftServiceImpl;
 public:
     NodeImpl(const GroupId& group_id, const PeerId& server_id, const NodeOptions* option);
+    virtual ~NodeImpl();
 
     int init();
 
     // apply data to replicated-state-machine
     // done is user defined function, maybe response to client, transform to on_applied
-    virtual int apply(const void* data, const int len, base::Closure* done);
+    virtual int apply(const void* data, const int len, Closure* done);
 
     // add peer to replicated-state-machine
     // done is user defined function, maybe response to client
     virtual int add_peer(const std::vector<PeerId>& old_peers, const PeerId& peer,
-                         base::Closure* done);
+                         Closure* done);
 
     // remove peer from replicated-state-machine
     // done is user defined function, maybe response to client
     virtual int remove_peer(const std::vector<PeerId>& old_peers, const PeerId& peer,
-                            base::Closure* done);
+                            Closure* done);
 
     // set peer to local replica
     // done is user defined function, maybe response to client
     // only used in major node is down, reduce peerset to make group available
-    virtual int set_peer(const std::vector<PeerId>& old_peers, const std::vector<PeerId>& new_peers,
-                 base::Closure* done);
+    virtual int set_peer(const std::vector<PeerId>& old_peers,
+                         const std::vector<PeerId>& new_peers);
 
     // shutdown local replica
     // done is user defined function, maybe response to client or clean some resource
-    virtual int shutdown(base::Closure* done);
+    virtual int shutdown(Closure* done);
 
     // handle received RequestVote
     int handle_request_vote_request(const RequestVoteRequest* request,
@@ -72,7 +75,8 @@ public:
     int handle_install_snapshot_request(const InstallSnapshotRequest* request,
                        InstallSnapshotResponse* response);
 
-    void on_configuration_change_done(const std::vector<PeerId>& peers);
+    void on_configuration_change_done(const EntryType type, const std::vector<PeerId>& peers);
+    void on_caughtup_done(const PeerId& peer, int error_code, Closure* done);
 
     enum State {
         FOLLOWER = 0,
@@ -116,7 +120,6 @@ public:
     int advance_commit_index(const PeerId& peer_id, const int64_t log_index);
 private:
     //friend class base::RefCountedThreadSafe<NodeImpl>;
-    virtual ~NodeImpl();
 
     // become leader
     void become_leader();
@@ -131,7 +134,7 @@ private:
     int64_t last_log_term();
 
     // leader async append log entry
-    int append(LogEntry* entry, base::Closure* done);
+    int append(LogEntry* entry, Closure* done);
 
     // follower sync append log entry
     int append(const std::vector<LogEntry*>& entries);
@@ -158,12 +161,18 @@ private:
             granted.clear();
         }
     };
-    struct ReplicateCtx {
-        bool exiting;
-        int64_t next_id;
-        int64_t last_timestamp;
+    struct ConfigurationCtx {
+        std::vector<PeerId> peers;
+        void set(std::vector<PeerId>& peers_) {
+            peers.swap(peers_);
+        }
+        void reset() {
+            peers.clear();
+        }
+        bool empty() {
+            return peers.empty();
+        }
     };
-    typedef std::map<PeerId, ReplicateCtx> ReplicateCtxMap;
 
     NodeOptions _options;
     GroupId _group_id;
@@ -172,7 +181,6 @@ private:
     int64_t _current_term;
     PeerId _leader_id;
     PeerId _voted_id;
-    bool _conf_changing;
     std::pair<int64_t, Configuration> _conf;
 
     //int64_t _committed_index;
@@ -182,7 +190,7 @@ private:
 
     bthread_mutex_t _mutex;
     VoteCtx _vote_ctx; // candidate vote ctx
-    ReplicateCtxMap _replicate_ctx_map; // leader replicate ctx map
+    ConfigurationCtx _conf_ctx;
     bthread_timer_t _election_timer; // follower -> candidate timer
     bthread_timer_t _vote_timer; // candidate retry timer
     bthread_timer_t _lease_timer; // leader check lease timer
@@ -193,6 +201,7 @@ private:
     LogManager* _log_manager;
     FSMCaller* _fsm_caller;
     CommitmentManager* _commit_manager;
+    ReplicatorGroup _replicator_group;
 
     mutable base::AtomicRefCount _ref_count;
 };

@@ -38,7 +38,7 @@ public:
         bthread_mutex_lock(_pmutex);
 #endif  // NDEBUG
     }
-    
+
     ~lock_guard() {
 #ifndef NDEBUG
         if (_pmutex) {
@@ -48,7 +48,7 @@ public:
         bthread_mutex_unlock(_pmutex);
 #endif
     }
-    
+
 private:
     DISALLOW_COPY_AND_ASSIGN(lock_guard);
     bthread_mutex_t* _pmutex;
