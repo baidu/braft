@@ -29,6 +29,38 @@ CounterServiceImpl::CounterServiceImpl(Counter* counter)
 CounterServiceImpl::~CounterServiceImpl() {
 }
 
+class Closure : public raft::Closure {
+public:
+    Closure(Counter* counter, baidu::rpc::Controller* controller,
+            const AddRequest* request, AddResponse* response, google::protobuf::Closure* done)
+        : _counter(counter), _controller(controller),
+        _request(request), _response(response), _done(done) {}
+    virtual ~Closure() {}
+
+    virtual void Run() {
+        if (_err_code == 0) {
+            _response->set_success(true);
+        } else {
+            LOG(WARNING) << "counter: " << _counter << " add failed: "
+                << _err_code << noflush;
+            if (!_err_text.empty()) {
+                LOG(WARNING) << "(" << _err_text << ")";
+            }
+            LOG(WARNING);
+
+            _response->set_success(false);
+            _response->set_leader(base::endpoint2str(_counter->leader()).c_str());
+        }
+        _done->Run();
+    }
+private:
+    Counter* _counter;
+    baidu::rpc::Controller* _controller;
+    const AddRequest* _request;
+    AddResponse* _response;
+    google::protobuf::Closure* _done;
+};
+
 void CounterServiceImpl::add(google::protobuf::RpcController* controller,
                              const AddRequest* request,
                              AddResponse* response,
@@ -39,13 +71,12 @@ void CounterServiceImpl::add(google::protobuf::RpcController* controller,
     LOG(TRACE) << "received add " << request->value() << " from " << cntl->remote_side();
 
     // node apply
-    raft::NodeCtx* ctx = new raft::NodeCtx(controller, request, response, done);
-    if (0 != _counter->add(request->value(), ctx)) {
+    Closure* cb = new Closure(_counter, cntl, request, response, done);
+    if (0 != _counter->add(request->value(), cb)) {
         baidu::rpc::ClosureGuard done_guard(done);
         response->set_success(false);
-        response->set_leader(_counter->leader());
-
-        delete ctx;
+        response->set_leader(base::endpoint2str(_counter->leader()).c_str());
+        delete cb;
     }
 }
 
@@ -66,7 +97,7 @@ void CounterServiceImpl::get(google::protobuf::RpcController* controller,
         response->set_value(value);
     } else {
         response->set_success(false);
-        response->set_leader(_counter->leader());
+        response->set_leader(base::endpoint2str(_counter->leader()).c_str());
     }
 }
 

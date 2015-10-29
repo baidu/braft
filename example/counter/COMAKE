@@ -47,7 +47,7 @@ CONFIGS('public/baidu-rpc@ci-base')
 PROTOC('../../../../third-64/protobuf/bin/protoc')
 
 proto_sources='counter.proto'
-raft_sources = GLOB('../../src/raft/*.cpp')
+raft_sources = GLOB('../../protocol/raft/*.proto ../../src/raft/*.cpp')
 user_sources='counter_service.cpp counter.cpp main.cpp'
 user_headers=''
 

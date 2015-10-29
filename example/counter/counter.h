@@ -27,35 +27,42 @@ DECLARE_bool(enable_verify);
 
 namespace counter {
 
-class Counter : public raft::NodeUser {
+class Counter : public raft::StateMachine {
 public:
-    Counter();
-    virtual ~Counter();
+    Counter(const raft::GroupId& group_id, const raft::PeerId& peer_id);
 
-    int init(const raft::GroupId& group_id, const raft::PeerId& peer_id,
-             raft::NodeOptions* options);
+    int init(const raft::NodeOptions& options);
 
-    int shutdown();
 
-    int add(int64_t value, raft::NodeCtx* ctx);
+    int shutdown(raft::Closure* done);
+
+    base::EndPoint leader();
+
+    // FSM method
+    virtual void on_apply(const void* data, const int len);
+
+    virtual int on_snapshot_save();
+
+    virtual int on_snapshot_load();
+
+    virtual void on_shutdown();
+
+    virtual void on_state_change(raft::State old_state, raft::State new_state);
+
+    // user logic method
+    int add(int64_t value, raft::Closure* done);
 
     int get(int64_t* value_ptr);
 
-    std::string leader();
-
-    // NodeUser method
-    virtual void apply(const void* data, const int len, raft::NodeCtx* ctx);
-
-    virtual int snapshot_save(base::Closure* done);
-
-    virtual int snapshot_load(base::Closure* done);
-
 private:
-    raft::Node* _node;
+    virtual ~Counter();
+
+    raft::Node _node;
     bthread_mutex_t _mutex;
     int64_t _value;
 };
 
 }
+
 
 #endif //~PUBLIC_RAFT_EXAMPLE_COUNTER_H

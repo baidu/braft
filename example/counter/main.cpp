@@ -15,6 +15,8 @@
  *
  * =====================================================================================
  */
+#include <net/if.h>
+#include <sys/ioctl.h>
 #include <gflags/gflags.h>
 #include <base/logging.h>
 #include "counter_service.h"
@@ -31,12 +33,12 @@ static void sigint_handler(int) {
 
 namespace base {
 
-uint32_t get_host_ip_by_interface(const char* interface) {
+ip_t get_host_ip_by_interface(const char* interface) {
     int sockfd = -1;
     struct ::ifreq req;
-    uint32_t ip = 0;
+    ip_t ip = IP_ANY;
     if ((sockfd = socket(PF_INET, SOCK_DGRAM, 0)) < 0) {
-        return 0;
+        return ip;
     }
 
     memset(&req, 0, sizeof(struct ::ifreq));
@@ -45,16 +47,15 @@ uint32_t get_host_ip_by_interface(const char* interface) {
     if (!ioctl(sockfd, SIOCGIFADDR, (char*)&req)) {
         struct in_addr ip_addr;
         ip_addr.s_addr = *((int*) &req.ifr_addr.sa_data[2]);
-        ip = ip_addr.s_addr;
+        ip.s_addr = ip_addr.s_addr;
     }
     close(sockfd);
-    return int2ip(ip);
+    return ip;
 }
 
 ip_t get_host_ip() {
     const char* interfaces[] = { "xgbe0", "xgbe1", "eth1", "eth0", "bond0", "br-ex" };
-    uint32_t ip = 0;
-    ip_t ip = { IP_ANY };
+    ip_t ip = IP_ANY;
 
     for (size_t i = 0; i < 6; ++i) {
         ip = get_host_ip_by_interface(interfaces[i]);
@@ -73,32 +74,33 @@ ip_t get_host_ip() {
 }
 
 
-int main(int argc, const char* argv[]) {
+int main(int argc, char* argv[]) {
     google::ParseCommandLineFlags(&argc, &argv, true);
 
     // init peers
     std::vector<raft::PeerId> peers;
-    const char* the_string_to_split = FLAGS_jns.c_str();
+    const char* the_string_to_split = FLAGS_peers.c_str();
     for (baidu::StringSplitter s(the_string_to_split, ','); s; ++s) {
         raft::PeerId peer(std::string(s.field(), s.length()));
         peers.push_back(peer);
     }
 
     // init counter
-    counter::Counter counter;
     base::EndPoint addr;
     addr.ip = base::get_host_ip();
     addr.port = FLAGS_port;
-    Raft::NodeOptions node_options;
-    node_options.user = &counter;
+
+    counter::Counter* counter = new counter::Counter(FLAGS_name, raft::PeerId(addr));
+    raft::NodeOptions node_options;
+    node_options.fsm = counter;
     node_options.conf = raft::Configuration(peers);
-    if (0 != counter.init(FLAGS_name, raft::PeerId(addr), &options)) {
+    if (0 != counter->init(node_options)) {
         LOG(FATAL) << "Fail to init";
         return -1;
     }
 
     // add service
-    counter::CounterServiceImpl service_impl(&counter);
+    counter::CounterServiceImpl service_impl(counter);
     baidu::rpc::Server server;
     if (0 != server.AddService(&service_impl, baidu::rpc::SERVER_DOESNT_OWN_SERVICE)) {
         LOG(FATAL) << "Fail to AddService";

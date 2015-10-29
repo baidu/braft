@@ -20,11 +20,10 @@
 #include "counter.pb.h"
 #include "counter.h"
 
-DEFINE_bool(enable_verify, false, "verify when get");
-
 namespace counter {
 
-Counter::Counter() : _node(NULL), _value(0) {
+Counter::Counter(const raft::GroupId& group_id, const raft::PeerId& peer_id)
+    : StateMachine(), _node(group_id, peer_id), _value(0) {
     bthread_mutex_init(&_mutex, NULL);
 }
 
@@ -32,82 +31,64 @@ Counter::~Counter() {
     bthread_mutex_destroy(&_mutex);
 }
 
-int Counter::init(const raft::GroupId& group_id, const raft::PeerId& peer_id,
-             raft::NodeOptions* options) {
-    _node = raft::NodeManager::GetInstance()->create(group_id, peer_id, options);
-    return _node->init();
+int Counter::init(const raft::NodeOptions& options) {
+    return _node.init(options);
 }
 
-int Counter::shutdown() {
-    return _node->shutdown();
+int Counter::shutdown(raft::Closure* done) {
+    return _node.shutdown(done);
 }
 
-std::string Counter::leader() {
-    return _node->leader().to_string();
+base::EndPoint Counter::leader() {
+    return _node.leader_id().addr;
 }
 
-int Counter::add(int64_t value, raft::NodeCtx* ctx) {
+int Counter::add(int64_t value, raft::Closure* done) {
     std::string request_str;
     AddRequest request;
     request.set_value(value);
     request.SerializeToString(&request_str);
 
-    return _node->apply(request_str.data(), request_str.size(), ctx);
+    return _node.apply(request_str.data(), request_str.size(), done);
 }
 
 int Counter::get(int64_t* value_ptr) {
-    if (FLAGS_enable_verify) {
-        if (0 != _node->verify()) {
-            return -1;
-        }
-    }
-    {
-        bthread_mutex_lock(&_mutex);
-        *value_ptr = _value;
-        bthread_mutex_unlock(&_mutex);
-    }
+    bthread_mutex_lock(&_mutex);
+    *value_ptr = _value;
+    bthread_mutex_unlock(&_mutex);
     return 0;
 }
 
-void Counter::apply(const void* data, const int len, raft::NodeCtx* ctx) {
+void Counter::on_apply(const void* data, const int len) {
     AddRequest request;
-    if (ctx) {
-        request.Swap(static_cast<AddRequest*>(ctx->request));
-    } else {
-        request.ParseFromArray(data, len);
-    }
+    request.ParseFromArray(data, len);
 
-    //TODO: move err to error()
-    bool success = false;
-    if (!ctx || (ctx && 0 == ctx->err_no)) {
-        bthread_mutex_lock(&_mutex);
-
-        _value += request.value();
-        success = true;
-
-        bthread_mutex_unlock(&_mutex);
-    }
-
-    if (ctx) {
-        google::protobuf::Closure* done = ctx->done;
-        AddRequest* response = static_cast<AddResponse*>(ctx->response);
-        response->set_success(success);
-        if (!success) {
-            response->set_leader(_node.leader().to_string());
-        }
-        done->Run();
-        delete ctx;
-    }
+    bthread_mutex_lock(&_mutex);
+    _value += request.value();
+    bthread_mutex_unlock(&_mutex);
 }
 
-int Counter::snapshot_save(base::Closure* done) {
+int Counter::on_snapshot_save() {
     //TODO:
-    return 0;
+    LOG(ERROR) << "Not Implement";
+    return ENOSYS;
 }
 
-int Counter::snapshot_load(base::Closure* done) {
+int Counter::on_snapshot_load() {
     //TODO:
-    return 0;
+    LOG(ERROR) << "Not Implement";
+    return ENOSYS;
+}
+
+void Counter::on_shutdown() {
+    //TODO:
+    LOG(ERROR) << "Not Implement";
+    delete this;
+}
+
+void Counter::on_state_change(raft::State old_state, raft::State new_state) {
+    //TODO
+    LOG(ERROR) << "Not Implement";
 }
 
 }
