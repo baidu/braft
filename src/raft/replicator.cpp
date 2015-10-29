@@ -26,7 +26,6 @@ BAIDU_RPC_VALIDATE_GFLAG(max_entries_size, ::baidu::rpc::PositiveInteger);
 
 ReplicatorOptions::ReplicatorOptions()
     : heartbeat_timeout_ms(-1)
-    , peer_id()
     , log_manager(NULL)
     , commit_manager(NULL)
     , node(NULL)
@@ -213,8 +212,8 @@ void Replicator::_on_rpc_returned(ReplicatorId id, baidu::rpc::Controller* cntl,
 
 void Replicator::_fill_common_fields(AppendEntriesRequest* request) {
     request->set_term(_options.term);
-    request->set_group_id(_options.node->group_id());
-    request->set_server_id(_options.node->server_id().to_string());
+    request->set_group_id(_options.group_id);
+    request->set_server_id(_options.server_id.to_string());
     request->set_peer_id(_options.peer_id.to_string());
     request->set_prev_log_index(_next_index - 1);
     request->set_prev_log_term(
@@ -400,6 +399,9 @@ int ReplicatorGroup::init(const ReplicatorGroupOptions& options) {
     _common_options.commit_manager = options.commit_manager;
     _common_options.node = options.node;
     _common_options.term = options.term;
+    NodeId node_id = options.node->node_id();
+    _common_options.group_id = node_id.group_id;
+    _common_options.server_id = node_id.peer_id;
     return 0;
 }
 

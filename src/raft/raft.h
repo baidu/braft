@@ -20,19 +20,19 @@
 
 #include <string>
 #include <cassert>
-#include <base/endpoint.h>
 #include <base/callback.h>
-#include <base/memory/singleton.h>
 
-#include "bthread.h"
 #include "raft/raft.pb.h"
 #include "raft/configuration.h"
 
-//#include <raft/configuration.h>
-//#include <raft/log.h>
-//#include <raft/manifest.h>
-
 namespace raft {
+
+enum State {
+    FOLLOWER = 0,
+    CANDIDATE = 1,
+    LEADER = 2,
+    SHUTDOWN = 3,
+};
 
 // term start from 1, log index start from 1
 struct LogEntry : public base::RefCountedThreadSafe<LogEntry> {
@@ -131,54 +131,35 @@ public:
     Closure() : _err_code(0) {}
     virtual ~Closure() {}
 
-    void set_error(int err_code) {
-        _err_code = err_code;
-    }
+    void set_error(int err_code, const char* reason_fmt, ...);
+
     virtual void Run() = 0;
 protected:
     int _err_code;
+    std::string _err_text;
 };
 
-#if 0
-struct NodeCtx {
-    int msg_no;
-    int err_no;
-    int64_t index;
-    void* user;
-
-    google::protobuf::RpcController* controller;
-    const void* request;
-    void* response;
-    google::protobuf::Closure* done;
-
-    NodeCtx()
-        :msg_no(0), err_no(0), index(0), user(NULL),
-        controller(NULL),
-        request(NULL), response(NULL), done(NULL) {}
-    NodeCtx(google::protobuf::RpcController* controller_,
-            const void* request_, void* response_, google::protobuf::Closure* done_)
-        : msg_no(0), err_no(0), index(0), user(NULL),
-        controller(controller_),
-        request(request_), response(response_), done(done_) {}
-};
-#endif
-
-class NodeUser {
+class StateMachine {
 public:
-    NodeUser() {}
-    virtual ~NodeUser() {}
+    StateMachine() {}
 
     // user defined logentry proc function
-    // done is transformed by apply(), leader is valid, follower is NULL
-    virtual void apply(const void* data, const int len, Closure* done);
+    // [OPTIMIZE] add Closure argument to avoid parse data
+    virtual void on_apply(const void* data, const int len) = 0;
 
     // user defined snapshot generate function
-    // done can't be defined by user
-    virtual int snapshot_save(base::Closure* done);
+    virtual int on_snapshot_save() = 0;
 
     // user defined snapshot load function
-    // done can't be defined by user
-    virtual int snapshot_load(base::Closure* done);
+    virtual int on_snapshot_load() = 0;
+
+    // user define shutdown function
+    virtual void on_shutdown() = 0;
+
+    // user defined state change function
+    virtual void on_state_change(State old_state, State new_state) = 0;
+protected:
+    virtual ~StateMachine() {}
 };
 
 struct NodeOptions {
@@ -191,7 +172,7 @@ struct NodeOptions {
     int snapshot_highlevel_threshold; // at most log not in snapshot
     bool enable_pipeline; // pipeline switch
     Configuration conf; // peer conf
-    NodeUser* user; // user defined function [MUST]
+    StateMachine* fsm; // user defined function [MUST]
     LogStorage* log_storage; // user defined log storage
     StableStorage* stable_storage; // user defined manifest storage
 
@@ -200,28 +181,42 @@ struct NodeOptions {
         rpc_timeout(1000), max_append_entries(100),
         snapshot_interval(86400), snapshot_lowlevel_threshold(100000),
         snapshot_highlevel_threshold(10000000), enable_pipeline(false),
-        user(NULL), log_storage(NULL), stable_storage(NULL) {}
+        fsm(NULL), log_storage(NULL), stable_storage(NULL) {}
 };
 
 class NodeImpl;
 class Node {
 public:
-    Node(const GroupId& group_id, const PeerId& peer_id, const NodeOptions* option);
+    Node(const GroupId& group_id, const PeerId& peer_id);
     virtual ~Node();
 
-    virtual NodeId node_id();
-    PeerId leader();
+    // get node id
+    NodeId node_id();
+
+    // get leader PeerId, for redirect
+    PeerId leader_id();
+
+    // init node
+    int init(const NodeOptions& options);
+
+    // shutdown local replica
+    // done is user defined function, maybe response to client or clean some resource
+    // [NOTE] code after apply can't access resource in done
+    int shutdown(Closure* done);
 
     // apply data to replicated-state-machine [thread-safe]
     // done is user defined function, maybe response to client, transform to on_applied
+    // [NOTE] code after apply can't access resource in done
     int apply(const void* data, const int len, Closure* done);
 
     // add peer to replicated-state-machine [thread-safe]
     // done is user defined function, maybe response to client
+    // [NOTE] code after apply can't access resource in done
     int add_peer(const std::vector<PeerId>& old_peers, const PeerId& peer, Closure* done);
 
     // remove peer from replicated-state-machine [thread-safe]
     // done is user defined function, maybe response to client
+    // [NOTE] code after apply can't access resource in done
     int remove_peer(const std::vector<PeerId>& old_peers, const PeerId& peer, Closure* done);
 
     // set peer to local replica [thread-safe]
@@ -229,43 +224,8 @@ public:
     // only used in major node is down, reduce peerset to make group available
     int set_peer(const std::vector<PeerId>& old_peers, const std::vector<PeerId>& new_peers);
 
-    // shutdown local replica
-    // done is user defined function, maybe response to client or clean some resource
-    int shutdown(Closure* done);
-
-    NodeImpl* implement() {
-        return _impl;
-    }
 private:
     NodeImpl* _impl;
-};
-
-class NodeManager {
-public:
-    static NodeManager* GetInstance() {
-        return Singleton<NodeManager>::get();
-    }
-
-    // create raft node, group_id is user defined id's string format
-    // set NodeUser ptr in option to proc apply and snapshot
-    // set LogStorage/StableStorage ptr in option to define special storage
-    Node* create(const GroupId& group_id, const PeerId& server_id, const NodeOptions* option);
-
-    // destroy raft node
-    int destroy(Node* node);
-
-    // get Node by group_id
-    Node* get(const GroupId& group_id, const PeerId& peer_id);
-
-private:
-    NodeManager();
-    ~NodeManager();
-    DISALLOW_COPY_AND_ASSIGN(NodeManager);
-    friend struct DefaultSingletonTraits<NodeManager>;
-
-    bthread_mutex_t _mutex;
-    typedef std::map<NodeId, Node*> NodeMap;
-    NodeMap _nodes;
 };
 
 };

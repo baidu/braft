@@ -134,6 +134,10 @@ inline bool operator==(const NodeId& id1, const NodeId& id2) {
     return (id1.group_id == id2.group_id && id1.peer_id == id2.peer_id);
 }
 
+inline bool operator!=(const NodeId& id1, const NodeId& id2) {
+    return (id1.group_id != id2.group_id || id1.peer_id != id2.peer_id);
+}
+
 inline std::ostream& operator << (std::ostream& os, const NodeId& id) {
     char str[128];
     snprintf(str, sizeof(str), "%s:%s:%d", id.group_id.c_str(),

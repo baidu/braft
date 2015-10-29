@@ -17,11 +17,11 @@ namespace raft {
 FSMCaller::FSMCaller()
     : _node(NULL)
     , _log_manager(NULL)
-    , _node_user(NULL)
+    , _fsm(NULL)
     , _last_applied_index(0)
     , _last_committed_index(0)
     , _head(NULL)
-    , _processing(false) 
+    , _processing(false)
 {
     //TODO: need _node->AddRef()?
     CHECK_EQ(0, bthread_mutex_init(&_mutex, NULL));
@@ -32,13 +32,13 @@ FSMCaller::~FSMCaller() {
 }
 
 int FSMCaller::init(const FSMCallerOptions &options) {
-    if (options.log_manager == NULL || options.node_user == NULL
+    if (options.log_manager == NULL || options.fsm == NULL
             || options.last_applied_index < 0) {
-        return -1;
+        return EINVAL;
     }
     _node = options.node;
     _log_manager = options.log_manager;
-    _node_user = options.node_user;
+    _fsm = options.fsm;
     _last_applied_index = options.last_applied_index;
     _last_committed_index = options.last_applied_index;
     _head = NULL;
@@ -46,7 +46,7 @@ int FSMCaller::init(const FSMCallerOptions &options) {
     return 0;
 }
 
-bool FSMCaller::more_tasks(ContextWithIndex **head, 
+bool FSMCaller::more_tasks(ContextWithIndex **head,
                            int64_t *last_committed_index) {
     BAIDU_SCOPED_LOCK(_mutex);
     CHECK(_processing);
@@ -84,14 +84,18 @@ void* FSMCaller::call_user_fsm(void* arg) {
                 if (entry != NULL) {
                     switch (entry->type) {
                     case ENTRY_TYPE_DATA:
-                        caller->_node_user->apply(entry->data, entry->len, done);
+                        caller->_fsm->on_apply(entry->data, entry->len);
+                        if (done) {
+                            done->Run();
+                        }
                         break;
                     case ENTRY_TYPE_ADD_PEER:
                     case ENTRY_TYPE_REMOVE_PEER:
-                        // TODO(wangyao02): Notify that configuration change is
-                        // successfully executed
+                        // Notify that configuration change is successfully executed
                         caller->_node->on_configuration_change_done(entry->type, *(entry->peers));
-                        done->Run();
+                        if (done) {
+                            done->Run();
+                        }
                         break;
                     case ENTRY_TYPE_NO_OP:
                         break;
@@ -148,7 +152,7 @@ int FSMCaller::on_committed(int64_t committed_index, void *context) {
     }  // out of the critical section
     if (start_bthread) {
         bthread_t tid;
-        if (bthread_start_urgent(&tid, &BTHREAD_ATTR_NORMAL/*FIXME*/, 
+        if (bthread_start_urgent(&tid, &BTHREAD_ATTR_NORMAL/*FIXME*/,
                                  call_user_fsm, this) != 0) {
             LOG(ERROR) << "Fail to start bthread, " << berror();
             call_user_fsm(this);
@@ -158,9 +162,26 @@ int FSMCaller::on_committed(int64_t committed_index, void *context) {
     return 0;
 }
 
-int on_cleared(int64_t /*log_index*/, void* /*context*/, int /*error_code*/) {
-    // TODO:  handle failure;
-    LOG(WARNING) << "Not implemented yet";
+void* FSMCaller::call_cleared_cb(void* arg) {
+    Closure* done = (Closure*) arg;
+    done->Run();
+    return NULL;
+}
+
+int FSMCaller::on_cleared(int64_t log_index, void* context, int error_code) {
+    // handle failure, call apply/add_peer/remove_peer closure.
+    // here NOT need notify configuration change failed, on_cleared triggered by step_down.
+    // step_down will clear configuration change.
+    //
+    // TODO: need order with call_user_fsm?
+    bthread_t tid;
+    Closure* done = (Closure*) context;
+    done->set_error(error_code, "leader stepdown, may majority die");
+    if (bthread_start_urgent(&tid, &BTHREAD_ATTR_NORMAL/*FIXME*/,
+                             call_cleared_cb, context) != 0) {
+        LOG(ERROR) << "Fail to start bthread, " << berror();
+        call_cleared_cb(context);
+    }
     return 0;
 }
 

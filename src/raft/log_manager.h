@@ -7,6 +7,7 @@
 #define  PUBLIC_RAFT_LOG_MANAGER_H
 
 #include <base/macros.h>
+#include <deque>
 #include <bthread.h>
 
 #include "raft.h"

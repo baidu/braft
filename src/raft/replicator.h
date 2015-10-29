@@ -22,6 +22,8 @@ class NodeImpl;
 struct ReplicatorOptions {
     ReplicatorOptions();
     int64_t heartbeat_timeout_ms;
+    GroupId group_id;
+    PeerId server_id;
     PeerId peer_id;
     LogManager* log_manager;
     CommitmentManager* commit_manager;

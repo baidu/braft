@@ -8,21 +8,21 @@
 
 #include <base/macros.h>                        // BAIDU_CACHELINE_ALIGNMENT
 #include <base/containers/linked_list.h>        // base::LinkNode
-#include <bthread.h>    
+#include <bthread.h>
 #include "raft/commitment_manager.h"
 
 namespace raft {
 
 class NodeImpl;
 class LogManager;
-class NodeUser;
+class StateMachine;
 
 struct FSMCallerOptions {
     FSMCallerOptions() {}
     int64_t last_applied_index;
     NodeImpl* node;
     LogManager *log_manager;
-    NodeUser *node_user;
+    StateMachine *fsm;
 };
 
 class BAIDU_CACHELINE_ALIGNMENT FSMCaller : public CommitmentWaiter {
@@ -42,11 +42,12 @@ private:
     bool more_tasks(ContextWithIndex **head, int64_t* last_committed_index);
 
     static void* call_user_fsm(void* arg);
+    static void* call_cleared_cb(void* arg);
 
 
     NodeImpl *_node;
     LogManager *_log_manager;
-    NodeUser *_node_user;
+    StateMachine *_fsm;
     bthread_mutex_t _mutex;
     int64_t _last_applied_index;
     int64_t _last_committed_index;

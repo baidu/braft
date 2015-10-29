@@ -15,6 +15,8 @@
  *
  * =====================================================================================
  */
+#ifndef PUBLIC_RAFT_RAFT_UTIL_H
+#define PUBLIC_RAFT_RAFT_UTIL_H
 
 #include <base/scoped_lock.h>
 #include <base/rand_util.h>
@@ -64,3 +66,4 @@ inline int64_t random_timeout(int64_t timeout_ms) {
 
 }
 
+#endif //~PUBLIC_RAFT_RAFT_UTIL_H

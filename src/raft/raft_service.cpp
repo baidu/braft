@@ -37,14 +37,13 @@ void RaftServiceImpl::request_vote(google::protobuf::RpcController* cntl_base,
         cntl->SetFailed(baidu::rpc::SYS_EINVAL, "peer_id invalid");
         return;
     }
-    Node* node = NodeManager::GetInstance()->get(request->group_id(), peer_id);
+    NodeImpl* node = NodeManager::GetInstance()->get(request->group_id(), peer_id);
     if (BAIDU_UNLIKELY(!node)) {
         cntl->SetFailed(baidu::rpc::SYS_ENOENT, "peer_id not exist");
         return;
     }
 
-    NodeImpl* node_impl = node->implement();
-    int rc = node_impl->handle_request_vote_request(request, response);
+    int rc = node->handle_request_vote_request(request, response);
     if (BAIDU_UNLIKELY(rc != 0)) {
         //TODO:
         cntl->SetFailed("TODO");
@@ -65,14 +64,13 @@ void RaftServiceImpl::append_entries(google::protobuf::RpcController* cntl_base,
         cntl->SetFailed(baidu::rpc::SYS_EINVAL, "peer_id invalid");
         return;
     }
-    Node* node = NodeManager::GetInstance()->get(request->group_id(), peer_id);
+    NodeImpl* node = NodeManager::GetInstance()->get(request->group_id(), peer_id);
     if (BAIDU_UNLIKELY(!node)) {
         cntl->SetFailed(baidu::rpc::SYS_ENOENT, "peer_id not exist");
         return;
     }
 
-    NodeImpl* node_impl = node->implement();
-    int rc = node_impl->handle_append_entries_request(cntl->request_attachment(),
+    int rc = node->handle_append_entries_request(cntl->request_attachment(),
                                                       request, response);
     if (BAIDU_UNLIKELY(rc != 0)) {
         //TODO:
@@ -94,14 +92,13 @@ void RaftServiceImpl::install_snapshot(google::protobuf::RpcController* cntl_bas
         cntl->SetFailed(baidu::rpc::SYS_EINVAL, "peer_id invalid");
         return;
     }
-    Node* node = NodeManager::GetInstance()->get(request->group_id(), peer_id);
+    NodeImpl* node = NodeManager::GetInstance()->get(request->group_id(), peer_id);
     if (BAIDU_UNLIKELY(!node)) {
         cntl->SetFailed(baidu::rpc::SYS_ENOENT, "peer_id not exist");
         return;
     }
 
-    NodeImpl* node_impl = node->implement();
-    int rc = node_impl->handle_install_snapshot_request(request, response);
+    int rc = node->handle_install_snapshot_request(request, response);
     if (BAIDU_UNLIKELY(rc != 0)) {
         //TODO:
         cntl->SetFailed("TODO");

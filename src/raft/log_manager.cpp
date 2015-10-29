@@ -218,8 +218,8 @@ bool LogManager::check_and_set_configuration(std::pair<int64_t, Configuration>& 
         current = _config_manager->last_configuration();
         return true;
     }
-    //*/
     assert(current.first == last.first);
+    //*/
     return false;
 }
 

@@ -126,7 +126,7 @@ int CommitmentManager::set_last_committed_index(int64_t last_committed_index) {
     BAIDU_SCOPED_LOCK(_mutex);
     CHECK(_pending_index == 0 && _pending_apps.empty()) << "Must be called by follower";
     if (last_committed_index < _last_committed_index.load(boost::memory_order_relaxed)) {
-        return -1;
+        return EINVAL;
     }
     if (last_committed_index > _last_committed_index.load(boost::memory_order_relaxed)) {
         _last_committed_index.store(last_committed_index, boost::memory_order_release);
