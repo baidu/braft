@@ -924,6 +924,8 @@ int NodeImpl::handle_append_entries_request(base::IOBuf& data_buf,
                     }
                     CHECK((log_entry->type == ENTRY_TYPE_ADD_PEER
                             || log_entry->type == ENTRY_TYPE_REMOVE_PEER));
+                } else {
+                    CHECK_NE(entry.type(),  ENTRY_TYPE_ADD_PEER);
                 }
 
                 if (entry.has_data_len()) {

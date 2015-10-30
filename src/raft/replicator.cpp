@@ -190,12 +190,15 @@ void Replicator::_on_rpc_returned(ReplicatorId id, baidu::rpc::Controller* cntl,
         }
         // prev_log_index and prev_log_term doesn't match
         if (response->last_log_index() + 1 < r->_next_index) {
+            LOG(INFO) << "last_log_index at peer=" << r->_options.peer_id 
+                      << " is " << response->last_log_index();
             // the peer contains less logs than leader
             r->_next_index = response->last_log_index() + 1;
         } else {  
             // the peer contains logs from old term which should be truncated
             // decrease _last_log_at_peer by one to test the right index
             if (BAIDU_LIKELY(r->_next_index > 1)) {
+                LOG(INFO) << "log_index=" << r->_next_index << " dissmatch";
                 --r->_next_index;
             } else {
                 LOG(ERROR) << "Peer=" << r->_options.peer_id
@@ -210,6 +213,7 @@ void Replicator::_on_rpc_returned(ReplicatorId id, baidu::rpc::Controller* cntl,
     CHECK_EQ(response->term(), r->_options.term);
     // FIXME: move committing out of the critical section
     for (int i = 0; i < request->entries_size(); ++i) {
+        LOG(INFO) << "i=" << i;
         r->_options.commit_manager->set_stable_at_peer_reentrant(
                 r->_next_index + i, r->_options.peer_id);
     }
@@ -256,9 +260,12 @@ int Replicator::_prepare_entry(int offset, EntryMeta* em, base::IOBuf *data) {
     em->set_type(entry->type);
     // FIXME: why don't put peers in data?
     if (entry->peers != NULL) {
+        CHECK(!entry->peers->empty()) << "log_index=" << log_index;
         for (size_t i = 0; i < entry->peers->size(); ++i) {
             em->add_peers((*entry->peers)[i].to_string());
         }
+    } else {
+        CHECK(entry->type != ENTRY_TYPE_ADD_PEER) << "log_index=" << log_index;
     }
     em->set_data_len(entry->len);
     data->append(entry->data, entry->len);

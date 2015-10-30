@@ -40,7 +40,9 @@ public:
     int len; // data len
     void* data; // data ptr
 
-    LogEntry(): type(ENTRY_TYPE_UNKNOWN), index(0), term(0), peers(NULL), len(0), data(NULL) {}
+    LogEntry(): type(ENTRY_TYPE_UNKNOWN), index(0), term(0), peers(NULL), len(0), data(NULL) {
+        AddRef();
+    }
 
     void add_peer(const std::vector<PeerId>& peers_) {
         peers = new std::vector<PeerId>(peers_);

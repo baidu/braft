@@ -47,6 +47,7 @@ int CommitmentManager::set_stable_at_peer_reentrant(
     // FIXME(chenzhangyi01): The cricital section is unacceptable because it 
     // blocks all the other Replicators and LogManagers
     BAIDU_SCOPED_LOCK(_mutex);
+    LOG(INFO) << "_pending_index=" << _pending_index << " log_index=" << log_index;
     CHECK(_pending_index > 0);
     if (log_index < _pending_index) {
         return 0;
@@ -69,7 +70,7 @@ int CommitmentManager::set_stable_at_peer_reentrant(
     // removal request, we think it's safe the commit all the uncommitted 
     // previous logs which is not well proved right now
     // TODO: add vlog when committing previous logs
-    for (int64_t index = _pending_index; index <= log_index; ++log_index) {
+    for (int64_t index = _pending_index; index <= log_index; ++index) {
         PendingMeta *tmp = *_pending_apps.top();
         _pending_apps.pop();
         void *saved_context = tmp->context;
