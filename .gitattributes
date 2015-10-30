@@ -30,6 +30,7 @@ src/raft/node.cpp -text
 src/raft/node.h -text
 src/raft/protobuf_file.cpp -text
 src/raft/protobuf_file.h -text
+src/raft/raft.cpp -text
 src/raft/raft.h -text
 src/raft/raft_service.cpp -text
 src/raft/raft_service.h -text
