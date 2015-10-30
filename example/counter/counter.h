@@ -38,17 +38,20 @@ public:
 
     base::EndPoint leader();
 
+    base::EndPoint self();
+
     // FSM method
     virtual void on_apply(const void* data, const int len,
                           const int64_t index, raft::Closure* done);
+
+    virtual void on_shutdown();
 
     virtual int on_snapshot_save();
 
     virtual int on_snapshot_load();
 
-    virtual void on_shutdown();
-
-    virtual void on_state_change(raft::State old_state, raft::State new_state);
+    virtual void on_leader_start();
+    virtual void on_leader_stop();
 
     // user logic method
     int add(int64_t value, raft::Closure* done);

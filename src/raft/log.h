@@ -145,6 +145,7 @@ public:
         : LogStorage(path), _path(path),
         _committed_log_index(0), _start_log_index(1),
         _is_inited(false), _open_segment(NULL) {
+            AddRef();
     }
 
     // init logstorage, check consistency and integrity

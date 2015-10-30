@@ -129,7 +129,7 @@ class ReplicatorGroup {
 public:
     ReplicatorGroup();
     ~ReplicatorGroup();
-    int init(const ReplicatorGroupOptions&);
+    int init(const NodeId& node_id, const ReplicatorGroupOptions&);
     
     // Add a replicator attached with |peer|
     // will be a notification when the replicator catches up according to the

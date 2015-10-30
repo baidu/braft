@@ -34,7 +34,7 @@ INCPATHS('. ../../src ../../protocol ./include ./output ./output/include')
 #LIBS('./libcounter.a')
 
 #链接参数.
-LDFLAGS('-lpthread -lcrypto -lrt')
+LDFLAGS('-lpthread -lz -ldl -lrt')
 
 #依赖模块
 CONFIGS('lib2-64/ullib@base')
@@ -48,11 +48,12 @@ PROTOC('../../../../third-64/protobuf/bin/protoc')
 
 proto_sources='counter.proto'
 raft_sources = GLOB('../../protocol/raft/*.proto ../../src/raft/*.cpp')
-user_sources='counter_service.cpp counter.cpp main.cpp'
+user_sources='counter_service.cpp counter.cpp'
 user_headers=''
 
 #可执行文件
-Application('counter',Sources(user_sources, raft_sources, proto_sources))
+Application('counter_server',Sources('counter_server.cpp ', user_sources, raft_sources, proto_sources))
+Application('counter_client',Sources('counter_client.cpp ', user_sources, raft_sources, proto_sources))
 #静态库
 #StaticLibrary('counter',Sources(user_sources),HeaderFiles(user_headers))
 #共享库

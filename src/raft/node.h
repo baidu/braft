@@ -42,7 +42,6 @@ public:
     NodeImpl(const GroupId& group_id, const ReplicaId& replica_id);
 
     NodeId node_id() {
-        std::lock_guard<bthread_mutex_t> guard(_mutex);
         return NodeId(_group_id, _server_id);
     }
 
@@ -146,7 +145,8 @@ private:
         VoteCtx() {
             reset();
         }
-        VoteCtx(size_t peer_size) {
+
+        void set(size_t peer_size) {
             needed = peer_size / 2 + 1;
         }
 

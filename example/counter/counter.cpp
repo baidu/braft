@@ -43,6 +43,10 @@ base::EndPoint Counter::leader() {
     return _node.leader_id().addr;
 }
 
+base::EndPoint Counter::self() {
+    return _node.node_id().peer_id.addr;
+}
+
 int Counter::add(int64_t value, raft::Closure* done) {
     std::string request_str;
     AddRequest request;
@@ -68,6 +72,12 @@ void Counter::on_apply(const void* data, const int len, const int64_t index, raf
     bthread_mutex_unlock(&_mutex);
 }
 
+void Counter::on_shutdown() {
+    //TODO:
+    LOG(ERROR) << "Not Implement";
+    delete this;
+}
+
 int Counter::on_snapshot_save() {
     //TODO:
     LOG(ERROR) << "Not Implement";
@@ -80,13 +90,12 @@ int Counter::on_snapshot_load() {
     return ENOSYS;
 }
 
-void Counter::on_shutdown() {
-    //TODO:
+void Counter::on_leader_start() {
+    //TODO
     LOG(ERROR) << "Not Implement";
-    delete this;
 }
 
-void Counter::on_state_change(raft::State old_state, raft::State new_state) {
+void Counter::on_leader_stop() {
     //TODO
     LOG(ERROR) << "Not Implement";
 }

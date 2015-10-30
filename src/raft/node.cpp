@@ -151,6 +151,13 @@ int NodeImpl::init(const NodeOptions& options) {
     }
 
     _inited = true;
+    LOG(NOTICE) << "node " << _group_id << ":" << _server_id << " init,"
+        << " term: " << _current_term
+        << " last_log_index: " << _log_manager->last_log_index()
+        << " conf: " << _conf.second;
+    if (!_conf.second.empty()) {
+        step_down(_current_term);
+    }
     return ret;
 }
 
@@ -400,6 +407,7 @@ void NodeImpl::shutdown(Closure* done) {
 
     std::lock_guard<bthread_mutex_t> guard(_mutex);
 
+    //TODO: stop timer?
     // stop disk thread, replicator in step_down
     if (_state != FOLLOWER) {
         step_down(_current_term);
@@ -494,6 +502,7 @@ void NodeImpl::handle_request_vote_response(const PeerId& peer_id, const int64_t
         << " term " << response.term() << " granted " << response.granted();
     // check granted quorum?
     if (response.granted()) {
+        LOG(DEBUG) << "node " << _group_id << ":" << peer_id << " grant vote";
         _vote_ctx.grant(peer_id);
         if (_vote_ctx.quorum()) {
             become_leader();
@@ -559,7 +568,11 @@ void NodeImpl::elect_self() {
 
     std::vector<PeerId> peers;
     _conf.second.peer_vector(&peers);
+    _vote_ctx.set(peers.size());
     for (size_t i = 0; i < peers.size(); i++) {
+        if (peers[i] == _server_id) {
+            continue;
+        }
         baidu::rpc::ChannelOptions options;
         options.connection_type = baidu::rpc::CONNECTION_TYPE_SINGLE;
         options.max_retry = 0;
@@ -582,6 +595,7 @@ void NodeImpl::elect_self() {
         stub.request_vote(&done->cntl, &request, &done->response, done);
     }
 
+    LOG(DEBUG) << "node " << _group_id << ":" << _server_id << " grant vote";
     _vote_ctx.grant(_server_id);
     //TODO: outof lock
     _stable_storage->set_term_and_votedfor(_current_term, _server_id);
@@ -600,9 +614,7 @@ void NodeImpl::step_down(const int64_t term) {
         } else {
             CHECK(ret == 1);
         }
-    } else {
-        CHECK(_state == LEADER);
-
+    } else if (_state == LEADER) {
         _commit_manager->clear_pending_applications();
 
         // stop disk thread
@@ -638,7 +650,8 @@ void NodeImpl::step_down(const int64_t term) {
 void NodeImpl::become_leader() {
     CHECK(_state == CANDIDATE);
     // cancel candidate vote timer
-    LOG(DEBUG) << "node " << _group_id << ":" << _server_id << " stop vote_timer";
+    LOG(DEBUG) << "node " << _group_id << ":" << _server_id << " become term " << _current_term
+        << " leader, stop vote_timer";
     int ret = bthread_timer_del(_vote_timer);
     if (0 == ret) {
         Release();
@@ -664,14 +677,18 @@ void NodeImpl::become_leader() {
     options.commit_manager = _commit_manager;
     options.node = this;
     options.term = _current_term;
-    _replicator_group.init(options);
+    _replicator_group.init(NodeId(_group_id, _server_id), options);
 
     std::vector<PeerId> peers;
     _conf.second.peer_vector(&peers);
     for (size_t i = 0; i < peers.size(); i++) {
-        if (peers[i] != _server_id) {
-            _replicator_group.add_replicator(peers[i]);
+        if (peers[i] == _server_id) {
+            continue;
         }
+
+        LOG(DEBUG) << "node " << _group_id << ":" << _server_id
+            << " add replicator " << peers[i];
+        _replicator_group.add_replicator(peers[i]);
     }
 
     // init commit manager
@@ -885,7 +902,7 @@ int NodeImpl::handle_append_entries_request(base::IOBuf& data_buf,
                     // check same index entry's term when duplicated rpc
                     continue;
                 }
-                
+
                 int64_t last_index_kept = index - 1;
                 LOG(WARNING) << "node " << _group_id << ":" << _server_id
                     << " truncate from " << _log_manager->last_log_index()
@@ -967,7 +984,6 @@ int NodeManager::init(const char* ip_str, int start_port, int end_port) {
         LOG(FATAL) << "Add Raft Service Failed.";
         return EINVAL;
     }
-    return init();
     if (0 != _server.Start(ip_str, start_port, end_port, &server_options)) {
         LOG(FATAL) << "Start Raft Server Failed.";
         return EINVAL;

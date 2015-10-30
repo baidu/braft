@@ -168,6 +168,7 @@ void Replicator::_on_rpc_returned(ReplicatorId id, baidu::rpc::Controller* cntl,
         return;
     }
     if (cntl->Failed()) {
+        LOG(ERROR) << "rpc error: " << cntl->ErrorText();
         // FIXME(chenzhangyi01): if the follower crashes, any RPC to the
         // follower fails immediately, so we need to block the follower for a
         // while instead of looping until it comes back or be removed
@@ -402,13 +403,12 @@ ReplicatorGroup::~ReplicatorGroup() {
     stop_all();
 }
 
-int ReplicatorGroup::init(const ReplicatorGroupOptions& options) {
+int ReplicatorGroup::init(const NodeId& node_id, const ReplicatorGroupOptions& options) {
     _common_options.heartbeat_timeout_ms = options.heartbeat_timeout_ms;
     _common_options.log_manager = options.log_manager;
     _common_options.commit_manager = options.commit_manager;
     _common_options.node = options.node;
     _common_options.term = options.term;
-    NodeId node_id = options.node->node_id();
     _common_options.group_id = node_id.group_id;
     _common_options.server_id = node_id.peer_id;
     return 0;
@@ -416,6 +416,7 @@ int ReplicatorGroup::init(const ReplicatorGroupOptions& options) {
 
 int ReplicatorGroup::_add_replicator(const PeerId& peer, ReplicatorId *id) {
     ReplicatorOptions options = _common_options;
+    options.peer_id = peer;
     ReplicatorId rid;
     if (Replicator::start(options, &rid) != 0) {
         LOG(ERROR) << "Fail to start replicator to peer=" << peer;
