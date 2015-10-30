@@ -26,9 +26,11 @@ public:
     ~LogManager();
     int init(const LogManagerOptions& options);
 
+    void shutdown();
+
     // Start a independent thread to append log to LogStorage
     int start_disk_thread();
-    int stop_dist_thread();
+    int stop_disk_thread();
 
     // Append a log entry and wait until it's stable (NOT COMMITTED!)
     int append_entry(LogEntry* log_entry);
@@ -103,6 +105,7 @@ private:
     // TODO(chenzhangyi01): replace deque with a thread-safe data struture
     std::deque<LogEntry* /*FIXME*/> _logs_in_memory;
     int64_t _last_log_index;
+    bool _stopped;
 };
 
 }  // namespace raft

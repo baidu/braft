@@ -29,29 +29,42 @@
 
 namespace raft {
 
-NodeImpl::NodeImpl(const GroupId& group_id, const PeerId& server_id, const NodeOptions* options)
-    : _group_id(group_id), _server_id(server_id),
+NodeImpl::NodeImpl(const GroupId& group_id, const ReplicaId& replica_id)
+    : _inited(false), _group_id(group_id),
     _state(FOLLOWER), _current_term(0),
     _last_snapshot_term(0), _last_snapshot_index(0),
     _last_leader_timestamp(base::monotonic_time_ms()),
     _log_storage(NULL), _stable_storage(NULL),
     _config_manager(NULL), _log_manager(NULL),
-    _fsm_caller(NULL), _commit_manager(NULL),
-    _ref_count(0) {
+    _fsm_caller(NULL), _commit_manager(NULL) {
 
-        add_ref();
-        if (options) {
-            _options = *options;
-        }
+        _server_id = PeerId(NodeManager::GetInstance()->address(), replica_id);
+        AddRef();
         bthread_mutex_init(&_mutex, NULL);
 }
 
 NodeImpl::~NodeImpl() {
     bthread_mutex_destroy(&_mutex);
+
+    _config_manager->Release();
+    delete _log_manager;
+    delete _fsm_caller;
+    delete _commit_manager;
+
+    //TODO: should delete user input ptr?
+    delete _log_storage;
+    delete _stable_storage;
 }
 
-int NodeImpl::init() {
+int NodeImpl::init(const NodeOptions& options) {
+    if (NodeManager::GetInstance()->address() == base::EndPoint(base::IP_ANY, 0)) {
+        LOG(FATAL) << "Raft Server not inited.";
+        return EINVAL;
+    }
+
     int ret = 0;
+
+    _options = options;
 
     _config_manager = new ConfigurationManager();
 
@@ -107,14 +120,13 @@ int NodeImpl::init() {
 
         //TODO: read snapshot
 
-        // fsm caller init
+        // fsm caller init, node AddRef in init
         _fsm_caller = new FSMCaller();
         FSMCallerOptions fsm_caller_options;
-        //TODO: node add ref?
         fsm_caller_options.last_applied_index = 0; //TODO: get from snapshot or log
         fsm_caller_options.node = this;
         fsm_caller_options.log_manager = _log_manager;
-        fsm_caller_options.node_user = _options.user;
+        fsm_caller_options.fsm = _options.fsm;
         ret = _fsm_caller->init(fsm_caller_options);
         if (ret != 0) {
             break;
@@ -123,7 +135,7 @@ int NodeImpl::init() {
         // commitment manager init
         _commit_manager = new CommitmentManager();
         CommitmentManagerOptions commit_manager_options;
-        commit_manager_options.max_pending_size = 1000; //TODO
+        commit_manager_options.max_pending_size = 1000; //TODO0
         commit_manager_options.waiter = _fsm_caller;
         commit_manager_options.last_committed_index = 0; //TODO: get from snapshot or log
         ret = _commit_manager->init(commit_manager_options);
@@ -132,12 +144,23 @@ int NodeImpl::init() {
         }
     } while (0);
 
+    // add node to NodeManager
+    if (ret == 0 && !NodeManager::GetInstance()->add(this)) {
+        LOG(WARNING) << "NodeManager add " << _group_id << ":" << _server_id << "failed, exist";
+        ret = EEXIST;
+    }
+
+    _inited = true;
     return ret;
 }
 
 int NodeImpl::apply(const void* data, const int len, Closure* done) {
     std::lock_guard<bthread_mutex_t> guard(_mutex);
 
+    if (!_inited) {
+        LOG(WARNING) << "node " << _group_id << ":" << _server_id << " not inited";
+        return EINVAL;
+    }
     if (_state != LEADER) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id << " can't apply not in LEADER";
         return EINVAL;
@@ -147,7 +170,7 @@ int NodeImpl::apply(const void* data, const int len, Closure* done) {
     entry->term = _current_term;
     entry->type = ENTRY_TYPE_DATA;
     entry->len = len;
-    entry->data = (void*)data; //FIXME
+    entry->data = (void*)data;
     return append(entry, done);
 }
 
@@ -166,8 +189,8 @@ void NodeImpl::on_configuration_change_done(const EntryType type,
         // remove_peer will stop peer replicator or shutdown
         if (!_conf.second.contain(_server_id)) {
             //TODO: shutdown?
-            step_down(_current_term);
             _conf.second.reset();
+            step_down(_current_term);
         } else {
             Configuration old_conf(_conf_ctx.peers);
             for (size_t i = 0; i < new_peers.size(); i++) {
@@ -186,7 +209,7 @@ void NodeImpl::on_configuration_change_done(const EntryType type,
 static void on_peer_caught_up(void* arg, const PeerId& pid, const int error_code, Closure* done) {
     NodeImpl* node = static_cast<NodeImpl*>(arg);
     node->on_caughtup_done(pid, error_code, done);
-    node->release();
+    node->Release();
 }
 
 void NodeImpl::on_caughtup_done(const PeerId& peer, int error_code, Closure* done) {
@@ -209,14 +232,14 @@ void NodeImpl::on_caughtup_done(const PeerId& peer, int error_code, Closure* don
 
         LOG(NOTICE) << "success, then append add_peer entry.";
     } else {
-        _replicator_group.stop_replicator(peer);
-        // call user function
+        // call user function, on_caught_up run in bthread created in replicator
         Configuration old_conf(_conf_ctx.peers);
-        done->set_error(error_code);
-        //TODO: call in bthread?
+        done->set_error(error_code, "caughtup failed");
         done->Run();
         _conf_ctx.reset();
 
+        // stop_replicator after call user function, make bthread_id in replicator available
+        _replicator_group.stop_replicator(peer);
         LOG(NOTICE) << "failed: " << error_code;
     }
 
@@ -227,6 +250,11 @@ int NodeImpl::add_peer(const std::vector<PeerId>& old_peers, const PeerId& peer,
                        Closure* done) {
     std::lock_guard<bthread_mutex_t> guard(_mutex);
 
+    // check init
+    if (!_inited) {
+        LOG(WARNING) << "node " << _group_id << ":" << _server_id << " not inited";
+        return EINVAL;
+    }
     // check state
     if (_state != LEADER) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id << " can't apply not in LEADER";
@@ -254,13 +282,13 @@ int NodeImpl::add_peer(const std::vector<PeerId>& old_peers, const PeerId& peer,
         << " to " << _conf.second << ", begin caughtup.";
 
     // catch up new peer
-    add_ref();
+    AddRef();
     OnCaughtUp caught_up;
-    timespec due_time = base::microseconds_from_now(_options.election_timeout * 10); // TODO
+    timespec due_time = base::microseconds_from_now(_options.election_timeout * 10); // TODO0
     caught_up.on_caught_up = on_peer_caught_up;
     caught_up.done = done;
     caught_up.arg = this;
-    caught_up.min_margin = 1000; //TODO
+    caught_up.min_margin = 1000; //TODO0
     _replicator_group.add_replicator(peer, caught_up, &due_time);
 
     return 0;
@@ -270,6 +298,11 @@ int NodeImpl::remove_peer(const std::vector<PeerId>& old_peers, const PeerId& pe
                           Closure* done) {
     std::lock_guard<bthread_mutex_t> guard(_mutex);
 
+    // check inited
+    if (!_inited) {
+        LOG(WARNING) << "node " << _group_id << ":" << _server_id << " not inited";
+        return EINVAL;
+    }
     // check state
     if (_state != LEADER) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id << " can't apply not in LEADER";
@@ -314,6 +347,11 @@ int NodeImpl::remove_peer(const std::vector<PeerId>& old_peers, const PeerId& pe
 int NodeImpl::set_peer(const std::vector<PeerId>& old_peers, const std::vector<PeerId>& new_peers) {
     std::lock_guard<bthread_mutex_t> guard(_mutex);
 
+    // check inited
+    if (!_inited) {
+        LOG(WARNING) << "node " << _group_id << ":" << _server_id << " not inited";
+        return EINVAL;
+    }
     // check bootstrap
     if (_conf.second.empty() && old_peers.size() == 0) {
         Configuration new_conf(new_peers);
@@ -323,7 +361,6 @@ int NodeImpl::set_peer(const std::vector<PeerId>& old_peers, const std::vector<P
         step_down(1);
         return 0;
     }
-
     // check concurrent conf change
     if (_state == LEADER && !_conf_ctx.empty()) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id << " remove_peer need wait "
@@ -357,23 +394,31 @@ int NodeImpl::set_peer(const std::vector<PeerId>& old_peers, const std::vector<P
     return 0;
 }
 
-int NodeImpl::shutdown(Closure* done) {
-    //TODO:
-    //_log_storage
-    //_log_manager
-    //_stable_storage
-    //_config_manager
-    //_fsm_caller
-    //_commit_manager
+void NodeImpl::shutdown(Closure* done) {
+    // remove node from NodeManager
+    NodeManager::GetInstance()->remove(this);
 
-    return 0;
+    std::lock_guard<bthread_mutex_t> guard(_mutex);
+
+    // stop disk thread, replicator in step_down
+    if (_state != FOLLOWER) {
+        step_down(_current_term);
+    }
+
+    // stop replicator and fsm_caller wait
+    _log_manager->shutdown();
+
+    // step_down will call _commitment_manager->clear_pending_applications(),
+    // this can avoid send LogEntry with closure to fsm_caller.
+    // fsm_caller shutdown will not leak user's closure.
+    _fsm_caller->shutdown(done);
 }
 
 static void on_election_timer(void* arg) {
     NodeImpl* node = static_cast<NodeImpl*>(arg);
 
     node->handle_election_timeout();
-    node->release();
+    node->Release();
 }
 
 void NodeImpl::handle_election_timeout() {
@@ -385,7 +430,7 @@ void NodeImpl::handle_election_timeout() {
     }
     // check timestamp
     if (base::monotonic_time_ms() - _last_leader_timestamp < _options.election_timeout) {
-        add_ref();
+        AddRef();
         int64_t election_timeout = random_timeout(_options.election_timeout);
         bthread_timer_add(&_election_timer, base::milliseconds_from_now(election_timeout),
                           on_election_timer, this);
@@ -402,7 +447,7 @@ static void on_vote_timer(void* arg) {
     NodeImpl* node = static_cast<NodeImpl*>(arg);
 
     node->handle_vote_timeout();
-    node->release();
+    node->Release();
 }
 
 void NodeImpl::handle_vote_timeout() {
@@ -458,17 +503,17 @@ void NodeImpl::handle_request_vote_response(const PeerId& peer_id, const int64_t
 struct OnRequestVoteRPCDone : public google::protobuf::Closure {
     OnRequestVoteRPCDone(const PeerId& peer_id_, const int64_t term_, NodeImpl* node_)
         : peer(peer_id_), term(term_), node(node_) {
-            node->add_ref();
+            node->AddRef();
     }
     virtual ~OnRequestVoteRPCDone() {}
     void Run() {
         if (cntl.ErrorCode() != 0) {
-            LOG(WARNING) << "node " << node->group_id() << ":" << node->server_id()
+            LOG(WARNING) << "node " << node->node_id()
                 << " RequestVote to " << peer << " error: " << cntl.ErrorText();
             return;
         }
         node->handle_request_vote_response(peer, term, response);
-        node->release();
+        node->Release();
     }
     PeerId peer;
     int64_t term;
@@ -496,9 +541,9 @@ void NodeImpl::elect_self() {
         LOG(DEBUG) << "node " << _group_id << ":" << _server_id << " stop elect_timer";
         int ret = bthread_timer_del(_election_timer);
         if (ret == 0) {
-            release();
+            Release();
         } else {
-            assert(ret == 1);
+            CHECK(ret == 1);
         }
     }
     _state = CANDIDATE;
@@ -506,7 +551,7 @@ void NodeImpl::elect_self() {
     _voted_id = _server_id;
     _vote_ctx.reset();
 
-    add_ref();
+    AddRef();
     int64_t vote_timeout = random_timeout(std::max(_options.election_timeout / 10, 1));
     bthread_timer_add(&_vote_timer, base::milliseconds_from_now(vote_timeout), on_vote_timer, this);
     LOG(DEBUG) << "node " << _group_id << ":" << _server_id << " start vote_timer";
@@ -550,13 +595,18 @@ void NodeImpl::step_down(const int64_t term) {
         LOG(DEBUG) << "node " << _group_id << ":" << _server_id << " stop vote_timer";
         int ret = bthread_timer_del(_vote_timer);
         if (0 == ret) {
-            release();
+            Release();
         } else {
-            assert(ret == 1);
+            CHECK(ret == 1);
         }
     } else {
-        assert(_state == LEADER);
+        CHECK(_state == LEADER);
+
         _commit_manager->clear_pending_applications();
+
+        // stop disk thread
+        // TODO: node Release?
+        _log_manager->stop_disk_thread();
     }
 
     _state = FOLLOWER;
@@ -569,7 +619,7 @@ void NodeImpl::step_down(const int64_t term) {
 
     // no empty configuration, start election timer
     if (!_conf.second.empty() && _conf.second.contain(_server_id)) {
-        add_ref();
+        AddRef();
         int64_t election_timeout = random_timeout(_options.election_timeout);
         bthread_timer_add(&_election_timer, base::milliseconds_from_now(election_timeout),
                           on_election_timer, this);
@@ -578,27 +628,34 @@ void NodeImpl::step_down(const int64_t term) {
 
     // stop stagging new node
     _replicator_group.stop_all();
-
-    // TODO: wait disk thread empty
 }
 
 // in lock
 void NodeImpl::become_leader() {
-    assert(_state == CANDIDATE);
+    CHECK(_state == CANDIDATE);
     // cancel candidate vote timer
     LOG(DEBUG) << "node " << _group_id << ":" << _server_id << " stop vote_timer";
-    bthread_timer_del(_vote_timer);
-    release();
+    int ret = bthread_timer_del(_vote_timer);
+    if (0 == ret) {
+        Release();
+    } else {
+        CHECK(ret == 1);
+    }
 
     _state = LEADER;
     _leader_id = _server_id;
 
-    //TODO: add lease timer to check contact timestamp to step down
+    //TODO1: add lease timer to check contact timestamp to step down
     //bthread_timer_add(&_lease_timer, base::milliseconds_from_now(_options.election_timeout),
     //                  on_election_timer, this);
 
+    // init disk thread
+    // TODO: node AddRef?
+    _log_manager->start_disk_thread();
+
+    // init replicator
     ReplicatorGroupOptions options;
-    options.heartbeat_timeout_ms = _options.heartbeat_period;
+    options.heartbeat_timeout_ms = std::max(_options.election_timeout / 10, 10);
     options.log_manager = _log_manager;
     options.commit_manager = _commit_manager;
     options.node = this;
@@ -613,6 +670,7 @@ void NodeImpl::become_leader() {
         }
     }
 
+    // init commit manager
     _commit_manager->reset_pending_index(_log_manager->last_log_index() + 1);
 
     // leader add peer first, as set_peer's configuration change log
@@ -627,16 +685,16 @@ void NodeImpl::become_leader() {
 
 static int on_leader_stable(void* arg, int64_t log_index, int error_code) {
     NodeImpl* node = static_cast<NodeImpl*>(arg);
-    //TODO
+    //TODO2: proc error_code
     int ret = 0;
     if (error_code == 0) {
-        ret = node->advance_commit_index(PeerId(), log_index);
+        node->advance_commit_index(PeerId(), log_index);
     }
-    node->release();
+    node->Release();
     return ret;
 }
 
-int NodeImpl::advance_commit_index(const PeerId& peer_id, const int64_t log_index) {
+void NodeImpl::advance_commit_index(const PeerId& peer_id, const int64_t log_index) {
     std::lock_guard<bthread_mutex_t> guard(_mutex);
     if (peer_id.is_empty()) {
         // leader thread
@@ -647,7 +705,6 @@ int NodeImpl::advance_commit_index(const PeerId& peer_id, const int64_t log_inde
     }
 
     // commit_manager check quorum ok, will call fsm_caller
-    return 0;
 }
 
 int NodeImpl::append(LogEntry* entry, Closure* done) {
@@ -659,8 +716,8 @@ int NodeImpl::append(LogEntry* entry, Closure* done) {
         _conf.second.peer_vector(&old_peers);
         _commit_manager->append_pending_application(Configuration(*(entry->peers)), done);
     }
-    //TODO: check log_manager return code
-    add_ref();
+    //TODO2: check log_manager return code
+    AddRef();
     _log_manager->append(entry, on_leader_stable, this);
     if (_log_manager->check_and_set_configuration(_conf)) {
         _conf_ctx.set(old_peers);
@@ -673,6 +730,7 @@ int NodeImpl::append(const std::vector<LogEntry*>& entries) {
     if (entries.size() == 0) {
         return 0;
     }
+    //TODO2: proc return
     int ret = _log_manager->append_entries(entries);
     if (ret != 0) {
         return ret;
@@ -687,7 +745,6 @@ int NodeImpl::handle_request_vote_request(const RequestVoteRequest* request,
                                           RequestVoteResponse* response) {
     std::lock_guard<bthread_mutex_t> guard(_mutex);
 
-    //TODO: leader call _log_manager->xxx() after stepdown() ?
     int64_t last_log_index = _log_manager->last_log_index();
     int64_t last_log_term = this->last_log_term();
     bool log_is_ok = (request->last_log_term() > last_log_term ||
@@ -698,7 +755,7 @@ int NodeImpl::handle_request_vote_request(const RequestVoteRequest* request,
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
             << " received RequestVote from " << request->server_id()
             << " server_id bad format";
-        return baidu::rpc::SYS_EINVAL;
+        return EINVAL;
     }
 
     do {
@@ -756,7 +813,7 @@ int NodeImpl::handle_append_entries_request(base::IOBuf& data_buf,
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
             << " received RequestVote from " << request->server_id()
             << " server_id bad format";
-        return baidu::rpc::SYS_EINVAL;
+        return EINVAL;
     }
 
     bool success = false;
@@ -843,7 +900,8 @@ int NodeImpl::handle_append_entries_request(base::IOBuf& data_buf,
                     for (int i = 0; i < entry.peers_size(); i++) {
                         log_entry->peers->push_back(entry.peers(i));
                     }
-                    assert((log_entry->type == ADD_PEER || log_entry->type == REMOVE_PEER));
+                    CHECK((log_entry->type == ENTRY_TYPE_ADD_PEER
+                            || log_entry->type == ENTRY_TYPE_REMOVE_PEER));
                 }
 
                 if (entry.has_data_len()) {
@@ -857,7 +915,7 @@ int NodeImpl::handle_append_entries_request(base::IOBuf& data_buf,
                 entries.push_back(log_entry);
             }
         }
-        //TODO: outof lock, check return
+        //TODO2: outof lock, check return
         int ret = append(entries);
     } while (0);
 
@@ -882,7 +940,7 @@ int NodeImpl::handle_install_snapshot_request(const InstallSnapshotRequest* requ
 int NodeImpl::increase_term_to(int64_t new_term) {
     std::lock_guard<bthread_mutex_t> guard(_mutex);
     if (new_term <= _current_term) {
-        return -1;
+        return EINVAL;
     }
     step_down(new_term);
     return 0;
@@ -896,34 +954,55 @@ NodeManager::~NodeManager() {
     bthread_mutex_destroy(&_mutex);
 }
 
-Node* NodeManager::create(const GroupId& group_id, const PeerId& peer_id,
-                          const NodeOptions* option) {
-    Node* node = NULL;
+int NodeManager::init(const char* ip_str, int start_port, int end_port) {
     std::lock_guard<bthread_mutex_t> guard(_mutex);
-    NodeId node_id(group_id, peer_id);
-    NodeMap::iterator it = _nodes.find(node_id);
-    if (it == _nodes.end()) {
-        node = new Node(group_id, peer_id, option);
-        _nodes.insert(std::pair<NodeId, Node*>(node_id, node));
-    } else {
-        LOG(WARNING) << "node exist " << peer_id;
-    }
-    return node;
-}
 
-int NodeManager::destroy(Node* node) {
-    {
-        std::lock_guard<bthread_mutex_t> guard(_mutex);
-        _nodes.erase(node->node_id());
+    baidu::rpc::ServerOptions server_options;
+    if (0 != _server.AddService(&_service_impl, baidu::rpc::SERVER_DOESNT_OWN_SERVICE)) {
+        LOG(FATAL) << "Add Raft Service Failed.";
+        return EINVAL;
     }
-    //TODO: call node->shutdown()
-    delete node;
-    //node->release();
+    if (0 != _server.Start(ip_str, start_port, end_port, &server_options)) {
+        LOG(FATAL) << "Start Raft Server Failed.";
+        return EINVAL;
+    }
+
+    _address = _server.listen_address();
+    if (_address.ip == base::IP_ANY) {
+        _address.ip = base::get_host_ip();
+    }
     return 0;
 }
 
-Node* NodeManager::get(const GroupId& group_id, const PeerId& peer_id) {
+base::EndPoint NodeManager::address() {
     std::lock_guard<bthread_mutex_t> guard(_mutex);
+
+    return _address;
+}
+
+bool NodeManager::add(NodeImpl* node) {
+    std::lock_guard<bthread_mutex_t> guard(_mutex);
+
+    NodeId node_id = node->node_id();
+    NodeMap::iterator it = _nodes.find(node_id);
+    bool success = true;
+    if (it == _nodes.end()) {
+        _nodes.insert(std::pair<NodeId, NodeImpl*>(node_id, node));
+    } else {
+        success = false;
+    }
+    return success;
+}
+
+void NodeManager::remove(NodeImpl* node) {
+    std::lock_guard<bthread_mutex_t> guard(_mutex);
+
+    _nodes.erase(node->node_id());
+}
+
+NodeImpl* NodeManager::get(const GroupId& group_id, const PeerId& peer_id) {
+    std::lock_guard<bthread_mutex_t> guard(_mutex);
+
     NodeMap::iterator it = _nodes.find(NodeId(group_id, peer_id));
     if (it != _nodes.end()) {
         return it->second;
@@ -933,3 +1012,4 @@ Node* NodeManager::get(const GroupId& group_id, const PeerId& peer_id) {
 }
 
 }
+

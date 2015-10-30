@@ -52,6 +52,11 @@ Replicator::Replicator() {
 }
 
 Replicator::~Replicator() {
+    // bind lifecycle with node, Release
+    if (_options.node) {
+        _options.node->Release();
+        _options.node = NULL;
+    }
 }
 
 int Replicator::start(const ReplicatorOptions& options, ReplicatorId *id) {
@@ -74,6 +79,10 @@ int Replicator::start(const ReplicatorOptions& options, ReplicatorId *id) {
         LOG(ERROR) << "Fail to init sending channel";
         return -1;
     }
+
+    // bind lifecycle with node, AddRef
+    options.node->AddRef();
+
     r->_options = options;
     r->_next_index = r->_options.log_manager->last_log_index() + 1;
     if (bthread_id_create(&r->_id, r.get(), _on_failed) != 0) {
@@ -171,11 +180,11 @@ void Replicator::_on_rpc_returned(ReplicatorId id, baidu::rpc::Controller* cntl,
             // Acquire a reference of Node here incase that Node is detroyed
             // after _notify_on_caught_up. Not increase reference count in
             // start() to avoid the circular reference issue
-            node_impl->add_ref();
-            r->_notify_on_caught_up(EPERM, true);
+            node_impl->AddRef();
             bthread_id_unlock_and_destroy(dummy_id);
+            r->_notify_on_caught_up(EPERM, true);
             node_impl->increase_term_to(response->term());
-            node_impl->release();
+            node_impl->Release();
             return;
         }
         // prev_log_index and prev_log_term doesn't match

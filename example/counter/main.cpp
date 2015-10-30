@@ -90,12 +90,19 @@ int main(int argc, char* argv[]) {
     addr.ip = base::get_host_ip();
     addr.port = FLAGS_port;
 
-    counter::Counter* counter = new counter::Counter(FLAGS_name, raft::PeerId(addr));
+    // init raft
+    if (0 != raft::init_raft(NULL)) {
+        LOG(FATAL) << "Fail to init raft";
+        return -1;
+    }
+
+    // init counter
+    counter::Counter* counter = new counter::Counter(FLAGS_name, 0);
     raft::NodeOptions node_options;
     node_options.fsm = counter;
     node_options.conf = raft::Configuration(peers);
     if (0 != counter->init(node_options)) {
-        LOG(FATAL) << "Fail to init";
+        LOG(FATAL) << "Fail to init node";
         return -1;
     }
 

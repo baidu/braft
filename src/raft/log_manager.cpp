@@ -18,7 +18,7 @@ LogManagerOptions::LogManagerOptions()
 {}
 
 LogManager::LogManager()
-    : _log_storage(NULL)
+    : _log_storage(NULL), _stopped(false)
 {
     CHECK_EQ(0, bthread_id_list_init(&_wait_list, 16/*FIXME*/, 16));
     CHECK_EQ(0, bthread_mutex_init(&_mutex, NULL));
@@ -46,12 +46,12 @@ LogManager::~LogManager() {
 
 int LogManager::start_disk_thread() {
     LOG(WARNING) << "Not implement yet";
-    return 0;
+    return ENOSYS;
 }
 
-int LogManager::stop_dist_thread() {
+int LogManager::stop_disk_thread() {
     LOG(WARNING) << "Not implement yet";
-    return 0;
+    return ENOSYS;
 }
 
 int64_t LogManager::first_log_index() {
@@ -236,6 +236,13 @@ int on_notified(bthread_id_t id, void *arg, int rc) {
     return bthread_id_unlock_and_destroy(id);
 }
 
+void LogManager::shutdown() {
+    bthread_mutex_lock(&_mutex);
+    bthread_id_list_reset(&_wait_list, ESTOP);
+    _stopped = true;
+    bthread_mutex_unlock(&_mutex);
+}
+
 int LogManager::wait(int64_t expected_last_log_index,
                      const timespec *due_time) {
     int return_code = 0;
@@ -319,7 +326,7 @@ void LogManager::wait(int64_t expected_last_log_index,
 void LogManager::notify_on_new_log(int64_t expected_last_log_index,
                                    bthread_id_t wait_id) {
     bthread_mutex_lock(&_mutex);
-    if (expected_last_log_index != _last_log_index) {
+    if (expected_last_log_index != _last_log_index && _stopped) {
         bthread_mutex_unlock(&_mutex);
         bthread_id_error(wait_id, 0);
         return;

@@ -22,8 +22,9 @@ FSMCaller::FSMCaller()
     , _last_committed_index(0)
     , _head(NULL)
     , _processing(false)
+    , _state(NORMAL)
+    , _shutdown_done(NULL)
 {
-    //TODO: need _node->AddRef()?
     CHECK_EQ(0, bthread_mutex_init(&_mutex, NULL));
 }
 
@@ -37,13 +38,44 @@ int FSMCaller::init(const FSMCallerOptions &options) {
         return EINVAL;
     }
     _node = options.node;
+
     _log_manager = options.log_manager;
     _fsm = options.fsm;
     _last_applied_index = options.last_applied_index;
     _last_committed_index = options.last_applied_index;
     _head = NULL;
     _processing = false;
+
+    // bind lifecycle with node, AddRef
+    _node->AddRef();
     return 0;
+}
+
+void FSMCaller::shutdown(Closure* done) {
+    BAIDU_SCOPED_LOCK(_mutex);
+    _state = SHUTINGDOWN;
+    _shutdown_done = done;
+
+    // check and start thread
+    if (!_processing) {
+        bthread_t tid;
+        if (bthread_start_urgent(&tid, &BTHREAD_ATTR_NORMAL/*FIXME*/,
+                                 call_user_fsm, this) != 0) {
+            LOG(ERROR) << "Fail to start bthread, " << berror();
+            call_user_fsm(this);
+        }
+    }
+}
+
+bool FSMCaller::should_shutdown(Closure** done) {
+    //TODO: cas optimize
+    BAIDU_SCOPED_LOCK(_mutex);
+    // only one return true when reentrant
+    bool ok = (_state == SHUTINGDOWN);
+    _state = SHUTDOWN;
+    *done = _shutdown_done;
+    _shutdown_done = NULL;
+    return ok;
 }
 
 bool FSMCaller::more_tasks(ContextWithIndex **head,
@@ -84,7 +116,8 @@ void* FSMCaller::call_user_fsm(void* arg) {
                 if (entry != NULL) {
                     switch (entry->type) {
                     case ENTRY_TYPE_DATA:
-                        caller->_fsm->on_apply(entry->data, entry->len);
+                        CHECK(next_applied_index == entry->index);
+                        caller->_fsm->on_apply(entry->data, entry->len, next_applied_index, done);
                         if (done) {
                             done->Run();
                         }
@@ -118,6 +151,17 @@ void* FSMCaller::call_user_fsm(void* arg) {
         }
         caller->_last_applied_index = next_applied_index - 1;
     }
+
+    // check should shutdown
+    Closure* shutdown_done = NULL;
+    if (caller->should_shutdown(&shutdown_done)) {
+        caller->_fsm->on_shutdown();
+        if (shutdown_done) {
+            shutdown_done->Run();
+        }
+        // bind lifecycle with node, Release
+        caller->_node->Release();
+    }
     return NULL;
 }
 
@@ -131,6 +175,10 @@ int FSMCaller::on_committed(int64_t committed_index, void *context) {
     bool start_bthread = false;
     {
         BAIDU_SCOPED_LOCK(_mutex);
+        if (_state != NORMAL) {
+            CHECK(context == NULL);
+            return 0;
+        }
         if (committed_index <= _last_committed_index) {
             CHECK(false) << "committed_index should be monotonic,"
                          << " actually committed=" << committed_index

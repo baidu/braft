@@ -32,18 +32,24 @@ public:
     int init(const FSMCallerOptions &options);
     int on_committed(int64_t committed_index, void *context);
     int on_cleared(int64_t log_index, void *context, int error_code);
+    void shutdown(Closure* done);
 private:
 
+    enum FSMState {
+        NORMAL = 0,
+        SHUTINGDOWN = 1,
+        SHUTDOWN = 2,
+    };
     struct ContextWithIndex : public base::LinkNode<ContextWithIndex> {
         void *context;
         int64_t log_index;
     };
 
+    bool should_shutdown(Closure** done);
     bool more_tasks(ContextWithIndex **head, int64_t* last_committed_index);
 
     static void* call_user_fsm(void* arg);
     static void* call_cleared_cb(void* arg);
-
 
     NodeImpl *_node;
     LogManager *_log_manager;
@@ -53,6 +59,8 @@ private:
     int64_t _last_committed_index;
     ContextWithIndex *_head;
     bool _processing;
+    FSMState _state;
+    Closure* _shutdown_done;
 };
 
 };

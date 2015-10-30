@@ -18,6 +18,9 @@
 #ifndef PUBLIC_RAFT_RAFT_UTIL_H
 #define PUBLIC_RAFT_RAFT_UTIL_H
 
+#include <net/if.h>
+#include <sys/ioctl.h>
+#include <base/endpoint.h>
 #include <base/scoped_lock.h>
 #include <base/rand_util.h>
 #include <base/time.h>
@@ -55,6 +58,48 @@ private:
     DISALLOW_COPY_AND_ASSIGN(lock_guard);
     bthread_mutex_t* _pmutex;
 };
+
+}
+
+namespace base {
+
+inline ip_t get_host_ip_by_interface(const char* interface) {
+    int sockfd = -1;
+    struct ::ifreq req;
+    ip_t ip = IP_ANY;
+    if ((sockfd = socket(PF_INET, SOCK_DGRAM, 0)) < 0) {
+        return ip;
+    }
+
+    memset(&req, 0, sizeof(struct ::ifreq));
+    snprintf(req.ifr_name, sizeof(req.ifr_name), "%s", interface);
+
+    if (!ioctl(sockfd, SIOCGIFADDR, (char*)&req)) {
+        struct in_addr ip_addr;
+        ip_addr.s_addr = *((int*) &req.ifr_addr.sa_data[2]);
+        ip.s_addr = ip_addr.s_addr;
+    }
+    close(sockfd);
+    return ip;
+}
+
+inline ip_t get_host_ip() {
+    const char* interfaces[] = { "xgbe0", "xgbe1", "eth1", "eth0", "bond0", "br-ex" };
+    ip_t ip = IP_ANY;
+
+    for (size_t i = 0; i < 6; ++i) {
+        ip = get_host_ip_by_interface(interfaces[i]);
+        if (INADDR_ANY != ip.s_addr) {
+            break;
+        }
+    }
+
+    if (INADDR_ANY == ip.s_addr) {
+        LOG(FATAL) << "can not get a valid ip";
+    }
+
+    return ip;
+}
 
 }
 

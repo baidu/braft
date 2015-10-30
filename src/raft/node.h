@@ -21,46 +21,62 @@
 #include <set>
 #include <base/atomic_ref_count.h>
 #include <base/memory/ref_counted.h>
+#include <base/memory/singleton.h>
 #include <base/iobuf.h>
+#include <baidu/rpc/server.h>
+
+#include "bthread.h"
 #include "raft/raft.h"
 #include "raft/log_manager.h"
 #include "raft/commitment_manager.h"
+#include "raft/raft_service.h"
 #include "raft/fsm_caller.h"
 #include "raft/replicator.h"
+#include "raft/util.h"
 
 namespace raft {
 
-class NodeImpl {
+class NodeImpl : public base::RefCountedThreadSafe<NodeImpl> {
 friend class RaftServiceImpl;
 public:
-    NodeImpl(const GroupId& group_id, const PeerId& server_id, const NodeOptions* option);
-    virtual ~NodeImpl();
+    NodeImpl(const GroupId& group_id, const ReplicaId& replica_id);
 
-    int init();
+    NodeId node_id() {
+        std::lock_guard<bthread_mutex_t> guard(_mutex);
+        return NodeId(_group_id, _server_id);
+    }
+
+    PeerId leader_id() {
+        std::lock_guard<bthread_mutex_t> guard(_mutex);
+        return _leader_id;
+    }
+
+    // init node
+    int init(const NodeOptions& options);
+
+    // shutdown local replica
+    // done is user defined function, maybe response to client or clean some resource
+    void shutdown(Closure* done);
 
     // apply data to replicated-state-machine
     // done is user defined function, maybe response to client, transform to on_applied
-    virtual int apply(const void* data, const int len, Closure* done);
+    int apply(const void* data, const int len, Closure* done);
 
     // add peer to replicated-state-machine
     // done is user defined function, maybe response to client
-    virtual int add_peer(const std::vector<PeerId>& old_peers, const PeerId& peer,
+    int add_peer(const std::vector<PeerId>& old_peers, const PeerId& peer,
                          Closure* done);
 
     // remove peer from replicated-state-machine
     // done is user defined function, maybe response to client
-    virtual int remove_peer(const std::vector<PeerId>& old_peers, const PeerId& peer,
+    int remove_peer(const std::vector<PeerId>& old_peers, const PeerId& peer,
                             Closure* done);
 
     // set peer to local replica
     // done is user defined function, maybe response to client
     // only used in major node is down, reduce peerset to make group available
-    virtual int set_peer(const std::vector<PeerId>& old_peers,
+    int set_peer(const std::vector<PeerId>& old_peers,
                          const std::vector<PeerId>& new_peers);
-
-    // shutdown local replica
-    // done is user defined function, maybe response to client or clean some resource
-    virtual int shutdown(Closure* done);
 
     // handle received RequestVote
     int handle_request_vote_request(const RequestVoteRequest* request,
@@ -78,34 +94,6 @@ public:
     void on_configuration_change_done(const EntryType type, const std::vector<PeerId>& peers);
     void on_caughtup_done(const PeerId& peer, int error_code, Closure* done);
 
-    enum State {
-        FOLLOWER = 0,
-        CANDIDATE = 1,
-        LEADER = 2,
-        SHUTDOWN = 3,
-    };
-
-    virtual NodeId node_id() {
-        return NodeId(_group_id, _server_id);
-    }
-
-    GroupId group_id() {
-        return _group_id;
-    }
-
-    PeerId server_id() {
-        return _server_id;
-    }
-
-    void add_ref() {
-        base::AtomicRefCountInc(&_ref_count);
-    }
-    void release() {
-        if (!base::AtomicRefCountDec(&_ref_count)) {
-            delete this;
-        }
-    }
-
     int increase_term_to(int64_t new_term);
 
     // timer func
@@ -117,10 +105,12 @@ public:
                                       const RequestVoteResponse& response);
 
     // called when leader disk thread on_stable callback and peer thread replicate success
-    int advance_commit_index(const PeerId& peer_id, const int64_t log_index);
+    void advance_commit_index(const PeerId& peer_id, const int64_t log_index);
 private:
-    //friend class base::RefCountedThreadSafe<NodeImpl>;
+    friend class base::RefCountedThreadSafe<NodeImpl>;
+    virtual ~NodeImpl();
 
+private:
     // become leader
     void become_leader();
 
@@ -136,7 +126,7 @@ private:
     // leader async append log entry
     int append(LogEntry* entry, Closure* done);
 
-    // follower sync append log entry
+    // candidate/follower sync append log entry
     int append(const std::vector<LogEntry*>& entries);
 private:
     struct VoteCtx {
@@ -175,6 +165,7 @@ private:
     };
 
     NodeOptions _options;
+    bool _inited;
     GroupId _group_id;
     PeerId _server_id;
     State _state;
@@ -202,8 +193,40 @@ private:
     FSMCaller* _fsm_caller;
     CommitmentManager* _commit_manager;
     ReplicatorGroup _replicator_group;
+};
 
-    mutable base::AtomicRefCount _ref_count;
+class NodeManager {
+public:
+    static NodeManager* GetInstance() {
+        return Singleton<NodeManager>::get();
+    }
+
+    int init(const char* ip_str, int start_port, int end_port);
+
+    base::EndPoint address();
+
+    // add raft node
+    bool add(NodeImpl* node);
+
+    // remove raft node
+    void remove(NodeImpl* node);
+
+    // get node by group_id and peer_id
+    NodeImpl* get(const GroupId& group_id, const PeerId& peer_id);
+
+private:
+    NodeManager();
+    ~NodeManager();
+    DISALLOW_COPY_AND_ASSIGN(NodeManager);
+    friend struct DefaultSingletonTraits<NodeManager>;
+
+    bthread_mutex_t _mutex;
+    typedef std::map<NodeId, NodeImpl*> NodeMap;
+    NodeMap _nodes;
+
+    base::EndPoint _address;
+    baidu::rpc::Server _server;
+    RaftServiceImpl _service_impl;
 };
 
 }

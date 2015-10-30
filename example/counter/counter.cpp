@@ -22,8 +22,8 @@
 
 namespace counter {
 
-Counter::Counter(const raft::GroupId& group_id, const raft::PeerId& peer_id)
-    : StateMachine(), _node(group_id, peer_id), _value(0) {
+Counter::Counter(const raft::GroupId& group_id, const raft::ReplicaId& replica_id)
+    : StateMachine(), _node(group_id, replica_id), _value(0) {
     bthread_mutex_init(&_mutex, NULL);
 }
 
@@ -35,8 +35,8 @@ int Counter::init(const raft::NodeOptions& options) {
     return _node.init(options);
 }
 
-int Counter::shutdown(raft::Closure* done) {
-    return _node.shutdown(done);
+void Counter::shutdown(raft::Closure* done) {
+    _node.shutdown(done);
 }
 
 base::EndPoint Counter::leader() {
@@ -59,7 +59,7 @@ int Counter::get(int64_t* value_ptr) {
     return 0;
 }
 
-void Counter::on_apply(const void* data, const int len) {
+void Counter::on_apply(const void* data, const int len, const int64_t index, raft::Closure* done) {
     AddRequest request;
     request.ParseFromArray(data, len);
 

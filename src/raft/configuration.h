@@ -29,6 +29,7 @@
 namespace raft {
 
 typedef std::string GroupId;
+typedef int ReplicaId;
 struct PeerId {
     base::EndPoint addr; // addr
     int idx; // idx in same addr, default 0
@@ -215,6 +216,7 @@ typedef std::pair<int64_t, Configuration> ConfigurationPair;
 class ConfigurationManager : public base::RefCountedThreadSafe<ConfigurationManager>{
 public:
     ConfigurationManager() {
+        AddRef();
         _snapshot = std::pair<int64_t, Configuration>(0, Configuration());
     }
 

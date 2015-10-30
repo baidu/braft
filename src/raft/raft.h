@@ -145,7 +145,9 @@ public:
 
     // user defined logentry proc function
     // [OPTIMIZE] add Closure argument to avoid parse data
-    virtual void on_apply(const void* data, const int len) = 0;
+    // [NOTE] index: realize follower read strong consistency
+    // [NOTE] done: on_apply return some result to done
+    virtual void on_apply(const void* data, const int len, const int64_t index, Closure* done) = 0;
 
     // user defined snapshot generate function
     virtual int on_snapshot_save() = 0;
@@ -164,9 +166,6 @@ protected:
 
 struct NodeOptions {
     int election_timeout; //ms, follower to candidate timeout
-    int heartbeat_period; //ms, leader to other heartbeat period
-    int rpc_timeout; //ms, rpc retry timeout
-    int max_append_entries; // max entries in per AppendEntries RPC
     int snapshot_interval; // s, snapshot interval
     int snapshot_lowlevel_threshold; // at least logs not in snapshot
     int snapshot_highlevel_threshold; // at most log not in snapshot
@@ -177,8 +176,7 @@ struct NodeOptions {
     StableStorage* stable_storage; // user defined manifest storage
 
     NodeOptions()
-        : election_timeout(1000), heartbeat_period(100),
-        rpc_timeout(1000), max_append_entries(100),
+        : election_timeout(1000),
         snapshot_interval(86400), snapshot_lowlevel_threshold(100000),
         snapshot_highlevel_threshold(10000000), enable_pipeline(false),
         fsm(NULL), log_storage(NULL), stable_storage(NULL) {}
@@ -187,7 +185,7 @@ struct NodeOptions {
 class NodeImpl;
 class Node {
 public:
-    Node(const GroupId& group_id, const PeerId& peer_id);
+    Node(const GroupId& group_id, const ReplicaId& replica_id);
     virtual ~Node();
 
     // get node id
@@ -202,7 +200,7 @@ public:
     // shutdown local replica
     // done is user defined function, maybe response to client or clean some resource
     // [NOTE] code after apply can't access resource in done
-    int shutdown(Closure* done);
+    void shutdown(Closure* done);
 
     // apply data to replicated-state-machine [thread-safe]
     // done is user defined function, maybe response to client, transform to on_applied
@@ -227,6 +225,8 @@ public:
 private:
     NodeImpl* _impl;
 };
+
+int init_raft(const char* server_desc);
 
 };
 

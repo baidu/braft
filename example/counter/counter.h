@@ -29,17 +29,18 @@ namespace counter {
 
 class Counter : public raft::StateMachine {
 public:
-    Counter(const raft::GroupId& group_id, const raft::PeerId& peer_id);
+    Counter(const raft::GroupId& group_id, const raft::ReplicaId& replica_id);
 
     int init(const raft::NodeOptions& options);
 
 
-    int shutdown(raft::Closure* done);
+    void shutdown(raft::Closure* done);
 
     base::EndPoint leader();
 
     // FSM method
-    virtual void on_apply(const void* data, const int len);
+    virtual void on_apply(const void* data, const int len,
+                          const int64_t index, raft::Closure* done);
 
     virtual int on_snapshot_save();
 
