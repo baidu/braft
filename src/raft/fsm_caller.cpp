@@ -222,6 +222,7 @@ int FSMCaller::on_cleared(int64_t log_index, void* context, int error_code) {
     // step_down will clear configuration change.
     //
     // TODO: need order with call_user_fsm?
+    // TODO: need node AddRef?
     bthread_t tid;
     Closure* done = (Closure*) context;
     done->set_error(error_code, "leader stepdown, may majority die");
@@ -229,6 +230,48 @@ int FSMCaller::on_cleared(int64_t log_index, void* context, int error_code) {
                              call_cleared_cb, context) != 0) {
         LOG(ERROR) << "Fail to start bthread, " << berror();
         call_cleared_cb(context);
+    }
+    return 0;
+}
+
+class LeaderStartClosure : public Closure {
+public:
+    LeaderStartClosure(StateMachine* fsm) : _fsm(fsm) {}
+    void Run() {
+        if (_err_code == 0) {
+            _fsm->on_leader_start();
+        }
+        delete this;
+    }
+    StateMachine* _fsm;
+};
+
+Closure* FSMCaller::on_leader_start() {
+    return new LeaderStartClosure(_fsm);
+}
+
+void* FSMCaller::call_leader_stop_cb(void* arg) {
+    FSMCaller* caller = (FSMCaller*)arg;
+    caller->_fsm->on_leader_stop();
+    caller->_node->Release();
+    return NULL;
+}
+
+int FSMCaller::on_leader_stop() {
+    {
+        BAIDU_SCOPED_LOCK(_mutex);
+        // avoid on_leader_stop callback after shutdown
+        if (_state != NORMAL) {
+            return EINVAL;
+        }
+    }
+    // TODO: need order with call_user_fsm?
+    _node->AddRef();
+    bthread_t tid;
+    if (bthread_start_urgent(&tid, &BTHREAD_ATTR_NORMAL/*FIXME*/,
+                             call_leader_stop_cb, this) != 0) {
+        LOG(ERROR) << "Fail to start bthread, " << berror();
+        call_leader_stop_cb(this);
     }
     return 0;
 }

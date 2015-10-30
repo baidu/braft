@@ -19,20 +19,16 @@
 #define PUBLIC_RAFT_RAFT_H
 
 #include <string>
-#include <cassert>
-#include <base/callback.h>
+#include <gflags/gflags.h>
 
 #include "raft/raft.pb.h"
 #include "raft/configuration.h"
 
-namespace raft {
+DECLARE_string(raft_ip);
+DECLARE_int32(raft_start_port);
+DECLARE_int32(raft_end_port);
 
-enum State {
-    FOLLOWER = 0,
-    CANDIDATE = 1,
-    LEADER = 2,
-    SHUTDOWN = 3,
-};
+namespace raft {
 
 // term start from 1, log index start from 1
 struct LogEntry : public base::RefCountedThreadSafe<LogEntry> {
@@ -149,17 +145,25 @@ public:
     // [NOTE] done: on_apply return some result to done
     virtual void on_apply(const void* data, const int len, const int64_t index, Closure* done) = 0;
 
-    // user defined snapshot generate function
-    virtual int on_snapshot_save() = 0;
-
-    // user defined snapshot load function
-    virtual int on_snapshot_load() = 0;
-
     // user define shutdown function
     virtual void on_shutdown() = 0;
 
-    // user defined state change function
-    virtual void on_state_change(State old_state, State new_state) = 0;
+    // user defined snapshot generate function
+    virtual int on_snapshot_save();
+
+    // user defined snapshot load function
+    virtual int on_snapshot_load();
+
+    // user defined leader start function
+    // [NOTE] user can direct append to node ignore this callback.
+    //        this callback can sure read consistency, after leader's first NO_OP committed
+    virtual void on_leader_start();
+
+    // user defined leader start function
+    // [NOTE] this method called immediately when leader stepdown,
+    //        maybe before some method: apply success on_apply or fail done.
+    //        user sure resource available.
+    virtual void on_leader_stop();
 protected:
     virtual ~StateMachine() {}
 };

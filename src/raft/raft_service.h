@@ -24,8 +24,8 @@ namespace raft {
 
 class RaftServiceImpl : public RaftService {
 public:
-    RaftServiceImpl();
-    virtual ~RaftServiceImpl();
+    RaftServiceImpl() {}
+    virtual ~RaftServiceImpl() {}
 
     virtual void request_vote(google::protobuf::RpcController* controller,
                               const RequestVoteRequest* request,

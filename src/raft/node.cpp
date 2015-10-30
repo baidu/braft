@@ -404,6 +404,7 @@ void NodeImpl::shutdown(Closure* done) {
     if (_state != FOLLOWER) {
         step_down(_current_term);
     }
+    _inited = false;
 
     // stop replicator and fsm_caller wait
     _log_manager->shutdown();
@@ -607,6 +608,9 @@ void NodeImpl::step_down(const int64_t term) {
         // stop disk thread
         // TODO: node Release?
         _log_manager->stop_disk_thread();
+
+        // signal fsm leader stop immediately
+        _fsm_caller->on_leader_stop();
     }
 
     _state = FOLLOWER;
@@ -680,7 +684,8 @@ void NodeImpl::become_leader() {
     entry->peers = new std::vector<PeerId>;
     _conf.second.peer_vector(entry->peers);
 
-    append(entry, NULL);
+    //append(entry, NULL);
+    append(entry, _fsm_caller->on_leader_start());
 }
 
 static int on_leader_stable(void* arg, int64_t log_index, int error_code) {
@@ -962,6 +967,7 @@ int NodeManager::init(const char* ip_str, int start_port, int end_port) {
         LOG(FATAL) << "Add Raft Service Failed.";
         return EINVAL;
     }
+    return init();
     if (0 != _server.Start(ip_str, start_port, end_port, &server_options)) {
         LOG(FATAL) << "Start Raft Server Failed.";
         return EINVAL;
@@ -971,6 +977,7 @@ int NodeManager::init(const char* ip_str, int start_port, int end_port) {
     if (_address.ip == base::IP_ANY) {
         _address.ip = base::get_host_ip();
     }
+    LOG(NOTICE) << "start raft server " << _address;
     return 0;
 }
 

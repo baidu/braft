@@ -32,6 +32,8 @@ public:
     int init(const FSMCallerOptions &options);
     int on_committed(int64_t committed_index, void *context);
     int on_cleared(int64_t log_index, void *context, int error_code);
+    Closure* on_leader_start();
+    int on_leader_stop();
     void shutdown(Closure* done);
 private:
 
@@ -50,6 +52,7 @@ private:
 
     static void* call_user_fsm(void* arg);
     static void* call_cleared_cb(void* arg);
+    static void* call_leader_stop_cb(void* arg);
 
     NodeImpl *_node;
     LogManager *_log_manager;

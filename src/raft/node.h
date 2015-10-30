@@ -106,6 +106,10 @@ public:
 
     // called when leader disk thread on_stable callback and peer thread replicate success
     void advance_commit_index(const PeerId& peer_id, const int64_t log_index);
+
+    FSMCaller* fsm_caller() {
+        return _fsm_caller;
+    }
 private:
     friend class base::RefCountedThreadSafe<NodeImpl>;
     virtual ~NodeImpl();
@@ -129,6 +133,12 @@ private:
     // candidate/follower sync append log entry
     int append(const std::vector<LogEntry*>& entries);
 private:
+    enum State {
+        LEADER = 1,
+        CANDIDATE = 2,
+        FOLLOWER = 3,
+        SHUTDOWN = 4,
+    };
     struct VoteCtx {
         size_t needed;
         std::set<PeerId> granted;
