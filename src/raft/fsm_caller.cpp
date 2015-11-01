@@ -72,9 +72,11 @@ bool FSMCaller::should_shutdown(Closure** done) {
     BAIDU_SCOPED_LOCK(_mutex);
     // only one return true when reentrant
     bool ok = (_state == SHUTINGDOWN);
-    _state = SHUTDOWN;
-    *done = _shutdown_done;
-    _shutdown_done = NULL;
+    if (ok) {
+        _state = SHUTDOWN;
+        *done = _shutdown_done;
+        _shutdown_done = NULL;
+    }
     return ok;
 }
 

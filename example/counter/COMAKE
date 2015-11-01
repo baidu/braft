@@ -17,6 +17,7 @@ CPPFLAGS('-D_GNU_SOURCE -D__STDC_LIMIT_MACROS -DVERSION=\\\"1.9.8.7\\\"')
 
 #C编译参数.
 CFLAGS('-g -pipe -W -Wall -fPIC')
+#CFLAGS('-fsanitize=address -fno-omit-frame-pointer')
 
 #C++编译参数.
 CXXFLAGS('-g -pipe -W -Wall -fPIC')
@@ -35,6 +36,7 @@ INCPATHS('. ../../src ../../protocol ./include ./output ./output/include')
 
 #链接参数.
 LDFLAGS('-lpthread -lz -ldl -lrt')
+#LDFLAGS('-lasan')
 
 #依赖模块
 CONFIGS('lib2-64/ullib@base')

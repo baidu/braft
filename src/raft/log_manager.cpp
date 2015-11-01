@@ -142,6 +142,26 @@ int LogManager::append_entries(const std::vector<LogEntry*>& entries) {
     return entries.size();
 }
 
+struct OnStableMeta {
+    void *arg;
+    int64_t log_index;
+    int error_code;
+    int (*on_stable)(void* arg, int64_t log_index, int error_code);
+
+    OnStableMeta(void* arg_, int64_t log_index_, int error_code_,
+            int (*on_stable_)(void* arg, int64_t log_index, int error_code))
+        : arg(arg_), log_index(log_index_), error_code(error_code_),
+        on_stable(on_stable_) {
+    }
+};
+
+static void* run_on_stable(void* arg) {
+    OnStableMeta* meta = static_cast<OnStableMeta*>(arg);
+    meta->on_stable(meta->arg, meta->log_index, meta->error_code);
+    delete meta;
+    return NULL;
+}
+
 void LogManager::append(
             LogEntry* log_entry,
             int (*on_stable)(void* arg, int64_t log_index, int error_code),
@@ -156,7 +176,14 @@ void LogManager::append(
     // Fast implementation
     if (_log_storage->append_entry(log_entry) != 0) {
         bthread_mutex_unlock(&_mutex);
-        on_stable(arg, -1, EPIPE/*FIXME*/);
+
+        //TODO:
+        //on_stable(arg, -1, EPIPE/*FIXME*/);
+        bthread_t tid;
+        OnStableMeta* meta = new OnStableMeta(arg, -1, EPIPE, on_stable);
+        if (bthread_start_background(&tid, &BTHREAD_ATTR_NORMAL, run_on_stable, meta) != 0) {
+            run_on_stable(meta);
+        }
         return;
     }
     ++_last_log_index;
@@ -164,7 +191,14 @@ void LogManager::append(
     int64_t last_log_index = log_entry->index;
     bthread_id_list_reset(&_wait_list, 0);
     bthread_mutex_unlock(&_mutex);
-    on_stable(arg, last_log_index, 0);
+
+    //TODO:
+    //on_stable(arg, last_log_index, 0);
+    bthread_t tid;
+    OnStableMeta* meta = new OnStableMeta(arg, last_log_index, 0, on_stable);
+    if (bthread_start_background(&tid, &BTHREAD_ATTR_NORMAL, run_on_stable, meta) != 0) {
+        run_on_stable(meta);
+    }
 }
 
 LogEntry* LogManager::get_entry_from_memory(const int64_t index) {

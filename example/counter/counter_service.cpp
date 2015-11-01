@@ -38,6 +38,7 @@ public:
     virtual ~Closure() {}
 
     virtual void Run() {
+        LOG(NOTICE) << "rpc return";
         if (_err_code == 0) {
             _response->set_success(true);
         } else {
@@ -73,6 +74,7 @@ void CounterServiceImpl::add(google::protobuf::RpcController* controller,
     // node apply
     Closure* cb = new Closure(_counter, cntl, request, response, done);
     if (0 != _counter->add(request->value(), cb)) {
+        LOG(WARNING) << "add failed, redirect to leader: " << _counter->leader();
         baidu::rpc::ClosureGuard done_guard(done);
         response->set_success(false);
         response->set_leader(base::endpoint2str(_counter->leader()).c_str());

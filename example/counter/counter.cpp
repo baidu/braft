@@ -64,6 +64,7 @@ int Counter::get(int64_t* value_ptr) {
 }
 
 void Counter::on_apply(const void* data, const int len, const int64_t index, raft::Closure* done) {
+    LOG(NOTICE) << "apply " << index;
     AddRequest request;
     request.ParseFromArray(data, len);
 
