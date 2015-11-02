@@ -1,4 +1,5 @@
 * text=auto !eol
+/BCLOUD -text
 /COMAKE -text
 /OWNER -text
 example/counter/COMAKE -text
@@ -20,8 +21,12 @@ src/raft/commitment_manager.cpp -text
 src/raft/commitment_manager.h -text
 src/raft/configuration.cpp -text
 src/raft/configuration.h -text
+src/raft/errno.pb.cc -text
+src/raft/errno.pb.h -text
 src/raft/fsm_caller.cpp -text
 src/raft/fsm_caller.h -text
+src/raft/local_storage.pb.cc -text
+src/raft/local_storage.pb.h -text
 src/raft/log.cpp -text
 src/raft/log.h -text
 src/raft/log_entry.h -text
@@ -34,6 +39,8 @@ src/raft/protobuf_file.cpp -text
 src/raft/protobuf_file.h -text
 src/raft/raft.cpp -text
 src/raft/raft.h -text
+src/raft/raft.pb.cc -text
+src/raft/raft.pb.h -text
 src/raft/raft_service.cpp -text
 src/raft/raft_service.h -text
 src/raft/replicator.cpp -text

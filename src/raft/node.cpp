@@ -1001,7 +1001,7 @@ int NodeImpl::handle_append_entries_request(base::IOBuf& data_buf,
             << " current_term " << _current_term;
 
         //TODO2: outof lock, check return
-        int ret = append(entries);
+        append(entries);
     } while (0);
 
     response->set_term(_current_term);

@@ -199,7 +199,6 @@ int Segment::load(const base::Callback<void(int64_t, const Configuration&)>& con
     // load entry index
     int64_t file_size = st_buf.st_size;
     int64_t entry_off = 0;
-    int64_t load_end_index = _start_index - 1;
     for (int64_t i = _start_index; entry_off < file_size; i++) {
         EntryHeader header;
         const int rc = _load_entry(entry_off, &header, NULL, ENTRY_HEADER_SIZE);
@@ -325,7 +324,6 @@ int Segment::append(const LogEntry* entry) {
         for (;start < ARRAY_SIZE(pieces) && pieces[start]->empty(); ++start) {}
     }
     
-
     _offset.push_back(_bytes);
     _end_index++;
     _bytes += to_write;
@@ -515,7 +513,6 @@ int Segment::truncate(const int64_t last_index_kept) {
         // rename
         if (!_is_open) {
             std::string old_path(_path);
-            char segment_name[128];
             base::string_appendf(&old_path, "/" RAFT_SEGMENT_CLOSED_PATTERN,
                                  _start_index, _end_index);
 
@@ -605,7 +602,6 @@ int SegmentLogStorage::append_entries(const std::vector<LogEntry*>& entries) {
         return 0;
     }
 
-    int64_t old_start_index = 0;
     Segment* last_segment = NULL;
     // FIXME: Should flush all the entries in one system call
     for (size_t i = 0; i < entries.size(); i++) {

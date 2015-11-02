@@ -1,0 +1,28 @@
+#edit-mode: -*- python -*-
+#coding:gbk
+
+WORKROOT('../../')
+
+CPPFLAGS('-D_GNU_SOURCE -D__const__= -DNDEBUG')
+CFLAGS('-O2 -g -pipe -Werror -Wall -W -fPIC -Wno-unused-parameter -Wno-strict-aliasing')
+CXXFLAGS('-O2 -g -pipe -Werror -Wall -W -fPIC -Wno-unused-parameter -Wno-strict-aliasing -Wno-invalid-offsetof -D__STDC_CONSTANT_MACROS ')
+
+if COMPILER_VERSION() == 'gcc482':
+    print "gcc482"
+    CXXFLAGS('-Wno-unused-local-typedefs -Wno-missing-field-initializers')
+if COMPILER_VERSION() == 'gcc446' or COMPILER_VERSION() == 'gcc482':
+    CXXFLAGS('-Wno-unused-result')
+
+INCPATHS('src')
+
+CONFIGS('public/baidu-rpc@ci-base')
+
+for f in GLOB('protocol/raft/*.proto').split():
+    GenSources('../../third-64/protobuf/bin/protoc', 
+               '--proto_path=./protocol -I../../third-64/protobuf/include --cpp_out=. %s' % (f), f) 
+
+HEADERS(GLOB_GEN_SRCS('raft/*.pb.h'), '$INC/raft')
+pb_cc_sources = GLOB_GEN_SRCS('raft/*.pb.cc')
+StaticLibrary('raft',Sources(GLOB('src/raft/*.cpp src/raft/*.cc')))
+
+HEADERS(GLOB('src/raft/*.h'), '$INC/raft')

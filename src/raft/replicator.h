@@ -96,6 +96,7 @@ private:
     void _send_entries(long start_time_us);
     void _notify_on_caught_up(int error_code, bool);
     void _fill_common_fields(AppendEntriesRequest*);
+    void _block(long start_time_us, int error_code);
 
     static void _on_rpc_returned(ReplicatorId id, baidu::rpc::Controller* cntl,
                                  AppendEntriesRequest* request, 
@@ -104,6 +105,7 @@ private:
     static int _continue_sending(void* arg, int error_code);
     static void* _run_on_caught_up(void*);
     static void _on_catch_up_timedout(void*);
+    static void _on_block_timedout(void *arg);
 
 private:
     

@@ -1,65 +1,24 @@
 #edit-mode: -*- python -*-
 #coding:gbk
 
-#工作路径.
 WORKROOT('../../../../')
 
-#使用硬链接copy.
-CopyUsingHardLink(True)
+CFLAGS('-g -O2 -pipe -W -Wall -fPIC')
 
-#支持32位/64位平台编译
-#ENABLE_MULTI_LIBS(True)
+CXXFLAGS('-g -O2 -pipe -W -Wall -fPIC')
+CPPFLAGS('-D__const__= ')
 
-#C预处理器参数.
-CPPFLAGS('-D_GNU_SOURCE -D__STDC_LIMIT_MACROS -DVERSION=\\\"1.9.8.7\\\"')
-#为32位目标编译指定额外的预处理参数
-#CPPFLAGS_32('-D_XOPEN_SOURE=500')
+INCPATHS('../../src')
 
-#C编译参数.
-CFLAGS('-g -pipe -W -Wall -fPIC')
-#CFLAGS('-fsanitize=address -fno-omit-frame-pointer')
-
-#C++编译参数.
-CXXFLAGS('-g -pipe -W -Wall -fPIC')
-
-#IDL编译参数
-IDLFLAGS('--compack')
-
-#UBRPC编译参数
-UBRPCFLAGS('--compack')
-
-#头文件路径.
-INCPATHS('. ../../src ../../protocol ./include ./output ./output/include')
-
-#使用库
-#LIBS('./libcounter.a')
-
-#链接参数.
-LDFLAGS('-lpthread -lz -ldl -lrt')
-#LDFLAGS('-lasan')
-
-#依赖模块
-CONFIGS('lib2-64/ullib@base')
-CONFIGS('public/baidu-rpc@ci-base')
-
-#为32位/64位指定不同的依赖路径.
-#CONFIGS_32('lib2/ullib')
-#CONFIGS_64('lib2-64/ullib')
+ImportConfigsFrom('../..')
+LDFLAGS('-lpthread -lrt -ldl -lz')
 
 PROTOC('../../../../third-64/protobuf/bin/protoc')
+LIBS('../../output/lib/libraft.a')
 
-proto_sources='counter.proto'
-raft_sources = GLOB('../../protocol/raft/*.proto ../../src/raft/*.cpp')
-user_sources='counter_service.cpp counter.cpp'
-user_headers=''
+Application('counter_server',Sources('counter_server.cpp counter_service.cpp counter.proto counter.cpp', 
+                             Prefixes(GLOB('../../output/lib/libraft.a ../../src/raft/*.h *.h'))))
 
-#可执行文件
-Application('counter_server',Sources('counter_server.cpp ', user_sources, raft_sources, proto_sources))
-Application('counter_client',Sources('counter_client.cpp ', user_sources, raft_sources, proto_sources))
-#静态库
-#StaticLibrary('counter',Sources(user_sources),HeaderFiles(user_headers))
-#共享库
-#SharedLibrary('counter',Sources(user_sources),HeaderFiles(user_headers))
-#子目录
-#Directory('demo')
+Application('counter_client',Sources('counter_client.cpp counter.proto',
+                             Prefixes(GLOB('../../output/lib/libraft.a ../../src/raft/*.h *.h'))))
 

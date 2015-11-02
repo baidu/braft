@@ -1,4 +1,4 @@
-import "raft.proto";
+import "raft/raft.proto";
 
 package raft;
 

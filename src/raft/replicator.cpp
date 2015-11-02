@@ -168,6 +168,35 @@ void Replicator::wait_for_caught_up(ReplicatorId id,
     
 }
 
+void Replicator::_on_block_timedout(void *arg) {
+    Replicator::_continue_sending(arg, ETIMEDOUT);
+}
+
+void Replicator::_block(long start_time_us, int /*error_code NOTE*/) {
+    // NOTE: Currently we don't care about error_code which indicates why the
+    // very RPC fails. To make it better there's should be different timeout for
+    // each individual error, e.g. we don't need check every 
+    // heartbeat_timeout_ms whether a dead follower has come back, but it's just
+    // fine.
+    const timespec due_time = base::milliseconds_from(
+            base::microseconds_to_timespec(start_time_us), 
+            _options.heartbeat_timeout_ms);
+    bthread_timer_t timer;
+    const int rc = bthread_timer_add(&timer, due_time, 
+                                     _on_block_timedout, (void*)_id.value);
+    RAFT_VLOG << "Blocking " << _options.peer_id << " for " 
+              << _options.heartbeat_timeout_ms << "ms";
+    if (rc == 0) {
+        CHECK_EQ(0, bthread_id_unlock(_id)) 
+                << "Fail to unlock " << _id;
+        return;
+    } else {
+        LOG(ERROR) << "Fail to add timer, " << berror(rc);
+        // _id is unlock in _send_heartbeat
+        return _send_heartbeat();
+    }
+}
+
 void Replicator::_on_rpc_returned(ReplicatorId id, baidu::rpc::Controller* cntl,
                      AppendEntriesRequest* request, 
                      AppendEntriesResponse* response) {
@@ -181,17 +210,19 @@ void Replicator::_on_rpc_returned(ReplicatorId id, baidu::rpc::Controller* cntl,
         return;
     }
     if (cntl->Failed()) {
-        LOG(ERROR) << "rpc error: " << cntl->ErrorText();
-        // FIXME(chenzhangyi01): if the follower crashes, any RPC to the
-        // follower fails immediately, so we need to block the follower for a
-        // while instead of looping until it comes back or be removed
-        r->_send_heartbeat();
-        return;
+        // TODO: Should it be VLOG?
+        LOG(WARNING) << "Fail to issue RPC to " << r->_options.peer_id
+                     << ", " << cntl->ErrorText();
+        // If the follower crashes, any RPC to the follower fails immediately,
+        // so we need to block the follower for a while instead of looping until
+        // it comes back or be removed
+        // dummy_id is unlock in block
+        return r->_block(start_time_us, cntl->ErrorCode());
     }
     if (!response->success()) {
         if (response->term() > r->_options.term) {
             NodeImpl *node_impl = r->_options.node;
-            // Acquire a reference of Node here incase that Node is detroyed
+            // Acquire a reference of Node here in case that Node is detroyed
             // after _notify_on_caught_up. Not increase reference count in
             // start() to avoid the circular reference issue
             node_impl->AddRef();
