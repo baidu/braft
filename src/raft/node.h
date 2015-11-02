@@ -98,6 +98,7 @@ public:
     // timer func
     void handle_election_timeout();
     void handle_vote_timeout();
+    void handle_stepdown_timeout();
 
     // rpc response proc func
     void handle_request_vote_response(const PeerId& peer_id, const int64_t term,
@@ -203,7 +204,7 @@ private:
     ConfigurationCtx _conf_ctx;
     bthread_timer_t _election_timer; // follower -> candidate timer
     bthread_timer_t _vote_timer; // candidate retry timer
-    bthread_timer_t _lease_timer; // leader check lease timer
+    bthread_timer_t _stepdown_timer; // leader check quorum node ok
 
     LogStorage* _log_storage;
     StableStorage* _stable_storage;

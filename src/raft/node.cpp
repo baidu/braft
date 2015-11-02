@@ -274,6 +274,49 @@ void NodeImpl::on_caughtup(const PeerId& peer, int error_code, Closure* done) {
     _replicator_group.stop_replicator(peer);
 }
 
+static void on_stepdown_timer(void* arg) {
+    NodeImpl* node = static_cast<NodeImpl*>(arg);
+
+    node->handle_stepdown_timeout();
+    node->Release();
+}
+
+void NodeImpl::handle_stepdown_timeout() {
+    std::lock_guard<bthread_mutex_t> guard(_mutex);
+
+    // check state
+    if (_state != LEADER) {
+        return;
+    }
+
+    std::vector<PeerId> peers;
+    _conf.second.peer_vector(&peers);
+    int64_t now_timestamp = base::monotonic_time_ms();
+    size_t dead_count = 0;
+    for (size_t i = 0; i < peers.size(); i++) {
+        if (peers[i] == _server_id) {
+            continue;
+        }
+
+        if (now_timestamp - _replicator_group.last_response_timestamp(peers[i]) >
+            _options.election_timeout) {
+            dead_count++;
+        }
+    }
+    if (dead_count < (peers.size() / 2 + 1)) {
+        AddRef();
+        int64_t stepdown_timeout = _options.election_timeout;
+        bthread_timer_add(&_stepdown_timer, base::milliseconds_from_now(stepdown_timeout),
+                          on_stepdown_timer, this);
+        RAFT_VLOG << "node " << _group_id << ":" << _server_id
+            << " term " << _current_term << " restart stepdown_timer";
+    } else {
+        LOG(INFO) << "node " << _group_id << ":" << _server_id
+            << " term " << _current_term << " stepdown when quorum node dead";
+        step_down(_current_term);
+    }
+}
+
 int NodeImpl::add_peer(const std::vector<PeerId>& old_peers, const PeerId& peer,
                        Closure* done) {
     std::lock_guard<bthread_mutex_t> guard(_mutex);
@@ -664,6 +707,15 @@ void NodeImpl::step_down(const int64_t term) {
             CHECK(ret == 1);
         }
     } else if (_state == LEADER) {
+        RAFT_VLOG << "node " << _group_id << ":" << _server_id
+            << " term " << _current_term << " stop stepdown_timer";
+        int ret = bthread_timer_del(_stepdown_timer);
+        if (0 == ret) {
+            Release();
+        } else {
+            CHECK(ret == 1);
+        }
+
         _commit_manager->clear_pending_applications();
 
         // stop disk thread
@@ -712,10 +764,6 @@ void NodeImpl::become_leader() {
     _state = LEADER;
     _leader_id = _server_id;
 
-    //TODO1: add lease timer to check contact timestamp to step down
-    //bthread_timer_add(&_lease_timer, base::milliseconds_from_now(_options.election_timeout),
-    //                  on_election_timer, this);
-
     // init disk thread
     // TODO: node AddRef?
     _log_manager->start_disk_thread();
@@ -756,6 +804,13 @@ void NodeImpl::become_leader() {
 
     //append(entry, NULL);
     append(entry, _fsm_caller->on_leader_start());
+
+    AddRef();
+    int64_t stepdown_timeout = _options.election_timeout;
+    bthread_timer_add(&_stepdown_timer, base::milliseconds_from_now(stepdown_timeout),
+                      on_stepdown_timer, this);
+    RAFT_VLOG << "node " << _group_id << ":" << _server_id
+        << " term " << _current_term << " start stepdown_timer";
 }
 
 static int on_leader_stable(void* arg, int64_t log_index, int error_code) {
