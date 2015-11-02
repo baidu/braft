@@ -24,7 +24,6 @@ DEFINE_int32(max_entries_size, 1024,
              "The max number of entries in AppendEntriesRequest");
 BAIDU_RPC_VALIDATE_GFLAG(max_entries_size, ::baidu::rpc::PositiveInteger);
 
-
 ReplicatorOptions::ReplicatorOptions()
     : heartbeat_timeout_ms(-1)
     , log_manager(NULL)
@@ -294,6 +293,7 @@ void Replicator::_send_entries(long start_time_us) {
         // _id is unlock in _wait_more
         return _wait_more_entries(start_time_us);
     }
+
     _rpc_in_fly = cntl->call_id();
     google::protobuf::Closure* done = google::protobuf::NewCallback<
         ReplicatorId, baidu::rpc::Controller*, AppendEntriesRequest*,
@@ -305,6 +305,7 @@ void Replicator::_send_entries(long start_time_us) {
 }
 
 int Replicator::_continue_sending(void* arg, int error_code) {
+    LOG(ERROR) << "fuck continue sending";
     long start_time_us = base::gettimeofday_us();
     Replicator* r = NULL;
     bthread_id_t id = { (uint64_t)arg };

@@ -47,7 +47,8 @@ int CommitmentManager::set_stable_at_peer_reentrant(
     // FIXME(chenzhangyi01): The cricital section is unacceptable because it 
     // blocks all the other Replicators and LogManagers
     BAIDU_SCOPED_LOCK(_mutex);
-    LOG(INFO) << "_pending_index=" << _pending_index << " log_index=" << log_index;
+    LOG(INFO) << "_pending_index=" << _pending_index << " log_index=" << log_index
+        << " peer=" << peer;
     CHECK(_pending_index > 0);
     if (log_index < _pending_index) {
         return 0;

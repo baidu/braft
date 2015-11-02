@@ -322,7 +322,7 @@ int Segment::append(const LogEntry* entry) {
             return -1;
         }
         written += n;
-        for (;start <= ARRAY_SIZE(pieces) && pieces[start]->empty(); ++start) {}
+        for (;start < ARRAY_SIZE(pieces) && pieces[start]->empty(); ++start) {}
     }
     
 

@@ -108,8 +108,8 @@ int LocalStableStorage::save() {
 
     ProtoBufFile pb_file(path);
 
-    LOG(NOTICE) << "save stable meta, path: " << _path
-        << " term: " << _term << " votedfor: " << _votedfor.to_string();
+    LOG(INFO) << "save stable meta, path " << _path
+        << " term " << _term << " votedfor " << _votedfor.to_string();
     return pb_file.save(&meta, true);
 }
 
