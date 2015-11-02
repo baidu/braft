@@ -81,6 +81,8 @@ public:
 
     static int join(ReplicatorId);
 
+    static int64_t last_response_timestamp(ReplicatorId id);
+
     // Called on_caugth_up when the last_log_index of the very follower reaches
     // |baseline| or error occurs (timedout or the replicator quits)
     static void wait_for_caught_up(ReplicatorId, const OnCaughtUp& on_caugth_up,
@@ -111,6 +113,7 @@ private:
     bthread_id_t _id;
     ReplicatorOptions _options;
     OnCaughtUp *_on_caught_up;
+    int64_t _last_response_timestamp;
 };
 
 struct ReplicatorGroupOptions {
@@ -139,11 +142,11 @@ public:
     // the caller, you should deal with this situation.
     int add_replicator(const PeerId &peer);
     
-    // The same with add_replicator(const PeerId&), expect that there's a
-    // notification when the very peer catches up accoding to the settings or
-    // timeout occusrs if |due_time| is not NULL
-    int add_replicator(const PeerId &peer, const OnCaughtUp& on_caught_up, 
-                       const timespec* due_time);
+    // wait the very peer catchup
+    int wait_caughtup(const PeerId& peer, const OnCaughtUp& on_caught_up,
+                      const timespec* due_time);
+
+    int64_t last_response_timestamp(const PeerId& peer);
 
     // Stop all the replicators
     int stop_all();

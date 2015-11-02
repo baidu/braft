@@ -48,7 +48,7 @@ void OnCaughtUp::_run() {
     return on_caught_up(arg, pid, error_code, done);
 }
 
-Replicator::Replicator() {
+Replicator::Replicator() : _on_caught_up(NULL), _last_response_timestamp(0) {
 }
 
 Replicator::~Replicator() {
@@ -96,6 +96,7 @@ int Replicator::start(const ReplicatorOptions& options, ReplicatorId *id) {
         *id = r->_id.value;
     }
     r->_on_caught_up = NULL;
+    r->_last_response_timestamp = base::monotonic_time_ms();
     r.release();
     return 0;
 }
@@ -108,6 +109,18 @@ int Replicator::stop(ReplicatorId id) {
 int Replicator::join(ReplicatorId id) {
     bthread_id_t dummy_id = { id };
     return bthread_id_join(dummy_id);
+}
+
+int64_t Replicator::last_response_timestamp(ReplicatorId id) {
+    bthread_id_t dummy_id = { id };
+    Replicator* r = NULL;
+    if (bthread_id_lock(dummy_id, (void**)&r) != 0) {
+        return 0;
+    }
+    int64_t timestamp = r->_last_response_timestamp;
+    CHECK_EQ(0, bthread_id_unlock(dummy_id))
+        << "Fail to unlock " << dummy_id;
+    return timestamp;
 }
 
 int Replicator::stop_appending_after(ReplicatorId id, int64_t log_index) {
@@ -211,6 +224,7 @@ void Replicator::_on_rpc_returned(ReplicatorId id, baidu::rpc::Controller* cntl,
         return;
     }
     CHECK_EQ(response->term(), r->_options.term);
+    r->_last_response_timestamp = base::monotonic_time_ms();
     // FIXME: move committing out of the critical section
     for (int i = 0; i < request->entries_size(); ++i) {
         LOG(INFO) << "i=" << i;
@@ -423,7 +437,7 @@ int ReplicatorGroup::init(const NodeId& node_id, const ReplicatorGroupOptions& o
     return 0;
 }
 
-int ReplicatorGroup::_add_replicator(const PeerId& peer, ReplicatorId *id) {
+int ReplicatorGroup::add_replicator(const PeerId& peer) {
     ReplicatorOptions options = _common_options;
     options.peer_id = peer;
     ReplicatorId rid;
@@ -436,25 +450,27 @@ int ReplicatorGroup::_add_replicator(const PeerId& peer, ReplicatorId *id) {
         Replicator::stop(rid);
         return -1;
     }
-    if (id != NULL) {
-        *id = rid;
-    }
     return 0;
 }
 
-int ReplicatorGroup::add_replicator(const PeerId& peer) {
-    return _add_replicator(peer, NULL);
-}
-
-int ReplicatorGroup::add_replicator(const PeerId &peer, const OnCaughtUp& on_caught_up,
+int ReplicatorGroup::wait_caughtup(const PeerId& peer, const OnCaughtUp& on_caught_up,
                                     const timespec* due_time) {
-    ReplicatorId rid;
-    const int rc = _add_replicator(peer, &rid);
-    if (rc != 0) {
-        return rc;
+    std::map<PeerId, ReplicatorId>::iterator iter = _rmap.find(peer);
+    if (iter == _rmap.end()) {
+        return -1;
     }
+    ReplicatorId rid = iter->second;
     Replicator::wait_for_caught_up(rid, on_caught_up, due_time);
     return 0;
+}
+
+int64_t ReplicatorGroup::last_response_timestamp(const PeerId& peer) {
+    std::map<PeerId, ReplicatorId>::iterator iter = _rmap.find(peer);
+    if (iter == _rmap.end()) {
+        return 0;
+    }
+    ReplicatorId rid = iter->second;
+    return Replicator::last_response_timestamp(rid);
 }
 
 int ReplicatorGroup::stop_replicator(const PeerId &peer) {

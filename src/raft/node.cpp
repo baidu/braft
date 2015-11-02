@@ -214,17 +214,17 @@ void NodeImpl::on_configuration_change_done(const EntryType type,
 
 static void on_peer_caught_up(void* arg, const PeerId& pid, const int error_code, Closure* done) {
     NodeImpl* node = static_cast<NodeImpl*>(arg);
-    node->on_caughtup_done(pid, error_code, done);
+    node->on_caughtup(pid, error_code, done);
     node->Release();
 }
 
-void NodeImpl::on_caughtup_done(const PeerId& peer, int error_code, Closure* done) {
+void NodeImpl::on_caughtup(const PeerId& peer, int error_code, Closure* done) {
     std::lock_guard<bthread_mutex_t> guard(_mutex);
 
-    LOG(INFO) << "node " << _group_id << ":" << _server_id << " add_peer " << peer
-        << " to " << _conf.second << ", caughtup " <<  noflush;
-
     if (error_code == 0) {
+        LOG(INFO) << "node " << _group_id << ":" << _server_id << " add_peer " << peer
+            << " to " << _conf.second << ", caughtup "
+            << "success, then append add_peer entry.";
         // add peer to _conf after new peer catchup
         Configuration new_conf(_conf.second);
         new_conf.add_peer(peer);
@@ -235,21 +235,43 @@ void NodeImpl::on_caughtup_done(const PeerId& peer, int error_code, Closure* don
         entry->peers = new std::vector<PeerId>;
         new_conf.peer_vector(entry->peers);
         append(entry, done);
-
-        LOG(INFO) << "success, then append add_peer entry.";
-    } else {
-        // call user function, on_caught_up run in bthread created in replicator
-        Configuration old_conf(_conf_ctx.peers);
-        done->set_error(error_code, "caughtup failed");
-        done->Run();
-        _conf_ctx.reset();
-
-        // stop_replicator after call user function, make bthread_id in replicator available
-        _replicator_group.stop_replicator(peer);
-        LOG(INFO) << "failed: " << error_code;
+        return;
     }
 
-    LOG(INFO);
+    if (error_code == ETIMEDOUT &&
+        (base::monotonic_time_ms() -  _replicator_group.last_response_timestamp(peer)) <=
+        _options.election_timeout) {
+
+        LOG(INFO) << "node " << _group_id << ":" << _server_id << " catching up " << peer;
+
+        AddRef();
+        OnCaughtUp caught_up;
+        timespec due_time = base::microseconds_from_now(_options.election_timeout);
+        caught_up.on_caught_up = on_peer_caught_up;
+        caught_up.done = done;
+        caught_up.arg = this;
+        caught_up.min_margin = 1000; //TODO0
+
+        if (0 == _replicator_group.wait_caughtup(peer, caught_up, &due_time)) {
+            return;
+        } else {
+            LOG(ERROR) << "wait_caughtup failed, peer " << peer;
+            Release();
+        }
+    }
+
+    LOG(INFO) << "node " << _group_id << ":" << _server_id << " add_peer " << peer
+        << " to " << _conf.second << ", caughtup "
+        << "failed: " << error_code;
+
+    // call user function, on_caught_up run in bthread created in replicator
+    Configuration old_conf(_conf_ctx.peers);
+    done->set_error(error_code, "caughtup failed");
+    done->Run();
+    _conf_ctx.reset();
+
+    // stop_replicator after call user function, make bthread_id in replicator available
+    _replicator_group.stop_replicator(peer);
 }
 
 int NodeImpl::add_peer(const std::vector<PeerId>& old_peers, const PeerId& peer,
@@ -287,15 +309,26 @@ int NodeImpl::add_peer(const std::vector<PeerId>& old_peers, const PeerId& peer,
     LOG(INFO) << "node " << _group_id << ":" << _server_id << " add_peer " << peer
         << " to " << _conf.second << ", begin caughtup.";
 
+    if (0 != _replicator_group.add_replicator(peer)) {
+        LOG(ERROR) << "start replicator failed, peer " << peer;
+        return EINVAL;
+    }
+
     // catch up new peer
     AddRef();
     OnCaughtUp caught_up;
-    timespec due_time = base::microseconds_from_now(_options.election_timeout 10); // TODO0
+    timespec due_time = base::microseconds_from_now(_options.election_timeout);
     caught_up.on_caught_up = on_peer_caught_up;
     caught_up.done = done;
     caught_up.arg = this;
     caught_up.min_margin = 1000; //TODO0
-    _replicator_group.add_replicator(peer, caught_up, &due_time);
+
+    //TODO: proc return code
+    if (0 != _replicator_group.wait_caughtup(peer, caught_up, &due_time)) {
+        LOG(ERROR) << "wait_caughtup failed, peer " << peer;
+        Release();
+        return EINVAL;
+    }
 
     return 0;
 }
@@ -706,6 +739,7 @@ void NodeImpl::become_leader() {
         RAFT_VLOG << "node " << _group_id << ":" << _server_id
             << " term " << _current_term
             << " add replicator " << peers[i];
+        //TODO: check add_replicator return code
         _replicator_group.add_replicator(peers[i]);
     }
 

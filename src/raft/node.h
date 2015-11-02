@@ -91,7 +91,7 @@ public:
                        InstallSnapshotResponse* response);
 
     void on_configuration_change_done(const EntryType type, const std::vector<PeerId>& peers);
-    void on_caughtup_done(const PeerId& peer, int error_code, Closure* done);
+    void on_caughtup(const PeerId& peer, int error_code, Closure* done);
 
     int increase_term_to(int64_t new_term);
 
