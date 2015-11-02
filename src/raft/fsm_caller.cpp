@@ -11,6 +11,7 @@
 #include "raft/node.h"
 #include "raft/util.h"
 #include "raft/raft.pb.h"
+#include "raft/log_entry.h"
 
 namespace raft {
 
@@ -119,7 +120,8 @@ void* FSMCaller::call_user_fsm(void* arg) {
                     switch (entry->type) {
                     case ENTRY_TYPE_DATA:
                         CHECK(next_applied_index == entry->index);
-                        caller->_fsm->on_apply(entry->data, entry->len, next_applied_index, done);
+                        caller->_fsm->on_apply(entry->data, next_applied_index,
+                                               done);
                         if (done) {
                             done->Run();
                         }

@@ -21,7 +21,9 @@
 #include <vector>
 #include <map>
 #include <base/callback.h>
-#include <raft/raft.h>
+#include <base/iobuf.h>
+#include "raft/log_entry.h"
+#include "raft/raft.h"
 
 namespace raft {
 
@@ -44,26 +46,7 @@ public:
         }
     }
 
-    static const char* _s_meta_file;
-    static const char* _s_closed_pattern;
-    static const char* _s_open_pattern;
-    static const char* _s_entry_magic;
-
-    struct EntryHeader {
-        char magic[sizeof(int32_t)];
-        int32_t checksum;
-        int64_t term;
-        int32_t type;
-        int32_t meta_len;
-        int32_t data_len;
-        int32_t reserved;
-
-        EntryHeader()
-            : checksum(0), term(0), type(ENTRY_TYPE_UNKNOWN),
-            meta_len(0), data_len(0), reserved(0) {
-            memcpy(magic, _s_entry_magic, strlen(_s_entry_magic));
-        }
-    };
+    struct EntryHeader;
 
     // create open segment
     int create();
@@ -110,6 +93,11 @@ public:
     }
 
 private:
+
+    int _load_entry(off_t offset, EntryHeader *head, base::IOBuf *body, 
+                    size_t size_hint);
+    ssize_t _read_up(base::IOPortal* buf, size_t count, off_t offset);
+
     std::string _path;
     int64_t _bytes;
     int _fd;
@@ -125,18 +113,7 @@ private:
 // SegmentLog layout:
 //      log_meta: record start_log
 //      log_000001-0001000: closed segment
-//      log_inprogress_0001001: opening segment
-//
-// LogEntry format:
-//      Header: 32B
-//          magic: LSF1 [4B]
-//          checksum: [4B, in network order, protect len,Meta]
-//          term: [8B, in network order]
-//          index: [8B, in network order]
-//          type: [4B, in network order]
-//          len: [4B, in network order]
-//      Data: if type is ADD_PEER/REMOVE_PEER is local_storage::Configuration; else user raw data
-//
+//      log_inprogress_0001001: open segment
 class SegmentLogStorage : public LogStorage, public base::RefCountedThreadSafe<SegmentLogStorage>{
 public:
     typedef std::map<int64_t, Segment*> SegmentMap;
@@ -209,8 +186,6 @@ private:
 
         _is_inited = false;
     }
-
-    static const int32_t _s_max_segment_size;
 
     Segment* open_segment();
     int save_meta(const int64_t log_index);

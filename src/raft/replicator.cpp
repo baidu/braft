@@ -16,6 +16,7 @@
 #include "raft/node.h"
 #include "raft/log_manager.h"
 #include "raft/commitment_manager.h"
+#include "raft/log_entry.h"
 
 namespace raft {
 
@@ -267,8 +268,8 @@ int Replicator::_prepare_entry(int offset, EntryMeta* em, base::IOBuf *data) {
     } else {
         CHECK(entry->type != ENTRY_TYPE_ADD_PEER) << "log_index=" << log_index;
     }
-    em->set_data_len(entry->len);
-    data->append(entry->data, entry->len);
+    em->set_data_len(entry->data.length());
+    data->append(entry->data);
     entry->Release();
     return 0;
 }
@@ -461,8 +462,8 @@ int ReplicatorGroup::stop_replicator(const PeerId &peer) {
         return -1;
     }
     ReplicatorId rid = iter->second;
-    // Calling ReplicatorId::stop migth lead to call stop_replicator again, so
-    // erase iter first to avoid the race condition
+    // Calling ReplicatorId::stop might lead to calling stop_replicator again, 
+    // erase iter first to avoid race condition
     _rmap.erase(iter);
     return Replicator::stop(rid);
 }

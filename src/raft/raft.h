@@ -21,50 +21,16 @@
 #include <string>
 #include <gflags/gflags.h>
 
+#include <base/iobuf.h>
 #include "raft/raft.pb.h"
 #include "raft/configuration.h"
 
 DECLARE_string(raft_ip);
 DECLARE_int32(raft_start_port);
 DECLARE_int32(raft_end_port);
-
 namespace raft {
 
-// term start from 1, log index start from 1
-struct LogEntry : public base::RefCountedThreadSafe<LogEntry> {
-public:
-    EntryType type; // log type
-    int64_t index; // log index
-    int64_t term; // leader term
-    std::vector<PeerId>* peers; // peers
-    int len; // data len
-    void* data; // data ptr
-
-    LogEntry(): type(ENTRY_TYPE_UNKNOWN), index(0), term(0), peers(NULL), len(0), data(NULL) {
-        AddRef();
-    }
-
-    void add_peer(const std::vector<PeerId>& peers_) {
-        peers = new std::vector<PeerId>(peers_);
-    }
-    void set_data(void* data_, int len_) {
-        len = len_;
-        data = data_;
-    }
-    // FIXME: Temporarily make dctor public to make it compilied
-    virtual ~LogEntry() {
-        if (peers) {
-            delete peers;
-            peers = NULL;
-        }
-        if (data) {
-            free(data);
-            data = NULL;
-        }
-    }
-private:
-    friend class base::RefCountedThreadSafe<LogEntry>;
-};
+class LogEntry;
 
 class LogStorage {
 public:
@@ -145,7 +111,7 @@ public:
     // [OPTIMIZE] add Closure argument to avoid parse data
     // [NOTE] index: realize follower read strong consistency
     // [NOTE] done: on_apply return some result to done
-    virtual void on_apply(const void* data, const int len, const int64_t index, Closure* done) = 0;
+    virtual void on_apply(const base::IOBuf& buf, const int64_t index, Closure* done) = 0;
 
     // user define shutdown function
     virtual void on_shutdown() = 0;
@@ -211,7 +177,7 @@ public:
     // apply data to replicated-state-machine [thread-safe]
     // done is user defined function, maybe response to client, transform to on_applied
     // [NOTE] code after apply can't access resource in done
-    int apply(const void* data, const int len, Closure* done);
+    int apply(const base::IOBuf& data, Closure* done);
 
     // add peer to replicated-state-machine [thread-safe]
     // done is user defined function, maybe response to client

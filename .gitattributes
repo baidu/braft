@@ -24,8 +24,10 @@ src/raft/fsm_caller.cpp -text
 src/raft/fsm_caller.h -text
 src/raft/log.cpp -text
 src/raft/log.h -text
+src/raft/log_entry.h -text
 src/raft/log_manager.cpp -text
 src/raft/log_manager.h -text
+src/raft/macros.h -text
 src/raft/node.cpp -text
 src/raft/node.h -text
 src/raft/protobuf_file.cpp -text
@@ -43,4 +45,5 @@ src/raft/test/test_configuration.cpp -text
 src/raft/test/test_log.cpp -text
 src/raft/test/test_protobuf_file.cpp -text
 src/raft/test/test_stable.cpp -text
+src/raft/util.cpp -text
 src/raft/util.h -text

@@ -20,7 +20,7 @@ UBRPCFLAGS('--compack')
 
 INCPATHS('. ./src ./protocol ./include ./output ./output/include')
 
-LDFLAGS('-lpthread -lcrypto -lz -lrt')
+LDFLAGS('-lpthread -lz -lrt')
 #LDFLAGS('-lasan')
 
 CONFIGS('lib2-64/ullib@base')
@@ -47,17 +47,9 @@ user_sources = (
         'src/raft/commitment_manager.cpp '
         'src/raft/fsm_caller.cpp '
         'src/raft/replicator.cpp '
+        'src/raft/util.cpp '
 )
 
 user_headers = GLOB('src/raft/*.h')
 
 StaticLibrary('raft',Sources(user_sources, proto_sources),HeaderFiles(user_headers))
-
-#Application('test_protobuf_file',Sources('src/raft/test_protobuf_file.cpp'), Libraries('libraft.a'))
-#Application('test_log',Sources('src/raft/test_log.cpp'), Libraries('libraft.a'))
-#Application('test_stable',Sources('src/raft/test_stable.cpp'), Libraries('libraft.a'))
-#Application('test_configuration',Sources('src/raft/test_configuration.cpp'), Libraries('libraft.a'))
-
-#StaticLibrary('raft',Sources(user_sources),HeaderFiles(user_headers))
-#SharedLibrary('raft',Sources(user_sources),HeaderFiles(user_headers))
-

@@ -14,7 +14,7 @@ message EntryMeta {
     required int64 term = 1;
     required EntryType type = 2;
     repeated string peers = 3;
-    optional int32 data_len = 4;
+    optional int64 data_len = 4;
 };
 
 message RequestVoteRequest {

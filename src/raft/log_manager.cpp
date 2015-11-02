@@ -6,10 +6,11 @@
 #include "raft/log_manager.h"
 
 #include <base/logging.h>
+#include <bthread.h>
 #include <bthread_unstable.h>
+#include "raft/log_entry.h"
 #include "raft/util.h"
 #include "raft.h"
-#include <bthread.h>
 
 namespace raft {
 

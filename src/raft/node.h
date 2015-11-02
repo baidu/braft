@@ -59,7 +59,7 @@ public:
 
     // apply data to replicated-state-machine
     // done is user defined function, maybe response to client, transform to on_applied
-    int apply(const void* data, const int len, Closure* done);
+    int apply(const base::IOBuf& data, Closure* done);
 
     // add peer to replicated-state-machine
     // done is user defined function, maybe response to client

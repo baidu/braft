@@ -111,8 +111,8 @@ void Node::shutdown(Closure* done) {
     _impl->shutdown(done);
 }
 
-int Node::apply(const void* data, const int len, Closure* done) {
-    return _impl->apply(data, len, done);
+int Node::apply(const base::IOBuf& data, Closure* done) {
+    return _impl->apply(data, done);
 }
 
 int Node::add_peer(const std::vector<PeerId>& old_peers, const PeerId& peer, Closure* done) {

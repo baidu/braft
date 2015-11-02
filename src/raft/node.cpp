@@ -161,7 +161,7 @@ int NodeImpl::init(const NodeOptions& options) {
     return ret;
 }
 
-int NodeImpl::apply(const void* data, const int len, Closure* done) {
+int NodeImpl::apply(const base::IOBuf& data, Closure* done) {
     std::lock_guard<bthread_mutex_t> guard(_mutex);
 
     if (!_inited) {
@@ -176,8 +176,7 @@ int NodeImpl::apply(const void* data, const int len, Closure* done) {
     LogEntry* entry = new LogEntry;
     entry->term = _current_term;
     entry->type = ENTRY_TYPE_DATA;
-    entry->len = len;
-    entry->data = (void*)data;
+    entry->data.append(data);
     return append(entry, done);
 }
 
@@ -925,15 +924,12 @@ int NodeImpl::handle_append_entries_request(base::IOBuf& data_buf,
                     CHECK((log_entry->type == ENTRY_TYPE_ADD_PEER
                             || log_entry->type == ENTRY_TYPE_REMOVE_PEER));
                 } else {
-                    CHECK_NE(entry.type(),  ENTRY_TYPE_ADD_PEER);
+                    CHECK_NE(entry.type(), ENTRY_TYPE_ADD_PEER);
                 }
 
                 if (entry.has_data_len()) {
                     int len = entry.data_len();
-                    char* data = (char*)malloc(len);
-                    data_buf.cutn(data, len);
-                    log_entry->len = len;
-                    log_entry->data = data;
+                    data_buf.cutn(&log_entry->data, len);
                 }
 
                 entries.push_back(log_entry);

@@ -41,7 +41,7 @@ public:
     base::EndPoint self();
 
     // FSM method
-    virtual void on_apply(const void* data, const int len,
+    virtual void on_apply(const base::IOBuf& buf,
                           const int64_t index, raft::Closure* done);
 
     virtual void on_shutdown();

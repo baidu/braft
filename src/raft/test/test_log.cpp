@@ -47,8 +47,7 @@ TEST_F(TestUsageSuits, open_segment) {
 
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "hello, world: %d", i + 1);
-        entry->data = strndup(data_buf, strlen(data_buf));
-        entry->len = strlen(data_buf);
+        entry->data.append(data_buf);
 
         ASSERT_EQ(0, seg1->append(entry));
 
@@ -64,7 +63,7 @@ TEST_F(TestUsageSuits, open_segment) {
 
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "hello, world: %d", i + 1);
-        ASSERT_EQ(0, memcmp(entry->data, data_buf, entry->len));
+        ASSERT_EQ(data_buf, entry->data.to_string());
         delete entry;
     }
     {
@@ -88,7 +87,7 @@ TEST_F(TestUsageSuits, open_segment) {
 
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "hello, world: %d", i + 1);
-        ASSERT_EQ(0, memcmp(entry->data, data_buf, entry->len));
+        ASSERT_EQ(data_buf, entry->data.to_string());
         delete entry;
     }
     {
@@ -109,8 +108,7 @@ TEST_F(TestUsageSuits, open_segment) {
 
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "HELLO, WORLD: %d", i + 6);
-        entry->data = strndup(data_buf, strlen(data_buf));
-        entry->len = strlen(data_buf);
+        entry->data.append(data_buf); 
 
         ASSERT_EQ(0, seg1->append(entry));
 
@@ -128,7 +126,7 @@ TEST_F(TestUsageSuits, open_segment) {
         } else {
             snprintf(data_buf, sizeof(data_buf), "HELLO, WORLD: %d", i + 1);
         }
-        ASSERT_EQ(0, memcmp(entry->data, data_buf, entry->len));
+        ASSERT_EQ(data_buf, entry->data.to_string());
         delete entry;
     }
 
@@ -151,8 +149,7 @@ TEST_F(TestUsageSuits, closed_segment) {
 
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "hello, world: %d", i + 1);
-        entry->data = strndup(data_buf, strlen(data_buf));
-        entry->len = strlen(data_buf);
+        entry->data.append(data_buf);
 
         ASSERT_EQ(0, seg1->append(entry));
 
@@ -169,7 +166,7 @@ TEST_F(TestUsageSuits, closed_segment) {
 
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "hello, world: %d", i + 1);
-        ASSERT_EQ(0, memcmp(entry->data, data_buf, entry->len));
+        ASSERT_EQ(data_buf, entry->data.to_string());
         delete entry;
     }
     {
@@ -193,7 +190,7 @@ TEST_F(TestUsageSuits, closed_segment) {
 
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "hello, world: %d", i + 1);
-        ASSERT_EQ(0, memcmp(entry->data, data_buf, entry->len));
+        ASSERT_EQ(data_buf, entry->data.to_string());
         delete entry;
     }
     {
@@ -214,8 +211,7 @@ TEST_F(TestUsageSuits, closed_segment) {
 
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "HELLO, WORLD: %d", i + 6);
-        entry->data = strndup(data_buf, strlen(data_buf));
-        entry->len = strlen(data_buf);
+        entry->data.append(data_buf);
 
         ASSERT_NE(0, seg1->append(entry));
 
@@ -234,7 +230,7 @@ TEST_F(TestUsageSuits, closed_segment) {
         ASSERT_EQ(entry->term, 1);
         ASSERT_EQ(entry->type, raft::ENTRY_TYPE_DATA);
         ASSERT_EQ(entry->index, i+1);
-        ASSERT_EQ(0, memcmp(entry->data, data_buf, entry->len));
+        ASSERT_EQ(data_buf, entry->data.to_string());
         delete entry;
     }
 
@@ -272,8 +268,7 @@ TEST_F(TestUsageSuits, multi_segment_and_segment_logstorage) {
 
             char data_buf[128];
             snprintf(data_buf, sizeof(data_buf), "hello, world: %ld", index);
-            entry->data = strndup(data_buf, strlen(data_buf));
-            entry->len = strlen(data_buf);
+            entry->data.append(data_buf);
             entries.push_back(entry);
         }
 
@@ -294,7 +289,7 @@ TEST_F(TestUsageSuits, multi_segment_and_segment_logstorage) {
 
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "hello, world: %ld", index);
-        ASSERT_EQ(0, memcmp(entry->data, data_buf, entry->len));
+        ASSERT_EQ(data_buf, entry->data.to_string());
         delete entry;
     }
 
@@ -328,7 +323,7 @@ TEST_F(TestUsageSuits, multi_segment_and_segment_logstorage) {
 
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "hello, world: %ld", index);
-        ASSERT_EQ(0, memcmp(entry->data, data_buf, entry->len));
+        ASSERT_EQ(data_buf, entry->data.to_string());
         delete entry;
     }
 
@@ -344,8 +339,7 @@ TEST_F(TestUsageSuits, multi_segment_and_segment_logstorage) {
 
             char data_buf[128];
             snprintf(data_buf, sizeof(data_buf), "hello, world: %ld", index);
-            entry->data = strndup(data_buf, strlen(data_buf));
-            entry->len = strlen(data_buf);
+            entry->data.append(data_buf);
             entries.push_back(entry);
         }
 
@@ -389,7 +383,7 @@ TEST_F(TestUsageSuits, multi_segment_and_segment_logstorage) {
 
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "hello, world: %ld", index);
-        ASSERT_EQ(0, memcmp(entry->data, data_buf, entry->len));
+        ASSERT_EQ(data_buf, entry->data.to_string());
         delete entry;
     }
 
@@ -457,8 +451,7 @@ TEST_F(TestUsageSuits, configuration) {
 
             char data_buf[128];
             snprintf(data_buf, sizeof(data_buf), "hello, world: %ld", index);
-            entry->data = strndup(data_buf, strlen(data_buf));
-            entry->len = strlen(data_buf);
+            entry->data.append(data_buf);
             entries.push_back(entry);
         }
         ASSERT_EQ(5, storage->append_entries(entries));

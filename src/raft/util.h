@@ -18,13 +18,18 @@
 #ifndef PUBLIC_RAFT_RAFT_UTIL_H
 #define PUBLIC_RAFT_RAFT_UTIL_H
 
+#include <zlib.h>
 #include <net/if.h>
 #include <sys/ioctl.h>
+#include <iterative_murmurhash3.h>
 #include <base/endpoint.h>
 #include <base/scoped_lock.h>
 #include <base/rand_util.h>
 #include <base/time.h>
+#include <base/logging.h>
+#include <base/iobuf.h>
 #include <bthread.h>
+#include "raft/macros.h"
 
 namespace std {
 
@@ -59,7 +64,7 @@ private:
     bthread_mutex_t* _pmutex;
 };
 
-}
+}  // namespace std
 
 namespace base {
 
@@ -101,14 +106,36 @@ inline ip_t get_host_ip() {
     return ip;
 }
 
-}
+}  // namespace std
 
 namespace raft {
 
-inline int64_t random_timeout(int64_t timeout_ms) {
-    return timeout_ms + (base::RandUint64() % (timeout_ms));
+int get_random_number(int min, int max);
+
+inline int random_timeout(int timeout_ms) {
+    return get_random_number(timeout_ms, timeout_ms << 1);
 }
 
+inline uint32_t murmurhash32(const void *key, int len) {
+    uint32_t hash = 0;
+    MurmurHash3_x86_32(key, len, 0, &hash);
+    return hash;
 }
 
-#endif //~PUBLIC_RAFT_RAFT_UTIL_H
+inline uint32_t murmurhash32(const base::IOBuf& buf) {
+    MurmurHash3_x86_32_Context ctx;
+    MurmurHash3_x86_32_Init(&ctx, 0);
+    base::IOBufAsZeroCopyInputStream wrapper(buf);
+    const void *data = NULL;
+    int len = 0;
+    while (wrapper.Next(&data, &len)) {
+        MurmurHash3_x86_32_Update(&ctx, data, len);
+    }
+    uint32_t hash = 0;
+    MurmurHash3_x86_32_Final(&hash, &ctx);
+    return hash;
+}
+
+}  // namespace raft
+
+#endif // PUBLIC_RAFT_RAFT_UTIL_H

@@ -16,52 +16,158 @@
  * =====================================================================================
  */
 
-#include <zlib.h>
-#include <base/bind.h>
-#include <base/compiler_specific.h>
-#include <base/macros.h>
-#include <base/sys_byteorder.h>
-#include <base/files/dir_reader_posix.h>
-#include <base/logging.h>
-#include <base/file_util.h>
+#include "raft/log.h"
+
+#include <gflags/gflags.h>
+#include <base/files/dir_reader_posix.h>            // base::DirReaderPosix
+#include <base/file_util.h>                         // base::CreateDirectory
+#include <base/string_printf.h>                     // base::string_appendf
+#include <base/callback.h>                          // base::Callback
+#include <base/bind.h>                              // base::Bind
+#include <baidu/rpc/raw_pack.h>                     // baidu::rpc::RawPacker
+#include <baidu/rpc/reloadable_flags.h>             // 
 
 #include "raft/local_storage.pb.h"
-#include "raft/log.h"
+#include "raft/log_entry.h"
 #include "raft/protobuf_file.h"
+#include "raft/util.h"
+
+#define RAFT_SEGMENT_OPEN_PATTERN "log_inprogress_%020ld"
+#define RAFT_SEGMENT_CLOSED_PATTERN "log_%020ld_%020ld"
+#define RAFT_SEGMENT_META_FILE  "log_meta"
 
 namespace raft {
 
-const char* Segment::_s_meta_file = "log_meta";
-const char* Segment::_s_closed_pattern = "log_%020u-%020u";
-const char* Segment::_s_open_pattern = "log_inprogress_%020u";
-const char* Segment::_s_entry_magic = "LSF1";
-const int32_t SegmentLogStorage::_s_max_segment_size = 8*1024*1024; // 8M
+using ::baidu::rpc::RawPacker;
+using ::baidu::rpc::RawUnpacker;
+
+DEFINE_int32(raft_max_segment_size, 8 * 1024 * 1024 /*8M*/, 
+             "Max size of one segment file");
+BAIDU_RPC_VALIDATE_GFLAG(raft_max_segment_size, baidu::rpc::PositiveInteger);
+
+
+// Format of Header, all fields are in network order
+// | ----------------- term (64bits) ----------------- |
+// | type (8bits) | -------- data len (56bits) ------- |
+// | data_checksum (32bits) | header checksum (32bits) |
+
+const static size_t ENTRY_HEADER_SIZE = 24;
+
+struct Segment::EntryHeader {
+    int64_t term;
+    int type;
+    uint64_t data_len;
+    uint32_t data_checksum;
+};
+
+std::ostream& operator<<(std::ostream& os, const Segment::EntryHeader& h) {
+    os << "{term=" << h.term << ", type=" << h.type << ", data_len="
+       << h.data_len << ", data_checksum=" << h.data_checksum << '}';
+    return os;
+}
 
 int Segment::create() {
     if (!_is_open) {
-        LOG(WARNING) << "closed segment can not call create(), path: " << _path
-            << " start: " << _start_index;
+        CHECK(false) << "Create on a closed segment at start_index=" 
+                     << _start_index << " in " << _path;
         return -1;
     }
 
-    char segment_name[128];
-    snprintf(segment_name, sizeof(segment_name), _s_open_pattern, _start_index);
     std::string path(_path);
-    path.append("/");
-    path.append(segment_name);
-
+    base::string_appendf(&path, "/" RAFT_SEGMENT_OPEN_PATTERN, _start_index);
     base::FilePath dir_path(_path);
     if (!base::CreateDirectory(dir_path)) {
         return -1;
     }
 
     _fd = ::open(path.c_str(), O_RDWR | O_CREAT | O_TRUNC, 0644);
-    if (_fd >= 0) {
-        LOG(NOTICE) << "create new segment, path: " << path << " start: " << _start_index;
-        return 0;
-    } else {
+    LOG_IF(INFO, _fd >= 0) << "Created new segment `" << path 
+                           << "' with fd=" << _fd ;
+    return _fd >= 0 ? 0 : -1;
+}
+
+ssize_t Segment::_read_up(base::IOPortal* buf, size_t count, off_t offset) {
+    size_t nread = 0;
+    while (nread < count) {
+        ssize_t n = buf->append_from_file_descriptor(
+                         _fd, count - nread, offset + nread);
+        if (n >= 0) {
+            nread += n;
+        } else {
+            if (n < 0) {
+                LOG(ERROR) << "Fail to read from fd=" << _fd << ", " 
+                           <<  berror();
+                return -1;
+            } else {
+                return nread;
+            }
+        }
+    }
+    return (ssize_t)nread;
+}
+
+int Segment::_load_entry(off_t offset, EntryHeader* head, base::IOBuf* data,
+                         size_t size_hint) {
+    base::IOPortal buf;
+    size_t to_read = std::max(size_hint, ENTRY_HEADER_SIZE);
+    const ssize_t n = _read_up(&buf, to_read, offset);
+    if (n != (ssize_t)to_read) {
+        return n < 0 ? -1 : 1;
+    }
+    char header_buf[ENTRY_HEADER_SIZE];
+    const char *p = (const char *)buf.fetch(header_buf, ENTRY_HEADER_SIZE);
+    int64_t term = 0;
+    uint64_t type_and_data_len = 0;
+    uint32_t data_checksum = 0;
+    uint32_t header_checksum = 0;
+    RawUnpacker(p).unpack64((uint64_t&)term)
+                  .unpack64(type_and_data_len)
+                  .unpack32(data_checksum)
+                  .unpack32(header_checksum);
+    if (header_checksum != murmurhash32(p, ENTRY_HEADER_SIZE - 4)) {
+        int type = type_and_data_len >> 56;
+        uint64_t data_len = type_and_data_len & 0xFFFFFFFFFFFFFFUL;
+        EntryHeader dummy;
+        dummy.term = term;
+        dummy.type = type;
+        dummy.data_len = data_len;
+        dummy.data_checksum = data_checksum;
+        LOG(ERROR) << "Found corrupted header at offset=" << offset
+                   << " dummy=" << dummy;
         return -1;
     }
+    uint64_t data_len = type_and_data_len & 0xFFFFFFFFFFFFFFUL;
+    int type = type_and_data_len >> 56;
+    if (head != NULL) {
+        head->term = term;
+        head->type = type;
+        head->data_len = data_len;
+        head->data_checksum = data_checksum;
+    }
+    if (data != NULL) {
+        if (buf.length() < ENTRY_HEADER_SIZE + data_len) {
+            const size_t to_read = ENTRY_HEADER_SIZE + data_len - buf.length();
+            const ssize_t n = _read_up(
+                    &buf, to_read,
+                    offset + buf.length()); 
+            if (n != (ssize_t)to_read) {
+                return n < 0 ? -1 : 1;
+            }
+        } else if (buf.length() > ENTRY_HEADER_SIZE + data_len) {
+            buf.pop_back(buf.length() - ENTRY_HEADER_SIZE - data_len);
+        }
+        CHECK_EQ(buf.length(), ENTRY_HEADER_SIZE + data_len);
+        buf.pop_front(ENTRY_HEADER_SIZE);
+        if (murmurhash32(buf) != data_checksum) {
+            LOG(ERROR) << "Found corrupted data at offset=" 
+                       << offset + ENTRY_HEADER_SIZE
+                       << " data_len=" << data_len;
+            // TODO: abort()?
+            return -1;
+        }
+        data->swap(buf);
+    }
+    return 0;
 }
 
 int Segment::load(const base::Callback<void(int64_t, const Configuration&)>& configuration_cb) {
@@ -70,26 +176,24 @@ int Segment::load(const base::Callback<void(int64_t, const Configuration&)>& con
     std::string path(_path);
     // create fd
     if (_is_open) {
-        char segment_name[128];
-        snprintf(segment_name, sizeof(segment_name), _s_open_pattern, _start_index);
-        path.append("/");
-        path.append(segment_name);
+        base::string_appendf(&path, "/" RAFT_SEGMENT_OPEN_PATTERN, _start_index);
     } else {
-        char segment_name[128];
-        snprintf(segment_name, sizeof(segment_name), _s_closed_pattern, _start_index, _end_index);
-        path.append("/");
-        path.append(segment_name);
+        base::string_appendf(&path, "/" RAFT_SEGMENT_CLOSED_PATTERN, 
+                             _start_index, _end_index);
     }
     _fd = ::open(path.c_str(), O_RDWR);
     if (_fd < 0) {
+        LOG(ERROR) << "Fail to open " << path << ", " << berror();
         return -1;
     }
 
     // get file size
     struct stat st_buf;
-    ret = fstat(_fd, &st_buf);
-    if (ret != 0) {
-        return ret;
+    if (fstat(_fd, &st_buf) != 0) {
+        LOG(ERROR) << "Fail to get the stat of " << path << ", " << berror();
+        ::close(_fd);
+        _fd = -1;
+        return -1;
     }
 
     // load entry index
@@ -98,86 +202,61 @@ int Segment::load(const base::Callback<void(int64_t, const Configuration&)>& con
     int64_t load_end_index = _start_index - 1;
     for (int64_t i = _start_index; entry_off < file_size; i++) {
         EntryHeader header;
-        ssize_t nr = ::pread(_fd, &header, sizeof(header), entry_off);
-        if (nr == sizeof(header)) {
-            int64_t skip_len = sizeof(header) +
-                base::NetToHost32(header.meta_len) + base::NetToHost32(header.data_len);
-            if (BAIDU_UNLIKELY(0 != strncmp(header.magic, _s_entry_magic,
-                                            strlen(_s_entry_magic)))) {
-                LOG(WARNING) << "magic check failed, path: " << _path << " index: " << i;
-                break;
-            }
-
-            if (entry_off + skip_len <= file_size) {
-                // parse meta
-                bool meta_ok = true;
-                if (base::NetToHost32(header.type) == ENTRY_TYPE_ADD_PEER ||
-                    base::NetToHost32(header.type) == ENTRY_TYPE_REMOVE_PEER) {
-                    int meta_len = base::NetToHost32(header.meta_len);
-                    DEFINE_SMALL_ARRAY(char, meta_buf, meta_len, 128);
-                    do {
-                        nr = ::pread(_fd, meta_buf, meta_len, entry_off + sizeof(header));
-                        if (BAIDU_UNLIKELY(nr != meta_len)) {
-                            meta_ok = false;
-                            break;
-                        }
-
-                        ConfigurationMeta meta;
-                        if (BAIDU_UNLIKELY(!meta.ParseFromArray(meta_buf, meta_len))) {
-                            LOG(WARNING) << "EntryMeta parse failed, path: " << _path
-                                << " index: " << i;
-                            meta_ok = false;
-                            break;
-                        }
-
-                        EntryType entry_type = static_cast<EntryType>(
-                                base::NetToHost32(header.type));
-                        if (entry_type == ENTRY_TYPE_ADD_PEER 
-                                || entry_type == ENTRY_TYPE_REMOVE_PEER) {
-                            std::vector<PeerId> peers;
-                            for (int j = 0; j < meta.peers_size(); j++) {
-                                PeerId peer_id;
-                                if (0 != peer_id.parse(meta.peers(j))) {
-                                    LOG(WARNING) << "ConfigurationMeta parse peers"
-                                        " failed, path: " << _path << " index: " << i;
-                                    meta_ok = false;
-                                    break;
-                                }
-                                peers.push_back(peer_id);
-                            }
-
-                            if (meta_ok) {
-                                configuration_cb.Run(i, Configuration(peers));
-                            }
-                        }
-                    } while (0);
-                }
-                if (BAIDU_UNLIKELY(!meta_ok)) {
-                    break;
-                }
-
-                // index
-                _offset.push_back(entry_off);
-                if (_is_open) {
-                    _end_index++;
-                }
-                entry_off += skip_len;
-            } else {
-                // last entry not write complete
-                break;
-            }
-        } else if (nr >= 0) {
-            // last entry not write complete
-            break;
-        } else {
-            ret = nr;
+        const int rc = _load_entry(entry_off, &header, NULL, ENTRY_HEADER_SIZE);
+        if (rc > 0) {
+            // The last log was not completely written which should be truncated
             break;
         }
+        if (rc < 0) {
+            ret = rc;
+            break;
+        }
+        // rc == 0
+        const int64_t skip_len = ENTRY_HEADER_SIZE + header.data_len;
+        if (entry_off + skip_len > file_size) {
+            // The last log was not completely written which should be truncated
+            break;
+        }
+        if (header.type == ENTRY_TYPE_ADD_PEER 
+                || header.type == ENTRY_TYPE_REMOVE_PEER) {
+            base::IOBuf data;
+            // Header will be parsed again but it's fine as configuration
+            // changing is rare
+            if (_load_entry(entry_off, NULL, &data, skip_len) != 0) {
+                break;
+            }
+            ConfigurationMeta meta;
+            base::IOBufAsZeroCopyInputStream wrapper(data);
+            if (!meta.ParseFromZeroCopyStream(&wrapper)) {
+                LOG(WARNING) << "Fail to parse ConfigurationMeta";
+                break;
+            }
+            bool meta_ok = true;
+            std::vector<PeerId> peers;
+            for (int j = 0; j < meta.peers_size(); ++j) {
+                PeerId peer_id;
+                if (peer_id.parse(meta.peers(j)) != 0) {
+                    LOG(WARNING) << "Fail to parse ConfigurationMeta";
+                    meta_ok = false;
+                    break;
+                }
+            }
+            if (meta_ok) {
+                configuration_cb.Run(i, Configuration(peers));
+            } else {
+                break;
+            }
+        }
+        _offset.push_back(entry_off);
+        if (_is_open) {
+            ++_end_index;
+        }
+        entry_off += skip_len;
     }
 
     // truncate last uncompleted entry
     if (ret == 0 && entry_off != file_size) {
-        LOG(NOTICE) << "truncate last uncompleted write entry, path: " << _path
+        LOG(INFO) << "truncate last uncompleted write entry, path: " << _path
             << " start_index: " << _start_index
             << " old_size: " << file_size << " new_size: " << entry_off;
         ret = ::ftruncate(_fd, entry_off);
@@ -187,113 +266,71 @@ int Segment::load(const base::Callback<void(int64_t, const Configuration&)>& con
 }
 
 int Segment::append(const LogEntry* entry) {
+
     if (BAIDU_UNLIKELY(!entry || !_is_open)) {
         return -1;
     } else if (BAIDU_UNLIKELY(entry->index != _end_index + 1)) {
+        LOG(INFO) << "entry->index=" << entry->index
+                  << " _end_index=" << _end_index
+                  << " _start_index=" << _start_index;
         return -1;
     }
 
-    EntryHeader header;
-    header.term = base::HostToNet64(entry->term);
-    header.data_len = base::HostToNet32(entry->len);
-
-    std::string meta_str;
+    base::IOBuf data;
     switch (entry->type) {
     case ENTRY_TYPE_DATA:
-        header.type = base::HostToNet32(ENTRY_TYPE_DATA);
+        data.append(entry->data);
         break;
     case ENTRY_TYPE_NO_OP:
-        header.type = base::HostToNet32(ENTRY_TYPE_NO_OP);
         break;
-    case ENTRY_TYPE_ADD_PEER: {
-            header.type = base::HostToNet32(ENTRY_TYPE_ADD_PEER);
-            ConfigurationMeta meta;
-            const std::vector<PeerId>& peers = *(entry->peers);
-            for (size_t i = 0; i < peers.size(); i++) {
-                meta.add_peers(peers[i].to_string());
-            }
-            meta.SerializeToString(&meta_str);
-            header.meta_len = base::HostToNet32(meta_str.size());
-        }
-        break;
+    case ENTRY_TYPE_ADD_PEER:
     case ENTRY_TYPE_REMOVE_PEER: {
-            header.type = base::HostToNet32(ENTRY_TYPE_REMOVE_PEER);
             ConfigurationMeta meta;
             const std::vector<PeerId>& peers = *(entry->peers);
             for (size_t i = 0; i < peers.size(); i++) {
                 meta.add_peers(peers[i].to_string());
             }
-            meta.SerializeToString(&meta_str);
-            header.meta_len = base::HostToNet32(meta_str.size());
+            base::IOBufAsZeroCopyOutputStream wrapper(&data);
+            if (!meta.SerializeToZeroCopyStream(&wrapper)) {
+                LOG(ERROR) << "Fail to serialize ConfigurationMeta";
+                return -1;
+            }
         }
         break;
     default:
         LOG(FATAL) << "unknow entry type: " << entry->type;
         return -1;
     }
-
-    // crc32 checksum
-    int32_t checksum = crc32(0, (const Bytef*)(&header.checksum) + sizeof(int32_t),
-                             sizeof(header) - sizeof(int32_t) - sizeof(int32_t));
-    if (BAIDU_UNLIKELY(meta_str.size() > 0)) {
-        checksum = crc32(checksum, (const Bytef*)(meta_str.data()), meta_str.size());
-    }
-    if (entry->len > 0) {
-        checksum = crc32(checksum, (const Bytef*)(entry->data), entry->len);
-    }
-    header.checksum = base::HostToNet32(checksum);
-
-    int ret = 0;
-    int64_t left_len = sizeof(header) + meta_str.size() + entry->len;
-    // header, meta, data
-    do {
-        // prepare iovec
-        struct iovec vec[3];
-        int nvec = 0;
-        if (static_cast<size_t>(left_len) > meta_str.size() + entry->len) {
-            vec[0].iov_len = left_len - meta_str.size() - entry->len;
-            vec[0].iov_base = &header + (sizeof(header) - vec[0].iov_len);
-            vec[1].iov_len = meta_str.size();
-            vec[1].iov_base = (void*)meta_str.data();
-            nvec = 2;
-            if (entry->len > 0) {
-                vec[2].iov_len = entry->len;
-                vec[2].iov_base = entry->data;
-                nvec = 3;
-            }
-        } else if (left_len > entry->len) {
-            vec[0].iov_len = left_len - entry->len;
-            vec[0].iov_base = (void*)(meta_str.data() + (meta_str.size() - vec[0].iov_len));
-            nvec = 1;
-            if (entry->len > 0) {
-                vec[1].iov_len = entry->len;
-                vec[1].iov_base = entry->data;
-                nvec = 2;
-            }
-        } else {
-            assert(entry->len > 0);
-            vec[0].iov_len = left_len;
-            vec[0].iov_base = (void *)((char *)entry->data + (entry->len - left_len));
-            nvec = 1;
+    CHECK_LE(data.length(), 1ul << 56ul);
+    char header_buf[ENTRY_HEADER_SIZE];
+    RawPacker packer(header_buf);
+    packer.pack64(entry->term)
+          .pack64((uint64_t)entry->type << 56ul | data.length())
+          .pack32(murmurhash32(data));
+    packer.pack32(murmurhash32(header_buf, ENTRY_HEADER_SIZE - 4));
+    base::IOBuf header;
+    header.append(header_buf, ENTRY_HEADER_SIZE);
+    const size_t to_write = header.length() + data.length();
+    base::IOBuf* pieces[2] = { &header, &data };
+    size_t start = 0;
+    ssize_t written = 0;
+    while (written < (ssize_t)to_write) {
+        const ssize_t n = base::IOBuf::cut_multiple_into_file_descriptor(
+                _fd, pieces, ARRAY_SIZE(pieces) - start);
+        if (n < 0) {
+            LOG(ERROR) << "Fail to write to fd=" << _fd << ", " << berror();
+            return -1;
         }
-
-        // write iovec
-        ssize_t nw = ::writev(_fd, vec, nvec);
-        if (nw >= 0) {
-            left_len -= nw;
-        } else {
-            ret = nw;
-            break;
-        }
-    } while (left_len > 0);
-
-    if (ret == 0) {
-        _offset.push_back(_bytes);
-        _end_index++;
-        _bytes += (sizeof(header) + meta_str.size() + entry->len);
+        written += n;
+        for (;start <= ARRAY_SIZE(pieces) && pieces[start]->empty(); ++start) {}
     }
+    
 
-    return ret;
+    _offset.push_back(_bytes);
+    _end_index++;
+    _bytes += to_write;
+
+    return 0;
 }
 
 int Segment::sync() {
@@ -306,105 +343,68 @@ int Segment::sync() {
 }
 
 LogEntry* Segment::get(const int64_t index) {
-    if (BAIDU_UNLIKELY(index > _end_index || index < _start_index)) {
+    if (index > _end_index || index < _start_index) {
         // out of range
+        LOG(INFO) << "_end_index=" << _end_index
+                  << " _start_index=" << _start_index;
         return NULL;
-    } else if (BAIDU_UNLIKELY(_end_index == _start_index - 1)) {
+    } else if (_end_index == _start_index - 1) {
+        LOG(INFO) << "_end_index=" << _end_index
+                  << " _start_index=" << _start_index;
         // empty
         return NULL;
     }
 
-    bool ok = false;
-    char* data_buf = NULL;
+    bool ok = true;
     LogEntry* entry = NULL;
-    ConfigurationMeta configuration_meta;
     do {
+        ConfigurationMeta configuration_meta;
         int64_t entry_cursor = _offset[index - _start_index];
-
+        int64_t next_cursor = index < _end_index 
+                              ? _offset[index - _start_index + 1] : _bytes;
         EntryHeader header;
-        ssize_t nr = ::pread(_fd, &header, sizeof(header), entry_cursor);
-        if (BAIDU_UNLIKELY(nr != sizeof(header))) {
-            LOG(WARNING) << "pread Entry Header failed, path: " << _path << " index: " << index;
+        base::IOBuf data;
+        if (_load_entry(entry_cursor, &header, &data, 
+                        next_cursor - entry_cursor) != 0) {
+            ok = false;
             break;
         }
-        if (BAIDU_UNLIKELY(0 != strncmp(header.magic, _s_entry_magic, strlen(_s_entry_magic)))) {
-            LOG(WARNING) << "magic check failed, path: " << _path << " index: " << index;
-            break;
-        }
-        int32_t checksum = crc32(0, (const Bytef*)(&header.checksum) + sizeof(int32_t),
-                         sizeof(header) - sizeof(int32_t) - sizeof(int32_t));
-        entry_cursor += sizeof(header);
-
-        int meta_len = base::NetToHost32(header.meta_len);
-        if (meta_len > 0) {
-            DEFINE_SMALL_ARRAY(char, meta_buf, meta_len, 128);
-            nr = ::pread(_fd, meta_buf, meta_len, entry_cursor);
-            if (BAIDU_UNLIKELY(nr != meta_len)) {
-                LOG(WARNING) << "pread Entry Meta failed, path: " << _path << " index: " << index;
-                break;
-            }
-            if (BAIDU_UNLIKELY(!configuration_meta.ParseFromArray(meta_buf, meta_len))) {
-                LOG(WARNING) << "parse Entry Meta failed, path: " << _path << " index: " << index;
-                break;
-            }
-            checksum = crc32(checksum, (const Bytef*)meta_buf, meta_len);
-            entry_cursor += meta_len;
-        }
-
-        int data_len = base::NetToHost32(header.data_len);
-        if (data_len > 0) {
-            data_buf = (char*)malloc(data_len);
-            nr = ::pread(_fd, data_buf, data_len, entry_cursor);
-            if (BAIDU_UNLIKELY(nr != data_len)) {
-                LOG(WARNING) << "pread data failed, path: " << _path << " index " << index;
-                break;
-            }
-
-            checksum = crc32(checksum, (const Bytef*)data_buf, data_len);
-            entry_cursor += data_len;
-        }
-
-        if (BAIDU_UNLIKELY(static_cast<uint32_t>(checksum) != base::NetToHost32(header.checksum))) {
-            LOG(WARNING) << "checksum dismatch, path: " << _path << " index " << index;
-            break;
-        }
-
         entry = new LogEntry();
-        switch (base::NetToHost32(header.type)) {
+        switch (header.type) {
         case ENTRY_TYPE_DATA:
-            entry->type = ENTRY_TYPE_DATA;
+            entry->data.swap(data);
             break;
         case ENTRY_TYPE_NO_OP:
-            entry->type = ENTRY_TYPE_NO_OP;
+            CHECK(data.empty()) << "Data of NO_OP must be empty";
             break;
         case ENTRY_TYPE_ADD_PEER:
-            entry->type = ENTRY_TYPE_ADD_PEER;
-            entry->peers = new std::vector<PeerId>;
-            for (int i = 0; i < configuration_meta.peers_size(); i++) {
-                entry->peers->push_back(PeerId(configuration_meta.peers(i)));
-            }
-            break;
         case ENTRY_TYPE_REMOVE_PEER:
-            entry->type = ENTRY_TYPE_REMOVE_PEER;
-            entry->peers = new std::vector<PeerId>;
-            for (int i = 0; i < configuration_meta.peers_size(); i++) {
-                entry->peers->push_back(PeerId(configuration_meta.peers(i)));
+            {
+                base::IOBufAsZeroCopyInputStream wrapper(data);
+                if (!configuration_meta.ParseFromZeroCopyStream(&wrapper)) {
+                    ok = false;
+                    break;
+                }
+                entry->peers = new std::vector<PeerId>;
+                for (int i = 0; i < configuration_meta.peers_size(); i++) {
+                    entry->peers->push_back(PeerId(configuration_meta.peers(i)));
+                }
             }
             break;
         default:
-            assert(false);
+            CHECK(false) << "Unknown entry type";
+            break;
+        }
+
+        if (!ok) { 
             break;
         }
         entry->index = index;
-        entry->term = base::NetToHost64(header.term);
-        entry->len = data_len;
-        entry->data = data_buf;
-        ok = true;
+        entry->term = header.term;
+        entry->type = (EntryType)header.type;
     } while (0);
 
-    if (BAIDU_UNLIKELY(!ok)) {
-        free(data_buf);
-        entry->data = NULL;
+    if (!ok && entry != NULL) {
         entry->Release();
         entry = NULL;
     }
@@ -423,41 +423,34 @@ int64_t Segment::get_term(const int64_t index) {
     int64_t entry_cursor = _offset[index - _start_index];
 
     EntryHeader header;
-    ssize_t nr = ::pread(_fd, &header, sizeof(header), entry_cursor);
-    if (BAIDU_UNLIKELY(nr != sizeof(header))) {
-        LOG(WARNING) << "pread Entry Header failed, path: " << _path << " index: " << index;
+    if (_load_entry(entry_cursor, &header, NULL, ENTRY_HEADER_SIZE) != 0) {
+        LOG(WARNING) << "Fail to load header";
         return 0;
     }
-    if (BAIDU_UNLIKELY(0 != strncmp(header.magic, _s_entry_magic, strlen(_s_entry_magic)))) {
-        LOG(WARNING) << "magic check failed, path: " << _path << " index: " << index;
-        return 0;
-    }
-
-    return base::NetToHost64(header.term);
+    return header.term;
 }
 
 int Segment::close() {
-    assert(_is_open);
-
-    char open_name[128];
-    snprintf(open_name, sizeof(open_name), _s_open_pattern, _start_index);
-    char closed_name[128];
-    snprintf(closed_name, sizeof(closed_name), _s_closed_pattern, _start_index, _end_index);
+    CHECK(_is_open);
 
     std::string old_path(_path);
+    base::string_appendf(&old_path, "/" RAFT_SEGMENT_OPEN_PATTERN,
+                         _start_index);
     std::string new_path(_path);
-    old_path.append("/");
-    old_path.append(open_name);
-    new_path.append("/");
-    new_path.append(closed_name);
+    base::string_appendf(&new_path, "/" RAFT_SEGMENT_CLOSED_PATTERN, 
+                         _start_index, _end_index);
 
     // TODO: optimize index memory usage by reconstruct vector
     int ret = this->sync();
     if (ret == 0) {
         _is_open = false;
-        LOG(NOTICE) << "close segment, path: " << new_path
-            << " start: " << _start_index << " end: " << _end_index;
-        return ::rename(old_path.c_str(), new_path.c_str());
+        const int rc = ::rename(old_path.c_str(), new_path.c_str());
+        LOG_IF(INFO, rc == 0) << "Renamed `" << old_path
+                              << "' to `" << new_path <<'\'';
+        LOG_IF(INFO, rc != 0) << "Fail to rename `" << old_path
+                              << "' to `" << new_path <<"\', "
+                              << berror();
+        return rc;
     } else {
         return ret;
     }
@@ -473,16 +466,12 @@ int Segment::unlink() {
         _fd = -1;
 
         std::string path(_path);
-        path.append("/");
         if (_is_open) {
-            char segment_name[128];
-            snprintf(segment_name, sizeof(segment_name), _s_open_pattern, _start_index);
-            path.append(segment_name);
+            base::string_appendf(&path, "/" RAFT_SEGMENT_OPEN_PATTERN,
+                                 _start_index);
         } else {
-            char segment_name[128];
-            snprintf(segment_name, sizeof(segment_name), _s_closed_pattern,
-                     _start_index, _end_index);
-            path.append(segment_name);
+            base::string_appendf(&path, "/" RAFT_SEGMENT_CLOSED_PATTERN,
+                                _start_index, _end_index);
         }
 
         ret = ::unlink(path.c_str());
@@ -490,10 +479,9 @@ int Segment::unlink() {
             break;
         }
 
+        LOG(INFO) << "Unlinked segment `" << path << '\'';
     } while (0);
 
-    LOG(NOTICE) << "unlink segment, path: " << _path
-        << " start_index: " << _start_index << " end_index" << _end_index;
 
     if (ret == 0) {
         delete this;
@@ -506,8 +494,8 @@ int Segment::unlink() {
 int Segment::truncate(const int64_t last_index_kept) {
     int64_t first_truncate_in_offset = last_index_kept + 1 - _start_index;
     int64_t truncate_size = _offset[first_truncate_in_offset];
-    LOG(NOTICE) << "truncate " << _path << " start_index: " << _start_index
-        << " end_index from " << _end_index << " to " << last_index_kept;
+    LOG(INFO) << "Truncating " << _path << " start_index: " << _start_index
+              << " end_index from " << _end_index << " to " << last_index_kept;
 
     int ret = 0;
     do {
@@ -527,20 +515,19 @@ int Segment::truncate(const int64_t last_index_kept) {
         // rename
         if (!_is_open) {
             std::string old_path(_path);
-            std::string new_path(_path);
             char segment_name[128];
-            snprintf(segment_name, sizeof(segment_name), _s_closed_pattern,
-                     _start_index, _end_index);
-            old_path.append("/");
-            old_path.append(segment_name);
+            base::string_appendf(&old_path, "/" RAFT_SEGMENT_CLOSED_PATTERN,
+                                 _start_index, _end_index);
 
-            snprintf(segment_name, sizeof(segment_name), _s_closed_pattern,
-                     _start_index, last_index_kept);
-            new_path.append("/");
-            new_path.append(segment_name);
+            std::string new_path(_path);
+            base::string_appendf(&new_path, "/" RAFT_SEGMENT_CLOSED_PATTERN,
+                                 _start_index, last_index_kept);
             ret = ::rename(old_path.c_str(), new_path.c_str());
+            LOG_IF(INFO, ret == 0) << "Renamed `" << old_path << "' to `"
+                                   << new_path << '\'';
+            LOG_IF(ERROR, ret != 0) << "Fail to rename `" << old_path << "' to `"
+                                    << new_path << "', " << berror();
         }
-
         // update memory var
         _offset.erase(_offset.begin() + first_truncate_in_offset, _offset.end());
         _end_index = last_index_kept;
@@ -620,6 +607,7 @@ int SegmentLogStorage::append_entries(const std::vector<LogEntry*>& entries) {
 
     int64_t old_start_index = 0;
     Segment* last_segment = NULL;
+    // FIXME: Should flush all the entries in one system call
     for (size_t i = 0; i < entries.size(); i++) {
         LogEntry* entry = entries[i];
 
@@ -799,17 +787,19 @@ int SegmentLogStorage::list_segments(bool is_empty) {
         int match = 0;
         int64_t start_index = 0;
         int64_t end_index = 0;
-        match = sscanf(dir_reader.name(), Segment::_s_closed_pattern, &start_index, &end_index);
+        match = sscanf(dir_reader.name(), RAFT_SEGMENT_CLOSED_PATTERN, 
+                       &start_index, &end_index);
         if (match == 2) {
-            LOG(DEBUG) << "restore closed segment, path: " << _path
-                << " start_index: " << start_index
-                << " end_index: " << end_index;
+            RAFT_VLOG << "restore closed segment, path: " << _path
+                      << " start_index: " << start_index
+                      << " end_index: " << end_index;
             Segment* segment = new Segment(_path, start_index, end_index);
             _segments.insert(std::pair<int64_t, Segment*>(start_index, segment));
             continue;
         }
 
-        match = sscanf(dir_reader.name(), Segment::_s_open_pattern, &start_index);
+        match = sscanf(dir_reader.name(), RAFT_SEGMENT_OPEN_PATTERN, 
+                       &start_index);
         if (match == 1) {
             LOG(DEBUG) << "restore open segment, path: " << _path
                 << " start_index: " << start_index;
@@ -924,8 +914,7 @@ void SegmentLogStorage::add_configuration(const int64_t index, const Configurati
 
 int SegmentLogStorage::save_meta(const int64_t log_index) {
     std::string meta_path(_path);
-    meta_path.append("/");
-    meta_path.append(Segment::_s_meta_file);
+    meta_path.append("/" RAFT_SEGMENT_META_FILE);
 
     _start_log_index = log_index;
 
@@ -937,8 +926,7 @@ int SegmentLogStorage::save_meta(const int64_t log_index) {
 
 int SegmentLogStorage::load_meta() {
     std::string meta_path(_path);
-    meta_path.append("/");
-    meta_path.append(Segment::_s_meta_file);
+    meta_path.append("/" RAFT_SEGMENT_META_FILE);
 
     ProtoBufFile pb_file(meta_path);
     LogMeta meta;
@@ -960,7 +948,7 @@ Segment* SegmentLogStorage::open_segment() {
             break;
         }
 
-        if (_open_segment->bytes() > _s_max_segment_size) {
+        if (_open_segment->bytes() > FLAGS_raft_max_segment_size) {
             ret = _open_segment->close();
             if (ret == 0) {
                 _segments.insert(std::pair<int64_t, Segment*>(_open_segment->start_index(),

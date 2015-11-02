@@ -7,7 +7,7 @@ CopyUsingHardLink(True)
 
 CPPFLAGS('-D_GNU_SOURCE -D__STDC_LIMIT_MACROS -DVERSION=\\\"1.9.8.7\\\"')
 #XXX: remove NDEBUG for assert
-CPPFLAGS('-DNDEBUG -D__const__=')
+CPPFLAGS(' -D__const__=')
 CPPFLAGS('-Dprivate=public')
 
 CFLAGS('-g -pipe -Wall -W -fPIC -Wno-unused-parameter -Wno-unused-variable -Wno-strict-aliasing')

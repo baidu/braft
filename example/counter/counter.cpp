@@ -48,12 +48,13 @@ base::EndPoint Counter::self() {
 }
 
 int Counter::add(int64_t value, raft::Closure* done) {
-    std::string request_str;
     AddRequest request;
     request.set_value(value);
-    request.SerializeToString(&request_str);
+    base::IOBuf data;
+    base::IOBufAsZeroCopyOutputStream wrapper(&data);
+    request.SerializeToZeroCopyStream(&wrapper);
 
-    return _node.apply(request_str.data(), request_str.size(), done);
+    return _node.apply(data, done);
 }
 
 int Counter::get(int64_t* value_ptr) {
@@ -63,10 +64,11 @@ int Counter::get(int64_t* value_ptr) {
     return 0;
 }
 
-void Counter::on_apply(const void* data, const int len, const int64_t index, raft::Closure* done) {
+void Counter::on_apply(const base::IOBuf &data, const int64_t index, raft::Closure* done) {
     LOG(NOTICE) << "apply " << index;
     AddRequest request;
-    request.ParseFromArray(data, len);
+    base::IOBufAsZeroCopyInputStream wrapper(data);
+    request.ParseFromZeroCopyStream(&wrapper);
 
     bthread_mutex_lock(&_mutex);
     _value += request.value();
