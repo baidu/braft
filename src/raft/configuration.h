@@ -229,6 +229,8 @@ public:
     // (last_index_kept, infinity) are being discarded
     void truncate_suffix(const int64_t last_index_kept);
 
+    void set_snapshot(const int64_t index, const Configuration& config);
+
     ConfigurationPair get_configuration(const int64_t last_included_index);
 
     int64_t last_configuration_index();

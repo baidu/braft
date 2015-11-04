@@ -40,14 +40,17 @@ void ConfigurationManager::add(const int64_t index, const Configuration& config)
 }
 
 void ConfigurationManager::truncate_prefix(const int64_t first_index_kept) {
-    ConfigurationPair pair = get_configuration(first_index_kept);
-    assert(pair.first >= _snapshot.first);
-    _snapshot = pair;
     _configurations.erase(_configurations.begin(), _configurations.lower_bound(first_index_kept));
 }
 
 void ConfigurationManager::truncate_suffix(const int64_t last_index_kept) {
     _configurations.erase(_configurations.upper_bound(last_index_kept), _configurations.end());
+}
+
+void ConfigurationManager::set_snapshot(const int64_t index, const Configuration& config) {
+    assert(index >= _snapshot.first);
+    _snapshot.first = index;
+    _snapshot.second = config;
 }
 
 ConfigurationPair ConfigurationManager::get_configuration(

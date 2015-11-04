@@ -208,6 +208,7 @@ private:
 
     LogStorage* _log_storage;
     StableStorage* _stable_storage;
+    SnapshotStorage* _snapshot_storage;
     ConfigurationManager* _config_manager;
     LogManager* _log_manager;
     FSMCaller* _fsm_caller;

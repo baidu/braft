@@ -53,10 +53,10 @@ protected:
     int _err_code;
 };
 
-class LocalSnapshotManager : public SnapshotManager {
+class LocalSnapshotStorage : public SnapshotStorage {
 public:
-    LocalSnapshotManager(const std::string& path);
-    virtual ~LocalSnapshotManager();
+    LocalSnapshotStorage(const std::string& path);
+    virtual ~LocalSnapshotStorage();
 
     virtual int init();
     virtual SnapshotWriter* create(const SnapshotMeta& meta);

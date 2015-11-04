@@ -29,8 +29,8 @@ namespace raft {
 
 const char* LocalSnapshotWriter::_s_snapshot_meta = "snapshot_meta";
 const char* LocalSnapshotReader::_s_snapshot_meta = "snapshot_meta";
-const char* LocalSnapshotManager::_s_temp_path = "temp";
-const char* LocalSnapshotManager::_s_lock_path = "lock";
+const char* LocalSnapshotStorage::_s_temp_path = "temp";
+const char* LocalSnapshotStorage::_s_lock_path = "lock";
 
 LocalSnapshotWriter::LocalSnapshotWriter(const std::string& path, const SnapshotMeta& meta)
     : _path(path), _meta(meta), _err_code(0) {
@@ -126,19 +126,19 @@ int LocalSnapshotReader::load_meta(SnapshotMeta* meta) {
     return ret;
 }
 
-LocalSnapshotManager::LocalSnapshotManager(const std::string& path)
-    : SnapshotManager(path), _path(path),
+LocalSnapshotStorage::LocalSnapshotStorage(const std::string& path)
+    : SnapshotStorage(path), _path(path),
     _lock_fd(-1), _last_snapshot_index(0) {
 }
 
-LocalSnapshotManager::~LocalSnapshotManager() {
+LocalSnapshotStorage::~LocalSnapshotStorage() {
     if (_lock_fd >= 0) {
         ::close(_lock_fd);
         _lock_fd = -1;
     }
 }
 
-int LocalSnapshotManager::init() {
+int LocalSnapshotStorage::init() {
     // open lock fd
     std::string lock_path(_path);
     lock_path.append("/");
@@ -193,7 +193,7 @@ int LocalSnapshotManager::init() {
     return 0;
 }
 
-SnapshotWriter* LocalSnapshotManager::create(const SnapshotMeta& meta) {
+SnapshotWriter* LocalSnapshotStorage::create(const SnapshotMeta& meta) {
     LocalSnapshotWriter* writer = NULL;
 
     do {
@@ -224,7 +224,7 @@ SnapshotWriter* LocalSnapshotManager::create(const SnapshotMeta& meta) {
     return writer;
 }
 
-int LocalSnapshotManager::close(SnapshotWriter* writer_) {
+int LocalSnapshotStorage::close(SnapshotWriter* writer_) {
     LocalSnapshotWriter* writer = dynamic_cast<LocalSnapshotWriter*>(writer_);
     int ret = writer->err_code();
     do {
@@ -268,7 +268,7 @@ int LocalSnapshotManager::close(SnapshotWriter* writer_) {
     return ret;
 }
 
-SnapshotReader* LocalSnapshotManager::open() {
+SnapshotReader* LocalSnapshotStorage::open() {
     if (_last_snapshot_index != 0) {
         std::string snapshot_path(_path);
         base::string_appendf(&snapshot_path, "/" RAFT_SNAPSHOT_PATTERN, _last_snapshot_index);
@@ -278,7 +278,7 @@ SnapshotReader* LocalSnapshotManager::open() {
     }
 }
 
-int LocalSnapshotManager::close(SnapshotReader* reader) {
+int LocalSnapshotStorage::close(SnapshotReader* reader) {
     delete reader;
     return 0;
 }

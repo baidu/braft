@@ -114,10 +114,10 @@ public:
     virtual int load_meta(SnapshotMeta* meta) = 0;
 };
 
-class SnapshotManager {
+class SnapshotStorage {
 public:
-    SnapshotManager(const std::string& /*uri*/) {}
-    virtual ~SnapshotManager() {}
+    SnapshotStorage(const std::string& /*uri*/) {}
+    virtual ~SnapshotStorage() {}
 
     // init
     virtual int init() = 0;
@@ -194,6 +194,7 @@ struct NodeOptions {
     StateMachine* fsm; // user defined function [MUST]
     LogStorage* log_storage; // user defined log storage
     StableStorage* stable_storage; // user defined manifest storage
+    SnapshotStorage* snapshot_storage;
     //std::string log_uri;
     //std::string stable_uri;
     //std::string snapshot_uri;
@@ -202,7 +203,7 @@ struct NodeOptions {
         : election_timeout(1000),
         snapshot_interval(86400), snapshot_lowlevel_threshold(100000),
         snapshot_highlevel_threshold(10000000), enable_pipeline(false),
-        fsm(NULL), log_storage(NULL), stable_storage(NULL) {}
+        fsm(NULL), log_storage(NULL), stable_storage(NULL), snapshot_storage(NULL) {}
 };
 
 class NodeImpl;
