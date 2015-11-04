@@ -17,18 +17,18 @@ namespace raft {
 
 namespace {
 
-const ::google::protobuf::Descriptor* ConfigurationMeta_descriptor_ = NULL;
+const ::google::protobuf::Descriptor* ConfigurationPBMeta_descriptor_ = NULL;
 const ::google::protobuf::internal::GeneratedMessageReflection*
-  ConfigurationMeta_reflection_ = NULL;
-const ::google::protobuf::Descriptor* LogMeta_descriptor_ = NULL;
+  ConfigurationPBMeta_reflection_ = NULL;
+const ::google::protobuf::Descriptor* LogPBMeta_descriptor_ = NULL;
 const ::google::protobuf::internal::GeneratedMessageReflection*
-  LogMeta_reflection_ = NULL;
-const ::google::protobuf::Descriptor* StableMeta_descriptor_ = NULL;
+  LogPBMeta_reflection_ = NULL;
+const ::google::protobuf::Descriptor* StablePBMeta_descriptor_ = NULL;
 const ::google::protobuf::internal::GeneratedMessageReflection*
-  StableMeta_reflection_ = NULL;
-const ::google::protobuf::Descriptor* SnapshotMeta_descriptor_ = NULL;
+  StablePBMeta_reflection_ = NULL;
+const ::google::protobuf::Descriptor* SnapshotPBMeta_descriptor_ = NULL;
 const ::google::protobuf::internal::GeneratedMessageReflection*
-  SnapshotMeta_reflection_ = NULL;
+  SnapshotPBMeta_reflection_ = NULL;
 
 }  // namespace
 
@@ -39,69 +39,69 @@ void protobuf_AssignDesc_raft_2flocal_5fstorage_2eproto() {
     ::google::protobuf::DescriptorPool::generated_pool()->FindFileByName(
       "raft/local_storage.proto");
   GOOGLE_CHECK(file != NULL);
-  ConfigurationMeta_descriptor_ = file->message_type(0);
-  static const int ConfigurationMeta_offsets_[1] = {
-    GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(ConfigurationMeta, peers_),
+  ConfigurationPBMeta_descriptor_ = file->message_type(0);
+  static const int ConfigurationPBMeta_offsets_[1] = {
+    GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(ConfigurationPBMeta, peers_),
   };
-  ConfigurationMeta_reflection_ =
+  ConfigurationPBMeta_reflection_ =
     new ::google::protobuf::internal::GeneratedMessageReflection(
-      ConfigurationMeta_descriptor_,
-      ConfigurationMeta::default_instance_,
-      ConfigurationMeta_offsets_,
-      GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(ConfigurationMeta, _has_bits_[0]),
-      GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(ConfigurationMeta, _unknown_fields_),
+      ConfigurationPBMeta_descriptor_,
+      ConfigurationPBMeta::default_instance_,
+      ConfigurationPBMeta_offsets_,
+      GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(ConfigurationPBMeta, _has_bits_[0]),
+      GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(ConfigurationPBMeta, _unknown_fields_),
       -1,
       ::google::protobuf::DescriptorPool::generated_pool(),
       ::google::protobuf::MessageFactory::generated_factory(),
-      sizeof(ConfigurationMeta));
-  LogMeta_descriptor_ = file->message_type(1);
-  static const int LogMeta_offsets_[1] = {
-    GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(LogMeta, start_log_index_),
+      sizeof(ConfigurationPBMeta));
+  LogPBMeta_descriptor_ = file->message_type(1);
+  static const int LogPBMeta_offsets_[1] = {
+    GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(LogPBMeta, start_log_index_),
   };
-  LogMeta_reflection_ =
+  LogPBMeta_reflection_ =
     new ::google::protobuf::internal::GeneratedMessageReflection(
-      LogMeta_descriptor_,
-      LogMeta::default_instance_,
-      LogMeta_offsets_,
-      GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(LogMeta, _has_bits_[0]),
-      GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(LogMeta, _unknown_fields_),
+      LogPBMeta_descriptor_,
+      LogPBMeta::default_instance_,
+      LogPBMeta_offsets_,
+      GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(LogPBMeta, _has_bits_[0]),
+      GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(LogPBMeta, _unknown_fields_),
       -1,
       ::google::protobuf::DescriptorPool::generated_pool(),
       ::google::protobuf::MessageFactory::generated_factory(),
-      sizeof(LogMeta));
-  StableMeta_descriptor_ = file->message_type(2);
-  static const int StableMeta_offsets_[2] = {
-    GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(StableMeta, term_),
-    GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(StableMeta, votedfor_),
+      sizeof(LogPBMeta));
+  StablePBMeta_descriptor_ = file->message_type(2);
+  static const int StablePBMeta_offsets_[2] = {
+    GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(StablePBMeta, term_),
+    GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(StablePBMeta, votedfor_),
   };
-  StableMeta_reflection_ =
+  StablePBMeta_reflection_ =
     new ::google::protobuf::internal::GeneratedMessageReflection(
-      StableMeta_descriptor_,
-      StableMeta::default_instance_,
-      StableMeta_offsets_,
-      GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(StableMeta, _has_bits_[0]),
-      GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(StableMeta, _unknown_fields_),
+      StablePBMeta_descriptor_,
+      StablePBMeta::default_instance_,
+      StablePBMeta_offsets_,
+      GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(StablePBMeta, _has_bits_[0]),
+      GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(StablePBMeta, _unknown_fields_),
       -1,
       ::google::protobuf::DescriptorPool::generated_pool(),
       ::google::protobuf::MessageFactory::generated_factory(),
-      sizeof(StableMeta));
-  SnapshotMeta_descriptor_ = file->message_type(3);
-  static const int SnapshotMeta_offsets_[3] = {
-    GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(SnapshotMeta, last_included_term_),
-    GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(SnapshotMeta, last_included_index_),
-    GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(SnapshotMeta, peers_),
+      sizeof(StablePBMeta));
+  SnapshotPBMeta_descriptor_ = file->message_type(3);
+  static const int SnapshotPBMeta_offsets_[3] = {
+    GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(SnapshotPBMeta, last_included_term_),
+    GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(SnapshotPBMeta, last_included_index_),
+    GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(SnapshotPBMeta, peers_),
   };
-  SnapshotMeta_reflection_ =
+  SnapshotPBMeta_reflection_ =
     new ::google::protobuf::internal::GeneratedMessageReflection(
-      SnapshotMeta_descriptor_,
-      SnapshotMeta::default_instance_,
-      SnapshotMeta_offsets_,
-      GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(SnapshotMeta, _has_bits_[0]),
-      GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(SnapshotMeta, _unknown_fields_),
+      SnapshotPBMeta_descriptor_,
+      SnapshotPBMeta::default_instance_,
+      SnapshotPBMeta_offsets_,
+      GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(SnapshotPBMeta, _has_bits_[0]),
+      GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(SnapshotPBMeta, _unknown_fields_),
       -1,
       ::google::protobuf::DescriptorPool::generated_pool(),
       ::google::protobuf::MessageFactory::generated_factory(),
-      sizeof(SnapshotMeta));
+      sizeof(SnapshotPBMeta));
 }
 
 namespace {
@@ -115,26 +115,26 @@ inline void protobuf_AssignDescriptorsOnce() {
 void protobuf_RegisterTypes(const ::std::string&) {
   protobuf_AssignDescriptorsOnce();
   ::google::protobuf::MessageFactory::InternalRegisterGeneratedMessage(
-    ConfigurationMeta_descriptor_, &ConfigurationMeta::default_instance());
+    ConfigurationPBMeta_descriptor_, &ConfigurationPBMeta::default_instance());
   ::google::protobuf::MessageFactory::InternalRegisterGeneratedMessage(
-    LogMeta_descriptor_, &LogMeta::default_instance());
+    LogPBMeta_descriptor_, &LogPBMeta::default_instance());
   ::google::protobuf::MessageFactory::InternalRegisterGeneratedMessage(
-    StableMeta_descriptor_, &StableMeta::default_instance());
+    StablePBMeta_descriptor_, &StablePBMeta::default_instance());
   ::google::protobuf::MessageFactory::InternalRegisterGeneratedMessage(
-    SnapshotMeta_descriptor_, &SnapshotMeta::default_instance());
+    SnapshotPBMeta_descriptor_, &SnapshotPBMeta::default_instance());
 }
 
 }  // namespace
 
 void protobuf_ShutdownFile_raft_2flocal_5fstorage_2eproto() {
-  delete ConfigurationMeta::default_instance_;
-  delete ConfigurationMeta_reflection_;
-  delete LogMeta::default_instance_;
-  delete LogMeta_reflection_;
-  delete StableMeta::default_instance_;
-  delete StableMeta_reflection_;
-  delete SnapshotMeta::default_instance_;
-  delete SnapshotMeta_reflection_;
+  delete ConfigurationPBMeta::default_instance_;
+  delete ConfigurationPBMeta_reflection_;
+  delete LogPBMeta::default_instance_;
+  delete LogPBMeta_reflection_;
+  delete StablePBMeta::default_instance_;
+  delete StablePBMeta_reflection_;
+  delete SnapshotPBMeta::default_instance_;
+  delete SnapshotPBMeta_reflection_;
 }
 
 void protobuf_AddDesc_raft_2flocal_5fstorage_2eproto() {
@@ -146,22 +146,22 @@ void protobuf_AddDesc_raft_2flocal_5fstorage_2eproto() {
   ::raft::protobuf_AddDesc_raft_2fraft_2eproto();
   ::google::protobuf::DescriptorPool::InternalAddGeneratedFile(
     "\n\030raft/local_storage.proto\022\004raft\032\017raft/r"
-    "aft.proto\"\"\n\021ConfigurationMeta\022\r\n\005peers\030"
-    "\001 \003(\t\"\"\n\007LogMeta\022\027\n\017start_log_index\030\001 \002("
-    "\003\",\n\nStableMeta\022\014\n\004term\030\001 \002(\003\022\020\n\010votedfo"
-    "r\030\002 \002(\t\"V\n\014SnapshotMeta\022\032\n\022last_included"
-    "_term\030\001 \002(\003\022\033\n\023last_included_index\030\002 \002(\003"
-    "\022\r\n\005peers\030\003 \003(\t", 255);
+    "aft.proto\"$\n\023ConfigurationPBMeta\022\r\n\005peer"
+    "s\030\001 \003(\t\"$\n\tLogPBMeta\022\027\n\017start_log_index\030"
+    "\001 \002(\003\".\n\014StablePBMeta\022\014\n\004term\030\001 \002(\003\022\020\n\010v"
+    "otedfor\030\002 \002(\t\"X\n\016SnapshotPBMeta\022\032\n\022last_"
+    "included_term\030\001 \002(\003\022\033\n\023last_included_ind"
+    "ex\030\002 \002(\003\022\r\n\005peers\030\003 \003(\t", 263);
   ::google::protobuf::MessageFactory::InternalRegisterGeneratedFile(
     "raft/local_storage.proto", &protobuf_RegisterTypes);
-  ConfigurationMeta::default_instance_ = new ConfigurationMeta();
-  LogMeta::default_instance_ = new LogMeta();
-  StableMeta::default_instance_ = new StableMeta();
-  SnapshotMeta::default_instance_ = new SnapshotMeta();
-  ConfigurationMeta::default_instance_->InitAsDefaultInstance();
-  LogMeta::default_instance_->InitAsDefaultInstance();
-  StableMeta::default_instance_->InitAsDefaultInstance();
-  SnapshotMeta::default_instance_->InitAsDefaultInstance();
+  ConfigurationPBMeta::default_instance_ = new ConfigurationPBMeta();
+  LogPBMeta::default_instance_ = new LogPBMeta();
+  StablePBMeta::default_instance_ = new StablePBMeta();
+  SnapshotPBMeta::default_instance_ = new SnapshotPBMeta();
+  ConfigurationPBMeta::default_instance_->InitAsDefaultInstance();
+  LogPBMeta::default_instance_->InitAsDefaultInstance();
+  StablePBMeta::default_instance_->InitAsDefaultInstance();
+  SnapshotPBMeta::default_instance_->InitAsDefaultInstance();
   ::google::protobuf::internal::OnShutdown(&protobuf_ShutdownFile_raft_2flocal_5fstorage_2eproto);
 }
 
@@ -176,64 +176,64 @@ struct StaticDescriptorInitializer_raft_2flocal_5fstorage_2eproto {
 // ===================================================================
 
 #ifndef _MSC_VER
-const int ConfigurationMeta::kPeersFieldNumber;
+const int ConfigurationPBMeta::kPeersFieldNumber;
 #endif  // !_MSC_VER
 
-ConfigurationMeta::ConfigurationMeta()
+ConfigurationPBMeta::ConfigurationPBMeta()
   : ::google::protobuf::Message() {
   SharedCtor();
 }
 
-void ConfigurationMeta::InitAsDefaultInstance() {
+void ConfigurationPBMeta::InitAsDefaultInstance() {
 }
 
-ConfigurationMeta::ConfigurationMeta(const ConfigurationMeta& from)
+ConfigurationPBMeta::ConfigurationPBMeta(const ConfigurationPBMeta& from)
   : ::google::protobuf::Message() {
   SharedCtor();
   MergeFrom(from);
 }
 
-void ConfigurationMeta::SharedCtor() {
+void ConfigurationPBMeta::SharedCtor() {
   _cached_size_ = 0;
   ::memset(_has_bits_, 0, sizeof(_has_bits_));
 }
 
-ConfigurationMeta::~ConfigurationMeta() {
+ConfigurationPBMeta::~ConfigurationPBMeta() {
   SharedDtor();
 }
 
-void ConfigurationMeta::SharedDtor() {
+void ConfigurationPBMeta::SharedDtor() {
   if (this != default_instance_) {
   }
 }
 
-void ConfigurationMeta::SetCachedSize(int size) const {
+void ConfigurationPBMeta::SetCachedSize(int size) const {
   GOOGLE_SAFE_CONCURRENT_WRITES_BEGIN();
   _cached_size_ = size;
   GOOGLE_SAFE_CONCURRENT_WRITES_END();
 }
-const ::google::protobuf::Descriptor* ConfigurationMeta::descriptor() {
+const ::google::protobuf::Descriptor* ConfigurationPBMeta::descriptor() {
   protobuf_AssignDescriptorsOnce();
-  return ConfigurationMeta_descriptor_;
+  return ConfigurationPBMeta_descriptor_;
 }
 
-const ConfigurationMeta& ConfigurationMeta::default_instance() {
+const ConfigurationPBMeta& ConfigurationPBMeta::default_instance() {
   if (default_instance_ == NULL) protobuf_AddDesc_raft_2flocal_5fstorage_2eproto();  return *default_instance_;
 }
 
-ConfigurationMeta* ConfigurationMeta::default_instance_ = NULL;
+ConfigurationPBMeta* ConfigurationPBMeta::default_instance_ = NULL;
 
-ConfigurationMeta* ConfigurationMeta::New() const {
-  return new ConfigurationMeta;
+ConfigurationPBMeta* ConfigurationPBMeta::New() const {
+  return new ConfigurationPBMeta;
 }
 
-void ConfigurationMeta::Clear() {
+void ConfigurationPBMeta::Clear() {
   peers_.Clear();
   ::memset(_has_bits_, 0, sizeof(_has_bits_));
   mutable_unknown_fields()->Clear();
 }
 
-bool ConfigurationMeta::MergePartialFromCodedStream(
+bool ConfigurationPBMeta::MergePartialFromCodedStream(
     ::google::protobuf::io::CodedInputStream* input) {
 #define DO_(EXPRESSION) if (!(EXPRESSION)) return false
   ::google::protobuf::uint32 tag;
@@ -273,7 +273,7 @@ bool ConfigurationMeta::MergePartialFromCodedStream(
 #undef DO_
 }
 
-void ConfigurationMeta::SerializeWithCachedSizes(
+void ConfigurationPBMeta::SerializeWithCachedSizes(
     ::google::protobuf::io::CodedOutputStream* output) const {
   // repeated string peers = 1;
   for (int i = 0; i < this->peers_size(); i++) {
@@ -290,7 +290,7 @@ void ConfigurationMeta::SerializeWithCachedSizes(
   }
 }
 
-::google::protobuf::uint8* ConfigurationMeta::SerializeWithCachedSizesToArray(
+::google::protobuf::uint8* ConfigurationPBMeta::SerializeWithCachedSizesToArray(
     ::google::protobuf::uint8* target) const {
   // repeated string peers = 1;
   for (int i = 0; i < this->peers_size(); i++) {
@@ -308,7 +308,7 @@ void ConfigurationMeta::SerializeWithCachedSizes(
   return target;
 }
 
-int ConfigurationMeta::ByteSize() const {
+int ConfigurationPBMeta::ByteSize() const {
   int total_size = 0;
   
   // repeated string peers = 1;
@@ -329,10 +329,10 @@ int ConfigurationMeta::ByteSize() const {
   return total_size;
 }
 
-void ConfigurationMeta::MergeFrom(const ::google::protobuf::Message& from) {
+void ConfigurationPBMeta::MergeFrom(const ::google::protobuf::Message& from) {
   GOOGLE_CHECK_NE(&from, this);
-  const ConfigurationMeta* source =
-    ::google::protobuf::internal::dynamic_cast_if_available<const ConfigurationMeta*>(
+  const ConfigurationPBMeta* source =
+    ::google::protobuf::internal::dynamic_cast_if_available<const ConfigurationPBMeta*>(
       &from);
   if (source == NULL) {
     ::google::protobuf::internal::ReflectionOps::Merge(from, this);
@@ -341,30 +341,30 @@ void ConfigurationMeta::MergeFrom(const ::google::protobuf::Message& from) {
   }
 }
 
-void ConfigurationMeta::MergeFrom(const ConfigurationMeta& from) {
+void ConfigurationPBMeta::MergeFrom(const ConfigurationPBMeta& from) {
   GOOGLE_CHECK_NE(&from, this);
   peers_.MergeFrom(from.peers_);
   mutable_unknown_fields()->MergeFrom(from.unknown_fields());
 }
 
-void ConfigurationMeta::CopyFrom(const ::google::protobuf::Message& from) {
+void ConfigurationPBMeta::CopyFrom(const ::google::protobuf::Message& from) {
   if (&from == this) return;
   Clear();
   MergeFrom(from);
 }
 
-void ConfigurationMeta::CopyFrom(const ConfigurationMeta& from) {
+void ConfigurationPBMeta::CopyFrom(const ConfigurationPBMeta& from) {
   if (&from == this) return;
   Clear();
   MergeFrom(from);
 }
 
-bool ConfigurationMeta::IsInitialized() const {
+bool ConfigurationPBMeta::IsInitialized() const {
   
   return true;
 }
 
-void ConfigurationMeta::Swap(ConfigurationMeta* other) {
+void ConfigurationPBMeta::Swap(ConfigurationPBMeta* other) {
   if (other != this) {
     peers_.Swap(&other->peers_);
     std::swap(_has_bits_[0], other->_has_bits_[0]);
@@ -373,11 +373,11 @@ void ConfigurationMeta::Swap(ConfigurationMeta* other) {
   }
 }
 
-::google::protobuf::Metadata ConfigurationMeta::GetMetadata() const {
+::google::protobuf::Metadata ConfigurationPBMeta::GetMetadata() const {
   protobuf_AssignDescriptorsOnce();
   ::google::protobuf::Metadata metadata;
-  metadata.descriptor = ConfigurationMeta_descriptor_;
-  metadata.reflection = ConfigurationMeta_reflection_;
+  metadata.descriptor = ConfigurationPBMeta_descriptor_;
+  metadata.reflection = ConfigurationPBMeta_reflection_;
   return metadata;
 }
 
@@ -385,59 +385,59 @@ void ConfigurationMeta::Swap(ConfigurationMeta* other) {
 // ===================================================================
 
 #ifndef _MSC_VER
-const int LogMeta::kStartLogIndexFieldNumber;
+const int LogPBMeta::kStartLogIndexFieldNumber;
 #endif  // !_MSC_VER
 
-LogMeta::LogMeta()
+LogPBMeta::LogPBMeta()
   : ::google::protobuf::Message() {
   SharedCtor();
 }
 
-void LogMeta::InitAsDefaultInstance() {
+void LogPBMeta::InitAsDefaultInstance() {
 }
 
-LogMeta::LogMeta(const LogMeta& from)
+LogPBMeta::LogPBMeta(const LogPBMeta& from)
   : ::google::protobuf::Message() {
   SharedCtor();
   MergeFrom(from);
 }
 
-void LogMeta::SharedCtor() {
+void LogPBMeta::SharedCtor() {
   _cached_size_ = 0;
   start_log_index_ = GOOGLE_LONGLONG(0);
   ::memset(_has_bits_, 0, sizeof(_has_bits_));
 }
 
-LogMeta::~LogMeta() {
+LogPBMeta::~LogPBMeta() {
   SharedDtor();
 }
 
-void LogMeta::SharedDtor() {
+void LogPBMeta::SharedDtor() {
   if (this != default_instance_) {
   }
 }
 
-void LogMeta::SetCachedSize(int size) const {
+void LogPBMeta::SetCachedSize(int size) const {
   GOOGLE_SAFE_CONCURRENT_WRITES_BEGIN();
   _cached_size_ = size;
   GOOGLE_SAFE_CONCURRENT_WRITES_END();
 }
-const ::google::protobuf::Descriptor* LogMeta::descriptor() {
+const ::google::protobuf::Descriptor* LogPBMeta::descriptor() {
   protobuf_AssignDescriptorsOnce();
-  return LogMeta_descriptor_;
+  return LogPBMeta_descriptor_;
 }
 
-const LogMeta& LogMeta::default_instance() {
+const LogPBMeta& LogPBMeta::default_instance() {
   if (default_instance_ == NULL) protobuf_AddDesc_raft_2flocal_5fstorage_2eproto();  return *default_instance_;
 }
 
-LogMeta* LogMeta::default_instance_ = NULL;
+LogPBMeta* LogPBMeta::default_instance_ = NULL;
 
-LogMeta* LogMeta::New() const {
-  return new LogMeta;
+LogPBMeta* LogPBMeta::New() const {
+  return new LogPBMeta;
 }
 
-void LogMeta::Clear() {
+void LogPBMeta::Clear() {
   if (_has_bits_[0 / 32] & (0xffu << (0 % 32))) {
     start_log_index_ = GOOGLE_LONGLONG(0);
   }
@@ -445,7 +445,7 @@ void LogMeta::Clear() {
   mutable_unknown_fields()->Clear();
 }
 
-bool LogMeta::MergePartialFromCodedStream(
+bool LogPBMeta::MergePartialFromCodedStream(
     ::google::protobuf::io::CodedInputStream* input) {
 #define DO_(EXPRESSION) if (!(EXPRESSION)) return false
   ::google::protobuf::uint32 tag;
@@ -482,7 +482,7 @@ bool LogMeta::MergePartialFromCodedStream(
 #undef DO_
 }
 
-void LogMeta::SerializeWithCachedSizes(
+void LogPBMeta::SerializeWithCachedSizes(
     ::google::protobuf::io::CodedOutputStream* output) const {
   // required int64 start_log_index = 1;
   if (has_start_log_index()) {
@@ -495,7 +495,7 @@ void LogMeta::SerializeWithCachedSizes(
   }
 }
 
-::google::protobuf::uint8* LogMeta::SerializeWithCachedSizesToArray(
+::google::protobuf::uint8* LogPBMeta::SerializeWithCachedSizesToArray(
     ::google::protobuf::uint8* target) const {
   // required int64 start_log_index = 1;
   if (has_start_log_index()) {
@@ -509,7 +509,7 @@ void LogMeta::SerializeWithCachedSizes(
   return target;
 }
 
-int LogMeta::ByteSize() const {
+int LogPBMeta::ByteSize() const {
   int total_size = 0;
   
   if (_has_bits_[0 / 32] & (0xffu << (0 % 32))) {
@@ -532,10 +532,10 @@ int LogMeta::ByteSize() const {
   return total_size;
 }
 
-void LogMeta::MergeFrom(const ::google::protobuf::Message& from) {
+void LogPBMeta::MergeFrom(const ::google::protobuf::Message& from) {
   GOOGLE_CHECK_NE(&from, this);
-  const LogMeta* source =
-    ::google::protobuf::internal::dynamic_cast_if_available<const LogMeta*>(
+  const LogPBMeta* source =
+    ::google::protobuf::internal::dynamic_cast_if_available<const LogPBMeta*>(
       &from);
   if (source == NULL) {
     ::google::protobuf::internal::ReflectionOps::Merge(from, this);
@@ -544,7 +544,7 @@ void LogMeta::MergeFrom(const ::google::protobuf::Message& from) {
   }
 }
 
-void LogMeta::MergeFrom(const LogMeta& from) {
+void LogPBMeta::MergeFrom(const LogPBMeta& from) {
   GOOGLE_CHECK_NE(&from, this);
   if (from._has_bits_[0 / 32] & (0xffu << (0 % 32))) {
     if (from.has_start_log_index()) {
@@ -554,25 +554,25 @@ void LogMeta::MergeFrom(const LogMeta& from) {
   mutable_unknown_fields()->MergeFrom(from.unknown_fields());
 }
 
-void LogMeta::CopyFrom(const ::google::protobuf::Message& from) {
+void LogPBMeta::CopyFrom(const ::google::protobuf::Message& from) {
   if (&from == this) return;
   Clear();
   MergeFrom(from);
 }
 
-void LogMeta::CopyFrom(const LogMeta& from) {
+void LogPBMeta::CopyFrom(const LogPBMeta& from) {
   if (&from == this) return;
   Clear();
   MergeFrom(from);
 }
 
-bool LogMeta::IsInitialized() const {
+bool LogPBMeta::IsInitialized() const {
   if ((_has_bits_[0] & 0x00000001) != 0x00000001) return false;
   
   return true;
 }
 
-void LogMeta::Swap(LogMeta* other) {
+void LogPBMeta::Swap(LogPBMeta* other) {
   if (other != this) {
     std::swap(start_log_index_, other->start_log_index_);
     std::swap(_has_bits_[0], other->_has_bits_[0]);
@@ -581,11 +581,11 @@ void LogMeta::Swap(LogMeta* other) {
   }
 }
 
-::google::protobuf::Metadata LogMeta::GetMetadata() const {
+::google::protobuf::Metadata LogPBMeta::GetMetadata() const {
   protobuf_AssignDescriptorsOnce();
   ::google::protobuf::Metadata metadata;
-  metadata.descriptor = LogMeta_descriptor_;
-  metadata.reflection = LogMeta_reflection_;
+  metadata.descriptor = LogPBMeta_descriptor_;
+  metadata.reflection = LogPBMeta_reflection_;
   return metadata;
 }
 
@@ -593,36 +593,36 @@ void LogMeta::Swap(LogMeta* other) {
 // ===================================================================
 
 #ifndef _MSC_VER
-const int StableMeta::kTermFieldNumber;
-const int StableMeta::kVotedforFieldNumber;
+const int StablePBMeta::kTermFieldNumber;
+const int StablePBMeta::kVotedforFieldNumber;
 #endif  // !_MSC_VER
 
-StableMeta::StableMeta()
+StablePBMeta::StablePBMeta()
   : ::google::protobuf::Message() {
   SharedCtor();
 }
 
-void StableMeta::InitAsDefaultInstance() {
+void StablePBMeta::InitAsDefaultInstance() {
 }
 
-StableMeta::StableMeta(const StableMeta& from)
+StablePBMeta::StablePBMeta(const StablePBMeta& from)
   : ::google::protobuf::Message() {
   SharedCtor();
   MergeFrom(from);
 }
 
-void StableMeta::SharedCtor() {
+void StablePBMeta::SharedCtor() {
   _cached_size_ = 0;
   term_ = GOOGLE_LONGLONG(0);
   votedfor_ = const_cast< ::std::string*>(&::google::protobuf::internal::kEmptyString);
   ::memset(_has_bits_, 0, sizeof(_has_bits_));
 }
 
-StableMeta::~StableMeta() {
+StablePBMeta::~StablePBMeta() {
   SharedDtor();
 }
 
-void StableMeta::SharedDtor() {
+void StablePBMeta::SharedDtor() {
   if (votedfor_ != &::google::protobuf::internal::kEmptyString) {
     delete votedfor_;
   }
@@ -630,27 +630,27 @@ void StableMeta::SharedDtor() {
   }
 }
 
-void StableMeta::SetCachedSize(int size) const {
+void StablePBMeta::SetCachedSize(int size) const {
   GOOGLE_SAFE_CONCURRENT_WRITES_BEGIN();
   _cached_size_ = size;
   GOOGLE_SAFE_CONCURRENT_WRITES_END();
 }
-const ::google::protobuf::Descriptor* StableMeta::descriptor() {
+const ::google::protobuf::Descriptor* StablePBMeta::descriptor() {
   protobuf_AssignDescriptorsOnce();
-  return StableMeta_descriptor_;
+  return StablePBMeta_descriptor_;
 }
 
-const StableMeta& StableMeta::default_instance() {
+const StablePBMeta& StablePBMeta::default_instance() {
   if (default_instance_ == NULL) protobuf_AddDesc_raft_2flocal_5fstorage_2eproto();  return *default_instance_;
 }
 
-StableMeta* StableMeta::default_instance_ = NULL;
+StablePBMeta* StablePBMeta::default_instance_ = NULL;
 
-StableMeta* StableMeta::New() const {
-  return new StableMeta;
+StablePBMeta* StablePBMeta::New() const {
+  return new StablePBMeta;
 }
 
-void StableMeta::Clear() {
+void StablePBMeta::Clear() {
   if (_has_bits_[0 / 32] & (0xffu << (0 % 32))) {
     term_ = GOOGLE_LONGLONG(0);
     if (has_votedfor()) {
@@ -663,7 +663,7 @@ void StableMeta::Clear() {
   mutable_unknown_fields()->Clear();
 }
 
-bool StableMeta::MergePartialFromCodedStream(
+bool StablePBMeta::MergePartialFromCodedStream(
     ::google::protobuf::io::CodedInputStream* input) {
 #define DO_(EXPRESSION) if (!(EXPRESSION)) return false
   ::google::protobuf::uint32 tag;
@@ -717,7 +717,7 @@ bool StableMeta::MergePartialFromCodedStream(
 #undef DO_
 }
 
-void StableMeta::SerializeWithCachedSizes(
+void StablePBMeta::SerializeWithCachedSizes(
     ::google::protobuf::io::CodedOutputStream* output) const {
   // required int64 term = 1;
   if (has_term()) {
@@ -739,7 +739,7 @@ void StableMeta::SerializeWithCachedSizes(
   }
 }
 
-::google::protobuf::uint8* StableMeta::SerializeWithCachedSizesToArray(
+::google::protobuf::uint8* StablePBMeta::SerializeWithCachedSizesToArray(
     ::google::protobuf::uint8* target) const {
   // required int64 term = 1;
   if (has_term()) {
@@ -763,7 +763,7 @@ void StableMeta::SerializeWithCachedSizes(
   return target;
 }
 
-int StableMeta::ByteSize() const {
+int StablePBMeta::ByteSize() const {
   int total_size = 0;
   
   if (_has_bits_[0 / 32] & (0xffu << (0 % 32))) {
@@ -793,10 +793,10 @@ int StableMeta::ByteSize() const {
   return total_size;
 }
 
-void StableMeta::MergeFrom(const ::google::protobuf::Message& from) {
+void StablePBMeta::MergeFrom(const ::google::protobuf::Message& from) {
   GOOGLE_CHECK_NE(&from, this);
-  const StableMeta* source =
-    ::google::protobuf::internal::dynamic_cast_if_available<const StableMeta*>(
+  const StablePBMeta* source =
+    ::google::protobuf::internal::dynamic_cast_if_available<const StablePBMeta*>(
       &from);
   if (source == NULL) {
     ::google::protobuf::internal::ReflectionOps::Merge(from, this);
@@ -805,7 +805,7 @@ void StableMeta::MergeFrom(const ::google::protobuf::Message& from) {
   }
 }
 
-void StableMeta::MergeFrom(const StableMeta& from) {
+void StablePBMeta::MergeFrom(const StablePBMeta& from) {
   GOOGLE_CHECK_NE(&from, this);
   if (from._has_bits_[0 / 32] & (0xffu << (0 % 32))) {
     if (from.has_term()) {
@@ -818,25 +818,25 @@ void StableMeta::MergeFrom(const StableMeta& from) {
   mutable_unknown_fields()->MergeFrom(from.unknown_fields());
 }
 
-void StableMeta::CopyFrom(const ::google::protobuf::Message& from) {
+void StablePBMeta::CopyFrom(const ::google::protobuf::Message& from) {
   if (&from == this) return;
   Clear();
   MergeFrom(from);
 }
 
-void StableMeta::CopyFrom(const StableMeta& from) {
+void StablePBMeta::CopyFrom(const StablePBMeta& from) {
   if (&from == this) return;
   Clear();
   MergeFrom(from);
 }
 
-bool StableMeta::IsInitialized() const {
+bool StablePBMeta::IsInitialized() const {
   if ((_has_bits_[0] & 0x00000003) != 0x00000003) return false;
   
   return true;
 }
 
-void StableMeta::Swap(StableMeta* other) {
+void StablePBMeta::Swap(StablePBMeta* other) {
   if (other != this) {
     std::swap(term_, other->term_);
     std::swap(votedfor_, other->votedfor_);
@@ -846,11 +846,11 @@ void StableMeta::Swap(StableMeta* other) {
   }
 }
 
-::google::protobuf::Metadata StableMeta::GetMetadata() const {
+::google::protobuf::Metadata StablePBMeta::GetMetadata() const {
   protobuf_AssignDescriptorsOnce();
   ::google::protobuf::Metadata metadata;
-  metadata.descriptor = StableMeta_descriptor_;
-  metadata.reflection = StableMeta_reflection_;
+  metadata.descriptor = StablePBMeta_descriptor_;
+  metadata.reflection = StablePBMeta_reflection_;
   return metadata;
 }
 
@@ -858,62 +858,62 @@ void StableMeta::Swap(StableMeta* other) {
 // ===================================================================
 
 #ifndef _MSC_VER
-const int SnapshotMeta::kLastIncludedTermFieldNumber;
-const int SnapshotMeta::kLastIncludedIndexFieldNumber;
-const int SnapshotMeta::kPeersFieldNumber;
+const int SnapshotPBMeta::kLastIncludedTermFieldNumber;
+const int SnapshotPBMeta::kLastIncludedIndexFieldNumber;
+const int SnapshotPBMeta::kPeersFieldNumber;
 #endif  // !_MSC_VER
 
-SnapshotMeta::SnapshotMeta()
+SnapshotPBMeta::SnapshotPBMeta()
   : ::google::protobuf::Message() {
   SharedCtor();
 }
 
-void SnapshotMeta::InitAsDefaultInstance() {
+void SnapshotPBMeta::InitAsDefaultInstance() {
 }
 
-SnapshotMeta::SnapshotMeta(const SnapshotMeta& from)
+SnapshotPBMeta::SnapshotPBMeta(const SnapshotPBMeta& from)
   : ::google::protobuf::Message() {
   SharedCtor();
   MergeFrom(from);
 }
 
-void SnapshotMeta::SharedCtor() {
+void SnapshotPBMeta::SharedCtor() {
   _cached_size_ = 0;
   last_included_term_ = GOOGLE_LONGLONG(0);
   last_included_index_ = GOOGLE_LONGLONG(0);
   ::memset(_has_bits_, 0, sizeof(_has_bits_));
 }
 
-SnapshotMeta::~SnapshotMeta() {
+SnapshotPBMeta::~SnapshotPBMeta() {
   SharedDtor();
 }
 
-void SnapshotMeta::SharedDtor() {
+void SnapshotPBMeta::SharedDtor() {
   if (this != default_instance_) {
   }
 }
 
-void SnapshotMeta::SetCachedSize(int size) const {
+void SnapshotPBMeta::SetCachedSize(int size) const {
   GOOGLE_SAFE_CONCURRENT_WRITES_BEGIN();
   _cached_size_ = size;
   GOOGLE_SAFE_CONCURRENT_WRITES_END();
 }
-const ::google::protobuf::Descriptor* SnapshotMeta::descriptor() {
+const ::google::protobuf::Descriptor* SnapshotPBMeta::descriptor() {
   protobuf_AssignDescriptorsOnce();
-  return SnapshotMeta_descriptor_;
+  return SnapshotPBMeta_descriptor_;
 }
 
-const SnapshotMeta& SnapshotMeta::default_instance() {
+const SnapshotPBMeta& SnapshotPBMeta::default_instance() {
   if (default_instance_ == NULL) protobuf_AddDesc_raft_2flocal_5fstorage_2eproto();  return *default_instance_;
 }
 
-SnapshotMeta* SnapshotMeta::default_instance_ = NULL;
+SnapshotPBMeta* SnapshotPBMeta::default_instance_ = NULL;
 
-SnapshotMeta* SnapshotMeta::New() const {
-  return new SnapshotMeta;
+SnapshotPBMeta* SnapshotPBMeta::New() const {
+  return new SnapshotPBMeta;
 }
 
-void SnapshotMeta::Clear() {
+void SnapshotPBMeta::Clear() {
   if (_has_bits_[0 / 32] & (0xffu << (0 % 32))) {
     last_included_term_ = GOOGLE_LONGLONG(0);
     last_included_index_ = GOOGLE_LONGLONG(0);
@@ -923,7 +923,7 @@ void SnapshotMeta::Clear() {
   mutable_unknown_fields()->Clear();
 }
 
-bool SnapshotMeta::MergePartialFromCodedStream(
+bool SnapshotPBMeta::MergePartialFromCodedStream(
     ::google::protobuf::io::CodedInputStream* input) {
 #define DO_(EXPRESSION) if (!(EXPRESSION)) return false
   ::google::protobuf::uint32 tag;
@@ -994,7 +994,7 @@ bool SnapshotMeta::MergePartialFromCodedStream(
 #undef DO_
 }
 
-void SnapshotMeta::SerializeWithCachedSizes(
+void SnapshotPBMeta::SerializeWithCachedSizes(
     ::google::protobuf::io::CodedOutputStream* output) const {
   // required int64 last_included_term = 1;
   if (has_last_included_term()) {
@@ -1021,7 +1021,7 @@ void SnapshotMeta::SerializeWithCachedSizes(
   }
 }
 
-::google::protobuf::uint8* SnapshotMeta::SerializeWithCachedSizesToArray(
+::google::protobuf::uint8* SnapshotPBMeta::SerializeWithCachedSizesToArray(
     ::google::protobuf::uint8* target) const {
   // required int64 last_included_term = 1;
   if (has_last_included_term()) {
@@ -1049,7 +1049,7 @@ void SnapshotMeta::SerializeWithCachedSizes(
   return target;
 }
 
-int SnapshotMeta::ByteSize() const {
+int SnapshotPBMeta::ByteSize() const {
   int total_size = 0;
   
   if (_has_bits_[0 / 32] & (0xffu << (0 % 32))) {
@@ -1086,10 +1086,10 @@ int SnapshotMeta::ByteSize() const {
   return total_size;
 }
 
-void SnapshotMeta::MergeFrom(const ::google::protobuf::Message& from) {
+void SnapshotPBMeta::MergeFrom(const ::google::protobuf::Message& from) {
   GOOGLE_CHECK_NE(&from, this);
-  const SnapshotMeta* source =
-    ::google::protobuf::internal::dynamic_cast_if_available<const SnapshotMeta*>(
+  const SnapshotPBMeta* source =
+    ::google::protobuf::internal::dynamic_cast_if_available<const SnapshotPBMeta*>(
       &from);
   if (source == NULL) {
     ::google::protobuf::internal::ReflectionOps::Merge(from, this);
@@ -1098,7 +1098,7 @@ void SnapshotMeta::MergeFrom(const ::google::protobuf::Message& from) {
   }
 }
 
-void SnapshotMeta::MergeFrom(const SnapshotMeta& from) {
+void SnapshotPBMeta::MergeFrom(const SnapshotPBMeta& from) {
   GOOGLE_CHECK_NE(&from, this);
   peers_.MergeFrom(from.peers_);
   if (from._has_bits_[0 / 32] & (0xffu << (0 % 32))) {
@@ -1112,25 +1112,25 @@ void SnapshotMeta::MergeFrom(const SnapshotMeta& from) {
   mutable_unknown_fields()->MergeFrom(from.unknown_fields());
 }
 
-void SnapshotMeta::CopyFrom(const ::google::protobuf::Message& from) {
+void SnapshotPBMeta::CopyFrom(const ::google::protobuf::Message& from) {
   if (&from == this) return;
   Clear();
   MergeFrom(from);
 }
 
-void SnapshotMeta::CopyFrom(const SnapshotMeta& from) {
+void SnapshotPBMeta::CopyFrom(const SnapshotPBMeta& from) {
   if (&from == this) return;
   Clear();
   MergeFrom(from);
 }
 
-bool SnapshotMeta::IsInitialized() const {
+bool SnapshotPBMeta::IsInitialized() const {
   if ((_has_bits_[0] & 0x00000003) != 0x00000003) return false;
   
   return true;
 }
 
-void SnapshotMeta::Swap(SnapshotMeta* other) {
+void SnapshotPBMeta::Swap(SnapshotPBMeta* other) {
   if (other != this) {
     std::swap(last_included_term_, other->last_included_term_);
     std::swap(last_included_index_, other->last_included_index_);
@@ -1141,11 +1141,11 @@ void SnapshotMeta::Swap(SnapshotMeta* other) {
   }
 }
 
-::google::protobuf::Metadata SnapshotMeta::GetMetadata() const {
+::google::protobuf::Metadata SnapshotPBMeta::GetMetadata() const {
   protobuf_AssignDescriptorsOnce();
   ::google::protobuf::Metadata metadata;
-  metadata.descriptor = SnapshotMeta_descriptor_;
-  metadata.reflection = SnapshotMeta_reflection_;
+  metadata.descriptor = SnapshotPBMeta_descriptor_;
+  metadata.reflection = SnapshotPBMeta_reflection_;
   return metadata;
 }
 

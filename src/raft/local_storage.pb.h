@@ -33,21 +33,21 @@ void  protobuf_AddDesc_raft_2flocal_5fstorage_2eproto();
 void protobuf_AssignDesc_raft_2flocal_5fstorage_2eproto();
 void protobuf_ShutdownFile_raft_2flocal_5fstorage_2eproto();
 
-class ConfigurationMeta;
-class LogMeta;
-class StableMeta;
-class SnapshotMeta;
+class ConfigurationPBMeta;
+class LogPBMeta;
+class StablePBMeta;
+class SnapshotPBMeta;
 
 // ===================================================================
 
-class ConfigurationMeta : public ::google::protobuf::Message {
+class ConfigurationPBMeta : public ::google::protobuf::Message {
  public:
-  ConfigurationMeta();
-  virtual ~ConfigurationMeta();
+  ConfigurationPBMeta();
+  virtual ~ConfigurationPBMeta();
   
-  ConfigurationMeta(const ConfigurationMeta& from);
+  ConfigurationPBMeta(const ConfigurationPBMeta& from);
   
-  inline ConfigurationMeta& operator=(const ConfigurationMeta& from) {
+  inline ConfigurationPBMeta& operator=(const ConfigurationPBMeta& from) {
     CopyFrom(from);
     return *this;
   }
@@ -61,17 +61,17 @@ class ConfigurationMeta : public ::google::protobuf::Message {
   }
   
   static const ::google::protobuf::Descriptor* descriptor();
-  static const ConfigurationMeta& default_instance();
+  static const ConfigurationPBMeta& default_instance();
   
-  void Swap(ConfigurationMeta* other);
+  void Swap(ConfigurationPBMeta* other);
   
   // implements Message ----------------------------------------------
   
-  ConfigurationMeta* New() const;
+  ConfigurationPBMeta* New() const;
   void CopyFrom(const ::google::protobuf::Message& from);
   void MergeFrom(const ::google::protobuf::Message& from);
-  void CopyFrom(const ConfigurationMeta& from);
-  void MergeFrom(const ConfigurationMeta& from);
+  void CopyFrom(const ConfigurationPBMeta& from);
+  void MergeFrom(const ConfigurationPBMeta& from);
   void Clear();
   bool IsInitialized() const;
   
@@ -110,7 +110,7 @@ class ConfigurationMeta : public ::google::protobuf::Message {
   inline const ::google::protobuf::RepeatedPtrField< ::std::string>& peers() const;
   inline ::google::protobuf::RepeatedPtrField< ::std::string>* mutable_peers();
   
-  // @@protoc_insertion_point(class_scope:raft.ConfigurationMeta)
+  // @@protoc_insertion_point(class_scope:raft.ConfigurationPBMeta)
  private:
   
   ::google::protobuf::UnknownFieldSet _unknown_fields_;
@@ -125,18 +125,18 @@ class ConfigurationMeta : public ::google::protobuf::Message {
   friend void protobuf_ShutdownFile_raft_2flocal_5fstorage_2eproto();
   
   void InitAsDefaultInstance();
-  static ConfigurationMeta* default_instance_;
+  static ConfigurationPBMeta* default_instance_;
 };
 // -------------------------------------------------------------------
 
-class LogMeta : public ::google::protobuf::Message {
+class LogPBMeta : public ::google::protobuf::Message {
  public:
-  LogMeta();
-  virtual ~LogMeta();
+  LogPBMeta();
+  virtual ~LogPBMeta();
   
-  LogMeta(const LogMeta& from);
+  LogPBMeta(const LogPBMeta& from);
   
-  inline LogMeta& operator=(const LogMeta& from) {
+  inline LogPBMeta& operator=(const LogPBMeta& from) {
     CopyFrom(from);
     return *this;
   }
@@ -150,17 +150,17 @@ class LogMeta : public ::google::protobuf::Message {
   }
   
   static const ::google::protobuf::Descriptor* descriptor();
-  static const LogMeta& default_instance();
+  static const LogPBMeta& default_instance();
   
-  void Swap(LogMeta* other);
+  void Swap(LogPBMeta* other);
   
   // implements Message ----------------------------------------------
   
-  LogMeta* New() const;
+  LogPBMeta* New() const;
   void CopyFrom(const ::google::protobuf::Message& from);
   void MergeFrom(const ::google::protobuf::Message& from);
-  void CopyFrom(const LogMeta& from);
-  void MergeFrom(const LogMeta& from);
+  void CopyFrom(const LogPBMeta& from);
+  void MergeFrom(const LogPBMeta& from);
   void Clear();
   bool IsInitialized() const;
   
@@ -190,7 +190,7 @@ class LogMeta : public ::google::protobuf::Message {
   inline ::google::protobuf::int64 start_log_index() const;
   inline void set_start_log_index(::google::protobuf::int64 value);
   
-  // @@protoc_insertion_point(class_scope:raft.LogMeta)
+  // @@protoc_insertion_point(class_scope:raft.LogPBMeta)
  private:
   inline void set_has_start_log_index();
   inline void clear_has_start_log_index();
@@ -207,18 +207,18 @@ class LogMeta : public ::google::protobuf::Message {
   friend void protobuf_ShutdownFile_raft_2flocal_5fstorage_2eproto();
   
   void InitAsDefaultInstance();
-  static LogMeta* default_instance_;
+  static LogPBMeta* default_instance_;
 };
 // -------------------------------------------------------------------
 
-class StableMeta : public ::google::protobuf::Message {
+class StablePBMeta : public ::google::protobuf::Message {
  public:
-  StableMeta();
-  virtual ~StableMeta();
+  StablePBMeta();
+  virtual ~StablePBMeta();
   
-  StableMeta(const StableMeta& from);
+  StablePBMeta(const StablePBMeta& from);
   
-  inline StableMeta& operator=(const StableMeta& from) {
+  inline StablePBMeta& operator=(const StablePBMeta& from) {
     CopyFrom(from);
     return *this;
   }
@@ -232,17 +232,17 @@ class StableMeta : public ::google::protobuf::Message {
   }
   
   static const ::google::protobuf::Descriptor* descriptor();
-  static const StableMeta& default_instance();
+  static const StablePBMeta& default_instance();
   
-  void Swap(StableMeta* other);
+  void Swap(StablePBMeta* other);
   
   // implements Message ----------------------------------------------
   
-  StableMeta* New() const;
+  StablePBMeta* New() const;
   void CopyFrom(const ::google::protobuf::Message& from);
   void MergeFrom(const ::google::protobuf::Message& from);
-  void CopyFrom(const StableMeta& from);
-  void MergeFrom(const StableMeta& from);
+  void CopyFrom(const StablePBMeta& from);
+  void MergeFrom(const StablePBMeta& from);
   void Clear();
   bool IsInitialized() const;
   
@@ -283,7 +283,7 @@ class StableMeta : public ::google::protobuf::Message {
   inline ::std::string* mutable_votedfor();
   inline ::std::string* release_votedfor();
   
-  // @@protoc_insertion_point(class_scope:raft.StableMeta)
+  // @@protoc_insertion_point(class_scope:raft.StablePBMeta)
  private:
   inline void set_has_term();
   inline void clear_has_term();
@@ -303,18 +303,18 @@ class StableMeta : public ::google::protobuf::Message {
   friend void protobuf_ShutdownFile_raft_2flocal_5fstorage_2eproto();
   
   void InitAsDefaultInstance();
-  static StableMeta* default_instance_;
+  static StablePBMeta* default_instance_;
 };
 // -------------------------------------------------------------------
 
-class SnapshotMeta : public ::google::protobuf::Message {
+class SnapshotPBMeta : public ::google::protobuf::Message {
  public:
-  SnapshotMeta();
-  virtual ~SnapshotMeta();
+  SnapshotPBMeta();
+  virtual ~SnapshotPBMeta();
   
-  SnapshotMeta(const SnapshotMeta& from);
+  SnapshotPBMeta(const SnapshotPBMeta& from);
   
-  inline SnapshotMeta& operator=(const SnapshotMeta& from) {
+  inline SnapshotPBMeta& operator=(const SnapshotPBMeta& from) {
     CopyFrom(from);
     return *this;
   }
@@ -328,17 +328,17 @@ class SnapshotMeta : public ::google::protobuf::Message {
   }
   
   static const ::google::protobuf::Descriptor* descriptor();
-  static const SnapshotMeta& default_instance();
+  static const SnapshotPBMeta& default_instance();
   
-  void Swap(SnapshotMeta* other);
+  void Swap(SnapshotPBMeta* other);
   
   // implements Message ----------------------------------------------
   
-  SnapshotMeta* New() const;
+  SnapshotPBMeta* New() const;
   void CopyFrom(const ::google::protobuf::Message& from);
   void MergeFrom(const ::google::protobuf::Message& from);
-  void CopyFrom(const SnapshotMeta& from);
-  void MergeFrom(const SnapshotMeta& from);
+  void CopyFrom(const SnapshotPBMeta& from);
+  void MergeFrom(const SnapshotPBMeta& from);
   void Clear();
   bool IsInitialized() const;
   
@@ -391,7 +391,7 @@ class SnapshotMeta : public ::google::protobuf::Message {
   inline const ::google::protobuf::RepeatedPtrField< ::std::string>& peers() const;
   inline ::google::protobuf::RepeatedPtrField< ::std::string>* mutable_peers();
   
-  // @@protoc_insertion_point(class_scope:raft.SnapshotMeta)
+  // @@protoc_insertion_point(class_scope:raft.SnapshotPBMeta)
  private:
   inline void set_has_last_included_term();
   inline void clear_has_last_included_term();
@@ -412,159 +412,159 @@ class SnapshotMeta : public ::google::protobuf::Message {
   friend void protobuf_ShutdownFile_raft_2flocal_5fstorage_2eproto();
   
   void InitAsDefaultInstance();
-  static SnapshotMeta* default_instance_;
+  static SnapshotPBMeta* default_instance_;
 };
 // ===================================================================
 
 
 // ===================================================================
 
-// ConfigurationMeta
+// ConfigurationPBMeta
 
 // repeated string peers = 1;
-inline int ConfigurationMeta::peers_size() const {
+inline int ConfigurationPBMeta::peers_size() const {
   return peers_.size();
 }
-inline void ConfigurationMeta::clear_peers() {
+inline void ConfigurationPBMeta::clear_peers() {
   peers_.Clear();
 }
-inline const ::std::string& ConfigurationMeta::peers(int index) const {
+inline const ::std::string& ConfigurationPBMeta::peers(int index) const {
   return peers_.Get(index);
 }
-inline ::std::string* ConfigurationMeta::mutable_peers(int index) {
+inline ::std::string* ConfigurationPBMeta::mutable_peers(int index) {
   return peers_.Mutable(index);
 }
-inline void ConfigurationMeta::set_peers(int index, const ::std::string& value) {
+inline void ConfigurationPBMeta::set_peers(int index, const ::std::string& value) {
   peers_.Mutable(index)->assign(value);
 }
-inline void ConfigurationMeta::set_peers(int index, const char* value) {
+inline void ConfigurationPBMeta::set_peers(int index, const char* value) {
   peers_.Mutable(index)->assign(value);
 }
-inline void ConfigurationMeta::set_peers(int index, const char* value, size_t size) {
+inline void ConfigurationPBMeta::set_peers(int index, const char* value, size_t size) {
   peers_.Mutable(index)->assign(
     reinterpret_cast<const char*>(value), size);
 }
-inline ::std::string* ConfigurationMeta::add_peers() {
+inline ::std::string* ConfigurationPBMeta::add_peers() {
   return peers_.Add();
 }
-inline void ConfigurationMeta::add_peers(const ::std::string& value) {
+inline void ConfigurationPBMeta::add_peers(const ::std::string& value) {
   peers_.Add()->assign(value);
 }
-inline void ConfigurationMeta::add_peers(const char* value) {
+inline void ConfigurationPBMeta::add_peers(const char* value) {
   peers_.Add()->assign(value);
 }
-inline void ConfigurationMeta::add_peers(const char* value, size_t size) {
+inline void ConfigurationPBMeta::add_peers(const char* value, size_t size) {
   peers_.Add()->assign(reinterpret_cast<const char*>(value), size);
 }
 inline const ::google::protobuf::RepeatedPtrField< ::std::string>&
-ConfigurationMeta::peers() const {
+ConfigurationPBMeta::peers() const {
   return peers_;
 }
 inline ::google::protobuf::RepeatedPtrField< ::std::string>*
-ConfigurationMeta::mutable_peers() {
+ConfigurationPBMeta::mutable_peers() {
   return &peers_;
 }
 
 // -------------------------------------------------------------------
 
-// LogMeta
+// LogPBMeta
 
 // required int64 start_log_index = 1;
-inline bool LogMeta::has_start_log_index() const {
+inline bool LogPBMeta::has_start_log_index() const {
   return (_has_bits_[0] & 0x00000001u) != 0;
 }
-inline void LogMeta::set_has_start_log_index() {
+inline void LogPBMeta::set_has_start_log_index() {
   _has_bits_[0] |= 0x00000001u;
 }
-inline void LogMeta::clear_has_start_log_index() {
+inline void LogPBMeta::clear_has_start_log_index() {
   _has_bits_[0] &= ~0x00000001u;
 }
-inline void LogMeta::clear_start_log_index() {
+inline void LogPBMeta::clear_start_log_index() {
   start_log_index_ = GOOGLE_LONGLONG(0);
   clear_has_start_log_index();
 }
-inline ::google::protobuf::int64 LogMeta::start_log_index() const {
+inline ::google::protobuf::int64 LogPBMeta::start_log_index() const {
   return start_log_index_;
 }
-inline void LogMeta::set_start_log_index(::google::protobuf::int64 value) {
+inline void LogPBMeta::set_start_log_index(::google::protobuf::int64 value) {
   set_has_start_log_index();
   start_log_index_ = value;
 }
 
 // -------------------------------------------------------------------
 
-// StableMeta
+// StablePBMeta
 
 // required int64 term = 1;
-inline bool StableMeta::has_term() const {
+inline bool StablePBMeta::has_term() const {
   return (_has_bits_[0] & 0x00000001u) != 0;
 }
-inline void StableMeta::set_has_term() {
+inline void StablePBMeta::set_has_term() {
   _has_bits_[0] |= 0x00000001u;
 }
-inline void StableMeta::clear_has_term() {
+inline void StablePBMeta::clear_has_term() {
   _has_bits_[0] &= ~0x00000001u;
 }
-inline void StableMeta::clear_term() {
+inline void StablePBMeta::clear_term() {
   term_ = GOOGLE_LONGLONG(0);
   clear_has_term();
 }
-inline ::google::protobuf::int64 StableMeta::term() const {
+inline ::google::protobuf::int64 StablePBMeta::term() const {
   return term_;
 }
-inline void StableMeta::set_term(::google::protobuf::int64 value) {
+inline void StablePBMeta::set_term(::google::protobuf::int64 value) {
   set_has_term();
   term_ = value;
 }
 
 // required string votedfor = 2;
-inline bool StableMeta::has_votedfor() const {
+inline bool StablePBMeta::has_votedfor() const {
   return (_has_bits_[0] & 0x00000002u) != 0;
 }
-inline void StableMeta::set_has_votedfor() {
+inline void StablePBMeta::set_has_votedfor() {
   _has_bits_[0] |= 0x00000002u;
 }
-inline void StableMeta::clear_has_votedfor() {
+inline void StablePBMeta::clear_has_votedfor() {
   _has_bits_[0] &= ~0x00000002u;
 }
-inline void StableMeta::clear_votedfor() {
+inline void StablePBMeta::clear_votedfor() {
   if (votedfor_ != &::google::protobuf::internal::kEmptyString) {
     votedfor_->clear();
   }
   clear_has_votedfor();
 }
-inline const ::std::string& StableMeta::votedfor() const {
+inline const ::std::string& StablePBMeta::votedfor() const {
   return *votedfor_;
 }
-inline void StableMeta::set_votedfor(const ::std::string& value) {
+inline void StablePBMeta::set_votedfor(const ::std::string& value) {
   set_has_votedfor();
   if (votedfor_ == &::google::protobuf::internal::kEmptyString) {
     votedfor_ = new ::std::string;
   }
   votedfor_->assign(value);
 }
-inline void StableMeta::set_votedfor(const char* value) {
+inline void StablePBMeta::set_votedfor(const char* value) {
   set_has_votedfor();
   if (votedfor_ == &::google::protobuf::internal::kEmptyString) {
     votedfor_ = new ::std::string;
   }
   votedfor_->assign(value);
 }
-inline void StableMeta::set_votedfor(const char* value, size_t size) {
+inline void StablePBMeta::set_votedfor(const char* value, size_t size) {
   set_has_votedfor();
   if (votedfor_ == &::google::protobuf::internal::kEmptyString) {
     votedfor_ = new ::std::string;
   }
   votedfor_->assign(reinterpret_cast<const char*>(value), size);
 }
-inline ::std::string* StableMeta::mutable_votedfor() {
+inline ::std::string* StablePBMeta::mutable_votedfor() {
   set_has_votedfor();
   if (votedfor_ == &::google::protobuf::internal::kEmptyString) {
     votedfor_ = new ::std::string;
   }
   return votedfor_;
 }
-inline ::std::string* StableMeta::release_votedfor() {
+inline ::std::string* StablePBMeta::release_votedfor() {
   clear_has_votedfor();
   if (votedfor_ == &::google::protobuf::internal::kEmptyString) {
     return NULL;
@@ -577,93 +577,93 @@ inline ::std::string* StableMeta::release_votedfor() {
 
 // -------------------------------------------------------------------
 
-// SnapshotMeta
+// SnapshotPBMeta
 
 // required int64 last_included_term = 1;
-inline bool SnapshotMeta::has_last_included_term() const {
+inline bool SnapshotPBMeta::has_last_included_term() const {
   return (_has_bits_[0] & 0x00000001u) != 0;
 }
-inline void SnapshotMeta::set_has_last_included_term() {
+inline void SnapshotPBMeta::set_has_last_included_term() {
   _has_bits_[0] |= 0x00000001u;
 }
-inline void SnapshotMeta::clear_has_last_included_term() {
+inline void SnapshotPBMeta::clear_has_last_included_term() {
   _has_bits_[0] &= ~0x00000001u;
 }
-inline void SnapshotMeta::clear_last_included_term() {
+inline void SnapshotPBMeta::clear_last_included_term() {
   last_included_term_ = GOOGLE_LONGLONG(0);
   clear_has_last_included_term();
 }
-inline ::google::protobuf::int64 SnapshotMeta::last_included_term() const {
+inline ::google::protobuf::int64 SnapshotPBMeta::last_included_term() const {
   return last_included_term_;
 }
-inline void SnapshotMeta::set_last_included_term(::google::protobuf::int64 value) {
+inline void SnapshotPBMeta::set_last_included_term(::google::protobuf::int64 value) {
   set_has_last_included_term();
   last_included_term_ = value;
 }
 
 // required int64 last_included_index = 2;
-inline bool SnapshotMeta::has_last_included_index() const {
+inline bool SnapshotPBMeta::has_last_included_index() const {
   return (_has_bits_[0] & 0x00000002u) != 0;
 }
-inline void SnapshotMeta::set_has_last_included_index() {
+inline void SnapshotPBMeta::set_has_last_included_index() {
   _has_bits_[0] |= 0x00000002u;
 }
-inline void SnapshotMeta::clear_has_last_included_index() {
+inline void SnapshotPBMeta::clear_has_last_included_index() {
   _has_bits_[0] &= ~0x00000002u;
 }
-inline void SnapshotMeta::clear_last_included_index() {
+inline void SnapshotPBMeta::clear_last_included_index() {
   last_included_index_ = GOOGLE_LONGLONG(0);
   clear_has_last_included_index();
 }
-inline ::google::protobuf::int64 SnapshotMeta::last_included_index() const {
+inline ::google::protobuf::int64 SnapshotPBMeta::last_included_index() const {
   return last_included_index_;
 }
-inline void SnapshotMeta::set_last_included_index(::google::protobuf::int64 value) {
+inline void SnapshotPBMeta::set_last_included_index(::google::protobuf::int64 value) {
   set_has_last_included_index();
   last_included_index_ = value;
 }
 
 // repeated string peers = 3;
-inline int SnapshotMeta::peers_size() const {
+inline int SnapshotPBMeta::peers_size() const {
   return peers_.size();
 }
-inline void SnapshotMeta::clear_peers() {
+inline void SnapshotPBMeta::clear_peers() {
   peers_.Clear();
 }
-inline const ::std::string& SnapshotMeta::peers(int index) const {
+inline const ::std::string& SnapshotPBMeta::peers(int index) const {
   return peers_.Get(index);
 }
-inline ::std::string* SnapshotMeta::mutable_peers(int index) {
+inline ::std::string* SnapshotPBMeta::mutable_peers(int index) {
   return peers_.Mutable(index);
 }
-inline void SnapshotMeta::set_peers(int index, const ::std::string& value) {
+inline void SnapshotPBMeta::set_peers(int index, const ::std::string& value) {
   peers_.Mutable(index)->assign(value);
 }
-inline void SnapshotMeta::set_peers(int index, const char* value) {
+inline void SnapshotPBMeta::set_peers(int index, const char* value) {
   peers_.Mutable(index)->assign(value);
 }
-inline void SnapshotMeta::set_peers(int index, const char* value, size_t size) {
+inline void SnapshotPBMeta::set_peers(int index, const char* value, size_t size) {
   peers_.Mutable(index)->assign(
     reinterpret_cast<const char*>(value), size);
 }
-inline ::std::string* SnapshotMeta::add_peers() {
+inline ::std::string* SnapshotPBMeta::add_peers() {
   return peers_.Add();
 }
-inline void SnapshotMeta::add_peers(const ::std::string& value) {
+inline void SnapshotPBMeta::add_peers(const ::std::string& value) {
   peers_.Add()->assign(value);
 }
-inline void SnapshotMeta::add_peers(const char* value) {
+inline void SnapshotPBMeta::add_peers(const char* value) {
   peers_.Add()->assign(value);
 }
-inline void SnapshotMeta::add_peers(const char* value, size_t size) {
+inline void SnapshotPBMeta::add_peers(const char* value, size_t size) {
   peers_.Add()->assign(reinterpret_cast<const char*>(value), size);
 }
 inline const ::google::protobuf::RepeatedPtrField< ::std::string>&
-SnapshotMeta::peers() const {
+SnapshotPBMeta::peers() const {
   return peers_;
 }
 inline ::google::protobuf::RepeatedPtrField< ::std::string>*
-SnapshotMeta::mutable_peers() {
+SnapshotPBMeta::mutable_peers() {
   return &peers_;
 }
 

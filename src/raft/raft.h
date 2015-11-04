@@ -34,7 +34,7 @@ class LogEntry;
 
 class LogStorage {
 public:
-    LogStorage(const std::string& uri) {}
+    LogStorage(const std::string& /*uri*/) {}
     virtual ~LogStorage() {}
 
     // init log storage, check consistency and integrity
@@ -67,7 +67,7 @@ public:
 
 class StableStorage {
 public:
-    StableStorage(const std::string& uri) {}
+    StableStorage(const std::string& /*uri*/) {}
     virtual ~StableStorage() {}
 
     // init stable storage, check consistency and integrity
@@ -89,6 +89,51 @@ public:
 };
 
 // SnapshotStore implement in on_snapshot_save() and on_snapshot_load()
+
+struct SnapshotMeta {
+    int64_t last_included_index;
+    int64_t last_included_term;
+    Configuration last_configuration;
+};
+
+class SnapshotWriter {
+public:
+    SnapshotWriter() {}
+    virtual ~SnapshotWriter() {}
+
+    virtual int init() = 0;
+    virtual int save_meta(const SnapshotMeta& meta) = 0;
+};
+
+class SnapshotReader {
+public:
+    SnapshotReader() {}
+    virtual ~SnapshotReader() {}
+
+    virtual int init() = 0;
+    virtual int load_meta(SnapshotMeta* meta) = 0;
+};
+
+class SnapshotManager {
+public:
+    SnapshotManager(const std::string& /*uri*/) {}
+    virtual ~SnapshotManager() {}
+
+    // init
+    virtual int init() = 0;
+
+    // create new snapshot writer
+    virtual SnapshotWriter* create(const SnapshotMeta& meta) = 0;
+
+    // close snapshot writer
+    virtual int close(SnapshotWriter* writer) = 0;
+
+    // get lastest snapshot reader
+    virtual SnapshotReader* open() = 0;
+
+    // close snapshot reader
+    virtual int close(SnapshotReader* reader) = 0;
+};
 
 class Closure: public google::protobuf::Closure {
 public:
@@ -116,11 +161,14 @@ public:
     // user define shutdown function
     virtual void on_shutdown() = 0;
 
-    // user defined snapshot generate function
-    virtual int on_snapshot_save();
+    // user defined snapshot generate function, this method will block on_apply.
+    // user can make snapshot async when fsm can be cow(copy-on-write).
+    // call done->Run() when snapshot finised.
+    virtual int on_snapshot_save(SnapshotWriter* writer, Closure* done);
 
     // user defined snapshot load function
-    virtual int on_snapshot_load();
+    // get and load snapshot
+    virtual int on_snapshot_load(SnapshotReader* reader);
 
     // user defined leader start function
     // [NOTE] user can direct append to node ignore this callback.
@@ -138,7 +186,7 @@ protected:
 
 struct NodeOptions {
     int election_timeout; //ms, follower to candidate timeout
-    int snapshot_interval; // s, snapshot interval
+    int snapshot_interval; // s, snapshot interval. 0 is disable internal snapshot timer
     int snapshot_lowlevel_threshold; // at least logs not in snapshot
     int snapshot_highlevel_threshold; // at most log not in snapshot
     bool enable_pipeline; // pipeline switch
@@ -146,6 +194,9 @@ struct NodeOptions {
     StateMachine* fsm; // user defined function [MUST]
     LogStorage* log_storage; // user defined log storage
     StableStorage* stable_storage; // user defined manifest storage
+    //std::string log_uri;
+    //std::string stable_uri;
+    //std::string snapshot_uri;
 
     NodeOptions()
         : election_timeout(1000),

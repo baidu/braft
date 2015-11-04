@@ -224,10 +224,10 @@ int Segment::load(const base::Callback<void(int64_t, const Configuration&)>& con
             if (_load_entry(entry_off, NULL, &data, skip_len) != 0) {
                 break;
             }
-            ConfigurationMeta meta;
+            ConfigurationPBMeta meta;
             base::IOBufAsZeroCopyInputStream wrapper(data);
             if (!meta.ParseFromZeroCopyStream(&wrapper)) {
-                LOG(WARNING) << "Fail to parse ConfigurationMeta";
+                LOG(WARNING) << "Fail to parse ConfigurationPBMeta";
                 break;
             }
             bool meta_ok = true;
@@ -235,7 +235,7 @@ int Segment::load(const base::Callback<void(int64_t, const Configuration&)>& con
             for (int j = 0; j < meta.peers_size(); ++j) {
                 PeerId peer_id;
                 if (peer_id.parse(meta.peers(j)) != 0) {
-                    LOG(WARNING) << "Fail to parse ConfigurationMeta";
+                    LOG(WARNING) << "Fail to parse ConfigurationPBMeta";
                     meta_ok = false;
                     break;
                 }
@@ -284,14 +284,14 @@ int Segment::append(const LogEntry* entry) {
         break;
     case ENTRY_TYPE_ADD_PEER:
     case ENTRY_TYPE_REMOVE_PEER: {
-            ConfigurationMeta meta;
+            ConfigurationPBMeta meta;
             const std::vector<PeerId>& peers = *(entry->peers);
             for (size_t i = 0; i < peers.size(); i++) {
                 meta.add_peers(peers[i].to_string());
             }
             base::IOBufAsZeroCopyOutputStream wrapper(&data);
             if (!meta.SerializeToZeroCopyStream(&wrapper)) {
-                LOG(ERROR) << "Fail to serialize ConfigurationMeta";
+                LOG(ERROR) << "Fail to serialize ConfigurationPBMeta";
                 return -1;
             }
         }
@@ -356,7 +356,7 @@ LogEntry* Segment::get(const int64_t index) {
     bool ok = true;
     LogEntry* entry = NULL;
     do {
-        ConfigurationMeta configuration_meta;
+        ConfigurationPBMeta configuration_meta;
         int64_t entry_cursor = _offset[index - _start_index];
         int64_t next_cursor = index < _end_index 
                               ? _offset[index - _start_index + 1] : _bytes;
@@ -915,7 +915,7 @@ int SegmentLogStorage::save_meta(const int64_t log_index) {
     _start_log_index = log_index;
 
     ProtoBufFile pb_file(meta_path);
-    LogMeta meta;
+    LogPBMeta meta;
     meta.set_start_log_index(log_index);
     return pb_file.save(&meta, true);
 }
@@ -925,7 +925,7 @@ int SegmentLogStorage::load_meta() {
     meta_path.append("/" RAFT_SEGMENT_META_FILE);
 
     ProtoBufFile pb_file(meta_path);
-    LogMeta meta;
+    LogPBMeta meta;
     if (0 != pb_file.load(&meta)) {
         return -1;
     }

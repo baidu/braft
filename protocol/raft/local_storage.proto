@@ -2,20 +2,20 @@ import "raft/raft.proto";
 
 package raft;
 
-message ConfigurationMeta {
+message ConfigurationPBMeta {
     repeated string peers = 1;
 };
 
-message LogMeta {
+message LogPBMeta {
     required int64 start_log_index = 1;
 };
 
-message StableMeta {
+message StablePBMeta {
     required int64 term = 1;
     required string votedfor = 2;
 };
 
-message SnapshotMeta {
+message SnapshotPBMeta {
     required int64 last_included_term = 1;
     required int64 last_included_index = 2;
     repeated string peers = 3;

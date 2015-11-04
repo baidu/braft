@@ -66,12 +66,12 @@ int init_raft(const char* server_desc) {
     return NodeManager::GetInstance()->init(ip_str.c_str(), start_port, end_port);
 }
 
-int StateMachine::on_snapshot_save() {
+int StateMachine::on_snapshot_save(SnapshotWriter* writer, Closure* done) {
     LOG(WARNING) << "StateMachine: " << this << " on_snapshot_save not implement";
     return ENOSYS;
 }
 
-int StateMachine::on_snapshot_load() {
+int StateMachine::on_snapshot_load(SnapshotReader* reader) {
     LOG(WARNING) << "StateMachine: " << this << " on_snapshot_load not implement";
     return ENOSYS;
 }
