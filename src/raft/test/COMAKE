@@ -19,7 +19,7 @@ IDLFLAGS('--compack')
 
 UBRPCFLAGS('--compack')
 
-INCPATHS('. ../../..//src ../../..//protocol ../../..//include ./output ./output/include')
+INCPATHS('. ../../../src')
 
 LDFLAGS('-lpthread -lcrypto -lz -lrt')
 #LDFLAGS('-lasan')
@@ -32,31 +32,12 @@ CONFIGS('public/baidu-rpc@ci-base')
 #
 PROTOC('../../../../../third-64/protobuf/bin/protoc')
 
-proto_sources = (
-        '../../../protocol/raft/raft.proto '
-        '../../../protocol/raft/local_storage.proto '
-)
-
-user_sources = (
-        '../../../src/raft/protobuf_file.cpp '
-        '../../../src/raft/log.cpp '
-        '../../../src/raft/stable.cpp '
-        '../../../src/raft/configuration.cpp '
-        '../../../src/raft/node.cpp '
-        '../../../src/raft/log_manager.cpp '
-        '../../../src/raft/commitment_manager.cpp '
-        '../../../src/raft/fsm_caller.cpp'
-)
-
 user_headers = GLOB('src/raft/*.h')
 
-StaticLibrary('raft',Sources(user_sources, proto_sources),HeaderFiles(user_headers))
+StaticLibrary('raft',Sources(GLOB('../../raft/*.cpp ../../raft/*.cc')),HeaderFiles(user_headers))
 
 Application('test_protobuf_file',Sources('test_protobuf_file.cpp'), Libraries('libraft.a'))
 Application('test_log',Sources('test_log.cpp'), Libraries('libraft.a'))
 Application('test_stable',Sources('test_stable.cpp'), Libraries('libraft.a'))
 Application('test_configuration',Sources('test_configuration.cpp'), Libraries('libraft.a'))
-
-#StaticLibrary('raft',Sources(user_sources),HeaderFiles(user_headers))
-#SharedLibrary('raft',Sources(user_sources),HeaderFiles(user_headers))
-
+Application('test_file_service',Sources('test_file_service.cpp'), Libraries('libraft.a'))

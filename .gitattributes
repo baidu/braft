@@ -15,6 +15,7 @@ example/counter/run.sh -text
 example/counter/start.sh -text
 example/counter/stop.sh -text
 protocol/raft/errno.proto -text
+protocol/raft/file_service.proto -text
 protocol/raft/local_storage.proto -text
 protocol/raft/raft.proto -text
 src/raft/commitment_manager.cpp -text
@@ -23,6 +24,10 @@ src/raft/configuration.cpp -text
 src/raft/configuration.h -text
 src/raft/errno.pb.cc -text
 src/raft/errno.pb.h -text
+src/raft/file_service.cpp -text
+src/raft/file_service.h -text
+src/raft/file_service.pb.cc -text
+src/raft/file_service.pb.h -text
 src/raft/fsm_caller.cpp -text
 src/raft/fsm_caller.h -text
 src/raft/local_storage.pb.cc -text
@@ -43,6 +48,8 @@ src/raft/raft.pb.cc -text
 src/raft/raft.pb.h -text
 src/raft/raft_service.cpp -text
 src/raft/raft_service.h -text
+src/raft/remote_path_copier.cpp -text
+src/raft/remote_path_copier.h -text
 src/raft/replicator.cpp -text
 src/raft/replicator.h -text
 src/raft/snapshot.cpp -text
@@ -53,6 +60,7 @@ src/raft/storage.cpp -text
 src/raft/storage.h -text
 src/raft/test/COMAKE -text
 src/raft/test/test_configuration.cpp -text
+src/raft/test/test_file_service.cpp -text
 src/raft/test/test_log.cpp -text
 src/raft/test/test_protobuf_file.cpp -text
 src/raft/test/test_stable.cpp -text

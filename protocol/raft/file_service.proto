@@ -1,0 +1,31 @@
+package raft;
+option cc_generic_services = true;
+
+message GetFileRequest {
+    required string file_path = 1;
+    required int64 count = 2;
+    required int64 offset = 3;
+}
+
+message GetFileResponse {
+    // Data is in attachment
+    required bool eof = 1;
+}
+
+message PathInfo {
+    required string path = 1;
+    required bool is_directory = 2;
+}
+
+message ListPathRequest {
+    required string path = 1;
+}
+
+message ListPathResponse {
+    repeated PathInfo path_info = 1;
+}
+
+service FileService {
+    rpc list_path(ListPathRequest) returns (ListPathResponse);
+    rpc get_file(GetFileRequest) returns (GetFileResponse);
+}

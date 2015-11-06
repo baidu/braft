@@ -22,6 +22,7 @@
 #include "raft/log.h"
 #include "raft/stable.h"
 #include "raft/snapshot.h"
+#include "raft/file_service.h"
 #include <bthread_unstable.h>
 
 #include "baidu/rpc/errno.pb.h"
@@ -129,7 +130,7 @@ void NodeImpl::on_snapshot_save_done(const int64_t last_included_index, Snapshot
                 << " discard saved snapshot, because has a newer snapshot."
                 << " last_included_index " << last_included_index
                 << " last_snapshot_index " << _last_snapshot_index;
-            writer->set_error(ESTALE);
+            //writer->set_error(ESTALE);
             _snapshot_storage->close(writer);
             break;
         }
@@ -766,8 +767,9 @@ int NodeImpl::snapshot(Closure* done) {
     }
 
     _snapshot_saving = true;
-    SaveSnapshotDone* snapshot_save_done = new SaveSnapshotDone(this, done);
-    _fsm_caller->on_snapshot_save(snapshot_save_done);
+    //SaveSnapshotDone* snapshot_save_done = new SaveSnapshotDone(this, done);
+    //_fsm_caller->on_snapshot_save(snapshot_save_done);
+    return 0;
 }
 
 void NodeImpl::shutdown(Closure* done) {
@@ -1531,9 +1533,9 @@ int NodeImpl::handle_install_snapshot_request(baidu::rpc::Controller* controller
         std::lock_guard<bthread_mutex_t> guard(_mutex);
 
         // call fsm_caller on_install_snapshot, when finished run on_snapshot_load_done
-        InstallSnapshotDone* install_snapshot_done =
-            new InstallSnapshotDone(this, controller, request, response, done);
-        _fsm_caller->on_install_snapshot(_loading_snapshot_meta, install_snapshot_done);
+        //InstallSnapshotDone* install_snapshot_done =
+        //    new InstallSnapshotDone(this, controller, request, response, done);
+        //_fsm_caller->on_install_snapshot(_loading_snapshot_meta, install_snapshot_done);
     }
 
     return 0;
@@ -1560,6 +1562,10 @@ int NodeManager::init(const char* ip_str, int start_port, int end_port) {
     std::lock_guard<bthread_mutex_t> guard(_mutex);
 
     baidu::rpc::ServerOptions server_options;
+    if (0 != _server.AddService(new FileServiceImpl, baidu::rpc::SERVER_OWNS_SERVICE)) {
+        LOG(ERROR) << "Add File Service Failed.";
+        return EINVAL;
+    }
     if (0 != _server.AddService(&_service_impl, baidu::rpc::SERVER_DOESNT_OWN_SERVICE)) {
         LOG(ERROR) << "Add Raft Service Failed.";
         return EINVAL;

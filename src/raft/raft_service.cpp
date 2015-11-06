@@ -24,9 +24,6 @@
 
 namespace raft {
 
-static void set_controller_error(baidu::rpc::Controller* controller, int rc) {
-}
-
 void RaftServiceImpl::request_vote(google::protobuf::RpcController* cntl_base,
                           const RequestVoteRequest* request,
                           RequestVoteResponse* response,
