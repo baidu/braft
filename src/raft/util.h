@@ -137,20 +137,9 @@ inline uint32_t murmurhash32(const base::IOBuf& buf) {
     return hash;
 }
 
-inline std::string fileuri2path(const std::string& uri) {
-    std::string path;
-    std::size_t prefix_found = uri.find("file://");
-    if (std::string::npos == prefix_found) {
-        if (std::string::npos == uri.find("://")) {
-            path = uri;
-        }
-    } else {
-        path.assign(uri, prefix_found + strlen("file://"),
-                    uri.size() - (prefix_found + strlen("file://")));
-    }
+std::string fileuri2path(const std::string& uri);
 
-    return path;
-}
+int fileuri_parse(const std::string& uri, base::EndPoint* addr, std::string* path);
 
 }  // namespace raft
 

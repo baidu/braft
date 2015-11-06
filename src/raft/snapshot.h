@@ -31,13 +31,10 @@ public:
     int64_t snapshot_index();
     virtual int init();
     virtual int copy(const std::string& uri);
-    virtual int save_meta(const SnapshotMeta& meta);
-    virtual int err_code();
+    virtual int save_meta();
 protected:
     static const char* _s_snapshot_meta;
     std::string _path;
-    SnapshotMeta _meta;
-    int _err_code;
 };
 
 class LocalSnapshotReader: public SnapshotReader {
@@ -47,17 +44,17 @@ public:
 
     virtual int init();
     virtual int load_meta(SnapshotMeta* meta);
-    virtual int err_code();
 protected:
     static const char* _s_snapshot_meta;
     std::string _path;
-    int _err_code;
 };
 
 class LocalSnapshotStorage : public SnapshotStorage {
 public:
     LocalSnapshotStorage(const std::string& path);
     virtual ~LocalSnapshotStorage();
+
+    static const char* _s_temp_path;
 
     virtual int init();
     virtual SnapshotWriter* create(const SnapshotMeta& meta);
@@ -66,7 +63,6 @@ public:
     virtual SnapshotReader* open();
     virtual int close(SnapshotReader* reader);
 protected:
-    static const char* _s_temp_path;
     static const char* _s_lock_path;
     std::string _path;
     int _lock_fd;

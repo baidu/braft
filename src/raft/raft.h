@@ -85,8 +85,6 @@ protected:
 struct NodeOptions {
     int election_timeout; //ms, follower to candidate timeout
     int snapshot_interval; // s, snapshot interval. 0 is disable internal snapshot timer
-    int snapshot_lowlevel_threshold; // at least logs not in snapshot
-    int snapshot_highlevel_threshold; // at most log not in snapshot
     bool enable_pipeline; // pipeline switch
     Configuration conf; // peer conf
     StateMachine* fsm; // user defined function [MUST]
@@ -96,8 +94,8 @@ struct NodeOptions {
 
     NodeOptions()
         : election_timeout(1000),
-        snapshot_interval(86400), snapshot_lowlevel_threshold(100000),
-        snapshot_highlevel_threshold(10000000), enable_pipeline(false),
+        snapshot_interval(86400),
+        enable_pipeline(false),
         fsm(NULL) {}
 };
 
@@ -140,6 +138,10 @@ public:
     // done is user defined function, maybe response to client
     // only used in major node is down, reduce peerset to make group available
     int set_peer(const std::vector<PeerId>& old_peers, const std::vector<PeerId>& new_peers);
+
+    // user trigger snapshot
+    // done is user defined function, maybe response to client
+    void snapshot(Closure* done);
 
 private:
     NodeImpl* _impl;

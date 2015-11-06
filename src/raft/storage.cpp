@@ -16,6 +16,7 @@
  * =====================================================================================
  */
 #include <errno.h>
+#include <base/string_printf.h>
 #include <base/string_splitter.h>
 #include <base/logging.h>
 
@@ -90,6 +91,40 @@ Storage* find_storage(const std::string& uri) {
     }
     LOG(WARNING) << "storage " << uri << " not found";
     return NULL;
+}
+
+int SnapshotWriter::error_code() {
+    return _err_code;
+}
+
+std::string SnapshotWriter::error_text() {
+    return _err_text;
+}
+
+void SnapshotWriter::set_error(int err_code, const char* reason_fmt, ...) {
+    _err_code = err_code;
+
+    va_list ap;
+    va_start(ap, reason_fmt);
+    base::string_vappendf(&_err_text, reason_fmt, ap);
+    va_end(ap);
+}
+
+int SnapshotReader::error_code() {
+    return _err_code;
+}
+
+std::string SnapshotReader::error_text() {
+    return _err_text;
+}
+
+void SnapshotReader::set_error(int err_code, const char* reason_fmt, ...) {
+    _err_code = err_code;
+
+    va_list ap;
+    va_start(ap, reason_fmt);
+    base::string_vappendf(&_err_text, reason_fmt, ap);
+    va_end(ap);
 }
 
 }

@@ -136,4 +136,8 @@ int Node::set_peer(const std::vector<PeerId>& old_peers, const std::vector<PeerI
     return _impl->set_peer(old_peers, new_peers);
 }
 
+void Node::snapshot(Closure* done) {
+    _impl->snapshot(done);
+}
+
 }

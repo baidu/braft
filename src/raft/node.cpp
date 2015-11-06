@@ -119,19 +119,20 @@ void NodeImpl::on_snapshot_load_done() {
     _loading_snapshot_meta = NULL;
 }
 
-void NodeImpl::on_snapshot_save_done(const int64_t last_included_index, SnapshotWriter* writer) {
+int NodeImpl::on_snapshot_save_done(const int64_t last_included_index, SnapshotWriter* writer) {
     std::lock_guard<bthread_mutex_t> guard(_mutex);
+    int ret = 0;
 
     do {
         // InstallSnapshot can break SaveSnapshot, check InstallSnapshot when SaveSnapshot
         // because upstream Snapshot mybe newer than local Snapshot.
         if (last_included_index <= _last_snapshot_index) {
+            ret = ESTALE;
             LOG(WARNING) << "node " << _group_id << ":" << _server_id
                 << " discard saved snapshot, because has a newer snapshot."
                 << " last_included_index " << last_included_index
                 << " last_snapshot_index " << _last_snapshot_index;
-            //writer->set_error(ESTALE);
-            _snapshot_storage->close(writer);
+            writer->set_error(ESTALE, "snapshot is staled, maybe InstallSnapshot when snapshot");
             break;
         }
 
@@ -155,9 +156,12 @@ void NodeImpl::on_snapshot_save_done(const int64_t last_included_index, Snapshot
 
         // update configuration
         _log_manager->check_and_set_configuration(_conf);
+
+        ret = writer->save_meta();
     } while (0);
 
     _snapshot_saving = false;
+    return ret;
 }
 
 int NodeImpl::init_snapshot_storage() {
@@ -713,26 +717,44 @@ int NodeImpl::set_peer(const std::vector<PeerId>& old_peers, const std::vector<P
 
 class SaveSnapshotDone : public Closure {
 public:
-    SaveSnapshotDone(NodeImpl* node, Closure* done)
-        : _node(node), _done(done) {
+    SaveSnapshotDone(NodeImpl* node, SnapshotStorage* snapshot_storage, Closure* done)
+        : _node(node), _snapshot_storage(snapshot_storage), _done(done), _writer(NULL) {
         _node->AddRef();
     }
     virtual ~SaveSnapshotDone() {
         _node->Release();
     }
 
+    void begin_snapshot(const SnapshotMeta& meta) {
+        _meta = meta;
+        _writer = _snapshot_storage->create(meta);
+    }
+
     void Run() {
         if (_err_code == 0) {
-            _node->on_snapshot_save_done(_last_included_index, _writer);
+            int ret = _node->on_snapshot_save_done(_meta.last_included_index, _writer);
+            if (ret != 0) {
+                set_error(ret, "snapshot failed");
+            }
         }
 
+        // close writer
+        if (_writer) {
+            _snapshot_storage->close(_writer);
+        }
+
+        //user done, need set error
+        if (_err_code != 0) {
+            _done->set_error(_err_code, _err_text.c_str());
+        }
         _done->Run();
         delete this;
     }
 
     NodeImpl* _node;
+    SnapshotStorage* _snapshot_storage;
     Closure* _done; // user done
-    int64_t _last_included_index;
+    SnapshotMeta _meta;
     SnapshotWriter* _writer;
 };
 
@@ -767,7 +789,8 @@ int NodeImpl::snapshot(Closure* done) {
     }
 
     _snapshot_saving = true;
-    //SaveSnapshotDone* snapshot_save_done = new SaveSnapshotDone(this, done);
+    //TODO:
+    //SaveSnapshotDone* snapshot_save_done = new SaveSnapshotDone(this, _snapshot_storage, done);
     //_fsm_caller->on_snapshot_save(snapshot_save_done);
     return 0;
 }
@@ -1417,6 +1440,7 @@ public:
             _response->set_success(false);
         }
 
+        // RPC done, just transfer response
         _done->Run();
         delete this;
     }
@@ -1434,6 +1458,7 @@ int NodeImpl::handle_install_snapshot_request(baidu::rpc::Controller* controller
                                               google::protobuf::Closure* done) {
     int ret = 0;
 
+    // some check
     {
         std::lock_guard<bthread_mutex_t> guard(_mutex);
 
@@ -1476,6 +1501,16 @@ int NodeImpl::handle_install_snapshot_request(baidu::rpc::Controller* controller
             _leader_id = server_id;
         }
 
+        // retry InstallSnapshot
+        if (request->last_included_log_index() == _last_snapshot_index &&
+            request->last_included_log_term() == _last_snapshot_term) {
+            LOG(WARNING) << "node " << _group_id << ":" << _server_id << " term " << _current_term
+                << " received retry InstallSnapshotRequest from " << request->server_id();
+            response->set_success(true);
+            done->Run();
+            return 0;
+        }
+
         // some check, imposible case
         CHECK(request->last_included_log_index() > _last_snapshot_index);
         CHECK(request->last_included_log_index() > _log_manager->last_log_index());
@@ -1515,7 +1550,7 @@ int NodeImpl::handle_install_snapshot_request(baidu::rpc::Controller* controller
             break;
         }
 
-        ret = writer->save_meta(*_loading_snapshot_meta);
+        ret = writer->save_meta();
         if (0 != ret) {
             break;
         }
@@ -1529,9 +1564,11 @@ int NodeImpl::handle_install_snapshot_request(baidu::rpc::Controller* controller
         return ret;
     }
 
+    // fsm load snapshot
     {
         std::lock_guard<bthread_mutex_t> guard(_mutex);
 
+        //TODO:
         // call fsm_caller on_install_snapshot, when finished run on_snapshot_load_done
         //InstallSnapshotDone* install_snapshot_done =
         //    new InstallSnapshotDone(this, controller, request, response, done);

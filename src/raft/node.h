@@ -117,7 +117,7 @@ public:
                                       const RequestVoteResponse& response);
     void on_caughtup(const PeerId& peer, int error_code, Closure* done);
     void on_snapshot_load_done();
-    void on_snapshot_save_done(const int64_t last_included_index, SnapshotWriter* writer);
+    int on_snapshot_save_done(const int64_t last_included_index, SnapshotWriter* writer);
 
     // other func
     //
@@ -163,11 +163,11 @@ private:
         CANDIDATE = 2,
         FOLLOWER = 3,
         SHUTDOWN = 4,
-        STATE_END = 4,
+        STATE_END = 5,
     };
     const char* State2Str(State state) {
         const char* str[] = {"LEADER", "CANDIDATE", "FOLLOWER", "SHUTDOWN"};
-        if (state <= STATE_END) {
+        if (state < STATE_END) {
             return str[(int)state - 1];
         } else {
             return "UNKNOWN";

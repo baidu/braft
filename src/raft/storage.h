@@ -92,12 +92,21 @@ struct SnapshotMeta {
 
 class SnapshotWriter {
 public:
-    SnapshotWriter() {}
+    SnapshotWriter(const SnapshotMeta& meta) : _err_code(0), _meta(meta) {}
     virtual ~SnapshotWriter() {}
 
     virtual int init() = 0;
     virtual int copy(const std::string& uri) = 0;
-    virtual int save_meta(const SnapshotMeta& meta) = 0;
+    virtual int save_meta() = 0;
+
+    // error func
+    int error_code();
+    std::string error_text();
+    void set_error(int err_code, const char* reason_fmt, ...);
+protected:
+    int _err_code;
+    std::string _err_text;
+    SnapshotMeta _meta;
 };
 
 class SnapshotReader {
@@ -107,6 +116,14 @@ public:
 
     virtual int init() = 0;
     virtual int load_meta(SnapshotMeta* meta) = 0;
+
+    // error func
+    int error_code();
+    std::string error_text();
+    void set_error(int err_code, const char* reason_fmt, ...);
+protected:
+    int _err_code;
+    std::string _err_text;
 };
 
 class SnapshotStorage {

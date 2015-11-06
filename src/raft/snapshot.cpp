@@ -19,9 +19,11 @@
 #include <base/file_util.h>                         // base::CreateDirectory
 #include <base/files/dir_reader_posix.h>            // base::DirReaderPosix
 #include <base/string_printf.h>                     // base::string_appendf
+#include <baidu/rpc/uri.h>
 #include "raft/util.h"
 #include "raft/protobuf_file.h"
 #include "raft/local_storage.pb.h"
+#include "raft/remote_path_copier.h"
 #include "raft/snapshot.h"
 
 #define RAFT_SNAPSHOT_PATTERN "snapshot_%020ld"
@@ -34,7 +36,7 @@ const char* LocalSnapshotStorage::_s_temp_path = "temp";
 const char* LocalSnapshotStorage::_s_lock_path = "lock";
 
 LocalSnapshotWriter::LocalSnapshotWriter(const std::string& path, const SnapshotMeta& meta)
-    : _path(path), _meta(meta), _err_code(0) {
+    : SnapshotWriter(meta), _path(path) {
 }
 
 LocalSnapshotWriter::~LocalSnapshotWriter() {
@@ -43,7 +45,7 @@ LocalSnapshotWriter::~LocalSnapshotWriter() {
 int LocalSnapshotWriter::init() {
     base::FilePath dir_path(_path);
     if (!base::CreateDirectory(dir_path)) {
-        _err_code = EIO;
+        set_error(EIO, "CreateDirectory failed, path: %s %m", _path.c_str());
         return EIO;
     }
 
@@ -54,40 +56,62 @@ int64_t LocalSnapshotWriter::snapshot_index() {
     return _meta.last_included_index;
 }
 
-int LocalSnapshotWriter::err_code() {
-    return _err_code;
-}
-
 int LocalSnapshotWriter::copy(const std::string& uri) {
-    LOG(WARNING) << "LocalSnapshotWriter not support copy";
-    return ENOSYS;
+    RemotePathCopier copier;
+    int ret = 0;
+    do {
+        base::EndPoint remote_addr;
+        std::string remote_path;
+        ret = fileuri_parse(uri, &remote_addr, &remote_path);
+        if (0 != ret) {
+            LOG(WARNING) << "LocalSnapshotWriter copy failed, path " << _path << " uri " << uri;
+            break;
+        }
+
+        std::string temp_path(_path);
+        temp_path.append("/");
+        temp_path.append(LocalSnapshotStorage::_s_temp_path);
+
+        ret = copier.init(remote_addr, temp_path);
+        if (0 != ret) {
+            LOG(WARNING) << "LocalSnapshotWriter copy failed, path " << _path << " uri " << uri;
+            break;
+        }
+
+        ret = copier.copy(remote_path, _path, NULL);
+        if (0 != ret) {
+            LOG(WARNING) << "LocalSnapshotWriter copy failed, path " << _path << " uri " << uri;
+            break;
+        }
+    } while (0);
+    return ret;
 }
 
-int LocalSnapshotWriter::save_meta(const SnapshotMeta& meta) {
+int LocalSnapshotWriter::save_meta() {
     std::string meta_path(_path);
     meta_path.append("/");
     meta_path.append(_s_snapshot_meta);
 
     SnapshotPBMeta pb_meta;
-    pb_meta.set_last_included_index(meta.last_included_index);
-    pb_meta.set_last_included_term(meta.last_included_term);
+    pb_meta.set_last_included_index(_meta.last_included_index);
+    pb_meta.set_last_included_term(_meta.last_included_term);
     std::vector<PeerId> peers;
-    meta.last_configuration.peer_vector(&peers);
+    _meta.last_configuration.peer_vector(&peers);
     for (size_t i = 0; i < peers.size(); i++) {
         pb_meta.add_peers(peers[i].to_string());
     }
 
     ProtoBufFile pb_file(meta_path);
     int ret = pb_file.save(&pb_meta, true);
-    if (ret != 0) {
-        _err_code = EIO;
+    if (0 != ret) {
+        set_error(EIO, "PBFile save failed, path: %s %m", meta_path.c_str());
         ret = EIO;
     }
     return ret;
 }
 
 LocalSnapshotReader::LocalSnapshotReader(const std::string& path)
-    : _path(path), _err_code(0) {
+    : _path(path) {
 }
 
 LocalSnapshotReader::~LocalSnapshotReader() {
@@ -96,7 +120,7 @@ LocalSnapshotReader::~LocalSnapshotReader() {
 int LocalSnapshotReader::init() {
     base::FilePath dir_path(_path);
     if (!base::CreateDirectory(dir_path)) {
-        _err_code = EIO;
+        set_error(EIO, "CreateDirectory failed, path: %s %m", _path.c_str());
         return EIO;
     }
 
@@ -126,7 +150,7 @@ int LocalSnapshotReader::load_meta(SnapshotMeta* meta) {
             meta->last_configuration.add_peer(PeerId(pb_meta.peers(i)));
         }
     } else {
-        _err_code = EIO;
+        set_error(EIO, "PBFile load failed, path: %s %m", meta_path.c_str());
         ret = EIO;
     }
     return ret;
@@ -232,9 +256,9 @@ SnapshotWriter* LocalSnapshotStorage::create(const SnapshotMeta& meta) {
 
 int LocalSnapshotStorage::close(SnapshotWriter* writer_) {
     LocalSnapshotWriter* writer = dynamic_cast<LocalSnapshotWriter*>(writer_);
-    int ret = writer->err_code();
+    int ret = writer->error_code();
     do {
-        if (ret != 0) {
+        if (0 != ret) {
             break;
         }
 
