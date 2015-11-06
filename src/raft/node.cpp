@@ -31,10 +31,11 @@
 namespace raft {
 
 NodeImpl::NodeImpl(const GroupId& group_id, const ReplicaId& replica_id)
-    : _inited(false), _group_id(group_id),
-    _state(FOLLOWER), _current_term(0),
+    : _group_id(group_id),
+    _state(SHUTDOWN), _current_term(0),
     _last_snapshot_term(0), _last_snapshot_index(0),
     _last_leader_timestamp(base::monotonic_time_ms()),
+    _snapshot_saving(false), _loading_snapshot_meta(NULL),
     _log_storage(NULL), _stable_storage(NULL), _snapshot_storage(NULL),
     _config_manager(NULL), _log_manager(NULL),
     _fsm_caller(NULL), _commit_manager(NULL) {
@@ -47,14 +48,262 @@ NodeImpl::NodeImpl(const GroupId& group_id, const ReplicaId& replica_id)
 NodeImpl::~NodeImpl() {
     bthread_mutex_destroy(&_mutex);
 
-    _config_manager->Release();
-    delete _log_manager;
-    delete _fsm_caller;
-    delete _commit_manager;
+    if (_config_manager) {
+        _config_manager->Release();
+        _config_manager = NULL;
+    }
+    if (_log_manager) {
+        delete _log_manager;
+        _log_manager = NULL;
+    }
+    if (_fsm_caller) {
+        delete _fsm_caller;
+        _fsm_caller = NULL;
+    }
+    if (_commit_manager) {
+        delete _commit_manager;
+        _commit_manager = NULL;
+    }
 
-    //TODO: should delete user input ptr?
-    delete _log_storage;
-    delete _stable_storage;
+    if (_log_storage) {
+        delete _log_storage;
+        _log_storage = NULL;
+    }
+    if (_stable_storage) {
+        delete _stable_storage;
+        _stable_storage = NULL;
+    }
+    if (_snapshot_storage) {
+        delete _snapshot_storage;
+        _snapshot_storage = NULL;
+    }
+}
+
+void NodeImpl::on_snapshot_load_done() {
+    std::lock_guard<bthread_mutex_t> guard(_mutex);
+
+    CHECK(_loading_snapshot_meta);
+
+    _last_snapshot_index = _loading_snapshot_meta->last_included_index;
+    _last_snapshot_term = _loading_snapshot_meta->last_included_term;
+    // Check discard entire log
+    // 1. Discard log if it is shorter than the snapshot.
+    // 2. Discard log if its lastSnapshotIndex entry disagrees with the
+    //    lastSnapshotTerm.
+    if (_log_manager->last_log_index() < _last_snapshot_index ||
+        (_log_manager->first_log_index() <= _last_snapshot_index &&
+         _log_manager->get_term(_last_snapshot_index) != _last_snapshot_term)) {
+        if (_log_manager->first_log_index() <= _log_manager->last_log_index()) {
+            LOG(WARNING) << "node " << _group_id << ":" << _server_id
+                << " discard the entire log, it is consistent with installed snapshot";
+        }
+        // discard entire log
+        _log_manager->truncate_prefix(_last_snapshot_index + 1);
+        _log_manager->truncate_suffix(_last_snapshot_index);
+    }
+
+    // discard unneed entries before _last_snapshot_index
+    if (_log_manager->first_log_index() <= _last_snapshot_index) {
+        _log_manager->truncate_prefix(_last_snapshot_index + 1);
+    }
+
+    // update configuration
+    _config_manager->set_snapshot(_loading_snapshot_meta->last_included_index,
+                                  _loading_snapshot_meta->last_configuration);
+    _log_manager->check_and_set_configuration(_conf);
+
+    // TODO: reset commit manager
+
+    delete _loading_snapshot_meta;
+    _loading_snapshot_meta = NULL;
+}
+
+void NodeImpl::on_snapshot_save_done(const int64_t last_included_index, SnapshotWriter* writer) {
+    std::lock_guard<bthread_mutex_t> guard(_mutex);
+
+    do {
+        // InstallSnapshot can break SaveSnapshot, check InstallSnapshot when SaveSnapshot
+        // because upstream Snapshot mybe newer than local Snapshot.
+        if (last_included_index <= _last_snapshot_index) {
+            LOG(WARNING) << "node " << _group_id << ":" << _server_id
+                << " discard saved snapshot, because has a newer snapshot."
+                << " last_included_index " << last_included_index
+                << " last_snapshot_index " << _last_snapshot_index;
+            writer->set_error(ESTALE);
+            _snapshot_storage->close(writer);
+            break;
+        }
+
+        CHECK(last_included_index >= _log_manager->first_log_index());
+        CHECK(last_included_index <= _log_manager->last_log_index());
+
+        _last_snapshot_index = last_included_index;
+        _last_snapshot_term = _log_manager->get_term(last_included_index);
+
+        // set snapshot to configration
+        ConfigurationPair pair = _config_manager->get_configuration(last_included_index);
+        if (pair.first != 0) {
+            _config_manager->set_snapshot(pair.first, pair.second);
+        }
+
+        // discard unneed entries before _last_snapshot_index
+        // OPTIMIZE: should be defer discard entries when some followers are catching up.
+        if (_log_manager->first_log_index() <= _last_snapshot_index) {
+            _log_manager->truncate_prefix(_last_snapshot_index + 1);
+        }
+
+        // update configuration
+        _log_manager->check_and_set_configuration(_conf);
+    } while (0);
+
+    _snapshot_saving = false;
+}
+
+int NodeImpl::init_snapshot_storage() {
+    int ret = 0;
+    SnapshotReader* snapshot_reader = NULL;
+
+    do {
+        if (_options.snapshot_uri.empty()) {
+            break;
+        }
+
+        Storage* storage = find_storage(_options.snapshot_uri);
+        if (storage) {
+            _snapshot_storage = storage->create_snapshot_storage(
+                    _options.snapshot_uri);
+        } else {
+            LOG(WARNING) << "node " << _group_id << ":" << _server_id
+                << " find snapshot storage failed, uri " << _options.snapshot_uri;
+            ret = ENOENT;
+            break;
+        }
+
+        ret = _snapshot_storage->init();
+        if (ret != 0) {
+            LOG(WARNING) << "node " << _group_id << ":" << _server_id
+                << " init snapshot storage failed, uri " << _options.snapshot_uri;
+            ret = EINVAL;
+            break;
+        }
+
+        // read snapshot
+        snapshot_reader = _snapshot_storage->open();
+        if (snapshot_reader) {
+            // fsm load snapshot in current bthread
+            ret = _options.fsm->on_snapshot_load(snapshot_reader);
+            if (ret != 0) {
+                LOG(WARNING) << "node " << _group_id << ":" << _server_id
+                    << " fsm load snapshot failed, uri " << _options.snapshot_uri;
+                break;
+            }
+
+            // load meta
+            _loading_snapshot_meta = new SnapshotMeta();
+            ret = snapshot_reader->load_meta(_loading_snapshot_meta);
+            if (ret == 0) {
+                on_snapshot_load_done();
+            } else {
+                LOG(WARNING) << "node " << _group_id << ":" << _server_id
+                    << " load snapshot meta failed, uri " << _options.snapshot_uri;
+                delete _loading_snapshot_meta;
+                _loading_snapshot_meta = NULL;
+                break;
+            }
+        } else {
+            LOG(INFO) << "node " << _group_id << ":" << _server_id
+                << " snapshot storage empty, uri " << _options.snapshot_uri;
+        }
+    } while (0);
+
+    if (_snapshot_storage && snapshot_reader) {
+        _snapshot_storage->close(snapshot_reader);
+    }
+    return ret;
+}
+
+int NodeImpl::init_log_storage() {
+    int ret = 0;
+
+    do {
+        Storage* storage = find_storage(_options.log_uri);
+        if (storage) {
+            _log_storage = storage->create_log_storage(_options.log_uri);
+        } else {
+            ret = ENOENT;
+            break;
+        }
+
+        _log_manager = new LogManager();
+        LogManagerOptions log_manager_options;
+        log_manager_options.log_storage = _log_storage;
+        log_manager_options.configuration_manager = _config_manager;
+        ret = _log_manager->init(log_manager_options);
+        if (ret != 0) {
+            break;
+        }
+    } while (0);
+
+    return ret;
+}
+
+int NodeImpl::init_stable_storage() {
+    int ret = 0;
+
+    do {
+        Storage* storage = find_storage(_options.stable_uri);
+        if (storage) {
+            _stable_storage = storage->create_stable_storage(_options.stable_uri);
+        } else {
+            LOG(WARNING) << "node " << _group_id << ":" << _server_id
+                << " find stable storage failed, uri " << _options.stable_uri;
+            ret = ENOENT;
+            break;
+        }
+
+        ret = _stable_storage->init();
+        if (ret != 0) {
+            LOG(WARNING) << "node " << _group_id << ":" << _server_id
+                << " int stable storage failed, uri " << _options.stable_uri
+                << " ret " << ret;
+            break;
+        }
+
+        _current_term = _stable_storage->get_term();
+        ret = _stable_storage->get_votedfor(&_voted_id);
+        if (ret != 0) {
+            LOG(WARNING) << "node " << _group_id << ":" << _server_id
+                << " stable storage get_votedfor failed, uri " << _options.stable_uri
+                << " ret " << ret;
+            break;
+        }
+    } while (0);
+
+    return ret;
+}
+
+static void on_snapshot_timer(void* arg) {
+    NodeImpl* node = static_cast<NodeImpl*>(arg);
+
+    node->handle_snapshot_timeout();
+    node->Release();
+}
+
+void NodeImpl::handle_snapshot_timeout() {
+    std::lock_guard<bthread_mutex_t> guard(_mutex);
+
+    // check state
+    if (_state == SHUTDOWN) {
+        return;
+    }
+
+    snapshot(NULL);
+
+    AddRef();
+    bthread_timer_add(&_snapshot_timer, base::milliseconds_from_now(_options.snapshot_interval),
+                      on_snapshot_timer, this);
+    RAFT_VLOG << "node " << _group_id << ":" << _server_id
+        << " term " << _current_term << " restart snapshot_timer";
 }
 
 int NodeImpl::init(const NodeOptions& options) {
@@ -69,95 +318,32 @@ int NodeImpl::init(const NodeOptions& options) {
 
     _config_manager = new ConfigurationManager();
 
-    SnapshotReader* snapshot_reader = NULL;
     do {
-        // init snapshot
-        if (_options.snapshot_storage) {
-            _snapshot_storage = _options.snapshot_storage;
-        } else {
-            std::string path;
-            path.append("./data/");
-            path.append(_group_id);
-            path.append("/");
-            path.append(_server_id.to_string());
-            path.append("/snapshot");
-            _snapshot_storage = new LocalSnapshotStorage(path);
-        }
-        ret = _snapshot_storage->init();
-        if (ret != 0) {
+        // log storage and log manager init
+        ret = init_log_storage();
+        if (0 != ret) {
             break;
-        }
-        // read snapshot
-        snapshot_reader = _snapshot_storage->open();
-        if (snapshot_reader) {
-            // fsm load snapshot
-            ret = _options.fsm->on_snapshot_load(snapshot_reader);
-            if (ret != 0) {
-                break;
-            }
-            // load meta
-            SnapshotMeta meta;
-            ret = snapshot_reader->load_meta(&meta);
-            if (ret == 0) {
-                _last_snapshot_index = meta.last_included_index;
-                _last_snapshot_term = meta.last_included_term;
-                // set snapshot configuration
-                if (_conf.second.empty()) {
-                    _config_manager->set_snapshot(meta.last_included_index,
-                                                  meta.last_configuration);
-                }
-            } else {
-                break;
-            }
         }
 
-        // log storage and log manager init
-        if (_options.log_storage) {
-            _log_storage = _options.log_storage;
-        } else {
-            std::string path;
-            path.append("./data/");
-            path.append(_group_id);
-            path.append("/");
-            path.append(_server_id.to_string());
-            path.append("/log");
-            _log_storage = new SegmentLogStorage(path);
-        }
-        _log_manager = new LogManager();
-        LogManagerOptions log_manager_options;
-        log_manager_options.log_storage = _log_storage;
-        log_manager_options.configuration_manager = _config_manager;
-        ret = _log_manager->init(log_manager_options);
-        if (ret != 0) {
+        // stable init
+        ret = init_stable_storage();
+        if (0 != ret) {
             break;
         }
+
+        // snapshot storage init and load
+        // NOTE: snapshot maybe discard entries when snapshot saved but not discard entries.
+        //      init log storage before snapshot storage, snapshot storage will update configration
+        ret = init_snapshot_storage();
+        if (0 != ret) {
+            break;
+        }
+
         // if have log using conf in log, else using conf in options
         if (_log_manager->last_log_index() > 0) {
             _log_manager->check_and_set_configuration(_conf);
         } else {
             _conf.second = _options.conf;
-        }
-
-        // stable init
-        if (_options.stable_storage) {
-            _stable_storage = _options.stable_storage;
-        } else {
-            std::string path;
-            path.append("./data/");
-            path.append(_group_id);
-            path.append("/");
-            path.append(_server_id.to_string());
-            path.append("/stable");
-            _stable_storage = new LocalStableStorage(path);
-        }
-        ret = _stable_storage->init();
-        if (ret != 0) {
-            break;
-        }
-        _current_term = _stable_storage->get_term();
-        ret = _stable_storage->get_votedfor(&_voted_id);
-        if (ret != 0) {
-            break;
         }
 
         // fsm caller init, node AddRef in init
@@ -187,26 +373,34 @@ int NodeImpl::init(const NodeOptions& options) {
             Release();
             break;
         }
+
+        // add node to NodeManager
+        if (!NodeManager::GetInstance()->add(this)) {
+            LOG(WARNING) << "NodeManager add " << _group_id << ":" << _server_id << "failed, exist";
+            ret = EEXIST;
+            break;
+        }
+
+        // set state to follower
+        _state = FOLLOWER;
+        LOG(INFO) << "node " << _group_id << ":" << _server_id << " init,"
+            << " term: " << _current_term
+            << " last_log_index: " << _log_manager->last_log_index()
+            << " conf: " << _conf.second;
+        if (!_conf.second.empty()) {
+            step_down(_current_term);
+        }
+
+        // start snapshot timer
+        if (_snapshot_storage && _options.snapshot_interval > 0) {
+            AddRef();
+            bthread_timer_add(&_snapshot_timer,
+                              base::milliseconds_from_now(_options.snapshot_interval),
+                              on_snapshot_timer, this);
+            RAFT_VLOG << "node " << _group_id << ":" << _server_id
+                << " term " << _current_term << " start snapshot_timer";
+        }
     } while (0);
-
-    // close snapshot reader
-    if (_snapshot_storage && snapshot_reader) {
-        _snapshot_storage->close(snapshot_reader);
-    }
-    // add node to NodeManager
-    if (ret == 0 && !NodeManager::GetInstance()->add(this)) {
-        LOG(WARNING) << "NodeManager add " << _group_id << ":" << _server_id << "failed, exist";
-        ret = EEXIST;
-    }
-
-    _inited = true;
-    LOG(INFO) << "node " << _group_id << ":" << _server_id << " init,"
-        << " term: " << _current_term
-        << " last_log_index: " << _log_manager->last_log_index()
-        << " conf: " << _conf.second;
-    if (!_conf.second.empty()) {
-        step_down(_current_term);
-    }
 
     return ret;
 }
@@ -214,7 +408,7 @@ int NodeImpl::init(const NodeOptions& options) {
 int NodeImpl::apply(const base::IOBuf& data, Closure* done) {
     std::lock_guard<bthread_mutex_t> guard(_mutex);
 
-    if (!_inited) {
+    if (_state == SHUTDOWN) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id << " not inited";
         return EINVAL;
     }
@@ -371,11 +565,6 @@ int NodeImpl::add_peer(const std::vector<PeerId>& old_peers, const PeerId& peer,
                        Closure* done) {
     std::lock_guard<bthread_mutex_t> guard(_mutex);
 
-    // check init
-    if (!_inited) {
-        LOG(WARNING) << "node " << _group_id << ":" << _server_id << " not inited";
-        return EINVAL;
-    }
     // check state
     if (_state != LEADER) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id << " can't apply not in LEADER";
@@ -430,11 +619,6 @@ int NodeImpl::remove_peer(const std::vector<PeerId>& old_peers, const PeerId& pe
                           Closure* done) {
     std::lock_guard<bthread_mutex_t> guard(_mutex);
 
-    // check inited
-    if (!_inited) {
-        LOG(WARNING) << "node " << _group_id << ":" << _server_id << " not inited";
-        return EINVAL;
-    }
     // check state
     if (_state != LEADER) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id << " can't apply not in LEADER";
@@ -479,8 +663,8 @@ int NodeImpl::remove_peer(const std::vector<PeerId>& old_peers, const PeerId& pe
 int NodeImpl::set_peer(const std::vector<PeerId>& old_peers, const std::vector<PeerId>& new_peers) {
     std::lock_guard<bthread_mutex_t> guard(_mutex);
 
-    // check inited
-    if (!_inited) {
+    // check state
+    if (_state == SHUTDOWN) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id << " not inited";
         return EINVAL;
     }
@@ -526,6 +710,66 @@ int NodeImpl::set_peer(const std::vector<PeerId>& old_peers, const std::vector<P
     return 0;
 }
 
+class SaveSnapshotDone : public Closure {
+public:
+    SaveSnapshotDone(NodeImpl* node, Closure* done)
+        : _node(node), _done(done) {
+        _node->AddRef();
+    }
+    virtual ~SaveSnapshotDone() {
+        _node->Release();
+    }
+
+    void Run() {
+        if (_err_code == 0) {
+            _node->on_snapshot_save_done(_last_included_index, _writer);
+        }
+
+        _done->Run();
+        delete this;
+    }
+
+    NodeImpl* _node;
+    Closure* _done; // user done
+    int64_t _last_included_index;
+    SnapshotWriter* _writer;
+};
+
+int NodeImpl::snapshot(Closure* done) {
+    std::lock_guard<bthread_mutex_t> guard(_mutex);
+
+    // check state
+    if (_state == SHUTDOWN) {
+        LOG(WARNING) << "node " << _group_id << ":" << _server_id << " not inited";
+        return EINVAL;
+    }
+
+    // check support snapshot?
+    if (NULL == _snapshot_storage) {
+        LOG(WARNING) << "node " << _group_id << ":" << _server_id
+            << " unsupport snapshot, maybe snapshot_uri not set";
+        return EINVAL;
+    }
+
+    // check snapshot install/load
+    if (_loading_snapshot_meta) {
+        LOG(WARNING) << "node " << _group_id << ":" << _server_id
+            << " doing snapshot load/install";
+        return EAGAIN;
+    }
+
+    // check snapshot saving?
+    if (_snapshot_saving) {
+        LOG(WARNING) << "node " << _group_id << ":" << _server_id
+            << " doing snapshot save";
+        return EAGAIN;
+    }
+
+    _snapshot_saving = true;
+    SaveSnapshotDone* snapshot_save_done = new SaveSnapshotDone(this, done);
+    _fsm_caller->on_snapshot_save(snapshot_save_done);
+}
+
 void NodeImpl::shutdown(Closure* done) {
     // remove node from NodeManager
     NodeManager::GetInstance()->remove(this);
@@ -535,12 +779,34 @@ void NodeImpl::shutdown(Closure* done) {
     LOG(INFO) << "node " << _group_id << ":" << _server_id << " shutdown,"
         " current_term " << _current_term << " state " << State2Str(_state);
 
-    //TODO: stop timer?
-    // stop disk thread, replicator in step_down
+    // leader stop disk thread and replicator, stop stepdown timer, change state to FOLLOWER
+    // candidate stop vote timer, change state to FOLLOWER
     if (_state != FOLLOWER) {
         step_down(_current_term);
     }
-    _inited = false;
+
+    // follower stop election timer
+    RAFT_VLOG << "node " << _group_id << ":" << _server_id
+        << " term " << _current_term << " stop election_timer";
+    int ret = bthread_timer_del(_election_timer);
+    if (ret == 0) {
+        Release();
+    } else {
+        CHECK(ret == 1);
+    }
+
+    // all stop snapshot timer
+    RAFT_VLOG << "node " << _group_id << ":" << _server_id
+        << " term " << _current_term << " stop snapshot_timer";
+    ret = bthread_timer_del(_snapshot_timer);
+    if (ret == 0) {
+        Release();
+    } else {
+        CHECK(ret == 1);
+    }
+
+    // change state to shutdown
+    _state = SHUTDOWN;
 
     // stop replicator and fsm_caller wait
     _log_manager->shutdown();
@@ -645,7 +911,10 @@ struct OnRequestVoteRPCDone : public google::protobuf::Closure {
         : peer(peer_id_), term(term_), node(node_) {
             node->AddRef();
     }
-    virtual ~OnRequestVoteRPCDone() {}
+    virtual ~OnRequestVoteRPCDone() {
+        node->Release();
+    }
+
     void Run() {
         do {
             if (cntl.ErrorCode() != 0) {
@@ -655,9 +924,9 @@ struct OnRequestVoteRPCDone : public google::protobuf::Closure {
             }
             node->handle_request_vote_response(peer, term, response);
         } while (0);
-        node->Release();
         delete this;
     }
+
     PeerId peer;
     int64_t term;
     RequestVoteResponse response;
@@ -768,9 +1037,9 @@ void NodeImpl::step_down(const int64_t term) {
 
         _commit_manager->clear_pending_applications();
 
-        // stop disk thread
-        // TODO: node Release?
+        // stop disk thread, Release
         _log_manager->stop_disk_thread();
+        Release();
 
         // signal fsm leader stop immediately
         _fsm_caller->on_leader_stop();
@@ -814,8 +1083,8 @@ void NodeImpl::become_leader() {
     _state = LEADER;
     _leader_id = _server_id;
 
-    // init disk thread
-    // TODO: node AddRef?
+    // init disk thread, AddRef
+    AddRef();
     _log_manager->start_disk_thread();
 
     // init replicator
@@ -1017,6 +1286,9 @@ int NodeImpl::handle_append_entries_request(base::IOBuf& data_buf,
             _leader_id = server_id;
         }
 
+        // not loading snapshot, install snapshot
+        CHECK(NULL == _loading_snapshot_meta);
+
         // check prev log gap
         if (request->prev_log_index() > _log_manager->last_log_index()) {
             LOG(WARNING) << "node " << _group_id << ":" << _server_id
@@ -1120,10 +1392,45 @@ int NodeImpl::handle_append_entries_request(base::IOBuf& data_buf,
     return 0;
 }
 
-int NodeImpl::handle_install_snapshot_request(const InstallSnapshotRequest* request,
-                                              InstallSnapshotResponse* response) {
-#if 0
-    SnapshotMeta* meta = NULL;
+class InstallSnapshotDone : public Closure {
+public:
+    InstallSnapshotDone(NodeImpl* node,
+                        baidu::rpc::Controller* controller,
+                        const InstallSnapshotRequest* request,
+                        InstallSnapshotResponse* response,
+                        google::protobuf::Closure* done)
+        : _node(node),
+        _controller(controller), _request(request), _response(response), _done(done) {
+        _node->AddRef();
+    }
+    virtual ~InstallSnapshotDone() {
+        _node->Release();
+    }
+
+    void Run() {
+        if (_err_code == 0) {
+            _node->on_snapshot_load_done();
+            _response->set_success(true);
+        } else {
+            _response->set_success(false);
+        }
+
+        _done->Run();
+        delete this;
+    }
+
+    NodeImpl* _node;
+    baidu::rpc::Controller* _controller;
+    const InstallSnapshotRequest* _request;
+    InstallSnapshotResponse* _response;
+    google::protobuf::Closure* _done;
+};
+
+int NodeImpl::handle_install_snapshot_request(baidu::rpc::Controller* controller,
+                                              const InstallSnapshotRequest* request,
+                                              InstallSnapshotResponse* response,
+                                              google::protobuf::Closure* done) {
+    int ret = 0;
 
     {
         std::lock_guard<bthread_mutex_t> guard(_mutex);
@@ -1139,7 +1446,8 @@ int NodeImpl::handle_install_snapshot_request(const InstallSnapshotRequest* requ
         response->set_success(false);
         response->set_term(_current_term);
 
-        if (_install_snapshot_meta) {
+        // check loading snapshot?
+        if (_loading_snapshot_meta) {
             LOG(WARNING) << "node " << _group_id << ":" << _server_id
                 << " received InstallSnapshotRequest from " << request->server_id()
                 << " install snapshot running";
@@ -1150,6 +1458,8 @@ int NodeImpl::handle_install_snapshot_request(const InstallSnapshotRequest* requ
         if (request->term() < _current_term) {
             LOG(WARNING) << "node " << _group_id << ":" << _server_id << " term " << _current_term
                 << " received staled InstallSnapshotRequest term " << request->term();
+            // TODO: don run here
+            done->Run();
             return 0;
         }
 
@@ -1164,13 +1474,17 @@ int NodeImpl::handle_install_snapshot_request(const InstallSnapshotRequest* requ
             _leader_id = server_id;
         }
 
+        // some check, imposible case
+        CHECK(request->last_included_log_index() > _last_snapshot_index);
+        CHECK(request->last_included_log_index() > _log_manager->last_log_index());
+
         // start thread do fetch and load snapshot
-        meta = new SnapshotMeta();
+        SnapshotMeta* meta = new SnapshotMeta();
         meta->last_included_index = request->last_included_log_index();
         meta->last_included_term = request->last_included_log_term();
         for (int i = 0; i < request->peers_size(); i++) {
             PeerId peer;
-            if (0 != peer.parse(peer.request->peers(i))) {
+            if (0 != peer.parse(request->peers(i))) {
                 LOG(WARNING) << "node " << _group_id << ":" << _server_id
                     << " received InstallSnapshotRequest from " << request->server_id()
                     << " peers bad format";
@@ -1179,53 +1493,48 @@ int NodeImpl::handle_install_snapshot_request(const InstallSnapshotRequest* requ
             }
             meta->last_configuration.add_peer(peer);
         }
-        meta->uri = request->uri();
 
-        _install_snapshot_meta = meta;
+        _loading_snapshot_meta = meta;
     }
 
-    // TODO: fetch snapshot
-    SnapshotWriter* writer = _snapshot_storage->create(*meta);
-    //writer->fetch();
-    _snapshot_storage->close(writer);
+    // copy snapshot
+    SnapshotWriter* writer = NULL;
+    do {
+        CHECK(_snapshot_storage);
 
-    //TODO: fsm_caller 
-    //_fsm_caller->on_install_snapshot(*meta);
+        writer = _snapshot_storage->create(*_loading_snapshot_meta);
+        if (NULL == writer) {
+            ret = EINVAL;
+            break;
+        }
 
-    // update snapshot meta
+        ret = writer->copy(request->uri());
+        if (0 != ret) {
+            break;
+        }
+
+        ret = writer->save_meta(*_loading_snapshot_meta);
+        if (0 != ret) {
+            break;
+        }
+    } while (0);
+    if (NULL != writer) {
+        _snapshot_storage->close(writer);
+    }
+    if (0 != ret) {
+        LOG(WARNING) << "node " << _group_id << ":" << _server_id
+            << " term " << _current_term << " snapshot save failed, uri " << request->uri();
+        return ret;
+    }
+
     {
         std::lock_guard<bthread_mutex_t> guard(_mutex);
 
-        _last_snapshot_index = meta->last_included_index;
-        _last_snapshot_term = meta->last_included_term;
-        //We should keep log entries if they might be needed for a quorum. So:
-        // 1. Discard log if it is shorter than the snapshot.
-        // 2. Discard log if its lastSnapshotIndex entry disagrees with the
-        //    lastSnapshotTerm.
-        if (_log_manager->last_log_index() < _last_snapshot_index ||
-            (_log_manager->first_log_index() <= _last_snapshot_index &&
-             _log_manager->get_term(_last_snapshot_index) != _last_snapshot_term)) {
-            if (_log_manager->first_log_index() <= _log_manager->last_log_index()) {
-                LOG(WARNING) << "node " << _group_id << ":" << _server_id
-                    << " discard the entire log, it is consistent with installed snapshot";
-            }
-            // discard entire log
-            _log_manager->truncate_prefix(_last_snapshot_index + 1);
-            _log_manager->truncate_suffix(_last_snapshot_index);
-        }
-
-        // discard unneed entries before _last_snapshot_index
-        if (_log_manager->first_log_index() <= _last_snapshot_index) {
-            _log_manager->truncate_prefix(_last_snapshot_index + 1);
-        }
-        // update configuration
-        _config_manager->set_snapshot(meta.last_included_index, meta.last_configuration);
-        _log_manager->check_and_set_configurtion(_conf);
-
-        delete _install_snapshot_meta;
-        _install_snapshot_meta = NULL;
+        // call fsm_caller on_install_snapshot, when finished run on_snapshot_load_done
+        InstallSnapshotDone* install_snapshot_done =
+            new InstallSnapshotDone(this, controller, request, response, done);
+        _fsm_caller->on_install_snapshot(_loading_snapshot_meta, install_snapshot_done);
     }
-#endif
 
     return 0;
 }
@@ -1294,14 +1603,14 @@ void NodeManager::remove(NodeImpl* node) {
     _nodes.erase(node->node_id());
 }
 
-NodeImpl* NodeManager::get(const GroupId& group_id, const PeerId& peer_id) {
+scoped_refptr<NodeImpl> NodeManager::get(const GroupId& group_id, const PeerId& peer_id) {
     std::lock_guard<bthread_mutex_t> guard(_mutex);
 
     NodeMap::iterator it = _nodes.find(NodeId(group_id, peer_id));
     if (it != _nodes.end()) {
-        return it->second;
+        return make_scoped_refptr(it->second);
     } else {
-        return NULL;
+        return scoped_refptr<NodeImpl>();
     }
 }
 

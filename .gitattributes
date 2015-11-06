@@ -49,6 +49,8 @@ src/raft/snapshot.cpp -text
 src/raft/snapshot.h -text
 src/raft/stable.cpp -text
 src/raft/stable.h -text
+src/raft/storage.cpp -text
+src/raft/storage.h -text
 src/raft/test/COMAKE -text
 src/raft/test/test_configuration.cpp -text
 src/raft/test/test_log.cpp -text

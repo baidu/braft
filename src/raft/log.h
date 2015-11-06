@@ -23,7 +23,7 @@
 #include <base/callback.h>
 #include <base/iobuf.h>
 #include "raft/log_entry.h"
-#include "raft/raft.h"
+#include "raft/storage.h"
 
 namespace raft {
 
@@ -201,6 +201,8 @@ private:
     Segment* _open_segment;
     scoped_refptr<ConfigurationManager> _configuration_manager;
 };
+
+LogStorage* create_local_log_storage(const std::string& uri);
 
 }
 

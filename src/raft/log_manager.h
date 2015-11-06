@@ -10,10 +10,11 @@
 #include <deque>
 #include <bthread.h>
 
-#include "raft.h"
+#include "raft/raft.h"
 
 namespace raft {
 
+class LogStorage;
 struct LogManagerOptions {
     LogManagerOptions();
     LogStorage* log_storage;

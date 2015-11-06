@@ -29,12 +29,17 @@
 #include "raft/raft.h"
 #include "raft/log_manager.h"
 #include "raft/commitment_manager.h"
+#include "raft/storage.h"
 #include "raft/raft_service.h"
 #include "raft/fsm_caller.h"
 #include "raft/replicator.h"
 #include "raft/util.h"
 
 namespace raft {
+
+class LogStorage;
+class StableStorage;
+class SnapshotStorage;
 
 class NodeImpl : public base::RefCountedThreadSafe<NodeImpl> {
 friend class RaftServiceImpl;
@@ -50,6 +55,8 @@ public:
         return _leader_id;
     }
 
+    // public user api
+    //
     // init node
     int init(const NodeOptions& options);
 
@@ -77,6 +84,11 @@ public:
     int set_peer(const std::vector<PeerId>& old_peers,
                          const std::vector<PeerId>& new_peers);
 
+    // trigger snapshot
+    int snapshot(Closure* done);
+
+    // rpc request proc func
+    //
     // handle received RequestVote
     int handle_request_vote_request(const RequestVoteRequest* request,
                      RequestVoteResponse* response);
@@ -87,34 +99,47 @@ public:
                        AppendEntriesResponse* response);
 
     // handle received InstallSnapshot
-    int handle_install_snapshot_request(const InstallSnapshotRequest* request,
-                       InstallSnapshotResponse* response);
-
-    void on_configuration_change_done(const EntryType type, const std::vector<PeerId>& peers);
-    void on_caughtup(const PeerId& peer, int error_code, Closure* done);
-
-    int increase_term_to(int64_t new_term);
+    int handle_install_snapshot_request(baidu::rpc::Controller* controller,
+                                        const InstallSnapshotRequest* request,
+                                        InstallSnapshotResponse* response,
+                                        google::protobuf::Closure* done);
 
     // timer func
+    //
     void handle_election_timeout();
     void handle_vote_timeout();
     void handle_stepdown_timeout();
+    void handle_snapshot_timeout();
 
-    // rpc response proc func
+    // Closure call func
+    //
     void handle_request_vote_response(const PeerId& peer_id, const int64_t term,
                                       const RequestVoteResponse& response);
+    void on_caughtup(const PeerId& peer, int error_code, Closure* done);
+    void on_snapshot_load_done();
+    void on_snapshot_save_done(const int64_t last_included_index, SnapshotWriter* writer);
 
+    // other func
+    //
     // called when leader disk thread on_stable callback and peer thread replicate success
     void advance_commit_index(const PeerId& peer_id, const int64_t log_index);
 
-    FSMCaller* fsm_caller() {
-        return _fsm_caller;
-    }
+    // called when leader change configuration done, ref with FSMCaller
+    void on_configuration_change_done(const EntryType type, const std::vector<PeerId>& peers);
+
+    // called when leader recv greater term in AppendEntriesResponse, ref with Replicator
+    int increase_term_to(int64_t new_term);
+
 private:
     friend class base::RefCountedThreadSafe<NodeImpl>;
     virtual ~NodeImpl();
 
 private:
+    // internal init func
+    int init_snapshot_storage();
+    int init_log_storage();
+    int init_stable_storage();
+
     // become leader
     void become_leader();
 
@@ -185,7 +210,6 @@ private:
     };
 
     NodeOptions _options;
-    bool _inited;
     GroupId _group_id;
     PeerId _server_id;
     State _state;
@@ -205,6 +229,10 @@ private:
     bthread_timer_t _election_timer; // follower -> candidate timer
     bthread_timer_t _vote_timer; // candidate retry timer
     bthread_timer_t _stepdown_timer; // leader check quorum node ok
+    bthread_timer_t _snapshot_timer; // snapshot timer
+
+    bool _snapshot_saving;
+    SnapshotMeta* _loading_snapshot_meta;
 
     LogStorage* _log_storage;
     StableStorage* _stable_storage;
@@ -233,7 +261,7 @@ public:
     void remove(NodeImpl* node);
 
     // get node by group_id and peer_id
-    NodeImpl* get(const GroupId& group_id, const PeerId& peer_id);
+    scoped_refptr<NodeImpl> get(const GroupId& group_id, const PeerId& peer_id);
 
 private:
     NodeManager();

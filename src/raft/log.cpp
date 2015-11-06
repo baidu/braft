@@ -959,4 +959,14 @@ Segment* SegmentLogStorage::open_segment() {
     return _open_segment;
 }
 
+LogStorage* create_local_log_storage(const std::string& uri) {
+    std::string local_path = fileuri2path(uri);
+    if (local_path.empty()) {
+        return NULL;
+    }
+
+    SegmentLogStorage* storage = new SegmentLogStorage(local_path);
+    return storage;
+}
+
 }

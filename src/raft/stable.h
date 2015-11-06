@@ -18,7 +18,7 @@
 #ifndef PUBLIC_RAFT_STABLE_H
 #define PUBLIC_RAFT_STABLE_H
 
-#include "raft/raft.h"
+#include "raft/storage.h"
 
 namespace raft {
 
@@ -55,6 +55,8 @@ private:
     int64_t _term;
     PeerId _votedfor;
 };
+
+StableStorage* create_local_stable_storage(const std::string& uri);
 
 }
 

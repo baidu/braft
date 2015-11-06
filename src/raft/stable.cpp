@@ -17,10 +17,11 @@
  */
 
 #include <errno.h>
-#include "raft/local_storage.pb.h"
-#include "raft/protobuf_file.h"
-#include "raft/stable.h"
 #include <base/logging.h>
+#include "raft/util.h"
+#include "raft/protobuf_file.h"
+#include "raft/local_storage.pb.h"
+#include "raft/stable.h"
 
 namespace raft {
 
@@ -121,6 +122,16 @@ int LocalStableStorage::get_votedfor(PeerId* peer_id) {
         LOG(WARNING) << "LocalStableStorage not init(), path: " << _path;
         return -1;
     }
+}
+
+StableStorage* create_local_stable_storage(const std::string& uri) {
+    std::string local_path = fileuri2path(uri);
+    if (local_path.empty()) {
+        return NULL;
+    }
+
+    LocalStableStorage* storage = new LocalStableStorage(local_path);
+    return storage;
 }
 
 }

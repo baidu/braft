@@ -10,16 +10,16 @@
 #include <bthread_unstable.h>
 #include "raft/log_entry.h"
 #include "raft/util.h"
-#include "raft.h"
+#include "raft/storage.h"
 
 namespace raft {
 
 LogManagerOptions::LogManagerOptions()
-    : log_storage(NULL)
+    : log_storage(NULL), configuration_manager(NULL)
 {}
 
 LogManager::LogManager()
-    : _log_storage(NULL), _stopped(false)
+    : _log_storage(NULL), _config_manager(NULL), _stopped(false)
 {
     CHECK_EQ(0, bthread_id_list_init(&_wait_list, 16/*FIXME*/, 16));
     CHECK_EQ(0, bthread_mutex_init(&_mutex, NULL));

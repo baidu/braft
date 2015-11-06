@@ -21,6 +21,7 @@
 #include <zlib.h>
 #include <net/if.h>
 #include <sys/ioctl.h>
+#include <string>
 #include <iterative_murmurhash3.h>
 #include <base/endpoint.h>
 #include <base/scoped_lock.h>
@@ -134,6 +135,21 @@ inline uint32_t murmurhash32(const base::IOBuf& buf) {
     uint32_t hash = 0;
     MurmurHash3_x86_32_Final(&hash, &ctx);
     return hash;
+}
+
+inline std::string fileuri2path(const std::string& uri) {
+    std::string path;
+    std::size_t prefix_found = uri.find("file://");
+    if (std::string::npos == prefix_found) {
+        if (std::string::npos == uri.find("://")) {
+            path = uri;
+        }
+    } else {
+        path.assign(uri, prefix_found + strlen("file://"),
+                    uri.size() - (prefix_found + strlen("file://")));
+    }
+
+    return path;
 }
 
 }  // namespace raft

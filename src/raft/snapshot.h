@@ -19,7 +19,7 @@
 #define PUBLIC_RAFT_RAFT_SNAPSHOT_H
 
 #include <string>
-#include "raft/raft.h"
+#include "raft/storage.h"
 
 namespace raft {
 
@@ -30,6 +30,7 @@ public:
 
     int64_t snapshot_index();
     virtual int init();
+    virtual int copy(const std::string& uri);
     virtual int save_meta(const SnapshotMeta& meta);
     virtual int err_code();
 protected:
@@ -71,6 +72,8 @@ protected:
     int _lock_fd;
     int64_t _last_snapshot_index;
 };
+
+SnapshotStorage* create_local_snapshot_storage(const std::string& uri);
 
 }
 

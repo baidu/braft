@@ -19,8 +19,9 @@
 #include <base/file_util.h>                         // base::CreateDirectory
 #include <base/files/dir_reader_posix.h>            // base::DirReaderPosix
 #include <base/string_printf.h>                     // base::string_appendf
-#include "raft/local_storage.pb.h"
+#include "raft/util.h"
 #include "raft/protobuf_file.h"
+#include "raft/local_storage.pb.h"
 #include "raft/snapshot.h"
 
 #define RAFT_SNAPSHOT_PATTERN "snapshot_%020ld"
@@ -55,6 +56,11 @@ int64_t LocalSnapshotWriter::snapshot_index() {
 
 int LocalSnapshotWriter::err_code() {
     return _err_code;
+}
+
+int LocalSnapshotWriter::copy(const std::string& uri) {
+    LOG(WARNING) << "LocalSnapshotWriter not support copy";
+    return ENOSYS;
 }
 
 int LocalSnapshotWriter::save_meta(const SnapshotMeta& meta) {
@@ -281,6 +287,16 @@ SnapshotReader* LocalSnapshotStorage::open() {
 int LocalSnapshotStorage::close(SnapshotReader* reader) {
     delete reader;
     return 0;
+}
+
+SnapshotStorage* create_local_snapshot_storage(const std::string& uri) {
+    std::string local_path = fileuri2path(uri);
+    if (local_path.empty()) {
+        return NULL;
+    }
+
+    LocalSnapshotStorage* storage = new LocalSnapshotStorage(local_path);
+    return storage;
 }
 
 }

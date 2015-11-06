@@ -22,7 +22,6 @@
 #include <gflags/gflags.h>
 
 #include <base/iobuf.h>
-#include "raft/raft.pb.h"
 #include "raft/configuration.h"
 
 DECLARE_string(raft_ip);
@@ -31,109 +30,8 @@ DECLARE_int32(raft_end_port);
 namespace raft {
 
 class LogEntry;
-
-class LogStorage {
-public:
-    LogStorage(const std::string& /*uri*/) {}
-    virtual ~LogStorage() {}
-
-    // init log storage, check consistency and integrity
-    virtual int init(ConfigurationManager* configuration_manager) = 0;
-
-    // first log index in log
-    virtual int64_t first_log_index() = 0;
-
-    // last log index in log
-    virtual int64_t last_log_index() = 0;
-
-    // get logentry by index
-    virtual LogEntry* get_entry(const int64_t index) = 0;
-
-    // get logentry's term by index
-    virtual int64_t get_term(const int64_t index) = 0;
-
-    // append entries to log
-    virtual int append_entry(const LogEntry* entry) = 0;
-
-    // append entries to log, return append success number
-    virtual int append_entries(const std::vector<LogEntry*>& entries) = 0;
-
-    // delete logs from storage's head, [first_log_index, first_index_kept) will be discarded
-    virtual int truncate_prefix(const int64_t first_index_kept) = 0;
-
-    // delete uncommitted logs from storage's tail, (last_index_kept, last_log_index] will be discarded
-    virtual int truncate_suffix(const int64_t last_index_kept) = 0;
-};
-
-class StableStorage {
-public:
-    StableStorage(const std::string& /*uri*/) {}
-    virtual ~StableStorage() {}
-
-    // init stable storage, check consistency and integrity
-    virtual int init() = 0;
-
-    // set current term
-    virtual int set_term(const int64_t term) = 0;
-
-    // get current term
-    virtual int64_t get_term() = 0;
-
-    // set votefor information
-    virtual int set_votedfor(const PeerId& peer_id) = 0;
-
-    // get votefor information
-    virtual int get_votedfor(PeerId* peer_id) = 0;
-
-    virtual int set_term_and_votedfor(const int64_t term, const PeerId& peer_id) = 0;
-};
-
-// SnapshotStore implement in on_snapshot_save() and on_snapshot_load()
-
-struct SnapshotMeta {
-    int64_t last_included_index;
-    int64_t last_included_term;
-    Configuration last_configuration;
-};
-
-class SnapshotWriter {
-public:
-    SnapshotWriter() {}
-    virtual ~SnapshotWriter() {}
-
-    virtual int init() = 0;
-    virtual int save_meta(const SnapshotMeta& meta) = 0;
-};
-
-class SnapshotReader {
-public:
-    SnapshotReader() {}
-    virtual ~SnapshotReader() {}
-
-    virtual int init() = 0;
-    virtual int load_meta(SnapshotMeta* meta) = 0;
-};
-
-class SnapshotStorage {
-public:
-    SnapshotStorage(const std::string& /*uri*/) {}
-    virtual ~SnapshotStorage() {}
-
-    // init
-    virtual int init() = 0;
-
-    // create new snapshot writer
-    virtual SnapshotWriter* create(const SnapshotMeta& meta) = 0;
-
-    // close snapshot writer
-    virtual int close(SnapshotWriter* writer) = 0;
-
-    // get lastest snapshot reader
-    virtual SnapshotReader* open() = 0;
-
-    // close snapshot reader
-    virtual int close(SnapshotReader* reader) = 0;
-};
+class SnapshotWriter;
+class SnapshotReader;
 
 class Closure: public google::protobuf::Closure {
 public:
@@ -192,18 +90,15 @@ struct NodeOptions {
     bool enable_pipeline; // pipeline switch
     Configuration conf; // peer conf
     StateMachine* fsm; // user defined function [MUST]
-    LogStorage* log_storage; // user defined log storage
-    StableStorage* stable_storage; // user defined manifest storage
-    SnapshotStorage* snapshot_storage;
-    //std::string log_uri;
-    //std::string stable_uri;
-    //std::string snapshot_uri;
+    std::string log_uri;
+    std::string stable_uri;
+    std::string snapshot_uri;
 
     NodeOptions()
         : election_timeout(1000),
         snapshot_interval(86400), snapshot_lowlevel_threshold(100000),
         snapshot_highlevel_threshold(10000000), enable_pipeline(false),
-        fsm(NULL), log_storage(NULL), stable_storage(NULL), snapshot_storage(NULL) {}
+        fsm(NULL) {}
 };
 
 class NodeImpl;

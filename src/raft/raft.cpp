@@ -16,9 +16,12 @@
  * =====================================================================================
  */
 
+#include <pthread.h>
+#include <unistd.h>
 #include <base/string_printf.h>
 #include "raft/raft.h"
 #include "raft/node.h"
+#include "raft/storage.h"
 
 DEFINE_string(raft_ip, "0.0.0.0", "raft server ip");
 DEFINE_int32(raft_start_port, 8000, "raft server start port");
@@ -35,6 +38,7 @@ void Closure::set_error(int err_code, const char* reason_fmt, ...) {
     va_end(ap);
 }
 
+static pthread_once_t register_storage_once = PTHREAD_ONCE_INIT;
 int init_raft(const char* server_desc) {
     std::string ip_str(FLAGS_raft_ip);
     int start_port = FLAGS_raft_start_port;
@@ -61,6 +65,11 @@ int init_raft(const char* server_desc) {
             LOG(WARNING) << "server description format faield: " << server_desc;
             return EINVAL;
         }
+    }
+
+    if (0 != pthread_once(&register_storage_once, init_storage)) {
+        LOG(FATAL) << "pthread_once failed";
+        exit(1);
     }
 
     return NodeManager::GetInstance()->init(ip_str.c_str(), start_port, end_port);
