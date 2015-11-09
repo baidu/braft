@@ -12,6 +12,7 @@
 #include <baidu/rpc/controller.h>               // baidu::rpc::Controller
 #include "raft/configuration.h"
 #include "raft/raft.pb.h"
+#include "raft/storage.h"
 
 namespace raft {
 
@@ -29,6 +30,7 @@ struct ReplicatorOptions {
     CommitmentManager* commit_manager;
     NodeImpl *node;
     int64_t term;
+    SnapshotStorage* snapshot_storage;
 };
 
 typedef uint64_t ReplicatorId;
@@ -90,13 +92,14 @@ public:
 
 private:
 
-    int _prepare_entry(int offset, EntryMeta* em, base::IOBuf *data);
+    int _prepare_entry(int offset, EntryMeta* em, base::IOBuf* data);
     void _wait_more_entries(long start_time_us);
     void _send_heartbeat();
     void _send_entries(long start_time_us);
     void _notify_on_caught_up(int error_code, bool);
-    void _fill_common_fields(AppendEntriesRequest*);
+    int _fill_common_fields(AppendEntriesRequest* request, int64_t prev_log_index);
     void _block(long start_time_us, int error_code);
+    void _install_snapshot();
 
     static void _on_rpc_returned(ReplicatorId id, baidu::rpc::Controller* cntl,
                                  AppendEntriesRequest* request, 
@@ -106,6 +109,10 @@ private:
     static void* _run_on_caught_up(void*);
     static void _on_catch_up_timedout(void*);
     static void _on_block_timedout(void *arg);
+    static void _on_install_snapshot_returned(
+                ReplicatorId id, baidu::rpc::Controller* cntl,
+                InstallSnapshotRequest* request, 
+                InstallSnapshotResponse* response);
 
 private:
     
@@ -116,6 +123,7 @@ private:
     ReplicatorOptions _options;
     OnCaughtUp *_on_caught_up;
     int64_t _last_response_timestamp;
+    bool _installing_snapshot;
 };
 
 struct ReplicatorGroupOptions {
@@ -125,6 +133,7 @@ struct ReplicatorGroupOptions {
     CommitmentManager* commit_manager;
     NodeImpl* node;
     int64_t term;
+    SnapshotStorage* snapshot_storage;
 };
 
 // Create a ReplicatorGroup when a candidate becomes leader and delete when it

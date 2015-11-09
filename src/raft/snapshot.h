@@ -44,6 +44,7 @@ public:
 
     virtual int init();
     virtual int load_meta(SnapshotMeta* meta);
+    virtual std::string get_uri();
 protected:
     static const char* _s_snapshot_meta;
     std::string _path;

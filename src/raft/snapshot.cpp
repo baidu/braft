@@ -156,6 +156,10 @@ int LocalSnapshotReader::load_meta(SnapshotMeta* meta) {
     return ret;
 }
 
+std::string LocalSnapshotReader::get_uri() {
+    return std::string("file://") + _path;
+}
+
 LocalSnapshotStorage::LocalSnapshotStorage(const std::string& path)
     : SnapshotStorage(path), _path(path),
     _lock_fd(-1), _last_snapshot_index(0) {

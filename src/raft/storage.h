@@ -116,6 +116,7 @@ public:
 
     virtual int init() = 0;
     virtual int load_meta(SnapshotMeta* meta) = 0;
+    virtual std::string get_uri() = 0;
 
     // error func
     int error_code();

@@ -1119,6 +1119,7 @@ void NodeImpl::become_leader() {
     options.commit_manager = _commit_manager;
     options.node = this;
     options.term = _current_term;
+    options.snapshot_storage = _snapshot_storage;
     _replicator_group.init(NodeId(_group_id, _server_id), options);
 
     std::vector<PeerId> peers;

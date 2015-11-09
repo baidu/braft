@@ -20,9 +20,9 @@
 
 namespace raft {
 
-DEFINE_int32(max_entries_size, 1024,
+DEFINE_int32(raft_max_entries_size, 1024,
              "The max number of entries in AppendEntriesRequest");
-BAIDU_RPC_VALIDATE_GFLAG(max_entries_size, ::baidu::rpc::PositiveInteger);
+BAIDU_RPC_VALIDATE_GFLAG(raft_max_entries_size, ::baidu::rpc::PositiveInteger);
 
 ReplicatorOptions::ReplicatorOptions()
     : heartbeat_timeout_ms(-1)
@@ -30,6 +30,7 @@ ReplicatorOptions::ReplicatorOptions()
     , commit_manager(NULL)
     , node(NULL)
     , term(0)
+    , snapshot_storage(NULL)
 {}
 
 const int ERROR_CODE_UNSET_MAGIC = 0x1234;
@@ -48,8 +49,11 @@ void OnCaughtUp::_run() {
     return on_caught_up(arg, pid, error_code, done);
 }
 
-Replicator::Replicator() : _on_caught_up(NULL), _last_response_timestamp(0) {
-}
+Replicator::Replicator() 
+    : _on_caught_up(NULL)
+    , _last_response_timestamp(0)
+    , _installing_snapshot(false)
+{}
 
 Replicator::~Replicator() {
     // bind lifecycle with node, Release
@@ -71,10 +75,8 @@ int Replicator::start(const ReplicatorOptions& options, ReplicatorId *id) {
         return -1;
     }
     baidu::rpc::ChannelOptions channel_opt;
-    //channel_opt.protocol = baidu::rpc::protocol;
     channel_opt.connect_timeout_ms = options.heartbeat_timeout_ms;
     channel_opt.timeout_ms = -1; // We don't need RPC timeout
-    // channel_opt.pipelined_mode = true; 
     if (r->_sending_channel.Init(options.peer_id.addr, &channel_opt) != 0) {
         LOG(ERROR) << "Fail to init sending channel";
         return -1;
@@ -187,8 +189,7 @@ void Replicator::_block(long start_time_us, int /*error_code NOTE*/) {
     RAFT_VLOG << "Blocking " << _options.peer_id << " for " 
               << _options.heartbeat_timeout_ms << "ms";
     if (rc == 0) {
-        CHECK_EQ(0, bthread_id_unlock(_id)) 
-                << "Fail to unlock " << _id;
+        CHECK_EQ(0, bthread_id_unlock(_id)) << "Fail to unlock " << _id;
         return;
     } else {
         LOG(ERROR) << "Fail to add timer, " << berror(rc);
@@ -236,13 +237,13 @@ void Replicator::_on_rpc_returned(ReplicatorId id, baidu::rpc::Controller* cntl,
         if (response->last_log_index() + 1 < r->_next_index) {
             LOG(INFO) << "last_log_index at peer=" << r->_options.peer_id 
                       << " is " << response->last_log_index();
-            // the peer contains less logs than leader
+            // The peer contains less logs than leader
             r->_next_index = response->last_log_index() + 1;
         } else {  
-            // the peer contains logs from old term which should be truncated
-            // decrease _last_log_at_peer by one to test the right index
+            // The peer contains logs from old term which should be truncated,
+            // decrease _last_log_at_peer by one to test the right index to keep
             if (BAIDU_LIKELY(r->_next_index > 1)) {
-                LOG(INFO) << "log_index=" << r->_next_index << " dissmatch";
+                LOG(INFO) << "log_index=" << r->_next_index << " dismatch";
                 --r->_next_index;
             } else {
                 LOG(ERROR) << "Peer=" << r->_options.peer_id
@@ -256,35 +257,56 @@ void Replicator::_on_rpc_returned(ReplicatorId id, baidu::rpc::Controller* cntl,
     }
     CHECK_EQ(response->term(), r->_options.term);
     r->_last_response_timestamp = base::monotonic_time_ms();
+    if (r->_installing_snapshot) {
+        CHECK_EQ(0, request->entries_size());
+        return r->_block(start_time_us, 0);
+    }
     // FIXME: move committing out of the critical section
-    for (int i = 0; i < request->entries_size(); ++i) {
-        LOG(INFO) << "i=" << i;
+    const int entries_size = request->entries_size();
+    RAFT_VLOG_IF(entries_size > 0) << "Replicated logs in [" 
+                                   << r->_next_index << ", " 
+                                   << r->_next_index + entries_size - 1
+                                   << "] to peer " << r->_options.peer_id;
+    for (int i = 0; i < entries_size; ++i) {
         r->_options.commit_manager->set_stable_at_peer_reentrant(
                 r->_next_index + i, r->_options.peer_id);
     }
-    r->_next_index += request->entries_size();
+    r->_next_index += entries_size;
     r->_notify_on_caught_up(0, false);
     // dummy_id is unlock in _send_entries
     r->_send_entries(start_time_us);
     return;
 }
 
-void Replicator::_fill_common_fields(AppendEntriesRequest* request) {
+int Replicator::_fill_common_fields(AppendEntriesRequest* request, 
+                                    int64_t prev_log_index) {
+    const int64_t prev_log_term = _options.log_manager->get_term(prev_log_index);
+    if (prev_log_term == 0 && prev_log_index != 0) {
+        CHECK_LT(prev_log_index, _options.log_manager->first_log_index());
+        RAFT_VLOG << "log_index=" << prev_log_index << " was compacted";
+        return -1;
+    }
     request->set_term(_options.term);
     request->set_group_id(_options.group_id);
     request->set_server_id(_options.server_id.to_string());
     request->set_peer_id(_options.peer_id.to_string());
-    request->set_prev_log_index(_next_index - 1);
-    request->set_prev_log_term(
-            _options.log_manager->get_term(_next_index - 1));
+    request->set_prev_log_index(prev_log_index);
+    request->set_prev_log_term(prev_log_term);
     request->set_committed_index(_options.commit_manager->last_committed_index());
+    return 0;
 }
 
 void Replicator::_send_heartbeat() {
     baidu::rpc::Controller* cntl = new baidu::rpc::Controller;
     AppendEntriesRequest *request = new AppendEntriesRequest;
     AppendEntriesResponse *response = new AppendEntriesResponse;
-    _fill_common_fields(request);
+    // When the peer is installing snapshot, the _next_index is invalid as the
+    // logs were compacted, so we let the prev_log_index be 0 which will not be
+    // rejected by the peer at the same term to maintain leadership
+    if (_fill_common_fields(
+                request, _installing_snapshot ? 0 : _next_index - 1) != 0) {
+        return _install_snapshot();
+    }
     _rpc_in_fly = cntl->call_id();
     google::protobuf::Closure* done = google::protobuf::NewCallback<
         ReplicatorId, baidu::rpc::Controller*, AppendEntriesRequest*,
@@ -322,9 +344,11 @@ void Replicator::_send_entries(long start_time_us) {
     baidu::rpc::Controller* cntl = new baidu::rpc::Controller;
     AppendEntriesRequest *request = new AppendEntriesRequest;
     AppendEntriesResponse *response = new AppendEntriesResponse;
-    _fill_common_fields(request);
+    if (_fill_common_fields(request, _next_index - 1) != 0) {
+        return _install_snapshot();
+    }
     EntryMeta em;
-    const int max_entries_size = FLAGS_max_entries_size;
+    const int max_entries_size = FLAGS_raft_max_entries_size;
     for (int i = 0; i < max_entries_size; ++i) {
         if (_prepare_entry(i, &em, &cntl->request_attachment()) != 0) {
             break;
@@ -336,6 +360,9 @@ void Replicator::_send_entries(long start_time_us) {
         delete request;
         delete response;
         // _id is unlock in _wait_more
+        if (_next_index < _options.log_manager->first_log_index()) {
+            return _install_snapshot();
+        }
         return _wait_more_entries(start_time_us);
     }
 
@@ -350,7 +377,6 @@ void Replicator::_send_entries(long start_time_us) {
 }
 
 int Replicator::_continue_sending(void* arg, int error_code) {
-    LOG(ERROR) << "fuck continue sending";
     long start_time_us = base::gettimeofday_us();
     Replicator* r = NULL;
     bthread_id_t id = { (uint64_t)arg };
@@ -377,6 +403,76 @@ void Replicator::_wait_more_entries(long start_time_us) {
     _options.log_manager->wait(_next_index - 1, &due_time, 
                        _continue_sending, (void*)_id.value);
     CHECK_EQ(0, bthread_id_unlock(_id)) << "Fail to unlock " << _id;
+}
+
+void Replicator::_install_snapshot() {
+    SnapshotReader* reader = _options.snapshot_storage->open();
+    std::string uri = reader->get_uri();
+    SnapshotMeta meta;
+    // TODO: shutdown on failure
+    CHECK_EQ(0, reader->load_meta(&meta));
+    _options.snapshot_storage->close(reader);
+    baidu::rpc::Controller* cntl = new baidu::rpc::Controller;
+    cntl->set_max_retry(0);
+    cntl->set_timeout_ms(-1);
+    InstallSnapshotRequest* request = new InstallSnapshotRequest();
+    InstallSnapshotResponse* response = new InstallSnapshotResponse();
+    request->set_term(_options.term);
+    request->set_group_id(_options.group_id);
+    request->set_server_id(_options.server_id.to_string());
+    request->set_peer_id(_options.peer_id.to_string());
+    request->set_last_included_log_term(meta.last_included_term);
+    request->set_last_included_log_index(meta.last_included_index);
+    std::vector<PeerId> peers;
+    meta.last_configuration.peer_vector(&peers);
+    for (std::vector<PeerId>::const_iterator 
+            iter = peers.begin(); iter != peers.end(); ++iter) {
+        request->add_peers(iter->to_string());
+    }
+    request->set_uri(uri);
+    google::protobuf::Closure* done = google::protobuf::NewCallback<
+                ReplicatorId, baidu::rpc::Controller*,
+                InstallSnapshotRequest*, InstallSnapshotResponse*>(
+                    _on_install_snapshot_returned, _id.value,
+                    cntl, request, response);
+    RaftService_Stub stub(&_sending_channel);
+    stub.install_snapshot(cntl, request, response, done);
+    _installing_snapshot = true;
+    // During installing snapshot, we should send heartbeat to maintain
+    // leadership
+    return _send_heartbeat();
+}
+
+void Replicator::_on_install_snapshot_returned(
+            ReplicatorId id, baidu::rpc::Controller* cntl,
+            InstallSnapshotRequest* request, 
+            InstallSnapshotResponse* response) {
+    std::unique_ptr<baidu::rpc::Controller> cntl_guard(cntl);
+    std::unique_ptr<InstallSnapshotRequest> request_guard(request);
+    std::unique_ptr<InstallSnapshotResponse> response_guard(response);
+    Replicator *r = NULL;
+    bthread_id_t dummy_id = { id };
+    if (bthread_id_lock(dummy_id, (void**)&r) != 0) {
+        return;
+    }
+    do {
+        if (cntl->Failed()) {
+            LOG(WARNING) << "Fail to install snapshot at peer=" 
+                         << r->_options.peer_id
+                         <<", " << cntl->ErrorText();
+            break;
+        }
+        if (!response->success()) {
+            // Let hearbeat do step down
+            break;
+        }
+        // Success 
+        r->_next_index = request->last_included_log_index() + 1;
+    } while (0);
+    // We don't retry installing the snapshot explicitly. 
+    r->_installing_snapshot = false;
+    CHECK_EQ(0, bthread_id_unlock_and_destroy(dummy_id)) 
+            << "Fail to unlock" << dummy_id;
 }
 
 void* Replicator::_run_on_caught_up(void* arg) {
@@ -449,6 +545,7 @@ ReplicatorGroupOptions::ReplicatorGroupOptions()
     , commit_manager(NULL)
     , node(NULL)
     , term(0)
+    , snapshot_storage(NULL)
 {}
 
 ReplicatorGroup::ReplicatorGroup() {}
@@ -465,6 +562,7 @@ int ReplicatorGroup::init(const NodeId& node_id, const ReplicatorGroupOptions& o
     _common_options.term = options.term;
     _common_options.group_id = node_id.group_id;
     _common_options.server_id = node_id.peer_id;
+    _common_options.snapshot_storage = options.snapshot_storage;
     return 0;
 }
 
