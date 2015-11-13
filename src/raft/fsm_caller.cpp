@@ -60,7 +60,7 @@ int FSMCaller::init(const FSMCallerOptions &options) {
                                    NULL, /*queue_options*/
                                    FSMCaller::run,
                                    this);
-    // bind lifecycle with node, AddRef
+    // bind lifecycle with node, need AddRef, shutdown is async
     _node->AddRef();
     return 0;
 }
@@ -77,6 +77,7 @@ void FSMCaller::do_shutdown(Closure* done) {
     if (done) {
         done->Run();
     }
+    // bind lifecycle with node, need AddRef, shutdown is async
     _node->Release();
 }
 
@@ -92,7 +93,7 @@ void FSMCaller::do_committed(int64_t committed_index, Closure* done) {
           (done != NULL && committed_index == (_last_applied_index + 1)));
 
     for (int64_t index = _last_applied_index + 1; index <= committed_index; ++index) {
-        LogEntry *entry = _log_manager->get_entry(index, true);
+        LogEntry *entry = _log_manager->get_entry(index);
         if (entry == NULL) {
             CHECK(done == NULL);
             break;
@@ -118,9 +119,14 @@ void FSMCaller::do_committed(int64_t committed_index, Closure* done) {
             CHECK(false) << "Unknown entry type" << entry->type;
         }
 
-        _last_applied_index = committed_index;
+        _last_applied_index = index;
         _last_applied_term = entry->term;
-        entry->Release();
+        // Release: get_entry ref 1, leader append ref quorum
+        // leader clear memory when both leader and quorum(inlcude leader or not) stable
+        // follower's quorum = 0
+        if (1 == entry->Release(entry->quorum + 1)) {
+            _log_manager->clear_memory_logs(index);
+        }
     }
 }
 

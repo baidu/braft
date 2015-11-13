@@ -42,6 +42,8 @@ public:
     // Append a log entry and call closure when it's stable
     void append_entry(LogEntry* log_entry, LeaderStableClosure* done);
 
+    void clear_memory_logs(const int64_t index);
+
     // delete logs from storage's head, [1, first_index_kept) will be discarded
     // Returns:
     //  success return 0, failed return -1
@@ -55,9 +57,7 @@ public:
     // Get the log at |index|
     // Returns:
     //  success return ptr, fail return null
-    // Notes:
-    //  FSMCaller will clear cache, replicator not clear cache
-    LogEntry* get_entry(const int64_t index, bool clear_cache);
+    LogEntry* get_entry(const int64_t index);
 
     // Get the log term at |index|
     // Returns:
@@ -98,7 +98,7 @@ private:
     static int leader_disk_run(void* meta,
                                LeaderStableClosure** const tasks[], size_t tasks_size);
 
-    LogEntry* get_entry_from_memory(const int64_t index, bool clear_cache);
+    LogEntry* get_entry_from_memory(const int64_t index);
 
     void notify_on_new_log(int64_t expected_last_log_index, bthread_id_t wait_id);
     // Fast implementation with one lock

@@ -17,6 +17,7 @@
  */
 
 #include <gflags/gflags.h>
+#include "baidu/rpc/closure_guard.h"
 #include "counter.pb.h"
 #include "counter.h"
 
@@ -65,6 +66,8 @@ int Counter::get(int64_t* value_ptr) {
 }
 
 void Counter::on_apply(const base::IOBuf &data, const int64_t index, raft::Closure* done) {
+    baidu::rpc::ClosureGuard done_guard(done);
+
     LOG(NOTICE) << "apply " << index;
     AddRequest request;
     base::IOBufAsZeroCopyInputStream wrapper(data);

@@ -416,11 +416,8 @@ int NodeImpl::init(const NodeOptions& options) {
 void NodeImpl::apply(const base::IOBuf& data, Closure* done) {
     std::lock_guard<bthread_mutex_t> guard(_mutex);
 
-    if (_state == SHUTDOWN) {
-        LOG(WARNING) << "node " << _group_id << ":" << _server_id << " not inited";
-        _fsm_caller->on_cleared(0, done, EINVAL);
-        return;
-    }
+    // check state
+    CHECK(_state != SHUTDOWN);
     if (_state != LEADER) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id << " can't apply not in LEADER";
         _fsm_caller->on_cleared(0, done, EPERM);
@@ -576,6 +573,7 @@ void NodeImpl::add_peer(const std::vector<PeerId>& old_peers, const PeerId& peer
     std::lock_guard<bthread_mutex_t> guard(_mutex);
 
     // check state
+    CHECK(_state != SHUTDOWN);
     if (_state != LEADER) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id << " can't apply not in LEADER";
         _fsm_caller->on_cleared(0, done, EPERM);
@@ -634,6 +632,7 @@ void NodeImpl::remove_peer(const std::vector<PeerId>& old_peers, const PeerId& p
     std::lock_guard<bthread_mutex_t> guard(_mutex);
 
     // check state
+    CHECK(_state != SHUTDOWN);
     if (_state != LEADER) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id << " can't apply not in LEADER";
         _fsm_caller->on_cleared(0, done, EPERM);
@@ -679,11 +678,7 @@ void NodeImpl::remove_peer(const std::vector<PeerId>& old_peers, const PeerId& p
 int NodeImpl::set_peer(const std::vector<PeerId>& old_peers, const std::vector<PeerId>& new_peers) {
     std::lock_guard<bthread_mutex_t> guard(_mutex);
 
-    // check state
-    if (_state == SHUTDOWN) {
-        LOG(WARNING) << "node " << _group_id << ":" << _server_id << " not inited";
-        return EINVAL;
-    }
+    CHECK(_state != SHUTDOWN);
     // check bootstrap
     if (_conf.second.empty() && old_peers.size() == 0) {
         Configuration new_conf(new_peers);
@@ -729,6 +724,7 @@ int NodeImpl::set_peer(const std::vector<PeerId>& old_peers, const std::vector<P
 SaveSnapshotDone::SaveSnapshotDone(NodeImpl* node, SnapshotStorage* snapshot_storage, Closure* done)
     : _node(node), _snapshot_storage(snapshot_storage), _writer(NULL),
     _done(done) {
+    // here AddRef, SaveSnapshot maybe async
     _node->AddRef();
 }
 
@@ -767,11 +763,7 @@ void NodeImpl::snapshot(Closure* done) {
     std::lock_guard<bthread_mutex_t> guard(_mutex);
 
     // check state
-    if (_state == SHUTDOWN) {
-        LOG(WARNING) << "node " << _group_id << ":" << _server_id << " not inited";
-        _fsm_caller->on_cleared(0, done, EINVAL);
-        return;
-    }
+    CHECK(_state != SHUTDOWN);
 
     // check support snapshot?
     if (NULL == _snapshot_storage) {
@@ -812,6 +804,8 @@ void NodeImpl::shutdown(Closure* done) {
     LOG(INFO) << "node " << _group_id << ":" << _server_id << " shutdown,"
         " current_term " << _current_term << " state " << State2Str(_state);
 
+    // check state
+    CHECK(_state != SHUTDOWN);
     // leader stop disk thread and replicator, stop stepdown timer, change state to FOLLOWER
     // candidate stop vote timer, change state to FOLLOWER
     if (_state != FOLLOWER) {
@@ -1066,9 +1060,8 @@ void NodeImpl::step_down(const int64_t term) {
 
         _commit_manager->clear_pending_applications();
 
-        // stop disk thread, Release
+        // stop disk thread, not need Release, stop is sync
         _log_manager->stop_disk_thread();
-        Release();
 
         // signal fsm leader stop immediately
         _fsm_caller->on_leader_stop();
@@ -1112,8 +1105,7 @@ void NodeImpl::become_leader() {
     _state = LEADER;
     _leader_id = _server_id;
 
-    // init disk thread, AddRef
-    AddRef();
+    // init disk thread, not need AddRef, stop_disk_thread is sync
     _log_manager->start_disk_thread();
 
     // init replicator
@@ -1162,50 +1154,67 @@ void NodeImpl::become_leader() {
         << " term " << _current_term << " start stepdown_timer";
 }
 
-LeaderStableClosure::LeaderStableClosure(NodeImpl* node, LogEntry* entry)
-    : _node_id(node->node_id()), _node(node), _entry(entry) {
-    _node->AddRef();
+LeaderStableClosure::LeaderStableClosure(const NodeId& node_id, CommitmentManager* commit_manager,
+                                         LogManager* log_manager, LogEntry* entry)
+    : _node_id(node_id),
+    _commit_manager(commit_manager),
+    _log_manager(log_manager), _entry(entry) {
+    // node not need AddRef, stop_disk_thread is sync
     _entry->AddRef();
 }
 
 LeaderStableClosure::~LeaderStableClosure() {
-    _node->Release();
-    _entry->Release();
+    int64_t index = _entry->index;
+    // last entry ref, clear entry in memory
+    if (1 == _entry->Release()) {
+        _log_manager->clear_memory_logs(index);
+    }
 }
 
 void LeaderStableClosure::Run() {
     if (_err_code == 0) {
-        _node->advance_commit_index(PeerId(), _entry->index);
+        // commit_manager check quorum ok, will call fsm_caller
+        _commit_manager->set_stable_at_peer_reentrant(_entry->index, _node_id.peer_id);
     } else {
         LOG(ERROR) << "node " << _node_id << " append " << _entry->index << " failed";
     }
-    // not free entry, FSMCaller will free it
     delete this;
-}
-
-void NodeImpl::advance_commit_index(const PeerId& peer_id, const int64_t log_index) {
-    std::lock_guard<bthread_mutex_t> guard(_mutex);
-    if (peer_id.is_empty()) {
-        // leader thread
-        _commit_manager->set_stable_at_peer_reentrant(log_index, _server_id);
-    } else {
-        // peer thread
-        _commit_manager->set_stable_at_peer_reentrant(log_index, peer_id);
-    }
-
-    // commit_manager check quorum ok, will call fsm_caller
 }
 
 void NodeImpl::append(LogEntry* entry, Closure* done) {
     // configuration change use new peer set
     std::vector<PeerId> old_peers;
+    size_t quorum = 0;
     if (entry->type != ENTRY_TYPE_ADD_PEER && entry->type != ENTRY_TYPE_REMOVE_PEER) {
         _commit_manager->append_pending_application(_conf.second, done);
+        quorum = _conf.second.quorum();
     } else  {
         _conf.second.peer_vector(&old_peers);
         _commit_manager->append_pending_application(Configuration(*(entry->peers)), done);
+        quorum = entry->peers->size() / 2 + 1;
     }
-    _log_manager->append_entry(entry, new LeaderStableClosure(this, entry));
+
+    // leader ref 1 to sure leader stable
+    // ref quorum to sure quorum nodes stable (include leader or not)
+    //  if leader not in quorum, leader's ref 1 will make replicator always get_entry from memory
+    //  if leader in quorum, leader ref twice is ok
+    // LogEntry ref:
+    //  new : 1
+    //  leader disk thread : 1
+    //  leader disk thread & replicator : quorum
+    //  get_entry : 1
+    // LogEntry unref:
+    //  clear_memory_logs : 1
+    //  leader disk thread done : 1
+    //  fsm : quorum + 1
+    //
+    //  leader total ref: quorum + 2 (not include get_entry)
+    //  follower total ref: 1 (not include get_entry)
+    entry->AddRef(quorum);
+    _log_manager->append_entry(entry, new LeaderStableClosure(NodeId(_group_id, _server_id),
+                                                              _commit_manager,
+                                                              _log_manager,
+                                                              entry));
     if (_log_manager->check_and_set_configuration(_conf)) {
         _conf_ctx.set(old_peers);
     }
@@ -1443,11 +1452,10 @@ InstallSnapshotDone::InstallSnapshotDone(NodeImpl* node, SnapshotStorage* snapsh
                                          google::protobuf::Closure* done)
     : _node(node), _snapshot_storage(snapshot_storage), _reader(NULL),
     _controller(controller), _request(request), _response(response), _done(done) {
-    _node->AddRef();
+    // node not need AddRef, FSMCaller::shutdown will flush running InstallSnapshot task
 }
 
 InstallSnapshotDone::~InstallSnapshotDone() {
-    _node->Release();
 }
 
 SnapshotReader* InstallSnapshotDone::start() {

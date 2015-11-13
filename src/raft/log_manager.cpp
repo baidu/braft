@@ -77,6 +77,20 @@ int LogManager::stop_disk_thread() {
     return ret;
 }
 
+void LogManager::clear_memory_logs(const int64_t index) {
+    std::lock_guard<bthread_mutex_t> guard(_mutex);
+
+    while (!_logs_in_memory.empty()) {
+        LogEntry* entry = _logs_in_memory.front();
+        if (entry->index <= index) {
+            entry->Release();
+            _logs_in_memory.pop_front();
+        } else {
+            break;
+        }
+    }
+}
+
 int64_t LogManager::first_log_index() {
     std::lock_guard<bthread_mutex_t> guard(_mutex);
     return _log_storage->first_log_index();
@@ -181,6 +195,7 @@ int LogManager::append_entries(const std::vector<LogEntry*>& entries) {
 void LogManager::append_entry(
             LogEntry* log_entry, LeaderStableClosure* done) {
     bthread_mutex_lock(&_mutex);
+
     log_entry->index = ++_last_log_index;
     _logs_in_memory.push_back(log_entry);
     if (log_entry->type == ENTRY_TYPE_ADD_PEER || log_entry->type == ENTRY_TYPE_REMOVE_PEER) {
@@ -227,23 +242,13 @@ int LogManager::leader_disk_run(void* meta,
     return 0;
 }
 
-LogEntry* LogManager::get_entry_from_memory(const int64_t index, bool clear_cache) {
+LogEntry* LogManager::get_entry_from_memory(const int64_t index) {
     LogEntry* entry = NULL;
     if (!_logs_in_memory.empty()) {
         int64_t first_index = _logs_in_memory.front()->index;
         int64_t last_index = _logs_in_memory.back()->index;
         if (index >= first_index && index <= last_index) {
             entry = _logs_in_memory.at(index - first_index);
-            if (clear_cache) {
-                // pop and release front entries
-                for (int64_t i = 0; i < index - first_index; i++) {
-                    LogEntry* clear_entry = _logs_in_memory.front();
-                    clear_entry->Release();
-                    _logs_in_memory.pop_front();
-                }
-                // pop expected entry
-                _logs_in_memory.pop_front();
-            }
         }
     }
     return entry;
@@ -255,7 +260,7 @@ int64_t LogManager::get_term(const int64_t index) {
     }
     std::lock_guard<bthread_mutex_t> guard(_mutex);
 
-    LogEntry* entry = get_entry_from_memory(index, false);
+    LogEntry* entry = get_entry_from_memory(index);
     if (entry) {
         return entry->term;
     }
@@ -263,10 +268,10 @@ int64_t LogManager::get_term(const int64_t index) {
     return _log_storage->get_term(index);
 }
 
-LogEntry* LogManager::get_entry(const int64_t index, bool clear_cache) {
+LogEntry* LogManager::get_entry(const int64_t index) {
     std::lock_guard<bthread_mutex_t> guard(_mutex);
 
-    LogEntry* entry = get_entry_from_memory(index, clear_cache);
+    LogEntry* entry = get_entry_from_memory(index);
     if (entry) {
         entry->AddRef();
     } else {

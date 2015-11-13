@@ -57,6 +57,7 @@ Replicator::Replicator()
 
 Replicator::~Replicator() {
     // bind lifecycle with node, Release
+    // Replicator stop is async
     if (_options.node) {
         _options.node->Release();
         _options.node = NULL;
@@ -83,6 +84,7 @@ int Replicator::start(const ReplicatorOptions& options, ReplicatorId *id) {
     }
 
     // bind lifecycle with node, AddRef
+    // Replicator stop is async
     options.node->AddRef();
 
     r->_options = options;
@@ -227,8 +229,8 @@ void Replicator::_on_rpc_returned(ReplicatorId id, baidu::rpc::Controller* cntl,
             // after _notify_on_caught_up. Not increase reference count in
             // start() to avoid the circular reference issue
             node_impl->AddRef();
-            bthread_id_unlock_and_destroy(dummy_id);
             r->_notify_on_caught_up(EPERM, true);
+            bthread_id_unlock_and_destroy(dummy_id);
             node_impl->increase_term_to(response->term());
             node_impl->Release();
             return;
@@ -319,7 +321,7 @@ void Replicator::_send_heartbeat() {
 
 int Replicator::_prepare_entry(int offset, EntryMeta* em, base::IOBuf *data) {
     const size_t log_index = _next_index + offset;
-    LogEntry *entry = _options.log_manager->get_entry(log_index, false);
+    LogEntry *entry = _options.log_manager->get_entry(log_index);
     if (entry == NULL) {
         return -1;
     }

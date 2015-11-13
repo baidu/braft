@@ -80,12 +80,14 @@ public:
 
 class LeaderStableClosure : public Closure {
 public:
-    LeaderStableClosure(NodeImpl* node, LogEntry* entry);
+    LeaderStableClosure(const NodeId& node_id, CommitmentManager* commit_manager,
+                        LogManager* log_manager, LogEntry* entry);
     virtual ~LeaderStableClosure();
     void Run();
 
     NodeId _node_id;
-    NodeImpl* _node;
+    CommitmentManager* _commit_manager;
+    LogManager* _log_manager;
     LogEntry* _entry;
 };
 
@@ -169,9 +171,6 @@ public:
 
     // other func
     //
-    // called when leader disk thread on_stable callback and peer thread replicate success
-    void advance_commit_index(const PeerId& peer_id, const int64_t log_index);
-
     // called when leader change configuration done, ref with FSMCaller
     void on_configuration_change_done(const EntryType type, const std::vector<PeerId>& peers);
 

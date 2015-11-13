@@ -206,6 +206,9 @@ public:
         }
         return contain(peers);
     }
+    size_t quorum() {
+        return _peers.size() / 2 + 1;
+    }
 private:
     std::set<PeerId> _peers;
 
