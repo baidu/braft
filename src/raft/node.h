@@ -41,6 +41,54 @@ class LogStorage;
 class StableStorage;
 class SnapshotStorage;
 
+class SaveSnapshotDone : public Closure {
+public:
+    SaveSnapshotDone(NodeImpl* node, SnapshotStorage* snapshot_storage, Closure* done);
+    virtual ~SaveSnapshotDone();
+
+    SnapshotWriter* start(const SnapshotMeta& meta);
+    virtual void Run();
+
+    NodeImpl* _node;
+    SnapshotStorage* _snapshot_storage;
+    SnapshotWriter* _writer;
+    Closure* _done; // user done
+    SnapshotMeta _meta;
+};
+
+class InstallSnapshotDone : public Closure {
+public:
+    InstallSnapshotDone(NodeImpl* node,
+                        SnapshotStorage* snapshot_storage,
+                        baidu::rpc::Controller* controller,
+                        const InstallSnapshotRequest* request,
+                        InstallSnapshotResponse* response,
+                        google::protobuf::Closure* done);
+    virtual ~InstallSnapshotDone();
+
+    SnapshotReader* start();
+    virtual void Run();
+
+    NodeImpl* _node;
+    SnapshotStorage* _snapshot_storage;
+    SnapshotReader* _reader;
+    baidu::rpc::Controller* _controller;
+    const InstallSnapshotRequest* _request;
+    InstallSnapshotResponse* _response;
+    google::protobuf::Closure* _done;
+};
+
+class LeaderStableClosure : public Closure {
+public:
+    LeaderStableClosure(NodeImpl* node, LogEntry* entry);
+    virtual ~LeaderStableClosure();
+    void Run();
+
+    NodeId _node_id;
+    NodeImpl* _node;
+    LogEntry* _entry;
+};
+
 class NodeImpl : public base::RefCountedThreadSafe<NodeImpl> {
 friend class RaftServiceImpl;
 public:
@@ -66,16 +114,16 @@ public:
 
     // apply data to replicated-state-machine
     // done is user defined function, maybe response to client, transform to on_applied
-    int apply(const base::IOBuf& data, Closure* done);
+    void apply(const base::IOBuf& data, Closure* done);
 
     // add peer to replicated-state-machine
     // done is user defined function, maybe response to client
-    int add_peer(const std::vector<PeerId>& old_peers, const PeerId& peer,
+    void add_peer(const std::vector<PeerId>& old_peers, const PeerId& peer,
                          Closure* done);
 
     // remove peer from replicated-state-machine
     // done is user defined function, maybe response to client
-    int remove_peer(const std::vector<PeerId>& old_peers, const PeerId& peer,
+    void remove_peer(const std::vector<PeerId>& old_peers, const PeerId& peer,
                             Closure* done);
 
     // set peer to local replica
@@ -85,7 +133,7 @@ public:
                          const std::vector<PeerId>& new_peers);
 
     // trigger snapshot
-    int snapshot(Closure* done);
+    void snapshot(Closure* done);
 
     // rpc request proc func
     //
@@ -153,7 +201,7 @@ private:
     int64_t last_log_term();
 
     // leader async append log entry
-    int append(LogEntry* entry, Closure* done);
+    void append(LogEntry* entry, Closure* done);
 
     // candidate/follower sync append log entry
     int append(const std::vector<LogEntry*>& entries);

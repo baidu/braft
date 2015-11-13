@@ -9,6 +9,7 @@
 #include <base/macros.h>                        // BAIDU_CACHELINE_ALIGNMENT
 #include <base/containers/linked_list.h>        // base::LinkNode
 #include <bthread.h>
+#include <bthread/execution_queue.h>
 #include "raft/commitment_manager.h"
 
 namespace raft {
@@ -25,45 +26,35 @@ struct FSMCallerOptions {
     StateMachine *fsm;
 };
 
-class BAIDU_CACHELINE_ALIGNMENT FSMCaller : public CommitmentWaiter {
+class InstallSnapshotDone;
+class SaveSnapshotDone;
+class BAIDU_CACHELINE_ALIGNMENT FSMCaller {
 public:
     FSMCaller();
     virtual ~FSMCaller();
     int init(const FSMCallerOptions &options);
+    int shutdown(Closure* done);
     int on_committed(int64_t committed_index, void *context);
     int on_cleared(int64_t log_index, void *context, int error_code);
+    int on_snapshot_load(InstallSnapshotDone* done);
+    int on_snapshot_save(SaveSnapshotDone* done);
     Closure* on_leader_start();
     int on_leader_stop();
-    void shutdown(Closure* done);
 private:
+    static int run(void* meta, google::protobuf::Closure** const tasks[], size_t tasks_size);
+    void do_shutdown(Closure* done);
+    void do_committed(int64_t committed_index, Closure* done);
+    void do_cleared(int64_t log_index, Closure* done, int error_code);
+    void do_snapshot_save(SaveSnapshotDone* done);
+    void do_snapshot_load(InstallSnapshotDone* done);
+    void do_leader_stop();
 
-    enum FSMState {
-        NORMAL = 0,
-        SHUTINGDOWN = 1,
-        SHUTDOWN = 2,
-    };
-    struct ContextWithIndex : public base::LinkNode<ContextWithIndex> {
-        void *context;
-        int64_t log_index;
-    };
-
-    bool should_shutdown(Closure** done);
-    bool more_tasks(ContextWithIndex **head, int64_t* last_committed_index);
-
-    static void* call_user_fsm(void* arg);
-    static void* call_cleared_cb(void* arg);
-    static void* call_leader_stop_cb(void* arg);
-
+    bthread::ExecutionQueueId<google::protobuf::Closure*> _queue;
     NodeImpl *_node;
     LogManager *_log_manager;
     StateMachine *_fsm;
-    bthread_mutex_t _mutex;
     int64_t _last_applied_index;
-    int64_t _last_committed_index;
-    ContextWithIndex *_head;
-    bool _processing;
-    FSMState _state;
-    Closure* _shutdown_done;
+    int64_t _last_applied_term;
 };
 
 };

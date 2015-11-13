@@ -73,13 +73,7 @@ void CounterServiceImpl::add(google::protobuf::RpcController* controller,
 
     // node apply
     Closure* cb = new Closure(_counter, cntl, request, response, done);
-    if (0 != _counter->add(request->value(), cb)) {
-        LOG(WARNING) << "add failed, redirect to leader: " << _counter->leader();
-        baidu::rpc::ClosureGuard done_guard(done);
-        response->set_success(false);
-        response->set_leader(base::endpoint2str(_counter->leader()).c_str());
-        delete cb;
-    }
+    _counter->add(request->value(), cb);
 }
 
 void CounterServiceImpl::get(google::protobuf::RpcController* controller,

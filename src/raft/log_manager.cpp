@@ -11,6 +11,7 @@
 #include "raft/log_entry.h"
 #include "raft/util.h"
 #include "raft/storage.h"
+#include "raft/node.h"
 
 namespace raft {
 
@@ -19,7 +20,10 @@ LogManagerOptions::LogManagerOptions()
 {}
 
 LogManager::LogManager()
-    : _log_storage(NULL), _config_manager(NULL), _stopped(false)
+    : _log_storage(NULL), _config_manager(NULL),
+    _last_log_index(0),
+    _leader_disk_thread_running(false),
+    _stopped(false)
 {
     CHECK_EQ(0, bthread_id_list_init(&_wait_list, 16/*FIXME*/, 16));
     CHECK_EQ(0, bthread_mutex_init(&_mutex, NULL));
@@ -46,13 +50,31 @@ LogManager::~LogManager() {
 }
 
 int LogManager::start_disk_thread() {
-    LOG(WARNING) << "Not implement yet";
-    return ENOSYS;
+    std::lock_guard<bthread_mutex_t> guard(_mutex);
+
+    CHECK(!_leader_disk_thread_running);
+    bthread::ExecutionQueueOptions queue_options;
+    queue_options.bthread_attr = BTHREAD_ATTR_NORMAL;
+    queue_options.max_tasks_size = 5;
+    int ret = bthread::execution_queue_start(&_leader_disk_queue,
+                                   &queue_options,
+                                   LogManager::leader_disk_run,
+                                   this);
+    if (ret == 0) {
+        _leader_disk_thread_running = true;
+    }
+    return ret;
 }
 
 int LogManager::stop_disk_thread() {
-    LOG(WARNING) << "Not implement yet";
-    return ENOSYS;
+    std::lock_guard<bthread_mutex_t> guard(_mutex);
+
+    bthread::execution_queue_stop(_leader_disk_queue);
+    int ret = bthread::execution_queue_join(_leader_disk_queue);
+    if (0 == ret) {
+        _leader_disk_thread_running = false;
+    }
+    return ret;
 }
 
 int64_t LogManager::first_log_index() {
@@ -70,6 +92,34 @@ int64_t LogManager::last_log_index() {
 
 int LogManager::truncate_prefix(const int64_t first_index_kept) {
     std::lock_guard<bthread_mutex_t> guard(_mutex);
+
+    int ret = 0;
+    //OPTIMIZE: flush leader disk thread sync, can be optimize in async
+    //some snapshot included logs not write to storage when leader snapshot finished
+    if (_leader_disk_thread_running) {
+        ret = bthread::execution_queue_stop(_leader_disk_queue);
+        if (ret != 0) {
+            LOG(ERROR) << "leader disk thread stop failed";
+            return ret;
+        }
+        ret = bthread::execution_queue_join(_leader_disk_queue);
+        if (ret != 0) {
+            LOG(ERROR) << "leader disk thread join failed";
+            return ret;
+        }
+
+        bthread::ExecutionQueueOptions queue_options;
+        queue_options.bthread_attr = BTHREAD_ATTR_NORMAL;
+        queue_options.max_tasks_size = 5;
+        ret = bthread::execution_queue_start(&_leader_disk_queue,
+                                                 &queue_options,
+                                                 LogManager::leader_disk_run,
+                                                 this);
+        if (ret != 0) {
+            LOG(ERROR) << "leader disk thread start failed";
+            return ret;
+        }
+    }
 
     while (!_logs_in_memory.empty()) {
         LogEntry* entry = _logs_in_memory.front();
@@ -97,25 +147,10 @@ int LogManager::truncate_suffix(const int64_t last_index_kept) {
             break;
         }
     }
+    // not need flush queue, because only leader has queue, leader never call truncate_suffix
     _last_log_index = last_index_kept;
     _config_manager->truncate_suffix(last_index_kept);
     return _log_storage->truncate_suffix(last_index_kept);
-}
-
-int LogManager::append_entry(LogEntry* log_entry) {
-    std::lock_guard<bthread_mutex_t> guard(_mutex);
-
-    log_entry->index = _last_log_index + 1;
-    if (_log_storage->append_entry(log_entry) != 0) {
-        return -1;
-    }
-
-    _logs_in_memory.push_back(log_entry);
-    if (log_entry->type == ENTRY_TYPE_ADD_PEER || log_entry->type == ENTRY_TYPE_REMOVE_PEER) {
-        _config_manager->add(log_entry->index, Configuration(*(log_entry->peers)));
-    }
-    ++_last_log_index;
-    return 0;
 }
 
 int LogManager::append_entries(const std::vector<LogEntry*>& entries) {
@@ -127,90 +162,91 @@ int LogManager::append_entries(const std::vector<LogEntry*>& entries) {
     }
 
     int ret = _log_storage->append_entries(entries);
-    if (ret <= 0) {
-        return 0;
-    }
-    //TODO: error proc
-    assert(static_cast<size_t>(ret) == entries.size());
-
-    for (size_t i = 0; i < entries.size(); i++) {
-        _logs_in_memory.push_back(entries[i]);
-        if (entries[i]->type == ENTRY_TYPE_ADD_PEER || entries[i]->type == ENTRY_TYPE_REMOVE_PEER) {
-            _config_manager->add(entries[i]->index, Configuration(*(entries[i]->peers)));
+    if (static_cast<size_t>(ret) == entries.size()) {
+        ret = 0;
+        for (size_t i = 0; i < entries.size(); i++) {
+            _logs_in_memory.push_back(entries[i]);
+            if (entries[i]->type == ENTRY_TYPE_ADD_PEER || entries[i]->type == ENTRY_TYPE_REMOVE_PEER) {
+                _config_manager->add(entries[i]->index, Configuration(*(entries[i]->peers)));
+            }
         }
+        _last_log_index += entries.size();
+    } else {
+        ret = EIO;
     }
-    _last_log_index += entries.size();
-    return entries.size();
+
+    return ret;
 }
 
-struct OnStableMeta {
-    void *arg;
-    int64_t log_index;
-    int error_code;
-    int (*on_stable)(void* arg, int64_t log_index, int error_code);
-
-    OnStableMeta(void* arg_, int64_t log_index_, int error_code_,
-            int (*on_stable_)(void* arg, int64_t log_index, int error_code))
-        : arg(arg_), log_index(log_index_), error_code(error_code_),
-        on_stable(on_stable_) {
-    }
-};
-
-static void* run_on_stable(void* arg) {
-    OnStableMeta* meta = static_cast<OnStableMeta*>(arg);
-    meta->on_stable(meta->arg, meta->log_index, meta->error_code);
-    delete meta;
-    return NULL;
-}
-
-void LogManager::append(
-            LogEntry* log_entry,
-            int (*on_stable)(void* arg, int64_t log_index, int error_code),
-            void* arg) {
+void LogManager::append_entry(
+            LogEntry* log_entry, LeaderStableClosure* done) {
     bthread_mutex_lock(&_mutex);
-    log_entry->index = _last_log_index + 1;
+    log_entry->index = ++_last_log_index;
     _logs_in_memory.push_back(log_entry);
     if (log_entry->type == ENTRY_TYPE_ADD_PEER || log_entry->type == ENTRY_TYPE_REMOVE_PEER) {
         _config_manager->add(log_entry->index, Configuration(*(log_entry->peers)));
     }
 
-    // Fast implementation
-    if (_log_storage->append_entry(log_entry) != 0) {
-        bthread_mutex_unlock(&_mutex);
+    // signal leader disk
+    int ret = bthread::execution_queue_execute(_leader_disk_queue, done);
+    CHECK(ret == 0);
 
-        //TODO:
-        //on_stable(arg, -1, EPIPE/*FIXME*/);
-        bthread_t tid;
-        OnStableMeta* meta = new OnStableMeta(arg, -1, EPIPE, on_stable);
-        if (bthread_start_background(&tid, &BTHREAD_ATTR_NORMAL, run_on_stable, meta) != 0) {
-            run_on_stable(meta);
-        }
-        return;
-    }
-    ++_last_log_index;
-
-    int64_t last_log_index = log_entry->index;
+    // signal replicator
+    //int64_t last_log_index = log_entry->index;
     bthread_id_list_reset(&_wait_list, 0);
     bthread_mutex_unlock(&_mutex);
-
-    //TODO:
-    //on_stable(arg, last_log_index, 0);
-    bthread_t tid;
-    OnStableMeta* meta = new OnStableMeta(arg, last_log_index, 0, on_stable);
-    if (bthread_start_background(&tid, &BTHREAD_ATTR_NORMAL, run_on_stable, meta) != 0) {
-        run_on_stable(meta);
-    }
 }
 
-LogEntry* LogManager::get_entry_from_memory(const int64_t index) {
-    if (!_logs_in_memory.empty()) {
-        LogEntry* first_entry = _logs_in_memory.front();
-        LogEntry* last_entry = _logs_in_memory.back();
-        if (index >= first_entry->index && index <= last_entry->index) {
-            return _logs_in_memory.at(index - first_entry->index);
+int LogManager::leader_disk_run(void* meta,
+                                LeaderStableClosure** const tasks[], size_t tasks_size) {
+    LogManager* log_manager = static_cast<LogManager*>(meta);
+    std::vector<LogEntry*> entries;
+    for (size_t i = 0; i < tasks_size; i++) {
+        LeaderStableClosure* done = *tasks[i];
+        entries.push_back(done->_entry);
+    }
+
+    int ret = 0;
+    if (entries.size() > 0) {
+        // mutex protect, log_storage not thread-safe
+        std::lock_guard<bthread_mutex_t> guard(log_manager->_mutex);
+        ret = log_manager->_log_storage->append_entries(entries);
+        if (entries.size() != static_cast<size_t>(ret)) {
+            ret = EIO;
         }
     }
-    return NULL;
+
+    for (size_t i = 0; i < tasks_size; i++) {
+        LeaderStableClosure* done = *tasks[i];
+        if (ret != 0) {
+            done->set_error(EIO, "append entry failed");
+        }
+        done->Run();
+    }
+
+    return 0;
+}
+
+LogEntry* LogManager::get_entry_from_memory(const int64_t index, bool clear_cache) {
+    LogEntry* entry = NULL;
+    if (!_logs_in_memory.empty()) {
+        int64_t first_index = _logs_in_memory.front()->index;
+        int64_t last_index = _logs_in_memory.back()->index;
+        if (index >= first_index && index <= last_index) {
+            entry = _logs_in_memory.at(index - first_index);
+            if (clear_cache) {
+                // pop and release front entries
+                for (int64_t i = 0; i < index - first_index; i++) {
+                    LogEntry* clear_entry = _logs_in_memory.front();
+                    clear_entry->Release();
+                    _logs_in_memory.pop_front();
+                }
+                // pop expected entry
+                _logs_in_memory.pop_front();
+            }
+        }
+    }
+    return entry;
 }
 
 int64_t LogManager::get_term(const int64_t index) {
@@ -219,7 +255,7 @@ int64_t LogManager::get_term(const int64_t index) {
     }
     std::lock_guard<bthread_mutex_t> guard(_mutex);
 
-    LogEntry* entry = get_entry_from_memory(index);
+    LogEntry* entry = get_entry_from_memory(index, false);
     if (entry) {
         return entry->term;
     }
@@ -227,10 +263,10 @@ int64_t LogManager::get_term(const int64_t index) {
     return _log_storage->get_term(index);
 }
 
-LogEntry* LogManager::get_entry(const int64_t index) {
+LogEntry* LogManager::get_entry(const int64_t index, bool clear_cache) {
     std::lock_guard<bthread_mutex_t> guard(_mutex);
 
-    LogEntry* entry = get_entry_from_memory(index);
+    LogEntry* entry = get_entry_from_memory(index, clear_cache);
     if (entry) {
         entry->AddRef();
     } else {
@@ -239,7 +275,13 @@ LogEntry* LogManager::get_entry(const int64_t index) {
     return entry;
 }
 
-bool LogManager::check_and_set_configuration(std::pair<int64_t, Configuration>& current) {
+ConfigurationPair LogManager::get_configuration(const int64_t index) {
+    std::lock_guard<bthread_mutex_t> guard(_mutex);
+
+    return _config_manager->get_configuration(index);
+}
+
+bool LogManager::check_and_set_configuration(ConfigurationPair& current) {
     std::lock_guard<bthread_mutex_t> guard(_mutex);
 
     int64_t last_config_index = _config_manager->last_configuration_index();

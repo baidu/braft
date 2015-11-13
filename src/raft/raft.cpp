@@ -120,16 +120,16 @@ void Node::shutdown(Closure* done) {
     _impl->shutdown(done);
 }
 
-int Node::apply(const base::IOBuf& data, Closure* done) {
-    return _impl->apply(data, done);
+void Node::apply(const base::IOBuf& data, Closure* done) {
+    _impl->apply(data, done);
 }
 
-int Node::add_peer(const std::vector<PeerId>& old_peers, const PeerId& peer, Closure* done) {
-    return _impl->add_peer(old_peers, peer, done);
+void Node::add_peer(const std::vector<PeerId>& old_peers, const PeerId& peer, Closure* done) {
+    _impl->add_peer(old_peers, peer, done);
 }
 
-int Node::remove_peer(const std::vector<PeerId>& old_peers, const PeerId& peer, Closure* done) {
-    return _impl->remove_peer(old_peers, peer, done);
+void Node::remove_peer(const std::vector<PeerId>& old_peers, const PeerId& peer, Closure* done) {
+    _impl->remove_peer(old_peers, peer, done);
 }
 
 int Node::set_peer(const std::vector<PeerId>& old_peers, const std::vector<PeerId>& new_peers) {

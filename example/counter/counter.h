@@ -54,7 +54,7 @@ public:
     virtual void on_leader_stop();
 
     // user logic method
-    int add(int64_t value, raft::Closure* done);
+    void add(int64_t value, raft::Closure* done);
 
     int get(int64_t* value_ptr);
 

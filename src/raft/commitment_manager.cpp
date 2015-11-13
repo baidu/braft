@@ -7,6 +7,7 @@
 #include <base/unique_ptr.h>
 #include "raft/commitment_manager.h"
 #include "raft/util.h"
+#include "raft/fsm_caller.h"
 
 namespace raft {
 

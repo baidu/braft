@@ -15,19 +15,11 @@
 
 namespace raft {
 
-class CommitmentWaiter {
-public:
-    // Called when some logs are commited since the last time this method was
-    // called
-    virtual int on_committed(int64_t last_commited_index, void *context) = 0;
-    virtual int on_cleared(int64_t log_index, void *context, 
-                           int error_code) = 0;
-};
-
+class FSMCaller;
 struct CommitmentManagerOptions {
     CommitmentManagerOptions() {}
     uint32_t max_pending_size;
-    CommitmentWaiter *waiter;
+    FSMCaller* waiter;
     int64_t last_committed_index;
 };
 
@@ -74,13 +66,10 @@ private:
     };
 
     bthread_mutex_t                                     _mutex;
-    CommitmentWaiter*                                   _waiter;
+    FSMCaller*                                   _waiter;
     boost::atomic<int64_t>                              _last_committed_index;
     int64_t                                             _pending_index;
     base::BoundedQueue<PendingMeta*>                    _pending_apps;
-};
-
-class OnAppliedCaller : public CommitmentWaiter {
 };
 
 }  // namespace raft

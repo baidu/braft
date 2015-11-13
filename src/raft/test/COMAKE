@@ -11,9 +11,9 @@ CPPFLAGS(' -D__const__=')
 CPPFLAGS('-Dprivate=public')
 
 CFLAGS('-g -pipe -Wall -W -fPIC -Wno-unused-parameter -Wno-unused-variable -Wno-strict-aliasing')
-#CFLAGS('-fsanitize=address -fno-omit-frame-pointer')
 
 CXXFLAGS('-g -pipe -Wall -W -fPIC -Wno-unused-parameter -Wno-unused-variable -Wno-strict-aliasing')
+#CXXFLAGS('-fsanitize=address -fno-omit-frame-pointer')
 
 IDLFLAGS('--compack')
 

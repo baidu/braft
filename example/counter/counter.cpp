@@ -47,14 +47,14 @@ base::EndPoint Counter::self() {
     return _node.node_id().peer_id.addr;
 }
 
-int Counter::add(int64_t value, raft::Closure* done) {
+void Counter::add(int64_t value, raft::Closure* done) {
     AddRequest request;
     request.set_value(value);
     base::IOBuf data;
     base::IOBufAsZeroCopyOutputStream wrapper(&data);
     request.SerializeToZeroCopyStream(&wrapper);
 
-    return _node.apply(data, done);
+    _node.apply(data, done);
 }
 
 int Counter::get(int64_t* value_ptr) {

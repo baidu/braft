@@ -319,7 +319,7 @@ void Replicator::_send_heartbeat() {
 
 int Replicator::_prepare_entry(int offset, EntryMeta* em, base::IOBuf *data) {
     const size_t log_index = _next_index + offset;
-    LogEntry *entry = _options.log_manager->get_entry(log_index);
+    LogEntry *entry = _options.log_manager->get_entry(log_index, false);
     if (entry == NULL) {
         return -1;
     }

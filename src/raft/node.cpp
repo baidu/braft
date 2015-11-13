@@ -113,7 +113,8 @@ void NodeImpl::on_snapshot_load_done() {
                                   _loading_snapshot_meta->last_configuration);
     _log_manager->check_and_set_configuration(_conf);
 
-    // TODO: reset commit manager
+    // reset commit manager
+    _commit_manager->reset_pending_index(_loading_snapshot_meta->last_included_index + 1);
 
     delete _loading_snapshot_meta;
     _loading_snapshot_meta = NULL;
@@ -153,6 +154,8 @@ int NodeImpl::on_snapshot_save_done(const int64_t last_included_index, SnapshotW
         if (_log_manager->first_log_index() <= _last_snapshot_index) {
             _log_manager->truncate_prefix(_last_snapshot_index + 1);
         }
+
+        //TODO: discard unneed snapshot
 
         // update configuration
         _log_manager->check_and_set_configuration(_conf);
@@ -410,23 +413,25 @@ int NodeImpl::init(const NodeOptions& options) {
     return ret;
 }
 
-int NodeImpl::apply(const base::IOBuf& data, Closure* done) {
+void NodeImpl::apply(const base::IOBuf& data, Closure* done) {
     std::lock_guard<bthread_mutex_t> guard(_mutex);
 
     if (_state == SHUTDOWN) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id << " not inited";
-        return EINVAL;
+        _fsm_caller->on_cleared(0, done, EINVAL);
+        return;
     }
     if (_state != LEADER) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id << " can't apply not in LEADER";
-        return EINVAL;
+        _fsm_caller->on_cleared(0, done, EPERM);
+        return;
     }
 
     LogEntry* entry = new LogEntry;
     entry->term = _current_term;
     entry->type = ENTRY_TYPE_DATA;
     entry->data.append(data);
-    return append(entry, done);
+    append(entry, done);
 }
 
 void NodeImpl::on_configuration_change_done(const EntryType type,
@@ -566,31 +571,35 @@ void NodeImpl::handle_stepdown_timeout() {
     }
 }
 
-int NodeImpl::add_peer(const std::vector<PeerId>& old_peers, const PeerId& peer,
+void NodeImpl::add_peer(const std::vector<PeerId>& old_peers, const PeerId& peer,
                        Closure* done) {
     std::lock_guard<bthread_mutex_t> guard(_mutex);
 
     // check state
     if (_state != LEADER) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id << " can't apply not in LEADER";
-        return EINVAL;
+        _fsm_caller->on_cleared(0, done, EPERM);
+        return;
     }
     // check concurrent conf change
     if (!_conf_ctx.empty()) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id << " remove_peer need wait "
             "current conf change";
-        return EINVAL;
+        _fsm_caller->on_cleared(0, done, EINVAL);
+        return;
     }
     // check equal
     if (!_conf.second.equal(old_peers)) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id << " add_peer dismatch old_peers";
-        return EINVAL;
+        _fsm_caller->on_cleared(0, done, EINVAL);
+        return;
     }
     // check contain
     if (_conf.second.contain(peer)) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id << " add_peer old_peers "
             "contains new_peer";
-        return EINVAL;
+        _fsm_caller->on_cleared(0, done, EINVAL);
+        return;
     }
 
     LOG(INFO) << "node " << _group_id << ":" << _server_id << " add_peer " << peer
@@ -598,7 +607,8 @@ int NodeImpl::add_peer(const std::vector<PeerId>& old_peers, const PeerId& peer,
 
     if (0 != _replicator_group.add_replicator(peer)) {
         LOG(ERROR) << "start replicator failed, peer " << peer;
-        return EINVAL;
+        _fsm_caller->on_cleared(0, done, EINVAL);
+        return;
     }
 
     // catch up new peer
@@ -610,42 +620,45 @@ int NodeImpl::add_peer(const std::vector<PeerId>& old_peers, const PeerId& peer,
     caught_up.arg = this;
     caught_up.min_margin = 1000; //TODO0
 
-    //TODO: proc return code
+    //TODO: check return code
     if (0 != _replicator_group.wait_caughtup(peer, caught_up, &due_time)) {
         LOG(ERROR) << "wait_caughtup failed, peer " << peer;
         Release();
-        return EINVAL;
+        _fsm_caller->on_cleared(0, done, EINVAL);
+        return;
     }
-
-    return 0;
 }
 
-int NodeImpl::remove_peer(const std::vector<PeerId>& old_peers, const PeerId& peer,
+void NodeImpl::remove_peer(const std::vector<PeerId>& old_peers, const PeerId& peer,
                           Closure* done) {
     std::lock_guard<bthread_mutex_t> guard(_mutex);
 
     // check state
     if (_state != LEADER) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id << " can't apply not in LEADER";
-        return EPERM;
+        _fsm_caller->on_cleared(0, done, EPERM);
+        return;
     }
     // check concurrent conf change
     if (!_conf_ctx.empty()) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id << " remove_peer need wait "
             "current conf change";
-        return EAGAIN;
+        _fsm_caller->on_cleared(0, done, EAGAIN);
+        return;
     }
     // check equal
     if (!_conf.second.equal(old_peers)) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
             << " remove_peer dismatch old_peers";
-        return EINVAL;
+        _fsm_caller->on_cleared(0, done, EINVAL);
+        return;
     }
     // check contain
     if (!_conf.second.contain(peer)) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id << " remove_peer old_peers not "
             "contains new_peer";
-        return EINVAL;
+        _fsm_caller->on_cleared(0, done, EINVAL);
+        return;
     }
 
     LOG(INFO) << "node " << _group_id << ":" << _server_id << " remove_peer " << peer
@@ -661,8 +674,6 @@ int NodeImpl::remove_peer(const std::vector<PeerId>& old_peers, const PeerId& pe
     entry->peers = new std::vector<PeerId>;
     new_conf.peer_vector(entry->peers);
     append(entry, done);
-
-    return 0;
 }
 
 int NodeImpl::set_peer(const std::vector<PeerId>& old_peers, const std::vector<PeerId>& new_peers) {
@@ -715,88 +726,85 @@ int NodeImpl::set_peer(const std::vector<PeerId>& old_peers, const std::vector<P
     return 0;
 }
 
-class SaveSnapshotDone : public Closure {
-public:
-    SaveSnapshotDone(NodeImpl* node, SnapshotStorage* snapshot_storage, Closure* done)
-        : _node(node), _snapshot_storage(snapshot_storage), _done(done), _writer(NULL) {
-        _node->AddRef();
-    }
-    virtual ~SaveSnapshotDone() {
-        _node->Release();
-    }
+SaveSnapshotDone::SaveSnapshotDone(NodeImpl* node, SnapshotStorage* snapshot_storage, Closure* done)
+    : _node(node), _snapshot_storage(snapshot_storage), _writer(NULL),
+    _done(done) {
+    _node->AddRef();
+}
 
-    void begin_snapshot(const SnapshotMeta& meta) {
-        _meta = meta;
-        _writer = _snapshot_storage->create(meta);
-    }
+SaveSnapshotDone::~SaveSnapshotDone() {
+    _node->Release();
+}
 
-    void Run() {
-        if (_err_code == 0) {
-            int ret = _node->on_snapshot_save_done(_meta.last_included_index, _writer);
-            if (ret != 0) {
-                set_error(ret, "snapshot failed");
-            }
+SnapshotWriter* SaveSnapshotDone::start(const SnapshotMeta& meta) {
+    _meta = meta;
+    _writer = _snapshot_storage->create(meta);
+    return _writer;
+}
+
+void SaveSnapshotDone::Run() {
+    if (_err_code == 0) {
+        int ret = _node->on_snapshot_save_done(_meta.last_included_index, _writer);
+        if (ret != 0) {
+            set_error(ret, "node call on_snapshot_save_done failed");
         }
-
-        // close writer
-        if (_writer) {
-            _snapshot_storage->close(_writer);
-        }
-
-        //user done, need set error
-        if (_err_code != 0) {
-            _done->set_error(_err_code, _err_text.c_str());
-        }
-        _done->Run();
-        delete this;
     }
 
-    NodeImpl* _node;
-    SnapshotStorage* _snapshot_storage;
-    Closure* _done; // user done
-    SnapshotMeta _meta;
-    SnapshotWriter* _writer;
-};
+    // close writer
+    if (_writer) {
+        _snapshot_storage->close(_writer);
+    }
 
-int NodeImpl::snapshot(Closure* done) {
+    //user done, need set error
+    if (_err_code != 0) {
+        _done->set_error(_err_code, _err_text.c_str());
+    }
+    _done->Run();
+    delete this;
+}
+
+void NodeImpl::snapshot(Closure* done) {
     std::lock_guard<bthread_mutex_t> guard(_mutex);
 
     // check state
     if (_state == SHUTDOWN) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id << " not inited";
-        return EINVAL;
+        _fsm_caller->on_cleared(0, done, EINVAL);
+        return;
     }
 
     // check support snapshot?
     if (NULL == _snapshot_storage) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
             << " unsupport snapshot, maybe snapshot_uri not set";
-        return EINVAL;
+        _fsm_caller->on_cleared(0, done, EINVAL);
+        return;
     }
 
     // check snapshot install/load
     if (_loading_snapshot_meta) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
             << " doing snapshot load/install";
-        return EAGAIN;
+        _fsm_caller->on_cleared(0, done, EAGAIN);
+        return;
     }
 
     // check snapshot saving?
     if (_snapshot_saving) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
             << " doing snapshot save";
-        return EAGAIN;
+        _fsm_caller->on_cleared(0, done, EAGAIN);
+        return;
     }
 
     _snapshot_saving = true;
     //TODO:
-    //SaveSnapshotDone* snapshot_save_done = new SaveSnapshotDone(this, _snapshot_storage, done);
-    //_fsm_caller->on_snapshot_save(snapshot_save_done);
-    return 0;
+    SaveSnapshotDone* snapshot_save_done = new SaveSnapshotDone(this, _snapshot_storage, done);
+    _fsm_caller->on_snapshot_save(snapshot_save_done);
 }
 
 void NodeImpl::shutdown(Closure* done) {
-    // remove node from NodeManager
+    // remove node from NodeManager, rpc will not touch Node
     NodeManager::GetInstance()->remove(this);
 
     std::lock_guard<bthread_mutex_t> guard(_mutex);
@@ -816,8 +824,6 @@ void NodeImpl::shutdown(Closure* done) {
     int ret = bthread_timer_del(_election_timer);
     if (ret == 0) {
         Release();
-    } else {
-        CHECK(ret == 1);
     }
 
     // all stop snapshot timer
@@ -826,8 +832,6 @@ void NodeImpl::shutdown(Closure* done) {
     ret = bthread_timer_del(_snapshot_timer);
     if (ret == 0) {
         Release();
-    } else {
-        CHECK(ret == 1);
     }
 
     // change state to shutdown
@@ -1132,7 +1136,7 @@ void NodeImpl::become_leader() {
         RAFT_VLOG << "node " << _group_id << ":" << _server_id
             << " term " << _current_term
             << " add replicator " << peers[i];
-        //TODO: check add_replicator return code
+        //TODO: check return code
         _replicator_group.add_replicator(peers[i]);
     }
 
@@ -1158,15 +1162,25 @@ void NodeImpl::become_leader() {
         << " term " << _current_term << " start stepdown_timer";
 }
 
-static int on_leader_stable(void* arg, int64_t log_index, int error_code) {
-    NodeImpl* node = static_cast<NodeImpl*>(arg);
-    //TODO2: proc error_code
-    int ret = 0;
-    if (error_code == 0) {
-        node->advance_commit_index(PeerId(), log_index);
+LeaderStableClosure::LeaderStableClosure(NodeImpl* node, LogEntry* entry)
+    : _node_id(node->node_id()), _node(node), _entry(entry) {
+    _node->AddRef();
+    _entry->AddRef();
+}
+
+LeaderStableClosure::~LeaderStableClosure() {
+    _node->Release();
+    _entry->Release();
+}
+
+void LeaderStableClosure::Run() {
+    if (_err_code == 0) {
+        _node->advance_commit_index(PeerId(), _entry->index);
+    } else {
+        LOG(ERROR) << "node " << _node_id << " append " << _entry->index << " failed";
     }
-    node->Release();
-    return ret;
+    // not free entry, FSMCaller will free it
+    delete this;
 }
 
 void NodeImpl::advance_commit_index(const PeerId& peer_id, const int64_t log_index) {
@@ -1182,7 +1196,7 @@ void NodeImpl::advance_commit_index(const PeerId& peer_id, const int64_t log_ind
     // commit_manager check quorum ok, will call fsm_caller
 }
 
-int NodeImpl::append(LogEntry* entry, Closure* done) {
+void NodeImpl::append(LogEntry* entry, Closure* done) {
     // configuration change use new peer set
     std::vector<PeerId> old_peers;
     if (entry->type != ENTRY_TYPE_ADD_PEER && entry->type != ENTRY_TYPE_REMOVE_PEER) {
@@ -1191,29 +1205,27 @@ int NodeImpl::append(LogEntry* entry, Closure* done) {
         _conf.second.peer_vector(&old_peers);
         _commit_manager->append_pending_application(Configuration(*(entry->peers)), done);
     }
-    //TODO2: check log_manager return code
-    AddRef();
-    _log_manager->append(entry, on_leader_stable, this);
+    _log_manager->append_entry(entry, new LeaderStableClosure(this, entry));
     if (_log_manager->check_and_set_configuration(_conf)) {
         _conf_ctx.set(old_peers);
     }
-
-    return 0;
 }
 
 int NodeImpl::append(const std::vector<LogEntry*>& entries) {
     if (entries.size() == 0) {
         return 0;
     }
-    //TODO2: proc return
     int ret = _log_manager->append_entries(entries);
-    if (ret != 0) {
-        return ret;
+    if (ret == 0) {
+        _log_manager->check_and_set_configuration(_conf);
+    } else {
+        LogEntry* first_entry = entries[0];
+        LogEntry* last_entry = entries[entries.size() - 1];
+        LOG(ERROR) << "node " << _group_id << ":" << _server_id
+            << " append " << first_entry->index << " -> " << last_entry->index << " failed";
     }
 
-    _log_manager->check_and_set_configuration(_conf);
-
-    return 0;
+    return ret;
 }
 
 int NodeImpl::handle_request_vote_request(const RequestVoteRequest* request,
@@ -1403,8 +1415,14 @@ int NodeImpl::handle_append_entries_request(base::IOBuf& data_buf,
             << " count " << entries.size()
             << " current_term " << _current_term;
 
-        //TODO2: outof lock, check return
-        append(entries);
+        //TODO2: outof lock
+        if (0 != append(entries)) {
+            // free entry
+            for (size_t i = 0; i < entries.size(); i++) {
+                LogEntry* entry = entries[i];
+                entry->Release();
+            }
+        }
     } while (0);
 
     response->set_term(_current_term);
@@ -1418,40 +1436,40 @@ int NodeImpl::handle_append_entries_request(base::IOBuf& data_buf,
     return 0;
 }
 
-class InstallSnapshotDone : public Closure {
-public:
-    InstallSnapshotDone(NodeImpl* node,
-                        baidu::rpc::Controller* controller,
-                        const InstallSnapshotRequest* request,
-                        InstallSnapshotResponse* response,
-                        google::protobuf::Closure* done)
-        : _node(node),
-        _controller(controller), _request(request), _response(response), _done(done) {
-        _node->AddRef();
-    }
-    virtual ~InstallSnapshotDone() {
-        _node->Release();
+InstallSnapshotDone::InstallSnapshotDone(NodeImpl* node, SnapshotStorage* snapshot_storage,
+                                         baidu::rpc::Controller* controller,
+                                         const InstallSnapshotRequest* request,
+                                         InstallSnapshotResponse* response,
+                                         google::protobuf::Closure* done)
+    : _node(node), _snapshot_storage(snapshot_storage), _reader(NULL),
+    _controller(controller), _request(request), _response(response), _done(done) {
+    _node->AddRef();
+}
+
+InstallSnapshotDone::~InstallSnapshotDone() {
+    _node->Release();
+}
+
+SnapshotReader* InstallSnapshotDone::start() {
+    _reader = _snapshot_storage->open();
+    return _reader;
+}
+
+void InstallSnapshotDone::Run() {
+    if (_err_code == 0) {
+        _node->on_snapshot_load_done();
+        _response->set_success(true);
+    } else {
+        _response->set_success(false);
     }
 
-    void Run() {
-        if (_err_code == 0) {
-            _node->on_snapshot_load_done();
-            _response->set_success(true);
-        } else {
-            _response->set_success(false);
-        }
-
-        // RPC done, just transfer response
-        _done->Run();
-        delete this;
+    if (_reader) {
+        _snapshot_storage->close(_reader);
     }
-
-    NodeImpl* _node;
-    baidu::rpc::Controller* _controller;
-    const InstallSnapshotRequest* _request;
-    InstallSnapshotResponse* _response;
-    google::protobuf::Closure* _done;
-};
+    // RPC done, just transfer response
+    _done->Run();
+    delete this;
+}
 
 int NodeImpl::handle_install_snapshot_request(baidu::rpc::Controller* controller,
                                               const InstallSnapshotRequest* request,
@@ -1571,9 +1589,9 @@ int NodeImpl::handle_install_snapshot_request(baidu::rpc::Controller* controller
 
         //TODO:
         // call fsm_caller on_install_snapshot, when finished run on_snapshot_load_done
-        //InstallSnapshotDone* install_snapshot_done =
-        //    new InstallSnapshotDone(this, controller, request, response, done);
-        //_fsm_caller->on_install_snapshot(_loading_snapshot_meta, install_snapshot_done);
+        InstallSnapshotDone* install_snapshot_done =
+            new InstallSnapshotDone(this, _snapshot_storage, controller, request, response, done);
+        _fsm_caller->on_snapshot_load(install_snapshot_done);
     }
 
     return 0;
@@ -1598,6 +1616,10 @@ NodeManager::~NodeManager() {
 
 int NodeManager::init(const char* ip_str, int start_port, int end_port) {
     std::lock_guard<bthread_mutex_t> guard(_mutex);
+    if (_address.ip != base::IP_ANY) {
+        LOG(ERROR) << "Raft has be inited";
+        return EINVAL;
+    }
 
     baidu::rpc::ServerOptions server_options;
     if (0 != _server.AddService(new FileServiceImpl, baidu::rpc::SERVER_OWNS_SERVICE)) {

@@ -9,6 +9,7 @@
 #include <base/macros.h>
 #include <deque>
 #include <bthread.h>
+#include <bthread/execution_queue.h>
 
 #include "raft/raft.h"
 
@@ -21,6 +22,8 @@ struct LogManagerOptions {
     ConfigurationManager* configuration_manager;
 };
 
+class NodeImpl;
+class LeaderStableClosure;
 class BAIDU_CACHELINE_ALIGNMENT LogManager {
 public:
     LogManager();
@@ -33,15 +36,11 @@ public:
     int start_disk_thread();
     int stop_disk_thread();
 
-    // Append a log entry and wait until it's stable (NOT COMMITTED!)
-    int append_entry(LogEntry* log_entry);
     // Append log entry vector and wait until it's stable (NOT COMMITTED!)
-    // return success number
+    // success return 0, fail return errno
     int append_entries(const std::vector<LogEntry *>& entries);
-    // Append a log entry and call on_stable when it's stable
-    void append(LogEntry* log_entry,
-                int (*on_stable)(void* arg, int64_t log_index, int error_code),
-                void* arg);
+    // Append a log entry and call closure when it's stable
+    void append_entry(LogEntry* log_entry, LeaderStableClosure* done);
 
     // delete logs from storage's head, [1, first_index_kept) will be discarded
     // Returns:
@@ -56,7 +55,9 @@ public:
     // Get the log at |index|
     // Returns:
     //  success return ptr, fail return null
-    LogEntry* get_entry(const int64_t index);
+    // Notes:
+    //  FSMCaller will clear cache, replicator not clear cache
+    LogEntry* get_entry(const int64_t index, bool clear_cache);
 
     // Get the log term at |index|
     // Returns:
@@ -72,6 +73,8 @@ public:
     // Returns:
     //  success return last memory and logstorage index, empty return 0
     int64_t last_log_index();
+
+    ConfigurationPair get_configuration(const int64_t index);
 
     // check and set configuration
     // Returns:
@@ -92,7 +95,10 @@ public:
               int (*on_new_log)(void *arg, int error_code), void *arg);
 
 private:
-    LogEntry* get_entry_from_memory(const int64_t index);
+    static int leader_disk_run(void* meta,
+                               LeaderStableClosure** const tasks[], size_t tasks_size);
+
+    LogEntry* get_entry_from_memory(const int64_t index, bool clear_cache);
 
     void notify_on_new_log(int64_t expected_last_log_index, bthread_id_t wait_id);
     // Fast implementation with one lock
@@ -106,6 +112,9 @@ private:
     // TODO(chenzhangyi01): replace deque with a thread-safe data struture
     std::deque<LogEntry* /*FIXME*/> _logs_in_memory;
     int64_t _last_log_index;
+
+    bthread::ExecutionQueueId<LeaderStableClosure*> _leader_disk_queue;
+    bool _leader_disk_thread_running;
     bool _stopped;
 };
 
