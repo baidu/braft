@@ -62,10 +62,12 @@ public:
     // user defined snapshot generate function, this method will block on_apply.
     // user can make snapshot async when fsm can be cow(copy-on-write).
     // call done->Run() when snapshot finised.
+    // success return 0, fail return errno
     virtual int on_snapshot_save(SnapshotWriter* writer, Closure* done);
 
     // user defined snapshot load function
     // get and load snapshot
+    // success return 0, fail return errno
     virtual int on_snapshot_load(SnapshotReader* reader);
 
     // user defined leader start function

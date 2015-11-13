@@ -8,8 +8,8 @@
 
 #include <stdint.h>                             // int64_t
 #include <set>                                  // std::set
+#include <deque>
 #include <boost/atomic.hpp>                     // boost::atomic
-#include <base/containers/bounded_queue.h>      // base::BoundedQueue
 #include <bthread.h>                            // bthread_mutex_t
 #include "raft/raft.h"
 
@@ -18,7 +18,6 @@ namespace raft {
 class FSMCaller;
 struct CommitmentManagerOptions {
     CommitmentManagerOptions() {}
-    uint32_t max_pending_size;
     FSMCaller* waiter;
     int64_t last_committed_index;
 };
@@ -69,7 +68,7 @@ private:
     FSMCaller*                                   _waiter;
     boost::atomic<int64_t>                              _last_committed_index;
     int64_t                                             _pending_index;
-    base::BoundedQueue<PendingMeta*>                    _pending_apps;
+    std::deque<PendingMeta*>                            _pending_apps;
 };
 
 }  // namespace raft

@@ -372,7 +372,6 @@ int NodeImpl::init(const NodeOptions& options) {
         // commitment manager init
         _commit_manager = new CommitmentManager();
         CommitmentManagerOptions commit_manager_options;
-        commit_manager_options.max_pending_size = 1000; //TODO0
         commit_manager_options.waiter = _fsm_caller;
         commit_manager_options.last_committed_index = last_committed_index;
         ret = _commit_manager->init(commit_manager_options);
@@ -506,7 +505,8 @@ void NodeImpl::on_caughtup(const PeerId& peer, int error_code, Closure* done) {
         if (0 == _replicator_group.wait_caughtup(peer, caught_up, &due_time)) {
             return;
         } else {
-            LOG(ERROR) << "wait_caughtup failed, peer " << peer;
+            LOG(ERROR) << "node " << _group_id << ":" << _server_id
+                << " wait_caughtup failed, peer " << peer;
             Release();
         }
     }
@@ -604,7 +604,8 @@ void NodeImpl::add_peer(const std::vector<PeerId>& old_peers, const PeerId& peer
         << " to " << _conf.second << ", begin caughtup.";
 
     if (0 != _replicator_group.add_replicator(peer)) {
-        LOG(ERROR) << "start replicator failed, peer " << peer;
+        LOG(ERROR) << "node " << _group_id << ":" << _server_id
+            << " start replicator failed, peer " << peer;
         _fsm_caller->on_cleared(0, done, EINVAL);
         return;
     }
@@ -618,9 +619,9 @@ void NodeImpl::add_peer(const std::vector<PeerId>& old_peers, const PeerId& peer
     caught_up.arg = this;
     caught_up.min_margin = 1000; //TODO0
 
-    //TODO: check return code
     if (0 != _replicator_group.wait_caughtup(peer, caught_up, &due_time)) {
-        LOG(ERROR) << "wait_caughtup failed, peer " << peer;
+        LOG(ERROR) << "node " << _group_id << ":" << _server_id
+            << " wait_caughtup failed, peer " << peer;
         Release();
         _fsm_caller->on_cleared(0, done, EINVAL);
         return;
@@ -1008,7 +1009,8 @@ void NodeImpl::elect_self() {
         options.max_retry = 0;
         baidu::rpc::Channel channel;
         if (0 != channel.Init(peers[i].addr, &options)) {
-            LOG(WARNING) << "channel init failed, addr " << peers[i].addr;
+            LOG(WARNING) << "node " << _group_id << ":" << _server_id
+                << " channel init failed, addr " << peers[i].addr;
             continue;
         }
 
@@ -1185,6 +1187,7 @@ void NodeImpl::append(LogEntry* entry, Closure* done) {
     // configuration change use new peer set
     std::vector<PeerId> old_peers;
     size_t quorum = 0;
+    //TODO: need check append_pending_application return code
     if (entry->type != ENTRY_TYPE_ADD_PEER && entry->type != ENTRY_TYPE_REMOVE_PEER) {
         _commit_manager->append_pending_application(_conf.second, done);
         quorum = _conf.second.quorum();

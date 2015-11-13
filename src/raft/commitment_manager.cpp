@@ -4,7 +4,6 @@
 // Date: 2015/10/16 10:44:05
 
 #include <base/scoped_lock.h>
-#include <base/unique_ptr.h>
 #include "raft/commitment_manager.h"
 #include "raft/util.h"
 #include "raft/fsm_caller.h"
@@ -28,14 +27,6 @@ int CommitmentManager::init(const CommitmentManagerOptions &options) {
         LOG(ERROR) << "waiter is NULL";
         return EINVAL;
     }
-    const size_t spaces_size = sizeof(PendingMeta*) * options.max_pending_size;
-    void *queue_spaces = malloc(spaces_size);
-    if (queue_spaces == NULL) {
-        LOG(ERROR) << "Fail to malloc spaces_size=" << spaces_size;
-        return errno;
-    }
-    base::BoundedQueue<PendingMeta*> tmp_queue(queue_spaces, spaces_size, base::OWNS_STORAGE);
-    _pending_apps.swap(tmp_queue);
     _last_committed_index.store(
             options.last_committed_index, boost::memory_order_relaxed);
     _waiter = options.waiter;
@@ -58,7 +49,7 @@ int CommitmentManager::set_stable_at_peer_reentrant(
         CHECK(false);
         return ERANGE;
     }
-    PendingMeta *pm = *_pending_apps.top(log_index - _pending_index);
+    PendingMeta *pm = _pending_apps.at(log_index - _pending_index);
     if (pm->peers.erase(peer) == 0) {
         return 0;
     }
@@ -73,8 +64,8 @@ int CommitmentManager::set_stable_at_peer_reentrant(
     // previous logs which is not well proved right now
     // TODO: add vlog when committing previous logs
     for (int64_t index = _pending_index; index <= log_index; ++index) {
-        PendingMeta *tmp = *_pending_apps.top();
-        _pending_apps.pop();
+        PendingMeta *tmp = _pending_apps.front();
+        _pending_apps.pop_front();
         void *saved_context = tmp->context;
         delete tmp;
         // FIXME: remove this off the critical section
@@ -91,8 +82,8 @@ int CommitmentManager::clear_pending_applications() {
     BAIDU_SCOPED_LOCK(_mutex);
     // FIXME: should on_cleared be called out of the critical section?
     for (size_t i = 0; i < _pending_apps.size(); ++i) {
-        PendingMeta *pm = *_pending_apps.top();
-        _pending_apps.pop();
+        PendingMeta *pm = _pending_apps.front();
+        _pending_apps.pop_front();
         _waiter->on_cleared(_pending_index + i, pm->context, -1/*FIXME*/);
         delete pm;
     }
@@ -110,17 +101,14 @@ int CommitmentManager::reset_pending_index(int64_t new_pending_index) {
 }
 
 int CommitmentManager::append_pending_application(const Configuration& conf, void* context) {
-    std::unique_ptr<PendingMeta> pm(new PendingMeta);
+    PendingMeta* pm = new PendingMeta;
     conf.peer_set(&pm->peers);
     pm->quorum = pm->peers.size() / 2 + 1;
     pm->context = context;
+
     BAIDU_SCOPED_LOCK(_mutex);
     CHECK(_pending_index > 0);
-    if (!_pending_apps.push_top(pm.get())) {
-        LOG(WARNING) << "_pending_apps is full";
-        return EAGAIN;
-    }
-    pm.release();
+    _pending_apps.push_back(pm);
     return 0;
 }
 

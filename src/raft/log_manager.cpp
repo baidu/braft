@@ -62,6 +62,8 @@ int LogManager::start_disk_thread() {
                                    this);
     if (ret == 0) {
         _leader_disk_thread_running = true;
+    } else {
+        LOG(FATAL) << "start_disk_thread failed";
     }
     return ret;
 }
@@ -113,12 +115,12 @@ int LogManager::truncate_prefix(const int64_t first_index_kept) {
     if (_leader_disk_thread_running) {
         ret = bthread::execution_queue_stop(_leader_disk_queue);
         if (ret != 0) {
-            LOG(ERROR) << "leader disk thread stop failed";
+            LOG(FATAL) << "leader disk thread stop failed";
             return ret;
         }
         ret = bthread::execution_queue_join(_leader_disk_queue);
         if (ret != 0) {
-            LOG(ERROR) << "leader disk thread join failed";
+            LOG(FATAL) << "leader disk thread join failed";
             return ret;
         }
 
@@ -130,7 +132,7 @@ int LogManager::truncate_prefix(const int64_t first_index_kept) {
                                                  LogManager::leader_disk_run,
                                                  this);
         if (ret != 0) {
-            LOG(ERROR) << "leader disk thread start failed";
+            LOG(FATAL) << "leader disk thread start failed";
             return ret;
         }
     }
@@ -202,6 +204,7 @@ void LogManager::append_entry(
         _config_manager->add(log_entry->index, Configuration(*(log_entry->peers)));
     }
 
+    CHECK(_leader_disk_thread_running);
     // signal leader disk
     int ret = bthread::execution_queue_execute(_leader_disk_queue, done);
     CHECK(ret == 0);

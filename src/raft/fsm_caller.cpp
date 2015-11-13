@@ -169,7 +169,7 @@ void FSMCaller::do_snapshot_save(SaveSnapshotDone* done) {
 
     int ret = _fsm->on_snapshot_save(writer, done);
     if (ret != 0) {
-        done->set_error(EINVAL, "snapshot_storage create SnapshotWriter failed");
+        done->set_error(ret, "StateMachine on_snapshot_save failed");
         done->Run();
         return;
     }
