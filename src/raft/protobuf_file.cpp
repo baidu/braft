@@ -31,13 +31,13 @@ int ProtoBufFile::save(google::protobuf::Message* message, bool sync) {
 
     base::FilePath tmp_file_path(tmp_path);
     if (!base::CreateDirectory(tmp_file_path.DirName())) {
-        LOG(WARNING) << "create parent directory failed, path: " << tmp_file_path.DirName().value();
+        PLOG(WARNING) << "create parent directory failed, path: " << tmp_file_path.DirName().value();
         return -1;
     }
 
     int fd = open(tmp_path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if (fd < 0) {
-        LOG(WARNING) << "create tmp file failed, path: " << tmp_path;
+        PLOG(WARNING) << "create tmp file failed, path: " << tmp_path;
         return -1;
     }
 
@@ -51,7 +51,7 @@ int ProtoBufFile::save(google::protobuf::Message* message, bool sync) {
     // write len
     int32_t len = base::HostToNet32(msg_buf.length());
     if (sizeof(int32_t) != write(fd, &len, sizeof(int32_t))) {
-        LOG(WARNING) << "write len failed, path: " << tmp_path;
+        PLOG(WARNING) << "write len failed, path: " << tmp_path;
         return -1;
     }
 
@@ -59,7 +59,7 @@ int ProtoBufFile::save(google::protobuf::Message* message, bool sync) {
     do {
         ssize_t nw = msg_buf.cut_into_file_descriptor(fd);
         if (nw < 0) {
-            LOG(WARNING) << "writev failed, path: " << tmp_path;
+            PLOG(WARNING) << "writev failed, path: " << tmp_path;
             return -1;
         }
     } while (msg_buf.length() > 0);
@@ -67,14 +67,14 @@ int ProtoBufFile::save(google::protobuf::Message* message, bool sync) {
     // sync
     if (sync) {
         if (0 != fsync(fd)) {
-            LOG(WARNING) << "fsync failed, path: " << tmp_path;
+            PLOG(WARNING) << "fsync failed, path: " << tmp_path;
             return -1;
         }
     }
 
     // rename
     if (0 != rename(tmp_path.c_str(), _path.c_str())) {
-        LOG(WARNING) << "rename failed, old: " << tmp_path << " , new: " << _path;
+        PLOG(WARNING) << "rename failed, old: " << tmp_path << " , new: " << _path;
         return -1;
     }
     return 0;
@@ -83,7 +83,7 @@ int ProtoBufFile::save(google::protobuf::Message* message, bool sync) {
 int ProtoBufFile::load(google::protobuf::Message* message) {
     int fd = ::open(_path.c_str(), O_RDONLY);
     if (fd < 0) {
-        LOG(WARNING) << "open file failed, path: " << _path;
+        PLOG(WARNING) << "open file failed, path: " << _path;
         return -1;
     }
 
@@ -92,7 +92,7 @@ int ProtoBufFile::load(google::protobuf::Message* message) {
     // len
     int32_t len = 0;
     if (sizeof(int32_t) != read(fd, &len, sizeof(int32_t))) {
-        LOG(WARNING) << "read len failed, path: " << _path;
+        PLOG(WARNING) << "read len failed, path: " << _path;
         return -1;
     }
     int32_t left_len = base::NetToHost32(len);
@@ -104,7 +104,7 @@ int ProtoBufFile::load(google::protobuf::Message* message) {
         if (read_len > 0) {
             left_len -= read_len;
         } else if (read_len < 0) {
-            LOG(WARNING) << "readv failed, path: " << _path;
+            PLOG(WARNING) << "readv failed, path: " << _path;
             break;
         }
     } while (left_len > 0);

@@ -82,7 +82,8 @@ inline ip_t get_host_ip_by_interface(const char* interface) {
 
     if (!ioctl(sockfd, SIOCGIFADDR, (char*)&req)) {
         struct in_addr ip_addr;
-        ip_addr.s_addr = *((int*) &req.ifr_addr.sa_data[2]);
+        ip_addr = ((struct sockaddr_in*)&req.ifr_addr)->sin_addr;
+        //ip_addr.s_addr = *((int*) &req.ifr_addr.sa_data[2]);
         ip.s_addr = ip_addr.s_addr;
     }
     close(sockfd);

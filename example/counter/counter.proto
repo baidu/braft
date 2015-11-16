@@ -19,6 +19,10 @@ message GetResponse {
     optional string leader = 3;
 };
 
+message SnapshotInfo {
+    required int64 value = 1;
+};
+
 service CounterService {
     rpc add(AddRequest) returns (AddResponse);
     rpc get(GetRequest) returns (GetResponse);

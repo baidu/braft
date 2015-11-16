@@ -80,6 +80,7 @@ void CounterServiceImpl::get(google::protobuf::RpcController* controller,
                              const GetRequest* request,
                              GetResponse* response,
                              google::protobuf::Closure* done) {
+    request = request; // no used
     baidu::rpc::ClosureGuard done_guard(done);
     baidu::rpc::Controller* cntl =
         static_cast<baidu::rpc::Controller*>(controller);

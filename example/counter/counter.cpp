@@ -20,16 +20,17 @@
 #include "baidu/rpc/closure_guard.h"
 #include "counter.pb.h"
 #include "counter.h"
+#include "raft/util.h"
+#include "raft/protobuf_file.h"
+#include "raft/storage.h"
 
 namespace counter {
 
 Counter::Counter(const raft::GroupId& group_id, const raft::ReplicaId& replica_id)
     : StateMachine(), _node(group_id, replica_id), _value(0) {
-    bthread_mutex_init(&_mutex, NULL);
 }
 
 Counter::~Counter() {
-    bthread_mutex_destroy(&_mutex);
 }
 
 int Counter::init(const raft::NodeOptions& options) {
@@ -59,9 +60,7 @@ void Counter::add(int64_t value, raft::Closure* done) {
 }
 
 int Counter::get(int64_t* value_ptr) {
-    bthread_mutex_lock(&_mutex);
     *value_ptr = _value;
-    bthread_mutex_unlock(&_mutex);
     return 0;
 }
 
@@ -73,9 +72,7 @@ void Counter::on_apply(const base::IOBuf &data, const int64_t index, raft::Closu
     base::IOBufAsZeroCopyInputStream wrapper(data);
     request.ParseFromZeroCopyStream(&wrapper);
 
-    bthread_mutex_lock(&_mutex);
     _value += request.value();
-    bthread_mutex_unlock(&_mutex);
 }
 
 void Counter::on_shutdown() {
@@ -84,26 +81,36 @@ void Counter::on_shutdown() {
     delete this;
 }
 
-int Counter::on_snapshot_save() {
-    //TODO:
-    LOG(ERROR) << "Not Implement";
-    return ENOSYS;
+int Counter::on_snapshot_save(raft::SnapshotWriter* writer, raft::Closure* done) {
+    baidu::rpc::ClosureGuard done_guard(done);
+    SnapshotInfo info;
+    info.set_value(_value);
+
+    std::string snapshot_path = raft::fileuri2path(writer->get_uri());
+    raft::ProtoBufFile pb_file(snapshot_path);
+    return pb_file.save(&info, true);
 }
 
-int Counter::on_snapshot_load() {
-    //TODO:
-    LOG(ERROR) << "Not Implement";
-    return ENOSYS;
+int Counter::on_snapshot_load(raft::SnapshotReader* reader) {
+    std::string snapshot_path = raft::fileuri2path(reader->get_uri());
+    raft::ProtoBufFile pb_file(snapshot_path);
+
+    SnapshotInfo info;
+    int ret = pb_file.load(&info);
+    if (0 == ret) {
+        _value = info.value();
+    }
+    return ret;
 }
 
 void Counter::on_leader_start() {
     //TODO
-    LOG(ERROR) << "Not Implement";
+    LOG(ERROR) << "on_leader_start Not Implement";
 }
 
 void Counter::on_leader_stop() {
     //TODO
-    LOG(ERROR) << "Not Implement";
+    LOG(ERROR) << "on_leader_stop Not Implement";
 }
 
 }

@@ -110,6 +110,10 @@ int LocalSnapshotWriter::save_meta() {
     return ret;
 }
 
+std::string LocalSnapshotWriter::get_uri() {
+    return std::string("file://") + _path;
+}
+
 LocalSnapshotReader::LocalSnapshotReader(const std::string& path)
     : _path(path) {
 }
@@ -173,6 +177,12 @@ LocalSnapshotStorage::~LocalSnapshotStorage() {
 }
 
 int LocalSnapshotStorage::init() {
+    base::FilePath dir_path(_path);
+    if (!base::CreateDirectory(dir_path)) {
+        LOG(ERROR) << "CreateDirectory failed, path: " << _path;
+        return EIO;
+    }
+
     // open lock fd
     std::string lock_path(_path);
     lock_path.append("/");

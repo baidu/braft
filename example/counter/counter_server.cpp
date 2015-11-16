@@ -19,6 +19,7 @@
 #include <sys/ioctl.h>
 #include <gflags/gflags.h>
 #include <base/logging.h>
+#include <base/comlog_sink.h>
 #include "counter_service.h"
 #include "counter.h"
 #include "raft/util.h"
@@ -35,10 +36,22 @@ static void sigint_handler(int) {
 int main(int argc, char* argv[]) {
     google::ParseCommandLineFlags(&argc, &argv, true);
 
+    // [ Setup from ComlogSinkOptions ]
+    logging::ComlogSinkOptions options;
+    options.async = true;
+    options.process_name = "counter_server";
+    if (logging::ComlogSink::GetInstance()->Setup(&options) != 0) {
+        LOG(ERROR) << "Fail to setup comlog";
+        return -1;
+    }
+    logging::SetLogSink(logging::ComlogSink::GetInstance());
+
+#if 0
     int ret = com_loadlog(".", "comlog.conf");
     if (ret != 0) {
         fprintf(stderr, "com_loadlog failed\n");
     }
+#endif
 
     // init peers
     std::vector<raft::PeerId> peers;
@@ -60,6 +73,9 @@ int main(int argc, char* argv[]) {
     node_options.election_timeout = 5000;
     node_options.fsm = counter;
     node_options.conf = raft::Configuration(peers);
+    node_options.log_uri = "file://./data/log";
+    node_options.snapshot_uri = "file://./data/snapshot";
+    node_options.stable_uri = "file://./data/stable";
     if (0 != counter->init(node_options)) {
         LOG(FATAL) << "Fail to init node";
         return -1;

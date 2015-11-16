@@ -98,6 +98,7 @@ public:
     virtual int init() = 0;
     virtual int copy(const std::string& uri) = 0;
     virtual int save_meta() = 0;
+    virtual std::string get_uri() = 0;
 
     // error func
     int error_code();

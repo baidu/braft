@@ -46,9 +46,9 @@ public:
 
     virtual void on_shutdown();
 
-    virtual int on_snapshot_save();
+    virtual int on_snapshot_save(raft::SnapshotWriter* writer, raft::Closure* done);
 
-    virtual int on_snapshot_load();
+    virtual int on_snapshot_load(raft::SnapshotReader* reader);
 
     virtual void on_leader_start();
     virtual void on_leader_stop();

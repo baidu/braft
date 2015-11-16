@@ -127,11 +127,6 @@ int64_t Replicator::last_response_timestamp(ReplicatorId id) {
     return timestamp;
 }
 
-int Replicator::stop_appending_after(ReplicatorId id, int64_t log_index) {
-    LOG(WARNING) << "Not implemented yet";
-    return 0;
-}
-
 void Replicator::wait_for_caught_up(ReplicatorId id, 
                                     const OnCaughtUp& on_caught_up,
                                     const timespec* due_time) {
@@ -628,14 +623,6 @@ int ReplicatorGroup::stop_all() {
         Replicator::stop(rids[i]);
     }
     return 0;
-}
-
-int ReplicatorGroup::stop_appending_after(const PeerId &peer, int64_t log_index) {
-    std::map<PeerId, ReplicatorId>::iterator iter = _rmap.find(peer);
-    if (iter == _rmap.end()) {
-        return -1;
-    }
-    return Replicator::stop_appending_after(iter->second, log_index);
 }
 
 } // namespace raft

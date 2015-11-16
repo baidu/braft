@@ -235,10 +235,11 @@ int Segment::load(const base::Callback<void(int64_t, const Configuration&)>& con
             for (int j = 0; j < meta.peers_size(); ++j) {
                 PeerId peer_id;
                 if (peer_id.parse(meta.peers(j)) != 0) {
-                    LOG(WARNING) << "Fail to parse ConfigurationPBMeta";
+                    LOG(ERROR) << "Fail to parse ConfigurationPBMeta";
                     meta_ok = false;
                     break;
                 }
+                peers.push_back(peer_id);
             }
             if (meta_ok) {
                 configuration_cb.Run(i, Configuration(peers));
@@ -642,11 +643,17 @@ LogEntry* SegmentLogStorage::get_entry(const int64_t index) {
     if (BAIDU_UNLIKELY(!_is_inited)) {
         LOG(WARNING) << "SegmentLogStorage not init(), path: " << _path;
         return NULL;
-    } else if (BAIDU_UNLIKELY(index < first_log_index() || index > last_log_index())) {
-        LOG(WARNING) << "Attempted to access entry " << index << " outside of log, "
-            << " first_log_index: " << first_log_index()
-            << " last_log_index: " << last_log_index();
-        return NULL;
+    } else {
+        int64_t first_index = first_log_index();
+        int64_t last_index = last_log_index();
+        if (BAIDU_UNLIKELY(index < first_index || index > last_index + 1)) {
+            LOG(WARNING) << "Attempted to access entry " << index << " outside of log, "
+                << " first_log_index: " << first_index
+                << " last_log_index: " << last_index;
+            return NULL;
+        } else if (BAIDU_UNLIKELY(index == last_index + 1)) {
+            return NULL;
+        }
     }
 
     Segment* segment = NULL;
@@ -665,11 +672,17 @@ int64_t SegmentLogStorage::get_term(const int64_t index) {
     if (BAIDU_UNLIKELY(!_is_inited)) {
         LOG(WARNING) << "SegmentLogStorage not init(), path: " << _path;
         return 0;
-    } else if (BAIDU_UNLIKELY(index < first_log_index() || index > last_log_index())) {
-        LOG(WARNING) << "Attempted to access entry " << index << " outside of log, "
-            << " first_log_index: " << first_log_index()
-            << " last_log_index: " << last_log_index();
-        return 0;
+    } else {
+        int64_t first_index = first_log_index();
+        int64_t last_index = last_log_index();
+        if (BAIDU_UNLIKELY(index < first_index || index > last_index)) {
+            LOG(WARNING) << "Attempted to access entry " << index << " outside of log, "
+                << " first_log_index: " << first_index
+                << " last_log_index: " << last_index;
+            return 0;
+        } else if (BAIDU_UNLIKELY(index == last_index + 1)) {
+            return 0;
+        }
     }
 
     Segment* segment = NULL;

@@ -537,6 +537,9 @@ void NodeImpl::handle_stepdown_timeout() {
 
     // check state
     if (_state != LEADER) {
+        RAFT_VLOG << "node " << _group_id << ":" << _server_id
+            << " term " << _current_term << " stop stepdown_timer"
+            << " state not in LEADER but " << State2Str(_state);
         return;
     }
 
@@ -899,7 +902,7 @@ void NodeImpl::handle_request_vote_response(const PeerId& peer_id, const int64_t
     if (_state != CANDIDATE) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
             << " received invalid RequestVoteResponse from " << peer_id
-            << " state not in CANDIDATE";
+            << " state not in CANDIDATE but " << State2Str(_state);
         return;
     }
     // check stale response

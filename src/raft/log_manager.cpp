@@ -229,7 +229,9 @@ int LogManager::leader_disk_run(void* meta,
         // mutex protect, log_storage not thread-safe
         std::lock_guard<bthread_mutex_t> guard(log_manager->_mutex);
         ret = log_manager->_log_storage->append_entries(entries);
-        if (entries.size() != static_cast<size_t>(ret)) {
+        if (entries.size() == static_cast<size_t>(ret)) {
+            ret = 0;
+        } else {
             ret = EIO;
         }
     }

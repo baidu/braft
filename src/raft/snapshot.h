@@ -32,6 +32,7 @@ public:
     virtual int init();
     virtual int copy(const std::string& uri);
     virtual int save_meta();
+    virtual std::string get_uri();
 protected:
     static const char* _s_snapshot_meta;
     std::string _path;

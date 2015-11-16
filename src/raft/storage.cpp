@@ -48,6 +48,9 @@ int register_storage(const std::string& uri, const Storage& storage) {
     std::string uri_prefix;
     for (base::StringSplitter s(uri.c_str(), ':'); s; ++s) {
         uri_prefix = std::string(s.field(), s.length());
+        if (uri_prefix.length() > 0) {
+            break;
+        }
     }
 
     if (uri_prefix.length() == 0) {
@@ -59,6 +62,7 @@ int register_storage(const std::string& uri, const Storage& storage) {
         if (s_storage_map[i].name.length() == 0) {
             s_storage_map[i] = storage;
             s_storage_map[i].name = uri_prefix;
+            LOG(WARNING) << "storage " << uri_prefix << " registered";
             return 0;
         }
         if (0 == uri_prefix.compare(s_storage_map[i].name)) {
@@ -74,6 +78,9 @@ Storage* find_storage(const std::string& uri) {
     std::string uri_prefix;
     for (base::StringSplitter s(uri.c_str(), ':'); s; ++s) {
         uri_prefix = std::string(s.field(), s.length());
+        if (uri_prefix.length() > 0) {
+            break;
+        }
     }
 
     if (uri_prefix.length() == 0) {
