@@ -8,7 +8,7 @@
 
 #include <stdint.h>
 #include <bthread.h>
-#include <baidu/rpc/channel.h>                  // baidu::rpc::Controller
+#include <baidu/rpc/channel.h>                  // baidu::rpc::Channel
 #include <baidu/rpc/controller.h>               // baidu::rpc::Controller
 #include "raft/configuration.h"
 #include "raft/raft.pb.h"

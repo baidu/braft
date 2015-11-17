@@ -468,7 +468,7 @@ void Replicator::_on_install_snapshot_returned(
     } while (0);
     // We don't retry installing the snapshot explicitly. 
     r->_installing_snapshot = false;
-    CHECK_EQ(0, bthread_id_unlock_and_destroy(dummy_id)) 
+    CHECK_EQ(0, bthread_id_unlock(dummy_id)) 
             << "Fail to unlock" << dummy_id;
 }
 
