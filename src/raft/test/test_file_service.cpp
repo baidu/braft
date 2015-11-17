@@ -20,7 +20,7 @@ TEST_F(FileServiceTest, sanity) {
     raft::RemotePathCopier copier;
     base::EndPoint point;
     ASSERT_EQ(0, str2endpoint("127.0.0.1:60006", &point));
-    ASSERT_EQ(0, copier.init(point, "./tmp"));
+    ASSERT_EQ(0, copier.init(point));
     ASSERT_EQ(0, system("rm -rf a; mkdir a; mkdir a/b; echo '123' > a/c"));
     ASSERT_EQ(0, copier.copy("./a", "./b", NULL));
 }

@@ -6,7 +6,7 @@
  *    Description:  
  *
  *        Version:  1.0
- *        Created:  2015年10月23日 11时49分52秒
+ *        Created:  2015/10/23 15:23:00
  *       Revision:  none
  *       Compiler:  gcc
  *
@@ -23,11 +23,11 @@
 #include "raft/node.h"
 #include "raft/storage.h"
 
-DEFINE_string(raft_ip, "0.0.0.0", "raft server ip");
-DEFINE_int32(raft_start_port, 8000, "raft server start port");
-DEFINE_int32(raft_end_port, 9000, "raft server start port");
-
 namespace raft {
+
+DEFINE_string(raft_ip_and_port, "0.0.0.0:8000-9000",
+              "Make raft listen to the given address. "
+              "format : ip:begin_port[-end_port]");
 
 void Closure::set_error(int err_code, const char* reason_fmt, ...) {
     _err_code = err_code;
@@ -38,41 +38,69 @@ void Closure::set_error(int err_code, const char* reason_fmt, ...) {
     va_end(ap);
 }
 
-static pthread_once_t register_storage_once = PTHREAD_ONCE_INIT;
+static pthread_once_t global_init_once = PTHREAD_ONCE_INIT;
+static pthread_mutex_t init_mutex = PTHREAD_MUTEX_INITIALIZER;
+static bool ever_initialized = false;
+
 int init_raft(const char* server_desc) {
-    std::string ip_str(FLAGS_raft_ip);
-    int start_port = FLAGS_raft_start_port;
-    int end_port = FLAGS_raft_end_port;
-
-    if (server_desc) {
-        int index = 0;
-        for (base::StringMultiSplitter sp(server_desc, ":-"); sp != NULL; ++sp) {
-            if (index == 0) {
-                ip_str = std::string(sp.field(), sp.length());
-            } else if (index == 1) {
-                std::string port_str(sp.field(), sp.length());
-                start_port = atoi(port_str.c_str());
-            } else if (index == 2) {
-                std::string port_str(sp.field(), sp.length());
-                end_port = atoi(port_str.c_str());
-            }
-            index ++;
-        }
-        if (index == 2) {
-            end_port = start_port;
-        }
-        if (index > 3 || end_port < start_port) {
-            LOG(WARNING) << "server description format faield: " << server_desc;
-            return EINVAL;
-        }
+    BAIDU_SCOPED_LOCK(init_mutex);
+    if (ever_initialized) {
+        return 1;
     }
+    if (init_storage() != 0) {
+        LOG(FATAL) << "Fail to init storage";
+        return -1;
+    }
+    if (server_desc != NULL) {
+        FLAGS_raft_ip_and_port = server_desc;
+    }
+    std::string ip_str("0.0.0.0");
+    int start_port = 0;
+    int end_port = 0;
+    int index = 0;
+    for (base::StringMultiSplitter 
+            sp(FLAGS_raft_ip_and_port.c_str(), ":-"); sp != NULL; ++sp) {
+        if (index == 0) {
+            ip_str.assign(sp.field(), sp.length());
+        } else if (index == 1) {
+            if (sp.to_int(&start_port) != 0) {
+                index = 0;
+                break;
+            }
+        } else if (index == 2) {
+            if (sp.to_int(&end_port) != 0) {
+                index = 0;
+                break;
+            }
+        }
+        index ++;
+    }
+    if (index == 2) {
+        end_port = start_port;
+    }
+    if (index < 2 || index > 3 || end_port < start_port) {
+        LOG(WARNING) << "bad server description format : " << server_desc;
+        return EINVAL;
+    }
+    if (NodeManager::GetInstance()->init(ip_str.c_str(), start_port, end_port) != 0) {
+        return -1;
+    }
+    ever_initialized = true;
+    return 0;
+}
 
-    if (0 != pthread_once(&register_storage_once, init_storage)) {
-        LOG(FATAL) << "pthread_once failed";
+void global_init_or_dir_impl() {
+    if (init_raft(NULL) < 0) {
+        LOG(FATAL) << "Fail to init raft";
         exit(1);
     }
+}
 
-    return NodeManager::GetInstance()->init(ip_str.c_str(), start_port, end_port);
+void global_init_or_dir() {
+    if (pthread_once(&global_init_once, global_init_or_dir_impl) != 0) {
+        PLOG(FATAL) << "Fail to pthread_once";
+        exit(1);
+    }
 }
 
 int StateMachine::on_snapshot_save(SnapshotWriter* writer, Closure* done) {

@@ -24,9 +24,6 @@
 #include <base/iobuf.h>
 #include "raft/configuration.h"
 
-DECLARE_string(raft_ip);
-DECLARE_int32(raft_start_port);
-DECLARE_int32(raft_end_port);
 namespace raft {
 
 class LogEntry;

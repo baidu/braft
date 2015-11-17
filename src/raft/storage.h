@@ -163,7 +163,7 @@ struct Storage {
 };
 
 // init storage
-void init_storage();
+int init_storage();
 
 // register storage
 int register_storage(const std::string& uri, const Storage& storage);

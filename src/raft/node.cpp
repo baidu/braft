@@ -31,6 +31,8 @@
 
 namespace raft {
 
+extern void global_init_or_dir();
+
 NodeImpl::NodeImpl(const GroupId& group_id, const ReplicaId& replica_id)
     : _group_id(group_id),
     _state(SHUTDOWN), _current_term(0),
@@ -40,7 +42,8 @@ NodeImpl::NodeImpl(const GroupId& group_id, const ReplicaId& replica_id)
     _log_storage(NULL), _stable_storage(NULL), _snapshot_storage(NULL),
     _config_manager(NULL), _log_manager(NULL),
     _fsm_caller(NULL), _commit_manager(NULL) {
-
+    
+        global_init_or_dir();
         _server_id = PeerId(NodeManager::GetInstance()->address(), replica_id);
         AddRef();
         bthread_mutex_init(&_mutex, NULL);
@@ -1657,15 +1660,12 @@ int NodeImpl::increase_term_to(int64_t new_term) {
 }
 
 NodeManager::NodeManager() {
-    bthread_mutex_init(&_mutex, NULL);
 }
 
 NodeManager::~NodeManager() {
-    bthread_mutex_destroy(&_mutex);
 }
 
 int NodeManager::init(const char* ip_str, int start_port, int end_port) {
-    std::lock_guard<bthread_mutex_t> guard(_mutex);
     if (_address.ip != base::IP_ANY) {
         LOG(ERROR) << "Raft has be inited";
         return EINVAL;
@@ -1693,41 +1693,36 @@ int NodeManager::init(const char* ip_str, int start_port, int end_port) {
     return 0;
 }
 
-base::EndPoint NodeManager::address() {
-    std::lock_guard<bthread_mutex_t> guard(_mutex);
+size_t NodeManager::_add_node(NodeMap& m, const NodeImpl* node) {
+    NodeId node_id = node->node_id();
+    std::pair<NodeMap::iterator, bool> ret = m.insert(
+            NodeMap::value_type(node_id, const_cast<NodeImpl*>(node)));
+    return ret.second ? 1 : 0;
+}
 
-    return _address;
+size_t NodeManager::_remove_node(NodeMap& m, const NodeImpl* node) {
+    return m.erase(node->node_id());
 }
 
 bool NodeManager::add(NodeImpl* node) {
-    std::lock_guard<bthread_mutex_t> guard(_mutex);
-
-    NodeId node_id = node->node_id();
-    NodeMap::iterator it = _nodes.find(node_id);
-    bool success = true;
-    if (it == _nodes.end()) {
-        _nodes.insert(std::pair<NodeId, NodeImpl*>(node_id, node));
-    } else {
-        success = false;
-    }
-    return success;
+    return _nodes.Modify(_add_node, node) != 0;
 }
 
-void NodeManager::remove(NodeImpl* node) {
-    std::lock_guard<bthread_mutex_t> guard(_mutex);
-
-    _nodes.erase(node->node_id());
+bool NodeManager::remove(NodeImpl* node) {
+    return _nodes.Modify(_remove_node, node) != 0;
 }
 
 scoped_refptr<NodeImpl> NodeManager::get(const GroupId& group_id, const PeerId& peer_id) {
-    std::lock_guard<bthread_mutex_t> guard(_mutex);
-
-    NodeMap::iterator it = _nodes.find(NodeId(group_id, peer_id));
-    if (it != _nodes.end()) {
-        return make_scoped_refptr(it->second);
-    } else {
-        return scoped_refptr<NodeImpl>();
+    base::DoublyBufferedData<NodeMap>::ScopedPtr ptr;
+    scoped_refptr<NodeImpl> ret;
+    if (_nodes.Read(&ptr) != 0) {
+        return ret;
     }
+    NodeMap::const_iterator it = ptr->find(NodeId(group_id, peer_id));
+    if (it != ptr->end()) {
+        ret = it->second;
+    }
+    return ret;
 }
 
 }

@@ -30,7 +30,7 @@ namespace raft {
 const int MAX_STORAGE_SIZE = 16;
 static Storage s_storage_map[MAX_STORAGE_SIZE];
 
-void init_storage() {
+int init_storage() {
     Storage local_storage = {
         "file",
         create_local_log_storage,
@@ -40,8 +40,9 @@ void init_storage() {
 
     if (0 != register_storage("file://", local_storage)) {
         LOG(FATAL) << "register storage failed, storage file";
-        exit(1);
+        return -1;
     }
+    return 0;
 }
 
 int register_storage(const std::string& uri, const Storage& storage) {

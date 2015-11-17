@@ -61,12 +61,6 @@ int main(int argc, char* argv[]) {
         peers.push_back(peer);
     }
 
-    // init raft
-    if (0 != raft::init_raft(NULL)) {
-        LOG(FATAL) << "Fail to init raft";
-        return -1;
-    }
-
     // init counter
     counter::Counter* counter = new counter::Counter(FLAGS_name, 0);
     raft::NodeOptions node_options;

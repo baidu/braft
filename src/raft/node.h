@@ -22,6 +22,7 @@
 #include <base/atomic_ref_count.h>
 #include <base/memory/ref_counted.h>
 #include <base/memory/singleton.h>
+#include <base/containers/doubly_buffered_data.h>
 #include <base/iobuf.h>
 #include <baidu/rpc/server.h>
 
@@ -96,7 +97,7 @@ friend class RaftServiceImpl;
 public:
     NodeImpl(const GroupId& group_id, const ReplicaId& replica_id);
 
-    NodeId node_id() {
+    NodeId node_id() const {
         return NodeId(_group_id, _server_id);
     }
 
@@ -301,13 +302,13 @@ public:
 
     int init(const char* ip_str, int start_port, int end_port);
 
-    base::EndPoint address();
+    base::EndPoint address() const { return _address; }
 
     // add raft node
     bool add(NodeImpl* node);
 
     // remove raft node
-    void remove(NodeImpl* node);
+    bool remove(NodeImpl* node);
 
     // get node by group_id and peer_id
     scoped_refptr<NodeImpl> get(const GroupId& group_id, const PeerId& peer_id);
@@ -317,10 +318,14 @@ private:
     ~NodeManager();
     DISALLOW_COPY_AND_ASSIGN(NodeManager);
     friend struct DefaultSingletonTraits<NodeManager>;
-
-    bthread_mutex_t _mutex;
+    
+    // TODO(chenzhangyi01): replace std::map with FlatMap
     typedef std::map<NodeId, NodeImpl*> NodeMap;
-    NodeMap _nodes;
+    // Functor to modify DBD
+    static size_t _add_node(NodeMap&, const NodeImpl* node);
+    static size_t _remove_node(NodeMap&, const NodeImpl* node);
+
+    base::DoublyBufferedData<NodeMap> _nodes;
 
     base::EndPoint _address;
     baidu::rpc::Server _server;
