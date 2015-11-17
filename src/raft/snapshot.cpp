@@ -25,6 +25,7 @@
 #include "raft/local_storage.pb.h"
 #include "raft/remote_path_copier.h"
 #include "raft/snapshot.h"
+#include "raft/node.h"
 
 #define RAFT_SNAPSHOT_PATTERN "snapshot_%020ld"
 
@@ -68,16 +69,13 @@ int LocalSnapshotWriter::copy(const std::string& uri) {
             break;
         }
 
-        std::string temp_path(_path);
-        temp_path.append("/");
-        temp_path.append(LocalSnapshotStorage::_s_temp_path);
-
-        ret = copier.init(remote_addr, temp_path);
+        ret = copier.init(remote_addr);
         if (0 != ret) {
             LOG(WARNING) << "LocalSnapshotWriter copy failed, path " << _path << " uri " << uri;
             break;
         }
 
+        LOG(INFO) << "copy from " << remote_addr << " " << remote_path << " to " << _path;
         ret = copier.copy(remote_path, _path, NULL);
         if (0 != ret) {
             LOG(WARNING) << "LocalSnapshotWriter copy failed, path " << _path << " uri " << uri;
@@ -161,7 +159,13 @@ int LocalSnapshotReader::load_meta(SnapshotMeta* meta) {
 }
 
 std::string LocalSnapshotReader::get_uri() {
-    return std::string("file://") + _path;
+    std::string snapshot_uri("file://");
+    base::EndPoint addr = NodeManager::GetInstance()->address();
+    CHECK(addr.port != 0);
+    snapshot_uri.append(base::endpoint2str(addr).c_str());
+    snapshot_uri.append("/");
+    snapshot_uri.append(_path);
+    return snapshot_uri;
 }
 
 LocalSnapshotStorage::LocalSnapshotStorage(const std::string& path)
@@ -286,6 +290,11 @@ int LocalSnapshotStorage::close(SnapshotWriter* writer_) {
         std::string new_path(_path);
         base::string_appendf(&new_path, "/" RAFT_SNAPSHOT_PATTERN, new_index);
 
+        if (!base::DeleteFile(base::FilePath(new_path), true)) {
+            LOG(WARNING) << "delete new snapshot path failed, path " << new_path;
+            ret = EIO;
+            break;
+        }
         if (0 != ::rename(temp_path.c_str(), new_path.c_str())) {
             LOG(WARNING) << "rename temp snapshot failed, from_path " << temp_path
                 << " to_path " << new_path;

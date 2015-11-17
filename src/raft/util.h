@@ -32,6 +32,7 @@
 #include <bthread.h>
 #include "raft/macros.h"
 
+#ifdef USE_BTHREAD
 namespace std {
 
 template <> class lock_guard<bthread_mutex_t> {
@@ -66,6 +67,7 @@ private:
 };
 
 }  // namespace std
+#endif
 
 namespace base {
 

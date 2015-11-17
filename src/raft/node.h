@@ -204,6 +204,8 @@ private:
 
     // candidate/follower sync append log entry
     int append(const std::vector<LogEntry*>& entries);
+
+    void do_snapshot(Closure* done);
 private:
     enum State {
         LEADER = 1,

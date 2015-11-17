@@ -30,8 +30,16 @@ std::string fileuri2path(const std::string& uri) {
             path = uri;
         }
     } else {
-        path.assign(uri, prefix_found + strlen("file://"),
-                    uri.size() - (prefix_found + strlen("file://")));
+        // file://data -> data
+        // file://./data/log -> data/log
+        // file://data/log -> data/log
+        // file://1.2.3.4:5678/data/log -> data/log
+        // file://www.baidu.com:80/data/log -> data/log
+        base::EndPoint addr;
+        if (0 != fileuri_parse(uri, &addr, &path)) {
+            std::size_t cursor = prefix_found + strlen("file://");
+            path.assign(uri, cursor, uri.size() - cursor);
+        }
     }
 
     return path;

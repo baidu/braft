@@ -12,6 +12,7 @@
 #include <bthread/execution_queue.h>
 
 #include "raft/raft.h"
+#include "raft/util.h"
 
 namespace raft {
 
@@ -24,6 +25,7 @@ struct LogManagerOptions {
 
 class NodeImpl;
 class LeaderStableClosure;
+class SnapshotMeta;
 class BAIDU_CACHELINE_ALIGNMENT LogManager {
 public:
     LogManager();
@@ -54,6 +56,7 @@ public:
     //  success return 0, failed return -1
     int truncate_suffix(const int64_t last_index_kept);
 
+    void set_snapshot(const SnapshotMeta* meta);
     // Get the log at |index|
     // Returns:
     //  success return ptr, fail return null
@@ -112,6 +115,8 @@ private:
     // TODO(chenzhangyi01): replace deque with a thread-safe data struture
     std::deque<LogEntry* /*FIXME*/> _logs_in_memory;
     int64_t _last_log_index;
+    int64_t _last_snapshot_index;
+    int64_t _last_snapshot_term;
 
     bthread::ExecutionQueueId<LeaderStableClosure*> _leader_disk_queue;
     bool _leader_disk_thread_running;

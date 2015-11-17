@@ -73,9 +73,11 @@ int main(int argc, char* argv[]) {
     node_options.election_timeout = 5000;
     node_options.fsm = counter;
     node_options.conf = raft::Configuration(peers);
+    node_options.snapshot_interval = 30;
     node_options.log_uri = "file://./data/log";
-    node_options.snapshot_uri = "file://./data/snapshot";
     node_options.stable_uri = "file://./data/stable";
+    node_options.snapshot_uri = "file://./data/snapshot";
+
     if (0 != counter->init(node_options)) {
         LOG(FATAL) << "Fail to init node";
         return -1;

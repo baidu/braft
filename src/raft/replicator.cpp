@@ -207,7 +207,16 @@ void Replicator::_on_rpc_returned(ReplicatorId id, baidu::rpc::Controller* cntl,
     if (bthread_id_lock(dummy_id, (void**)&r) != 0) {
         return;
     }
+
+    RAFT_VLOG << "node " << r->_options.group_id << ":" << r->_options.server_id << " received "
+        << ((request->entries_size() != 0) ? "AppendEntriesResponse" : "HeartbeatResponse")
+        << " from " << r->_options.peer_id << " prev_log_index " << request->prev_log_index()
+        << " prev_log_term " << request->prev_log_term() << " count " << request->entries_size()
+        << noflush;
+
     if (cntl->Failed()) {
+        RAFT_VLOG << " fail, sleep.";
+
         // TODO: Should it be VLOG?
         LOG(WARNING) << "Fail to issue RPC to " << r->_options.peer_id
                      << ", " << cntl->ErrorText();
@@ -217,8 +226,12 @@ void Replicator::_on_rpc_returned(ReplicatorId id, baidu::rpc::Controller* cntl,
         // dummy_id is unlock in block
         return r->_block(start_time_us, cntl->ErrorCode());
     }
+
     if (!response->success()) {
         if (response->term() > r->_options.term) {
+            RAFT_VLOG << " fail, greater term " << response->term()
+                << " expect term " << r->_options.term;
+
             NodeImpl *node_impl = r->_options.node;
             // Acquire a reference of Node here in case that Node is detroyed
             // after _notify_on_caught_up. Not increase reference count in
@@ -230,6 +243,9 @@ void Replicator::_on_rpc_returned(ReplicatorId id, baidu::rpc::Controller* cntl,
             node_impl->Release();
             return;
         }
+        RAFT_VLOG << " fail, find next_index remote last_log_index " << response->last_log_index()
+            << " local next_index " << r->_next_index;
+
         // prev_log_index and prev_log_term doesn't match
         if (response->last_log_index() + 1 < r->_next_index) {
             LOG(INFO) << "last_log_index at peer=" << r->_options.peer_id 
@@ -252,6 +268,9 @@ void Replicator::_on_rpc_returned(ReplicatorId id, baidu::rpc::Controller* cntl,
         r->_send_heartbeat();
         return;
     }
+
+    RAFT_VLOG << " success";
+
     CHECK_EQ(response->term(), r->_options.term);
     r->_last_response_timestamp = base::monotonic_time_ms();
     if (r->_installing_snapshot) {
@@ -427,6 +446,11 @@ void Replicator::_install_snapshot() {
         request->add_peers(iter->to_string());
     }
     request->set_uri(uri);
+
+    RAFT_VLOG << "InstallSnapshot to " << _options.group_id << ":" << _options.peer_id
+        << " term " << _options.term << " last_included_term " << meta.last_included_index
+        << " last_included_index " << meta.last_included_term << " uri " << uri;
+
     google::protobuf::Closure* done = google::protobuf::NewCallback<
                 ReplicatorId, baidu::rpc::Controller*,
                 InstallSnapshotRequest*, InstallSnapshotResponse*>(
@@ -452,20 +476,30 @@ void Replicator::_on_install_snapshot_returned(
     if (bthread_id_lock(dummy_id, (void**)&r) != 0) {
         return;
     }
+    RAFT_VLOG << "received InstallSnapshotResponse from "
+        << r->_options.group_id << ":" << r->_options.peer_id
+        << " last_included_index " << request->last_included_log_index()
+        << " last_included_term " << request->last_included_log_term()
+        << noflush;
     do {
         if (cntl->Failed()) {
             LOG(WARNING) << "Fail to install snapshot at peer=" 
                          << r->_options.peer_id
                          <<", " << cntl->ErrorText();
+            RAFT_VLOG << " error: " << cntl->ErrorText() << noflush;
             break;
         }
         if (!response->success()) {
+            RAFT_VLOG << " fail." << noflush;
             // Let hearbeat do step down
             break;
         }
         // Success 
         r->_next_index = request->last_included_log_index() + 1;
+        RAFT_VLOG << " success." << noflush;
     } while (0);
+
+    RAFT_VLOG;
     // We don't retry installing the snapshot explicitly. 
     r->_installing_snapshot = false;
     CHECK_EQ(0, bthread_id_unlock(dummy_id)) 

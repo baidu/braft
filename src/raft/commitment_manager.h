@@ -12,6 +12,7 @@
 #include <boost/atomic.hpp>                     // boost::atomic
 #include <bthread.h>                            // bthread_mutex_t
 #include "raft/raft.h"
+#include "raft/util.h"
 
 namespace raft {
 

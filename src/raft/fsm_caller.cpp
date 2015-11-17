@@ -153,11 +153,21 @@ int FSMCaller::on_snapshot_save(SaveSnapshotDone* done) {
 void FSMCaller::do_snapshot_save(SaveSnapshotDone* done) {
     CHECK(done);
 
+#if 0
+    // no data change between snapshot
+    if (_last_applied_index == _log_manager->last_snapshot_index()) {
+        LOG(INFO) << "no data change between snapshot, skip snapshot_save";
+        done->Run();
+        return;
+    }
+#endif
+
     SnapshotMeta meta;
     meta.last_included_index = _last_applied_index;
     meta.last_included_term = _last_applied_term;
     ConfigurationPair pair = _log_manager->get_configuration(_last_applied_index);
-    CHECK(pair.first > 0);
+    CHECK(pair.first > 0) << "last_applied_index " << _last_applied_index
+        << " last_applied_term " << _last_applied_term << " pair.first " << pair.first;
     meta.last_configuration = pair.second;
 
     SnapshotWriter* writer = done->start(meta);

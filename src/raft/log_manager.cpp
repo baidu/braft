@@ -12,6 +12,7 @@
 #include "raft/util.h"
 #include "raft/storage.h"
 #include "raft/node.h"
+#include "raft/util.h"
 
 namespace raft {
 
@@ -22,6 +23,8 @@ LogManagerOptions::LogManagerOptions()
 LogManager::LogManager()
     : _log_storage(NULL), _config_manager(NULL),
     _last_log_index(0),
+    _last_snapshot_index(0),
+    _last_snapshot_term(0),
     _leader_disk_thread_running(false),
     _stopped(false)
 {
@@ -247,6 +250,15 @@ int LogManager::leader_disk_run(void* meta,
     return 0;
 }
 
+void LogManager::set_snapshot(const SnapshotMeta* meta) {
+    std::lock_guard<bthread_mutex_t> guard(_mutex);
+
+    _last_snapshot_index = meta->last_included_index;
+    _last_snapshot_term = meta->last_included_term;
+
+    _config_manager->set_snapshot(meta->last_included_index, meta->last_configuration);
+}
+
 LogEntry* LogManager::get_entry_from_memory(const int64_t index) {
     LogEntry* entry = NULL;
     if (!_logs_in_memory.empty()) {
@@ -263,7 +275,12 @@ int64_t LogManager::get_term(const int64_t index) {
     if (index == 0) {
         return 0;
     }
+
     std::lock_guard<bthread_mutex_t> guard(_mutex);
+    // check index equal snapshot_index, return snapshot_term
+    if (index == _last_snapshot_index) {
+        return _last_snapshot_term;
+    }
 
     LogEntry* entry = get_entry_from_memory(index);
     if (entry) {

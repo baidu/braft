@@ -56,11 +56,13 @@ void ConfigurationManager::set_snapshot(const int64_t index, const Configuration
 ConfigurationPair ConfigurationManager::get_configuration(
         const int64_t last_included_index) {
     if (_configurations.empty()) {
-        return std::pair<int64_t, Configuration>(0, Configuration());
+        //return std::pair<int64_t, Configuration>(0, Configuration());
+        return _snapshot;
     }
     ConfigurationMap::iterator it = _configurations.upper_bound(last_included_index);
     if (it == _configurations.begin()) {
-        return std::pair<int64_t, Configuration>(0, Configuration());
+        //return std::pair<int64_t, Configuration>(0, Configuration());
+        return _snapshot;
     }
     --it;
     return *it;

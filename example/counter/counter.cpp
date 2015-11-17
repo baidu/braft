@@ -83,18 +83,25 @@ void Counter::on_shutdown() {
 
 int Counter::on_snapshot_save(raft::SnapshotWriter* writer, raft::Closure* done) {
     baidu::rpc::ClosureGuard done_guard(done);
-    SnapshotInfo info;
-    info.set_value(_value);
 
     std::string snapshot_path = raft::fileuri2path(writer->get_uri());
+    snapshot_path.append("/data");
+
+    LOG(INFO) << "snapshot_save to " << snapshot_path;
+
+    SnapshotInfo info;
+    info.set_value(_value);
     raft::ProtoBufFile pb_file(snapshot_path);
     return pb_file.save(&info, true);
 }
 
 int Counter::on_snapshot_load(raft::SnapshotReader* reader) {
     std::string snapshot_path = raft::fileuri2path(reader->get_uri());
-    raft::ProtoBufFile pb_file(snapshot_path);
+    LOG(INFO) << "uri: " << reader->get_uri() << " snapshot path: " << snapshot_path;
+    snapshot_path.append("/data");
 
+    LOG(INFO) << "snapshot_load from " << snapshot_path;
+    raft::ProtoBufFile pb_file(snapshot_path);
     SnapshotInfo info;
     int ret = pb_file.load(&info);
     if (0 == ret) {

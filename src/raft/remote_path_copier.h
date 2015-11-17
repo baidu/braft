@@ -22,7 +22,7 @@ struct CopyOptions {
 class RemotePathCopier {
 public:
     RemotePathCopier() {}
-    int init(base::EndPoint remote_side, const std::string& tmp_dir);
+    int init(base::EndPoint remote_side);
     int copy(const std::string& source, const std::string& dest_dir,
              const CopyOptions* options);
 private:

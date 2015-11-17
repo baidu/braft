@@ -17,22 +17,11 @@ namespace raft {
 DEFINE_int32(raft_max_byte_count_per_rpc, 1024 * 128 /*128K*/,
              "Maximum of block size per RPC");
 
-int RemotePathCopier::init(base::EndPoint remote_side,
-                           const std::string& tmp_dir) {
-    base::FilePath tmp_path(tmp_dir);
-    if (!base::DirectoryExists(tmp_path)) {
-        base::File::Error error;
-        if (!base::CreateDirectoryAndGetError(tmp_path, &error)) {
-            LOG(WARNING) << "Fail to create " << tmp_dir << ", "
-                         << base::File::ErrorToString(error);
-            return -1;
-        }
-    }
+int RemotePathCopier::init(base::EndPoint remote_side) {
     if (_channel.Init(remote_side, NULL) != 0) {
         LOG(ERROR) << "Fail to init Channel to " << remote_side;
         return -1;
     }
-    _tmp_dir = tmp_dir;
     return 0;
 }
 
@@ -71,7 +60,7 @@ int RemotePathCopier::_copy_file(const std::string& source, const std::string& d
     }
 }
 
-int RemotePathCopier::copy(const std::string& source, const std::string& dest_dir,
+int RemotePathCopier::copy(const std::string& source, const std::string& dest_path,
                     const CopyOptions* options) {
     CopyOptions opt;
     if (options != NULL) {
@@ -89,50 +78,62 @@ int RemotePathCopier::copy(const std::string& source, const std::string& dest_di
                      << cntl.ErrorText();
         return -1;
     }
-    CHECK(response.path_info_size() > 0);
-    base::FilePath source_path(source);
-    std::string parent_dir = source_path.DirName().AsUTF8Unsafe();
-    for (int i = 0; i < response.path_info_size(); ++i) {
-        const PathInfo& path_info = response.path_info(i);
-        base::StringPiece name(path_info.path());
-        if (name.starts_with(parent_dir)) {
-            name.remove_prefix(parent_dir.length());
-        }
-        base::FilePath tmp_path = base::FilePath(_tmp_dir).Append(name.as_string());
-        if (path_info.is_directory()) {
-            if (!base::DirectoryExists(tmp_path) 
-                    && !base::CreateDirectory(tmp_path)) {
-                LOG(WARNING) << "Fail to create " << tmp_path.AsUTF8Unsafe();
-                return -1;
-            }
-        } else {
-            if (_copy_file(path_info.path(), tmp_path.AsUTF8Unsafe(), opt) != 0) {
-                LOG(WARNING) << "Fail to copy " << path_info.path();
-                return -1;
-            }
-        }
-    }
-    std::string base_name = source_path.BaseName().AsUTF8Unsafe();
-    base::FilePath tmp_path(_tmp_dir);
-    tmp_path = base::FilePath(_tmp_dir).Append(base_name);
-    base::FilePath dest_path = base::FilePath(dest_dir).Append(base_name);
-    if (!base::PathExists(dest_path.DirName())) {
-        if (!base::CreateDirectory(dest_path.DirName())) {
-            LOG(WARNING) << "Fail to create " << dest_path.DirName().AsUTF8Unsafe();
-            return -1;
-        }
-    }
-    if (base::PathExists(dest_path)) {
-        if (!DeleteFile(dest_path, true)) {
-            LOG(WARNING) << "Fail to delete " << dest_path.AsUTF8Unsafe();
-            return -1;
-        }
-    }
-    if (!base::Move(tmp_path, dest_path)) {
-        LOG(WARNING) << "Fail to move " << tmp_path.AsUTF8Unsafe() << " to " 
-                     << dest_path.AsUTF8Unsafe();
+
+    // delete dest path
+    if (!base::DeleteFile(base::FilePath(dest_path), true)) {
+        LOG(WARNING) << "delete path failed, path " << dest_path;
         return -1;
     }
+
+    CHECK(response.path_info_size() > 0);
+    const PathInfo& src_path_info = response.path_info(0);
+    if (src_path_info.is_directory()) {
+        base::FilePath source_path(source);
+        std::string parent_dir = source_path.AsUTF8Unsafe();
+
+        // create local dir
+        if (!base::CreateDirectory(base::FilePath(dest_path))) {
+            LOG(WARNING) << "Fail to create " << dest_path;
+            return -1;
+        }
+
+        // copy files
+        for (int i = 0; i < response.path_info_size(); ++i) {
+            const PathInfo& path_info = response.path_info(i);
+            base::StringPiece name(path_info.path());
+            if (name.starts_with(parent_dir)) {
+                name.remove_prefix(parent_dir.length());
+            }
+            base::FilePath tmp_path = base::FilePath(dest_path).Append(name.as_string());
+            if (path_info.is_directory()) {
+                if (!base::DirectoryExists(tmp_path) 
+                    && !base::CreateDirectory(tmp_path)) {
+                    LOG(WARNING) << "Fail to create " << tmp_path.AsUTF8Unsafe();
+                    return -1;
+                }
+            } else {
+                if (_copy_file(path_info.path(), tmp_path.AsUTF8Unsafe(), opt) != 0) {
+                    LOG(WARNING) << "Fail to copy " << path_info.path();
+                    return -1;
+                }
+            }
+        }
+    } else {
+        CHECK(response.path_info_size() == 1);
+        // create parent dir
+        std::string parent_dir = base::FilePath(dest_path).DirName().AsUTF8Unsafe();
+        if (!base::CreateDirectory(base::FilePath(parent_dir))) {
+            LOG(WARNING) << "Fail to create " << parent_dir;
+            return -1;
+        }
+
+        // copy file
+        if (_copy_file(src_path_info.path(), dest_path, opt) != 0) {
+            LOG(WARNING) << "Fail to copy " << src_path_info.path();
+            return -1;
+        }
+    }
+
     return 0;
 }
 
