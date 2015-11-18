@@ -91,8 +91,10 @@ int FSMCaller::on_committed(int64_t committed_index, void *context) {
 void FSMCaller::do_committed(int64_t committed_index, Closure* done) {
     int64_t last_applied_index = _last_applied_index.load(boost::memory_order_relaxed);
 
-    CHECK((done == NULL && committed_index > last_applied_index) ||
-          (done != NULL && committed_index == (last_applied_index + 1)));
+    // some uncommitted logs will be committed when follower become leader
+    // and append a new log success. done only call when index equal committed_index
+    RAFT_VLOG << "do_committed " << committed_index;
+    CHECK(committed_index > last_applied_index);
 
     for (int64_t index = last_applied_index + 1; index <= committed_index; ++index) {
         LogEntry *entry = _log_manager->get_entry(index);
@@ -105,13 +107,17 @@ void FSMCaller::do_committed(int64_t committed_index, Closure* done) {
         switch (entry->type) {
         case ENTRY_TYPE_DATA:
             //TODO: use result instead of done
-            _fsm->on_apply(entry->data, index, done);
+            if (index == committed_index) {
+                _fsm->on_apply(entry->data, index, done);
+            } else {
+                _fsm->on_apply(entry->data, index, NULL);
+            }
             break;
         case ENTRY_TYPE_ADD_PEER:
         case ENTRY_TYPE_REMOVE_PEER:
             // Notify that configuration change is successfully executed
             _node->on_configuration_change_done(entry->type, *(entry->peers));
-            if (done) {
+            if (done && index == committed_index) {
                 done->Run();
             }
             break;
@@ -213,6 +219,15 @@ void FSMCaller::do_snapshot_load(InstallSnapshotDone* done) {
         return;
     }
 
+    SnapshotMeta meta;
+    ret = reader->load_meta(&meta);
+    if (0 != ret) {
+        done->set_error(ret, "SnapshotReader load_meta failed.");
+        done->Run();
+        return;
+    }
+
+    _last_applied_index.store(meta.last_included_index, boost::memory_order_release);
     done->Run();
 }
 
@@ -225,6 +240,7 @@ public:
         }
         delete this;
     }
+private:
     StateMachine* _fsm;
 };
 

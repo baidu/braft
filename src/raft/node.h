@@ -287,7 +287,8 @@ public:
         return Singleton<NodeManager>::get();
     }
 
-    int init(const char* ip_str, int start_port, int end_port);
+    int init(const char* ip_str, int start_port, int end_port,
+             baidu::rpc::Server* server, baidu::rpc::ServerOptions* options);
 
     base::EndPoint address() const { return _address; }
 
@@ -315,7 +316,7 @@ private:
     base::DoublyBufferedData<NodeMap> _nodes;
 
     base::EndPoint _address;
-    baidu::rpc::Server _server;
+    baidu::rpc::Server* _server;
     RaftServiceImpl _service_impl;
 };
 

@@ -3,15 +3,17 @@
 
 WORKROOT('../../../../')
 
-CFLAGS('-g -O2 -pipe -W -Wall -fPIC')
+CFLAGS('-g -O0 -pipe -W -Wall -fPIC')
 
-CXXFLAGS('-g -O2 -pipe -W -Wall -fPIC')
+CXXFLAGS('-g -O0 -pipe -W -Wall -fPIC')
+CXXFLAGS('-fPIC -fsanitize=address  -fno-omit-frame-pointer')
 CPPFLAGS('-D__const__= ')
 
 INCPATHS('../../src')
 
 ImportConfigsFrom('../..')
 LDFLAGS('-lpthread -lrt -ldl -lz')
+LDFLAGS('-lasan')
 
 PROTOC('../../../../third-64/protobuf/bin/protoc')
 LIBS('../../output/lib/libraft.a')

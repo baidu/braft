@@ -473,11 +473,11 @@ void NodeImpl::on_configuration_change_done(const EntryType type,
     std::lock_guard<bthread_mutex_t> guard(_mutex);
 
     if (type == ENTRY_TYPE_ADD_PEER) {
-        LOG(INFO) << "node " << _group_id << ":" << _server_id << " add_peer to "
-            << _conf.second << " success.";
+        LOG(INFO) << "node " << _group_id << ":" << _server_id << " add_peer from "
+            << Configuration(_conf_ctx.peers) << " to " << _conf.second << " success.";
     } else if (type == ENTRY_TYPE_REMOVE_PEER) {
-        LOG(INFO) << "node " << _group_id << ":" << _server_id << " remove_peer to "
-            << _conf.second << " success.";
+        LOG(INFO) << "node " << _group_id << ":" << _server_id << " remove_peer from "
+            << Configuration(_conf_ctx.peers) << " to " << _conf.second << " success.";
 
         ConfigurationCtx old_conf_ctx = _conf_ctx;
         // remove_peer will stop peer replicator or shutdown
@@ -507,60 +507,60 @@ static void on_peer_caught_up(void* arg, const PeerId& pid, const int error_code
 }
 
 void NodeImpl::on_caughtup(const PeerId& peer, int error_code, Closure* done) {
-    std::lock_guard<bthread_mutex_t> guard(_mutex);
+    {
+        std::lock_guard<bthread_mutex_t> guard(_mutex);
 
-    if (error_code == 0) {
+        if (error_code == 0) {
+            LOG(INFO) << "node " << _group_id << ":" << _server_id << " add_peer " << peer
+                << " to " << _conf.second << ", caughtup "
+                << "success, then append add_peer entry.";
+            // add peer to _conf after new peer catchup
+            Configuration new_conf(_conf.second);
+            new_conf.add_peer(peer);
+
+            LogEntry* entry = new LogEntry();
+            entry->term = _current_term;
+            entry->type = ENTRY_TYPE_ADD_PEER;
+            entry->peers = new std::vector<PeerId>;
+            new_conf.peer_vector(entry->peers);
+            append(entry, done);
+            return;
+        }
+
+        if (error_code == ETIMEDOUT &&
+            (base::monotonic_time_ms() -  _replicator_group.last_response_timestamp(peer)) <=
+            _options.election_timeout) {
+
+            LOG(INFO) << "node " << _group_id << ":" << _server_id << " catching up " << peer;
+
+            AddRef();
+            OnCaughtUp caught_up;
+            timespec due_time = base::microseconds_from_now(_options.election_timeout);
+            caught_up.on_caught_up = on_peer_caught_up;
+            caught_up.done = done;
+            caught_up.arg = this;
+            caught_up.min_margin = 1000; //TODO0
+
+            if (0 == _replicator_group.wait_caughtup(peer, caught_up, &due_time)) {
+                return;
+            } else {
+                LOG(ERROR) << "node " << _group_id << ":" << _server_id
+                    << " wait_caughtup failed, peer " << peer;
+                Release();
+            }
+        }
+
         LOG(INFO) << "node " << _group_id << ":" << _server_id << " add_peer " << peer
             << " to " << _conf.second << ", caughtup "
-            << "success, then append add_peer entry.";
-        // add peer to _conf after new peer catchup
-        Configuration new_conf(_conf.second);
-        new_conf.add_peer(peer);
+            << "failed: " << error_code;
 
-        LogEntry* entry = new LogEntry();
-        entry->term = _current_term;
-        entry->type = ENTRY_TYPE_ADD_PEER;
-        entry->peers = new std::vector<PeerId>;
-        new_conf.peer_vector(entry->peers);
-        append(entry, done);
-        return;
+        _conf_ctx.reset();
+        _replicator_group.stop_replicator(peer);
     }
 
-    if (error_code == ETIMEDOUT &&
-        (base::monotonic_time_ms() -  _replicator_group.last_response_timestamp(peer)) <=
-        _options.election_timeout) {
-
-        LOG(INFO) << "node " << _group_id << ":" << _server_id << " catching up " << peer;
-
-        AddRef();
-        OnCaughtUp caught_up;
-        timespec due_time = base::microseconds_from_now(_options.election_timeout);
-        caught_up.on_caught_up = on_peer_caught_up;
-        caught_up.done = done;
-        caught_up.arg = this;
-        caught_up.min_margin = 1000; //TODO0
-
-        if (0 == _replicator_group.wait_caughtup(peer, caught_up, &due_time)) {
-            return;
-        } else {
-            LOG(ERROR) << "node " << _group_id << ":" << _server_id
-                << " wait_caughtup failed, peer " << peer;
-            Release();
-        }
-    }
-
-    LOG(INFO) << "node " << _group_id << ":" << _server_id << " add_peer " << peer
-        << " to " << _conf.second << ", caughtup "
-        << "failed: " << error_code;
-
-    // call user function, on_caught_up run in bthread created in replicator
-    Configuration old_conf(_conf_ctx.peers);
+    // call add_peer done when fail
     done->set_error(error_code, "caughtup failed");
     done->Run();
-    _conf_ctx.reset();
-
-    // stop_replicator after call user function, make bthread_id in replicator available
-    _replicator_group.stop_replicator(peer);
 }
 
 static void on_stepdown_timer(void* arg) {
@@ -1389,9 +1389,6 @@ int NodeImpl::handle_append_entries_request(base::IOBuf& data_buf,
             _leader_id = server_id;
         }
 
-        // not loading snapshot, install snapshot
-        CHECK(NULL == _loading_snapshot_meta);
-
         // check prev log gap
         if (request->prev_log_index() > _log_manager->last_log_index()) {
             LOG(WARNING) << "node " << _group_id << ":" << _server_id
@@ -1415,6 +1412,9 @@ int NodeImpl::handle_append_entries_request(base::IOBuf& data_buf,
                 break;
             }
         }
+
+        // not loading snapshot, install snapshot
+        CHECK(0 == request->entries_size() && NULL == _loading_snapshot_meta);
 
         success = true;
 
@@ -1676,33 +1676,42 @@ int NodeImpl::increase_term_to(int64_t new_term) {
     return 0;
 }
 
-NodeManager::NodeManager() {
+NodeManager::NodeManager() : _server(NULL) {
 }
 
 NodeManager::~NodeManager() {
 }
 
-int NodeManager::init(const char* ip_str, int start_port, int end_port) {
+int NodeManager::init(const char* ip_str, int start_port, int end_port,
+                      baidu::rpc::Server* server, baidu::rpc::ServerOptions* options) {
     if (_address.ip != base::IP_ANY) {
         LOG(ERROR) << "Raft has be inited";
         return EINVAL;
     }
 
+    if (server) {
+        _server = server;
+    } else {
+        _server = new baidu::rpc::Server;
+    }
     baidu::rpc::ServerOptions server_options;
-    if (0 != _server.AddService(new FileServiceImpl, baidu::rpc::SERVER_OWNS_SERVICE)) {
+    if (options) {
+        server_options = *options;
+    }
+    if (0 != _server->AddService(new FileServiceImpl, baidu::rpc::SERVER_OWNS_SERVICE)) {
         LOG(ERROR) << "Add File Service Failed.";
         return EINVAL;
     }
-    if (0 != _server.AddService(&_service_impl, baidu::rpc::SERVER_DOESNT_OWN_SERVICE)) {
+    if (0 != _server->AddService(&_service_impl, baidu::rpc::SERVER_DOESNT_OWN_SERVICE)) {
         LOG(ERROR) << "Add Raft Service Failed.";
         return EINVAL;
     }
-    if (0 != _server.Start(ip_str, start_port, end_port, &server_options)) {
+    if (0 != _server->Start(ip_str, start_port, end_port, &server_options)) {
         LOG(ERROR) << "Start Raft Server Failed.";
         return EINVAL;
     }
 
-    _address = _server.listen_address();
+    _address = _server->listen_address();
     if (_address.ip == base::IP_ANY) {
         _address.ip = base::get_host_ip();
     }

@@ -1,9 +1,9 @@
 #!/bin/bash
 #===============================================================================
 #
-#          FILE:  run.sh
+#          FILE:  run_server.sh
 # 
-#         USAGE:  ./run.sh 
+#         USAGE:  ./run_server.sh 
 # 
 #   DESCRIPTION:  
 # 
@@ -20,13 +20,13 @@
 
 IP=`hostname -i`
 cd runtime/0
-./counter_server -verbose=90 -port=8500 -raft_ip_and_port="0.0.0.0:8100" -peers="${IP}:8100:0,${IP}:8101:0,${IP}:8102:0" > std.log 2>&1 &
+./counter_server -verbose=90 -ip_and_port="0.0.0.0:8100" -peers="${IP}:8100:0,${IP}:8101:0,${IP}:8102:0" > std.log 2>&1 &
 cd -
 
 cd runtime/1
-./counter_server -verbose=90 -port=8501 -raft_ip_and_port="0.0.0.0:8101" -peers="${IP}:8100:0,${IP}:8101:0,${IP}:8102:0" > std.log 2>&1 &
+./counter_server -verbose=90 -ip_and_port="0.0.0.0:8101" -peers="${IP}:8100:0,${IP}:8101:0,${IP}:8102:0" > std.log 2>&1 &
 cd -
 
 cd runtime/2
-./counter_server -verbose=90 -port=8502 -raft_ip_and_port="0.0.0.0:8102" -peers="${IP}:8100:0,${IP}:8101:0,${IP}:8102:0" > std.log 2>&1 &
+./counter_server -verbose=90 -ip_and_port="0.0.0.0:8102" -peers="${IP}:8100:0,${IP}:8101:0,${IP}:8102:0" > std.log 2>&1 &
 cd -

@@ -56,6 +56,7 @@ struct PeerId {
     }
 
     int parse(const std::string& str) {
+        reset();
         char ip_str[64];
         //
         //char port_str[16];
@@ -69,7 +70,7 @@ struct PeerId {
         //addr.port = atoi(port_str);
         //idx = atoi(idx_str);
         //
-        if (3 != sscanf(str.c_str(), "%[^:]%*[:]%d%*[:]%d", ip_str, &addr.port, &idx)) {
+        if (2 > sscanf(str.c_str(), "%[^:]%*[:]%d%*[:]%d", ip_str, &addr.port, &idx)) {
             reset();
             return -1;
         }

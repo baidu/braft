@@ -180,6 +180,9 @@ int LogManager::append_entries(const std::vector<LogEntry*>& entries) {
         entries[i]->index = _last_log_index + 1 + i;
     }
 
+    RAFT_VLOG << "follower append " << entries[0]->index
+        << "-" << entries[0]->index + entries.size() - 1;
+
     int ret = _log_storage->append_entries(entries);
     if (static_cast<size_t>(ret) == entries.size()) {
         ret = 0;
@@ -206,6 +209,8 @@ void LogManager::append_entry(
     if (log_entry->type == ENTRY_TYPE_ADD_PEER || log_entry->type == ENTRY_TYPE_REMOVE_PEER) {
         _config_manager->add(log_entry->index, Configuration(*(log_entry->peers)));
     }
+
+    RAFT_VLOG << "leader append " << log_entry->index;
 
     CHECK(_leader_disk_thread_running);
     // signal leader disk
@@ -264,6 +269,7 @@ LogEntry* LogManager::get_entry_from_memory(const int64_t index) {
     if (!_logs_in_memory.empty()) {
         int64_t first_index = _logs_in_memory.front()->index;
         int64_t last_index = _logs_in_memory.back()->index;
+        CHECK_EQ(last_index - first_index + 1, _logs_in_memory.size());
         if (index >= first_index && index <= last_index) {
             entry = _logs_in_memory.at(index - first_index);
         }

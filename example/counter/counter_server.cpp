@@ -24,7 +24,7 @@
 #include "counter.h"
 #include "raft/util.h"
 
-DEFINE_int32(port, 8000, "TCP Port of CounterServer");
+DEFINE_string(ip_and_port, "0.0.0.0:8000", "server listen address");
 DEFINE_string(name, "test", "Counter Name");
 DEFINE_string(peers, "", "cluster peer set");
 
@@ -40,18 +40,27 @@ int main(int argc, char* argv[]) {
     logging::ComlogSinkOptions options;
     options.async = true;
     options.process_name = "counter_server";
+    options.print_vlog_as_warning = false;
     if (logging::ComlogSink::GetInstance()->Setup(&options) != 0) {
         LOG(ERROR) << "Fail to setup comlog";
         return -1;
     }
     logging::SetLogSink(logging::ComlogSink::GetInstance());
 
-#if 0
-    int ret = com_loadlog(".", "comlog.conf");
-    if (ret != 0) {
-        fprintf(stderr, "com_loadlog failed\n");
+    // add service
+    baidu::rpc::Server server;
+    counter::CounterServiceImpl service_impl(NULL);
+    if (0 != server.AddService(&service_impl, baidu::rpc::SERVER_DOESNT_OWN_SERVICE)) {
+        LOG(FATAL) << "Fail to AddService";
+        return -1;
     }
-#endif
+
+    // init raft and server
+    baidu::rpc::ServerOptions server_options;
+    if (0 != raft::init_raft(FLAGS_ip_and_port.c_str(), &server, &server_options)) {
+        LOG(FATAL) << "Fail to init raft";
+        return -1;
+    }
 
     // init peers
     std::vector<raft::PeerId> peers;
@@ -66,7 +75,7 @@ int main(int argc, char* argv[]) {
     raft::NodeOptions node_options;
     node_options.election_timeout = 5000;
     node_options.fsm = counter;
-    node_options.conf = raft::Configuration(peers);
+    node_options.conf = raft::Configuration(peers); // bootstrap need
     node_options.snapshot_interval = 30;
     node_options.log_uri = "file://./data/log";
     node_options.stable_uri = "file://./data/stable";
@@ -78,20 +87,7 @@ int main(int argc, char* argv[]) {
     }
     LOG(NOTICE) << "init Node at " << counter->self();
 
-    // add service
-    counter::CounterServiceImpl service_impl(counter);
-    baidu::rpc::Server server;
-    if (0 != server.AddService(&service_impl, baidu::rpc::SERVER_DOESNT_OWN_SERVICE)) {
-        LOG(FATAL) << "Fail to AddService";
-        return -1;
-    }
-
-    // server start
-    baidu::rpc::ServerOptions server_options;
-    if (0 != server.Start(FLAGS_port, &server_options)) {
-        LOG(FATAL) << "Fail to Start";
-        return -1;
-    }
+    service_impl.set_counter(counter);
 
     signal(SIGINT, sigint_handler);
     while (!g_signal_quit) {

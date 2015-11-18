@@ -1,16 +1,67 @@
 package counter;
 option cc_generic_services = true;
 
-message AddRequest {
+// snapshot meta
+message SnapshotInfo {
     required int64 value = 1;
 };
 
-message AddResponse {
+// operation request/response
+message SetPeerRequest {
+    repeated string old_peers = 1;
+    repeated string new_peers = 2;
+};
+
+message SetPeerResponse {
     required bool success = 1;
     optional string leader = 2;
 };
 
+message StatsRequest {
+};
+
+message StatsResponse {
+    required string state = 1;
+    required int64 term = 2;
+    required int64 last_log_index = 3;
+    required int64 last_log_term = 4;
+    required int64 committed_index = 5;
+    required int64 applied_index = 6;
+    required int64 last_snapshot_index = 7;
+    required int64 last_snapshot_term = 8;
+    repeated string peers = 9;
+};
+
+message ShutdownRequest {
+};
+
+message ShutdownResponse {
+    required bool success = 1;
+};
+
+
+message SnapshotRequest {
+};
+
+message SnapshotResponse {
+    required bool success = 1;
+};
+
+// logic request/response
+message FetchAndAddRequest {
+    required int64 req_id = 1;
+    required int64 value = 2;
+};
+
+message FetchAndAddResponse {
+    required bool success = 1;
+    optional int64 value = 2;
+    optional int64 index = 3;
+    optional string leader = 4;
+};
+
 message GetRequest {
+    optional int64 index = 1;
 };
 
 message GetResponse {
@@ -19,11 +70,13 @@ message GetResponse {
     optional string leader = 3;
 };
 
-message SnapshotInfo {
-    required int64 value = 1;
-};
-
+// service
 service CounterService {
-    rpc add(AddRequest) returns (AddResponse);
+    rpc fetch_and_add(FetchAndAddRequest) returns (FetchAndAddResponse);
     rpc get(GetRequest) returns (GetResponse);
+
+    rpc set_peer(SetPeerRequest) returns (SetPeerResponse);
+    rpc stats(StatsRequest) returns (StatsResponse);
+    rpc shutdown(ShutdownRequest) returns (ShutdownResponse);
+    rpc snapshot(SnapshotRequest) returns (SnapshotResponse);
 };

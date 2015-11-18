@@ -566,6 +566,8 @@ void Replicator::_on_catch_up_timedout(void* arg) {
         return;
     }
     r->_notify_on_caught_up(ETIMEDOUT, false);
+    CHECK_EQ(0, bthread_id_unlock(id)) 
+            << "Fail to unlock" << id;
 }
 
 // ==================== ReplicatorGroup ==========================

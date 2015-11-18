@@ -30,16 +30,39 @@ public:
     CounterServiceImpl(Counter* counter);
     virtual ~CounterServiceImpl();
 
+    void set_counter(Counter* counter) {
+        _counter = counter;
+    }
 
     // rpc method
-    virtual void add(google::protobuf::RpcController* controller,
-                     const AddRequest* request,
-                     AddResponse* response,
+    virtual void fetch_and_add(google::protobuf::RpcController* controller,
+                     const FetchAndAddRequest* request,
+                     FetchAndAddResponse* response,
                      google::protobuf::Closure* done);
 
     virtual void get(google::protobuf::RpcController* controller,
                      const GetRequest* request,
                      GetResponse* response,
+                     google::protobuf::Closure* done);
+
+    virtual void set_peer(google::protobuf::RpcController* controller,
+                     const SetPeerRequest* request,
+                     SetPeerResponse* response,
+                     google::protobuf::Closure* done);
+
+    virtual void stats(google::protobuf::RpcController* controller,
+                     const StatsRequest* request,
+                     StatsResponse* response,
+                     google::protobuf::Closure* done);
+
+    virtual void shutdown(google::protobuf::RpcController* controller,
+                     const ShutdownRequest* request,
+                     ShutdownResponse* response,
+                     google::protobuf::Closure* done);
+
+    virtual void snapshot(google::protobuf::RpcController* controller,
+                     const SnapshotRequest* request,
+                     SnapshotResponse* response,
                      google::protobuf::Closure* done);
 
 private:

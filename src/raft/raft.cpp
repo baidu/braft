@@ -42,7 +42,8 @@ static pthread_once_t global_init_once = PTHREAD_ONCE_INIT;
 static pthread_mutex_t init_mutex = PTHREAD_MUTEX_INITIALIZER;
 static bool ever_initialized = false;
 
-int init_raft(const char* server_desc) {
+int init_raft(const char* server_desc,
+              baidu::rpc::Server* server, baidu::rpc::ServerOptions* options) {
     BAIDU_SCOPED_LOCK(init_mutex);
     if (ever_initialized) {
         return 1;
@@ -82,7 +83,8 @@ int init_raft(const char* server_desc) {
         LOG(WARNING) << "bad server description format : " << server_desc;
         return EINVAL;
     }
-    if (NodeManager::GetInstance()->init(ip_str.c_str(), start_port, end_port) != 0) {
+    if (NodeManager::GetInstance()->init(ip_str.c_str(), start_port, end_port,
+                                         server, options) != 0) {
         return -1;
     }
     ever_initialized = true;
@@ -90,7 +92,7 @@ int init_raft(const char* server_desc) {
 }
 
 void global_init_or_dir_impl() {
-    if (init_raft(NULL) < 0) {
+    if (init_raft(NULL, NULL, NULL) < 0) {
         LOG(FATAL) << "Fail to init raft";
         exit(1);
     }

@@ -11,7 +11,8 @@ example/counter/counter_client.cpp -text
 example/counter/counter_server.cpp -text
 example/counter/counter_service.cpp -text
 example/counter/counter_service.h -text
-example/counter/run.sh -text
+example/counter/run_client.sh -text
+example/counter/run_server.sh -text
 example/counter/start.sh -text
 example/counter/stop.sh -text
 protocol/raft/errno.proto -text

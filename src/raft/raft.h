@@ -24,6 +24,13 @@
 #include <base/iobuf.h>
 #include "raft/configuration.h"
 
+namespace baidu {
+namespace rpc {
+class Server;
+class ServerOptions;
+}
+}
+
 namespace raft {
 
 class LogEntry;
@@ -182,7 +189,8 @@ private:
     NodeImpl* _impl;
 };
 
-int init_raft(const char* server_desc);
+int init_raft(const char* server_desc,
+              baidu::rpc::Server* server, baidu::rpc::ServerOptions* options);
 
 };
 

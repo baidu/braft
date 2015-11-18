@@ -30,10 +30,18 @@ TEST_F(TestUsageSuits, PeerId) {
     raft::PeerId id1;
     ASSERT_TRUE(id1.is_empty());
 
-    ASSERT_NE(0, id1.parse("1.1.1.1:1000:"));
+    ASSERT_NE(0, id1.parse("1.1.1.1::"));
     ASSERT_TRUE(id1.is_empty());
 
+    ASSERT_EQ(0, id1.parse("1.1.1.1:1000:"));
+    LOG(NOTICE) << "id:" << id1.to_string();
+    LOG(NOTICE) << "id:" << id1;
+
     ASSERT_EQ(0, id1.parse("1.1.1.1:1000:0"));
+    LOG(NOTICE) << "id:" << id1.to_string();
+    LOG(NOTICE) << "id:" << id1;
+
+    ASSERT_EQ(0, id1.parse("1.1.1.1:1000"));
     LOG(NOTICE) << "id:" << id1.to_string();
     LOG(NOTICE) << "id:" << id1;
 
@@ -112,8 +120,8 @@ TEST_F(TestUsageSuits, ConfigurationManager) {
     ASSERT_EQ(20, conf_manager->last_configuration_index());
 
     conf_manager->truncate_prefix(25);
-    ASSERT_EQ(20, conf_manager->last_configuration_index());
+    ASSERT_EQ(0, conf_manager->last_configuration_index());
 
     raft::ConfigurationPair pair = conf_manager->last_configuration();
-    ASSERT_EQ(pair.first, 20);
+    ASSERT_EQ(pair.first, 0);
 }

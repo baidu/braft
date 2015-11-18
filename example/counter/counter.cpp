@@ -20,21 +20,88 @@
 #include "baidu/rpc/closure_guard.h"
 #include "counter.pb.h"
 #include "counter.h"
-#include "raft/util.h"
 #include "raft/protobuf_file.h"
 #include "raft/storage.h"
 
 namespace counter {
 
 Counter::Counter(const raft::GroupId& group_id, const raft::ReplicaId& replica_id)
-    : StateMachine(), _node(group_id, replica_id), _value(0) {
+    : StateMachine(), _node(group_id, replica_id), _value(0), _is_leader(false) {
+    bthread_mutex_init(&_mutex, NULL);
 }
 
 Counter::~Counter() {
+    bthread_mutex_destroy(&_mutex);
 }
 
 int Counter::init(const raft::NodeOptions& options) {
     return _node.init(options);
+}
+
+raft::NodeStats Counter::stats() {
+    return _node.stats();
+}
+
+static int diff_peers(const std::vector<raft::PeerId>& old_peers,
+                  const std::vector<raft::PeerId>& new_peers, raft::PeerId* peer) {
+    raft::Configuration old_conf(old_peers);
+    raft::Configuration new_conf(new_peers);
+    LOG(TRACE) << "diff conf, old: " << old_conf << " new: " << new_conf;
+    if (old_peers.size() == new_peers.size() - 1 && new_conf.contain(old_peers)) {
+        // add peer
+        for (size_t i = 0; i < old_peers.size(); i++) {
+            new_conf.remove_peer(old_peers[i]);
+        }
+        std::vector<raft::PeerId> peers;
+        new_conf.peer_vector(&peers);
+        CHECK_EQ(1, peers.size());
+        *peer = peers[0];
+        return 0;
+    } else if (old_peers.size() == new_peers.size() + 1 && old_conf.contain(new_peers)) {
+        // remove peer
+        for (size_t i = 0; i < new_peers.size(); i++) {
+            old_conf.remove_peer(new_peers[i]);
+        }
+        std::vector<raft::PeerId> peers;
+        old_conf.peer_vector(&peers);
+        CHECK_EQ(1, peers.size());
+        *peer = peers[0];
+        return 0;
+    } else {
+        return -1;
+    }
+}
+
+void Counter::set_peer(const std::vector<raft::PeerId>& old_peers,
+                  const std::vector<raft::PeerId>& new_peers, raft::Closure* done) {
+    raft::PeerId peer;
+    if (new_peers.size() == old_peers.size() + 1) {
+        if (0 == diff_peers(old_peers, new_peers, &peer)) {
+            LOG(TRACE) << "add peer " << peer;
+            _node.add_peer(old_peers, peer, done);
+        } else {
+            done->set_error(EINVAL, "add_peer invalid peers");
+            done->Run();
+        }
+    } else if (old_peers.size() == new_peers.size() + 1) {
+        if (0 == diff_peers(old_peers, new_peers, &peer)) {
+            LOG(TRACE) << "remove peer " << peer;
+            _node.remove_peer(old_peers, peer, done);
+        } else {
+            done->set_error(EINVAL, "remove_peer invalid peers");
+            done->Run();
+        }
+    } else {
+        int ret = _node.set_peer(old_peers, new_peers);
+        if (ret != 0) {
+            done->set_error(ret, "set_peer failed");
+        }
+        done->Run();
+    }
+}
+
+void Counter::snapshot(raft::Closure* done) {
+    _node.snapshot(done);
 }
 
 void Counter::shutdown(raft::Closure* done) {
@@ -49,8 +116,10 @@ base::EndPoint Counter::self() {
     return _node.node_id().peer_id.addr;
 }
 
-void Counter::add(int64_t value, raft::Closure* done) {
-    AddRequest request;
+void Counter::fetch_and_add(int64_t value, FetchAndAddDone* done) {
+    //TODO: set req_id
+    FetchAndAddRequest request;
+    request.set_req_id(0);
     request.set_value(value);
     base::IOBuf data;
     base::IOBufAsZeroCopyOutputStream wrapper(&data);
@@ -59,26 +128,48 @@ void Counter::add(int64_t value, raft::Closure* done) {
     _node.apply(data, done);
 }
 
-int Counter::get(int64_t* value_ptr) {
-    *value_ptr = _value;
-    return 0;
+int Counter::get(int64_t* value_ptr, const int64_t index) {
+    std::lock_guard<bthread_mutex_t> guard(_mutex);
+    if (_is_leader) {
+        *value_ptr = _value;
+        return 0;
+    } else if (index >= _applied_index) {
+        *value_ptr = _value;
+        return 0;
+    } else {
+        return EPERM;
+    }
 }
 
 void Counter::on_apply(const base::IOBuf &data, const int64_t index, raft::Closure* done) {
     baidu::rpc::ClosureGuard done_guard(done);
 
-    LOG(NOTICE) << "apply " << index;
-    AddRequest request;
+    FetchAndAddRequest request;
     base::IOBufAsZeroCopyInputStream wrapper(data);
     request.ParseFromZeroCopyStream(&wrapper);
 
+    std::lock_guard<bthread_mutex_t> guard(_mutex);
+
+    LOG(NOTICE) << "fetch_and_add, index: " << index
+        << " val: " << request.value() << " ret: " << _value;
+
+    // fetch
+    if (done) {
+        //FetchAndAddDone* fetch_and_add_done = dynamic_cast<FetchAndAddDone*>(done);
+        FetchAndAddDone* fetch_and_add_done = (FetchAndAddDone*)done;
+        fetch_and_add_done->set_result(_value, index);
+    }
+    // add
     _value += request.value();
+
+    _applied_index = index;
 }
 
 void Counter::on_shutdown() {
     //TODO:
-    LOG(ERROR) << "Not Implement";
-    delete this;
+    LOG(ERROR) << "on_shutdown";
+    exit(1);
+    //delete this;
 }
 
 int Counter::on_snapshot_save(raft::SnapshotWriter* writer, raft::Closure* done) {
@@ -87,7 +178,7 @@ int Counter::on_snapshot_save(raft::SnapshotWriter* writer, raft::Closure* done)
     std::string snapshot_path = raft::fileuri2path(writer->get_uri());
     snapshot_path.append("/data");
 
-    LOG(INFO) << "snapshot_save to " << snapshot_path;
+    LOG(INFO) << "on_snapshot_save to " << snapshot_path;
 
     SnapshotInfo info;
     info.set_value(_value);
@@ -97,10 +188,9 @@ int Counter::on_snapshot_save(raft::SnapshotWriter* writer, raft::Closure* done)
 
 int Counter::on_snapshot_load(raft::SnapshotReader* reader) {
     std::string snapshot_path = raft::fileuri2path(reader->get_uri());
-    LOG(INFO) << "uri: " << reader->get_uri() << " snapshot path: " << snapshot_path;
     snapshot_path.append("/data");
 
-    LOG(INFO) << "snapshot_load from " << snapshot_path;
+    LOG(INFO) << "on_snapshot_load from " << snapshot_path;
     raft::ProtoBufFile pb_file(snapshot_path);
     SnapshotInfo info;
     int ret = pb_file.load(&info);
@@ -111,13 +201,13 @@ int Counter::on_snapshot_load(raft::SnapshotReader* reader) {
 }
 
 void Counter::on_leader_start() {
-    //TODO
-    LOG(ERROR) << "on_leader_start Not Implement";
+    LOG(INFO) << "on_leader_start, can accept get";
+    _is_leader = true;
 }
 
 void Counter::on_leader_stop() {
-    //TODO
-    LOG(ERROR) << "on_leader_stop Not Implement";
+    LOG(INFO) << "on_leader_stop, can't accept get";
+    _is_leader = false;
 }
 
 }
