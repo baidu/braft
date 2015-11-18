@@ -40,6 +40,9 @@ public:
     int on_snapshot_save(SaveSnapshotDone* done);
     Closure* on_leader_start();
     int on_leader_stop();
+    int64_t last_applied_index() {
+        return _last_applied_index.load(boost::memory_order_relaxed);
+    }
 private:
     static int run(void* meta, google::protobuf::Closure** const tasks[], size_t tasks_size);
     void do_shutdown(Closure* done);
@@ -53,7 +56,7 @@ private:
     NodeImpl *_node;
     LogManager *_log_manager;
     StateMachine *_fsm;
-    int64_t _last_applied_index;
+    boost::atomic<int64_t> _last_applied_index;
     int64_t _last_applied_term;
 };
 

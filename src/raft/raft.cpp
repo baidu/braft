@@ -140,6 +140,10 @@ PeerId Node::leader_id() {
     return _impl->leader_id();
 }
 
+NodeStats Node::stats() {
+    return _impl->stats();
+}
+
 int Node::init(const NodeOptions& options) {
     return _impl->init(options);
 }

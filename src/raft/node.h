@@ -106,6 +106,8 @@ public:
         return _leader_id;
     }
 
+    NodeStats stats();
+
     // public user api
     //
     // init node
@@ -208,21 +210,6 @@ private:
 
     void do_snapshot(Closure* done);
 private:
-    enum State {
-        LEADER = 1,
-        CANDIDATE = 2,
-        FOLLOWER = 3,
-        SHUTDOWN = 4,
-        STATE_END = 5,
-    };
-    const char* State2Str(State state) {
-        const char* str[] = {"LEADER", "CANDIDATE", "FOLLOWER", "SHUTDOWN"};
-        if (state < STATE_END) {
-            return str[(int)state - 1];
-        } else {
-            return "UNKNOWN";
-        }
-    }
     struct VoteCtx {
         size_t needed;
         std::set<PeerId> granted;

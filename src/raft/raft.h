@@ -81,6 +81,39 @@ protected:
     virtual ~StateMachine() {}
 };
 
+enum State {
+    LEADER = 1,
+    CANDIDATE = 2,
+    FOLLOWER = 3,
+    SHUTDOWN = 4,
+    STATE_END = 5,
+};
+
+inline const char* state2str(State state) {
+    const char* str[] = {"LEADER", "CANDIDATE", "FOLLOWER", "SHUTDOWN"};
+    if (state < STATE_END) {
+        return str[(int)state - 1];
+    } else {
+        return "UNKNOWN";
+    }
+}
+
+struct NodeStats {
+    State state;
+    int64_t term;
+    int64_t last_log_index;
+    int64_t last_log_term;
+    int64_t committed_index;
+    int64_t applied_index;
+    int64_t last_snapshot_index;
+    int64_t last_snapshot_term;
+    Configuration configuration;
+
+    NodeStats() : state(SHUTDOWN), term(0), last_log_index(0), last_log_term(0),
+            committed_index(0), applied_index(0), last_snapshot_index(0), last_snapshot_term(0) {
+    }
+};
+
 struct NodeOptions {
     int election_timeout; //ms, follower to candidate timeout
     int snapshot_interval; // s, snapshot interval. 0 is disable internal snapshot timer
@@ -112,6 +145,9 @@ public:
 
     // init node
     int init(const NodeOptions& options);
+
+    // get stats
+    NodeStats stats();
 
     // shutdown local replica
     // done is user defined function, maybe response to client or clean some resource

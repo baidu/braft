@@ -54,7 +54,7 @@ int FSMCaller::init(const FSMCallerOptions &options) {
     _node = options.node;
     _log_manager = options.log_manager;
     _fsm = options.fsm;
-    _last_applied_index = options.last_applied_index;
+    _last_applied_index.store(options.last_applied_index, boost::memory_order_release);
 
     bthread::execution_queue_start(&_queue,
                                    NULL, /*queue_options*/
@@ -89,10 +89,12 @@ int FSMCaller::on_committed(int64_t committed_index, void *context) {
 }
 
 void FSMCaller::do_committed(int64_t committed_index, Closure* done) {
-    CHECK((done == NULL && committed_index > _last_applied_index) ||
-          (done != NULL && committed_index == (_last_applied_index + 1)));
+    int64_t last_applied_index = _last_applied_index.load(boost::memory_order_relaxed);
 
-    for (int64_t index = _last_applied_index + 1; index <= committed_index; ++index) {
+    CHECK((done == NULL && committed_index > last_applied_index) ||
+          (done != NULL && committed_index == (last_applied_index + 1)));
+
+    for (int64_t index = last_applied_index + 1; index <= committed_index; ++index) {
         LogEntry *entry = _log_manager->get_entry(index);
         if (entry == NULL) {
             CHECK(done == NULL);
@@ -119,7 +121,7 @@ void FSMCaller::do_committed(int64_t committed_index, Closure* done) {
             CHECK(false) << "Unknown entry type" << entry->type;
         }
 
-        _last_applied_index = index;
+        _last_applied_index.store(index, boost::memory_order_release);
         _last_applied_term = entry->term;
         // Release: get_entry ref 1, leader append ref quorum
         // leader clear memory when both leader and quorum(inlcude leader or not) stable
@@ -162,11 +164,13 @@ void FSMCaller::do_snapshot_save(SaveSnapshotDone* done) {
     }
 #endif
 
+    int64_t last_applied_index = _last_applied_index.load(boost::memory_order_relaxed);
+
     SnapshotMeta meta;
-    meta.last_included_index = _last_applied_index;
+    meta.last_included_index = last_applied_index;
     meta.last_included_term = _last_applied_term;
-    ConfigurationPair pair = _log_manager->get_configuration(_last_applied_index);
-    CHECK(pair.first > 0) << "last_applied_index " << _last_applied_index
+    ConfigurationPair pair = _log_manager->get_configuration(last_applied_index);
+    CHECK(pair.first > 0) << "last_applied_index " << last_applied_index
         << " last_applied_term " << _last_applied_term << " pair.first " << pair.first;
     meta.last_configuration = pair.second;
 

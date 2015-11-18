@@ -83,6 +83,23 @@ NodeImpl::~NodeImpl() {
     }
 }
 
+NodeStats NodeImpl::stats() {
+    std::lock_guard<bthread_mutex_t> guard(_mutex);
+
+    NodeStats stats;
+    stats.state = _state;
+    stats.term = _current_term;
+    stats.last_log_index = _log_manager->last_log_index();
+    stats.last_log_term = last_log_term();
+    stats.committed_index = _commit_manager->last_committed_index();
+    stats.applied_index = _fsm_caller->last_applied_index();
+    stats.last_snapshot_index = _last_snapshot_index;
+    stats.last_snapshot_term = _last_snapshot_term;
+    stats.configuration = _conf.second;
+
+    return stats;
+}
+
 void NodeImpl::on_snapshot_load_done() {
     std::lock_guard<bthread_mutex_t> guard(_mutex);
 
@@ -560,7 +577,7 @@ void NodeImpl::handle_stepdown_timeout() {
     if (_state != LEADER) {
         RAFT_VLOG << "node " << _group_id << ":" << _server_id
             << " term " << _current_term << " stop stepdown_timer"
-            << " state not in LEADER but " << State2Str(_state);
+            << " state not in LEADER but " << state2str(_state);
         return;
     }
 
@@ -839,7 +856,7 @@ void NodeImpl::shutdown(Closure* done) {
     std::lock_guard<bthread_mutex_t> guard(_mutex);
 
     LOG(INFO) << "node " << _group_id << ":" << _server_id << " shutdown,"
-        " current_term " << _current_term << " state " << State2Str(_state);
+        " current_term " << _current_term << " state " << state2str(_state);
 
     // check state
     CHECK(_state != SHUTDOWN);
@@ -935,7 +952,7 @@ void NodeImpl::handle_request_vote_response(const PeerId& peer_id, const int64_t
     if (_state != CANDIDATE) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
             << " received invalid RequestVoteResponse from " << peer_id
-            << " state not in CANDIDATE but " << State2Str(_state);
+            << " state not in CANDIDATE but " << state2str(_state);
         return;
     }
     // check stale response
@@ -1074,7 +1091,7 @@ void NodeImpl::elect_self() {
 // in lock
 void NodeImpl::step_down(const int64_t term) {
     LOG(INFO) << "node " << _group_id << ":" << _server_id
-        << " term " << _current_term << " stepdown from " << State2Str(_state)
+        << " term " << _current_term << " stepdown from " << state2str(_state)
         << " new_term " << term;
 
     if (_state == CANDIDATE) {

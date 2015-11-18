@@ -38,7 +38,9 @@ void RaftServiceImpl::request_vote(google::protobuf::RpcController* cntl_base,
         return;
     }
 
-    NodeImpl* node = NodeManager::GetInstance()->get(request->group_id(), peer_id);
+    scoped_refptr<NodeImpl> node_ptr = NodeManager::GetInstance()->get(request->group_id(),
+                                                                       peer_id);
+    NodeImpl* node = node_ptr.get();
     if (BAIDU_UNLIKELY(!node)) {
         cntl->SetFailed(baidu::rpc::SYS_ENOENT, "peer_id not exist");
         return;
@@ -67,7 +69,9 @@ void RaftServiceImpl::append_entries(google::protobuf::RpcController* cntl_base,
         return;
     }
 
-    NodeImpl* node = NodeManager::GetInstance()->get(request->group_id(), peer_id);
+    scoped_refptr<NodeImpl> node_ptr = NodeManager::GetInstance()->get(request->group_id(),
+                                                                       peer_id);
+    NodeImpl* node = node_ptr.get();
     if (BAIDU_UNLIKELY(!node)) {
         cntl->SetFailed(baidu::rpc::SYS_ENOENT, "peer_id not exist");
         return;
@@ -97,7 +101,9 @@ void RaftServiceImpl::install_snapshot(google::protobuf::RpcController* cntl_bas
         return;
     }
 
-    NodeImpl* node = NodeManager::GetInstance()->get(request->group_id(), peer_id);
+    scoped_refptr<NodeImpl> node_ptr = NodeManager::GetInstance()->get(request->group_id(),
+                                                                       peer_id);
+    NodeImpl* node = node_ptr.get();
     if (BAIDU_UNLIKELY(!node)) {
         cntl->SetFailed(baidu::rpc::SYS_ENOENT, "peer_id not exist");
 
