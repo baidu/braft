@@ -324,6 +324,11 @@ void Replicator::_send_heartbeat() {
         return _install_snapshot();
     }
     _rpc_in_fly = cntl->call_id();
+
+    RAFT_VLOG << "node " << _options.group_id << ":" << _options.server_id
+        << " send HeartbeatRequest to " << _options.peer_id << " term " << _options.term
+        << " last_committed_index " << request->committed_index();
+
     google::protobuf::Closure* done = google::protobuf::NewCallback<
         ReplicatorId, baidu::rpc::Controller*, AppendEntriesRequest*,
         AppendEntriesResponse*>(
@@ -383,6 +388,14 @@ void Replicator::_send_entries(long start_time_us) {
     }
 
     _rpc_in_fly = cntl->call_id();
+
+    RAFT_VLOG << "node " << _options.group_id << ":" << _options.server_id
+        << " send AppendEntriesRequest to " << _options.peer_id << " term " << _options.term
+        << " last_committed_index " << request->committed_index()
+        << " prev_log_index " << request->prev_log_index()
+        << " prev_log_term " << request->prev_log_term()
+        << " log_index " << _next_index << " count " << request->entries_size();
+
     google::protobuf::Closure* done = google::protobuf::NewCallback<
         ReplicatorId, baidu::rpc::Controller*, AppendEntriesRequest*,
         AppendEntriesResponse*>(
@@ -447,7 +460,8 @@ void Replicator::_install_snapshot() {
     }
     request->set_uri(uri);
 
-    RAFT_VLOG << "InstallSnapshot to " << _options.group_id << ":" << _options.peer_id
+    RAFT_VLOG << "node " << _options.group_id << ":" << _options.server_id
+        << " send InstallSnapshotRequest to " << _options.peer_id
         << " term " << _options.term << " last_included_term " << meta.last_included_index
         << " last_included_index " << meta.last_included_term << " uri " << uri;
 

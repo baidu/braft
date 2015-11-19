@@ -224,7 +224,7 @@ public:
             LOG(WARNING) << "counter: " << _counter << " snapshot failed: "
                 << _err_code << noflush;
             if (!_err_text.empty()) {
-                LOG(WARNING) << "(" << _err_text << ")";
+                LOG(WARNING) << "(" << _err_text << ")" << noflush;
             }
             LOG(WARNING);
 
@@ -279,7 +279,7 @@ public:
             LOG(WARNING) << "counter: " << _counter << " shutdown failed: "
                 << _err_code << noflush;
             if (!_err_text.empty()) {
-                LOG(WARNING) << "(" << _err_text << ")";
+                LOG(WARNING) << "(" << _err_text << ")" << noflush;
             }
             LOG(WARNING);
 

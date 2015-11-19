@@ -77,6 +77,7 @@ void FSMCaller::do_shutdown(Closure* done) {
     if (done) {
         done->Run();
     }
+    _fsm->on_shutdown();
     // bind lifecycle with node, need AddRef, shutdown is async
     _node->Release();
 }

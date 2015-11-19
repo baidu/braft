@@ -535,7 +535,7 @@ void NodeImpl::on_caughtup(const PeerId& peer, int error_code, Closure* done) {
 
             AddRef();
             OnCaughtUp caught_up;
-            timespec due_time = base::microseconds_from_now(_options.election_timeout);
+            timespec due_time = base::milliseconds_from_now(_options.election_timeout);
             caught_up.on_caught_up = on_peer_caught_up;
             caught_up.done = done;
             caught_up.arg = this;
@@ -627,7 +627,14 @@ void NodeImpl::add_peer(const std::vector<PeerId>& old_peers, const PeerId& peer
         _fsm_caller->on_cleared(0, done, EINVAL);
         return;
     }
-    // check equal
+    // check equal, maybe retry direct return
+    std::vector<PeerId> new_peers(old_peers);
+    new_peers.push_back(peer);
+    if (_conf.second.equal(new_peers)) {
+        _fsm_caller->on_cleared(0, done, 0);
+        return;
+    }
+    // check not equal
     if (!_conf.second.equal(old_peers)) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id << " add_peer dismatch old_peers";
         _fsm_caller->on_cleared(0, done, EINVAL);
@@ -635,7 +642,7 @@ void NodeImpl::add_peer(const std::vector<PeerId>& old_peers, const PeerId& peer
     }
     // check contain
     if (_conf.second.contain(peer)) {
-        LOG(WARNING) << "node " << _group_id << ":" << _server_id << " add_peer old_peers "
+        LOG(WARNING) << "node " << _group_id << ":" << _server_id << " add_peer current peers "
             "contains new_peer";
         _fsm_caller->on_cleared(0, done, EINVAL);
         return;
@@ -654,7 +661,7 @@ void NodeImpl::add_peer(const std::vector<PeerId>& old_peers, const PeerId& peer
     // catch up new peer
     AddRef();
     OnCaughtUp caught_up;
-    timespec due_time = base::microseconds_from_now(_options.election_timeout);
+    timespec due_time = base::milliseconds_from_now(_options.election_timeout);
     caught_up.on_caught_up = on_peer_caught_up;
     caught_up.done = done;
     caught_up.arg = this;
@@ -687,7 +694,16 @@ void NodeImpl::remove_peer(const std::vector<PeerId>& old_peers, const PeerId& p
         _fsm_caller->on_cleared(0, done, EAGAIN);
         return;
     }
-    // check equal
+    // check equal, maybe retry direct return
+    Configuration new_conf(old_peers);
+    new_conf.remove_peer(peer);
+    std::vector<PeerId> new_peers;
+    new_conf.peer_vector(&new_peers);
+    if (_conf.second.equal(new_peers)) {
+        _fsm_caller->on_cleared(0, done, 0);
+        return;
+    }
+    // check not equal
     if (!_conf.second.equal(old_peers)) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
             << " remove_peer dismatch old_peers";
@@ -704,9 +720,6 @@ void NodeImpl::remove_peer(const std::vector<PeerId>& old_peers, const PeerId& p
 
     LOG(INFO) << "node " << _group_id << ":" << _server_id << " remove_peer " << peer
         << " from " << _conf.second;
-
-    Configuration new_conf(_conf.second);
-    new_conf.remove_peer(peer);
 
     // remove peer from _conf when REMOVE_PEER committed, shutdown when remove leader self
     LogEntry* entry = new LogEntry();
@@ -736,7 +749,11 @@ int NodeImpl::set_peer(const std::vector<PeerId>& old_peers, const std::vector<P
             "current conf change";
         return EINVAL;
     }
-    // check equal
+    // check equal, maybe retry direct return
+    if (_conf.second.equal(new_peers)) {
+        return 0;
+    }
+    // check not equal
     if (!_conf.second.equal(std::vector<PeerId>(old_peers))) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id << " set_peer dismatch old_peers";
         return EINVAL;
@@ -1266,6 +1283,7 @@ void NodeImpl::append(LogEntry* entry, Closure* done) {
     //
     //  leader total ref: quorum + 2 (not include get_entry)
     //  follower total ref: 1 (not include get_entry)
+    entry->quorum = quorum;
     entry->AddRef(quorum);
     _log_manager->append_entry(entry, new LeaderStableClosure(NodeId(_group_id, _server_id),
                                                               _commit_manager,
@@ -1413,8 +1431,8 @@ int NodeImpl::handle_append_entries_request(base::IOBuf& data_buf,
             }
         }
 
-        // not loading snapshot, install snapshot
-        CHECK(0 == request->entries_size() && NULL == _loading_snapshot_meta);
+        // not append entries when install snapshot, just heartbeat
+        CHECK(NULL == _loading_snapshot_meta || 0 == request->entries_size());
 
         success = true;
 
