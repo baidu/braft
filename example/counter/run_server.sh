@@ -19,14 +19,17 @@
 #===============================================================================
 
 IP=`hostname -i`
+#VALGRIND="/home/wangyao/opt/bin/valgrind --tool=memcheck --leak-check=full"
+#HAS_VALGRIND="-has_valgrind"
+
 cd runtime/0
-./counter_server -verbose=90 -ip_and_port="0.0.0.0:8100" -peers="${IP}:8100:0,${IP}:8101:0,${IP}:8102:0" > std.log 2>&1 &
+${VALGRIND} ./counter_server ${HAS_VALGRIND} -bthread_concurrency=18 -verbose=90 -ip_and_port="0.0.0.0:8100" -peers="${IP}:8100:0,${IP}:8101:0,${IP}:8102:0" > std.log 2>&1 &
 cd -
 
 cd runtime/1
-./counter_server -verbose=90 -ip_and_port="0.0.0.0:8101" -peers="${IP}:8100:0,${IP}:8101:0,${IP}:8102:0" > std.log 2>&1 &
+${VALGRIND} ./counter_server ${HAS_VALGRIND} -bthread_concurrency=18 -verbose=90 -ip_and_port="0.0.0.0:8101" -peers="${IP}:8100:0,${IP}:8101:0,${IP}:8102:0" > std.log 2>&1 &
 cd -
 
 cd runtime/2
-./counter_server -verbose=90 -ip_and_port="0.0.0.0:8102" -peers="${IP}:8100:0,${IP}:8101:0,${IP}:8102:0" > std.log 2>&1 &
+${VALGRIND} ./counter_server ${HAS_VALGRIND} -bthread_concurrency=18 -verbose=90 -ip_and_port="0.0.0.0:8102" -peers="${IP}:8100:0,${IP}:8101:0,${IP}:8102:0" > std.log 2>&1 &
 cd -

@@ -3,10 +3,10 @@
 
 WORKROOT('../../')
 
-CPPFLAGS('-D_GNU_SOURCE -D__const__= -DNDEBUG')
+CPPFLAGS('-D_GNU_SOURCE -D__const__= -DNDEBUG -D__RAFT_VERSION_ID__=\"\\\"`sh ./version.sh`\\\"\" ')
 CFLAGS('-O0 -g -pipe -Werror -Wall -W -fPIC -Wno-unused-parameter -Wno-strict-aliasing')
 CXXFLAGS('-O0 -g -pipe -Werror -Wall -W -fPIC -Wno-unused-parameter -Wno-strict-aliasing -Wno-invalid-offsetof -D__STDC_CONSTANT_MACROS')
-CXXFLAGS(' -fPIC -fsanitize=address  -fno-omit-frame-pointer')
+#CXXFLAGS(' -fPIC -fsanitize=address  -fno-omit-frame-pointer')
 
 import os
 gcc_version_str = os.popen("gcc -dumpversion").readline().strip().split('.')
@@ -27,7 +27,7 @@ if gcc_version >= 40400:
 
 INCPATHS('./src')
 
-LDFLAGS('-lasan')
+#LDFLAGS('-lasan')
 
 CONFIGS('public/baidu-rpc@ci-base')
 

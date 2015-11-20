@@ -16,6 +16,7 @@
  * =====================================================================================
  */
 
+#include <stdint.h>
 #include <gflags/gflags.h>
 #include <base/string_splitter.h>
 #include <baidu/rpc/channel.h>
@@ -41,6 +42,7 @@ static int64_t rand_int64() {
 
 int stats(base::EndPoint addr) {
     baidu::rpc::ChannelOptions channel_opt;
+    channel_opt.timeout_ms = -1;
     baidu::rpc::Channel channel;
 
     if (channel.Init(addr, &channel_opt) != 0) {
@@ -73,6 +75,7 @@ int stats(base::EndPoint addr) {
 
 int snapshot(base::EndPoint addr) {
     baidu::rpc::ChannelOptions channel_opt;
+    channel_opt.timeout_ms = -1;
     baidu::rpc::Channel channel;
 
     if (channel.Init(addr, &channel_opt) != 0) {
@@ -102,6 +105,7 @@ int snapshot(base::EndPoint addr) {
 
 int shutdown(base::EndPoint addr) {
     baidu::rpc::ChannelOptions channel_opt;
+    channel_opt.timeout_ms = -1;
     baidu::rpc::Channel channel;
 
     if (channel.Init(addr, &channel_opt) != 0) {
@@ -132,6 +136,7 @@ int shutdown(base::EndPoint addr) {
 int set_peer(base::EndPoint addr, const std::vector<raft::PeerId>& old_peers,
              const std::vector<raft::PeerId>& new_peers) {
     baidu::rpc::ChannelOptions channel_opt;
+    channel_opt.timeout_ms = -1;
     baidu::rpc::Channel channel;
 
     if (channel.Init(addr, &channel_opt) != 0) {
@@ -173,6 +178,7 @@ int add_or_remove_peer(const std::vector<raft::PeerId>& old_peers,
 
     while (true) {
         baidu::rpc::ChannelOptions channel_opt;
+        channel_opt.timeout_ms = -1;
         baidu::rpc::Channel channel;
 
         if (channel.Init(leader_addr, &channel_opt) != 0) {
@@ -220,6 +226,7 @@ int fetch_and_add(const std::vector<raft::PeerId>& peers) {
     leader_addr = peers[rr_index++%peers.size()].addr;
     for (int64_t i = 0; FLAGS_fetch_and_add_num == -1 || i < FLAGS_fetch_and_add_num; ) {
         baidu::rpc::ChannelOptions channel_opt;
+        channel_opt.timeout_ms = -1;
         baidu::rpc::Channel channel;
 
         if (channel.Init(leader_addr, &channel_opt) != 0) {
@@ -244,7 +251,8 @@ int fetch_and_add(const std::vector<raft::PeerId>& peers) {
             LOG(WARNING) << "fetch_and_add failed, redirect to " << response.leader();
             base::str2endpoint(response.leader().c_str(), &leader_addr);
         } else {
-            LOG(NOTICE) << "fetch_and_add success to " << leader_addr;
+            LOG(NOTICE) << "fetch_and_add success to " << leader_addr
+                << " index: " << response.index() << " ret: " << response.value();
             i++;
         }
     }

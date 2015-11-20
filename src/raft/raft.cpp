@@ -25,6 +25,8 @@
 
 namespace raft {
 
+static const char* s_libraft_version = "libraft_version_"__RAFT_VERSION_ID__;
+
 DEFINE_string(raft_ip_and_port, "0.0.0.0:8000-9000",
               "Make raft listen to the given address. "
               "format : ip:begin_port[-end_port]");
@@ -44,6 +46,7 @@ static bool ever_initialized = false;
 
 int init_raft(const char* server_desc,
               baidu::rpc::Server* server, baidu::rpc::ServerOptions* options) {
+    s_libraft_version = s_libraft_version; // no used
     BAIDU_SCOPED_LOCK(init_mutex);
     if (ever_initialized) {
         return 1;

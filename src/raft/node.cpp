@@ -1619,8 +1619,10 @@ int NodeImpl::handle_install_snapshot_request(baidu::rpc::Controller* controller
             << " last_included_term " << request->last_included_log_term();
 
         // some check, imposible case
-        CHECK(request->last_included_log_index() > _last_snapshot_index);
-        CHECK(request->last_included_log_index() > _log_manager->last_log_index());
+        CHECK(request->last_included_log_index() > _last_snapshot_index)
+            << " last_snapshot_index " << _last_snapshot_index;
+        CHECK(request->last_included_log_index() > _log_manager->last_log_index())
+            << " last_log_index " << _log_manager->last_log_index();
 
         // start thread do fetch and load snapshot
         SnapshotMeta* meta = new SnapshotMeta();
@@ -1668,6 +1670,10 @@ int NodeImpl::handle_install_snapshot_request(baidu::rpc::Controller* controller
     if (0 != ret) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
             << " term " << _current_term << " snapshot save failed, uri " << request->uri();
+
+        // clear _loading_snapshot_meta when copy snapshot failed
+        delete _loading_snapshot_meta;
+        _loading_snapshot_meta = NULL;
         return ret;
     }
 

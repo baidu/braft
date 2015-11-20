@@ -269,7 +269,7 @@ LogEntry* LogManager::get_entry_from_memory(const int64_t index) {
     if (!_logs_in_memory.empty()) {
         int64_t first_index = _logs_in_memory.front()->index;
         int64_t last_index = _logs_in_memory.back()->index;
-        CHECK_EQ(last_index - first_index + 1, _logs_in_memory.size());
+        CHECK_EQ(last_index - first_index + 1, static_cast<int64_t>(_logs_in_memory.size()));
         if (index >= first_index && index <= last_index) {
             entry = _logs_in_memory.at(index - first_index);
         }
@@ -298,6 +298,11 @@ int64_t LogManager::get_term(const int64_t index) {
 
 LogEntry* LogManager::get_entry(const int64_t index) {
     std::lock_guard<bthread_mutex_t> guard(_mutex);
+
+    // out of range, direct return NULL
+    if (index > _last_log_index) {
+        return NULL;
+    }
 
     LogEntry* entry = get_entry_from_memory(index);
     if (entry) {

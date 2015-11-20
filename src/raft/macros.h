@@ -15,6 +15,8 @@
 #define RAFT_VLOG_IF(cond)  VLOG_IF(89, (cond))
 #define RAFT_VPLOG_IF(cond) VPLOG_IF(89, (cond))
 
+#define USE_BTHREAD
+
 #ifndef USE_BTHREAD
 #define bthread_mutex_t pthread_mutex_t
 #define bthread_mutex_init pthread_mutex_init

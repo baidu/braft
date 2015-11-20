@@ -54,7 +54,7 @@ static int diff_peers(const std::vector<raft::PeerId>& old_peers,
         }
         std::vector<raft::PeerId> peers;
         new_conf.peer_vector(&peers);
-        CHECK_EQ(1, peers.size());
+        CHECK(1 == peers.size());
         *peer = peers[0];
         return 0;
     } else if (old_peers.size() == new_peers.size() + 1 && old_conf.contain(new_peers)) {
@@ -64,7 +64,7 @@ static int diff_peers(const std::vector<raft::PeerId>& old_peers,
         }
         std::vector<raft::PeerId> peers;
         old_conf.peer_vector(&peers);
-        CHECK_EQ(1, peers.size());
+        CHECK(1 == peers.size());
         *peer = peers[0];
         return 0;
     } else {

@@ -3,17 +3,21 @@
 
 WORKROOT('../../../../')
 
+CPPFLAGS('-D__const__=  -D_GNU_SOURCE -D__STDC_LIMIT_MACROS ')
 CFLAGS('-g -O0 -pipe -W -Wall -fPIC')
 
 CXXFLAGS('-g -O0 -pipe -W -Wall -fPIC')
-CXXFLAGS('-fPIC -fsanitize=address  -fno-omit-frame-pointer')
-CPPFLAGS('-D__const__= ')
+#CXXFLAGS('-fPIC -fsanitize=address  -fno-omit-frame-pointer')
 
 INCPATHS('../../src')
 
 ImportConfigsFrom('../..')
+
+CPPFLAGS('-DBAIDU_RPC_ENABLE_CPU_PROFILER -DBAIDU_RPC_ENABLE_HEAP_PROFILER')
+CONFIGS('third-64/tcmalloc@1.7.0.200',Libraries('lib/libtcmalloc_and_profiler.a'))
+
 LDFLAGS('-lpthread -lrt -ldl -lz')
-LDFLAGS('-lasan')
+#LDFLAGS('-lasan')
 
 PROTOC('../../../../third-64/protobuf/bin/protoc')
 LIBS('../../output/lib/libraft.a')

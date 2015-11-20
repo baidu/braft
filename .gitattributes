@@ -68,3 +68,5 @@ src/raft/test/test_stable.cpp -text
 src/raft/test/test_util.cpp -text
 src/raft/util.cpp -text
 src/raft/util.h -text
+/version -text
+/version.sh -text

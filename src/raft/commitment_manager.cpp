@@ -41,12 +41,13 @@ int CommitmentManager::set_stable_at_peer_reentrant(
     BAIDU_SCOPED_LOCK(_mutex);
     RAFT_VLOG << "_pending_index=" << _pending_index << " log_index=" << log_index
         << " peer=" << peer;
-    CHECK(_pending_index > 0);
+    if (_pending_index == 0) {
+        return EINVAL;
+    }
     if (log_index < _pending_index) {
         return 0;
     }
     if (log_index >= _pending_index + (int64_t)_pending_apps.size()) {
-        CHECK(false);
         return ERANGE;
     }
     PendingMeta *pm = _pending_apps.at(log_index - _pending_index);
@@ -68,6 +69,7 @@ int CommitmentManager::set_stable_at_peer_reentrant(
         _pending_apps.pop_front();
         void *saved_context = tmp->context;
         delete tmp;
+
         // FIXME: remove this off the critical section
         _waiter->on_committed(index, saved_context);
     }
@@ -81,9 +83,11 @@ int CommitmentManager::set_stable_at_peer_reentrant(
 int CommitmentManager::clear_pending_applications() {
     BAIDU_SCOPED_LOCK(_mutex);
     // FIXME: should on_cleared be called out of the critical section?
-    for (size_t i = 0; i < _pending_apps.size(); ++i) {
+    size_t pending_size = _pending_apps.size();
+    for (size_t i = 0; i < pending_size; ++i) {
         PendingMeta *pm = _pending_apps.front();
         _pending_apps.pop_front();
+
         _waiter->on_cleared(_pending_index + i, pm->context, -1/*FIXME*/);
         delete pm;
     }
@@ -93,7 +97,8 @@ int CommitmentManager::clear_pending_applications() {
 
 int CommitmentManager::reset_pending_index(int64_t new_pending_index) {
     BAIDU_SCOPED_LOCK(_mutex);
-    CHECK(_pending_index == 0 && _pending_apps.empty());
+    CHECK(_pending_index == 0 && _pending_apps.empty())
+        << "pending_index " << _pending_index << " pending_apps " << _pending_apps.size();
     CHECK(new_pending_index > _last_committed_index.load(
                                     boost::memory_order_relaxed));
     _pending_index = new_pending_index;
