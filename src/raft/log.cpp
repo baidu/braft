@@ -261,6 +261,10 @@ int Segment::load(const base::Callback<void(int64_t, const Configuration&)>& con
             << " old_size: " << file_size << " new_size: " << entry_off;
         ret = ::ftruncate(_fd, entry_off);
     }
+
+    // seek to end, for opening segment
+    ::lseek(_fd, entry_off, SEEK_SET);
+
     _bytes = entry_off;
     return ret;
 }
