@@ -7,7 +7,6 @@
 #define  PUBLIC_RAFT_FSM_CALLER_H
 
 #include <base/macros.h>                        // BAIDU_CACHELINE_ALIGNMENT
-#include <base/containers/linked_list.h>        // base::LinkNode
 #include <bthread.h>
 #include <bthread/execution_queue.h>
 #include "raft/commitment_manager.h"

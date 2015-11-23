@@ -3,6 +3,7 @@
 /COMAKE -text
 /OWNER -text
 example/counter/COMAKE -text
+example/counter/client_req_id.h -text
 example/counter/comlog.conf -text
 example/counter/counter.cpp -text
 example/counter/counter.h -text

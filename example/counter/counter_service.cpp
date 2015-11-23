@@ -67,7 +67,8 @@ void CounterServiceImpl::fetch_and_add(google::protobuf::RpcController* controll
     // node apply
     FetchAndAddDone* fetch_and_add_done = new FetchAndAddDone(_counter, cntl,
                                                               request, response, done);
-    _counter->fetch_and_add(request->value(), fetch_and_add_done);
+    _counter->fetch_and_add(cntl->remote_side().ip.s_addr, request->pid(), request->req_id(),
+                            request->value(), fetch_and_add_done);
 }
 
 void CounterServiceImpl::get(google::protobuf::RpcController* controller,

@@ -23,6 +23,7 @@
 #include <baidu/rpc/controller.h>
 #include "raft/util.h"
 #include "raft/raft.h"
+#include "client_req_id.h"
 
 namespace counter {
 
@@ -76,7 +77,8 @@ public:
     virtual void on_leader_stop();
 
     // user logic method
-    void fetch_and_add(int64_t value, FetchAndAddDone* done);
+    void fetch_and_add(int32_t ip, int32_t pid, int64_t req_id,
+                       int64_t value, FetchAndAddDone* done);
     int get(int64_t* value_ptr, const int64_t index);
 
 private:
@@ -87,6 +89,8 @@ private:
     int64_t _value;
     int64_t _applied_index;
     bool _is_leader;
+
+    CounterDuplicatedRequestCache _duplicated_request_cache;
 };
 
 }

@@ -49,8 +49,10 @@ message SnapshotResponse {
 
 // logic request/response
 message FetchAndAddRequest {
-    required int64 req_id = 1;
-    required int64 value = 2;
+    required int32 ip = 1;
+    required int32 pid = 2;
+    required int64 req_id = 3;
+    required int64 value = 4;
 };
 
 message FetchAndAddResponse {

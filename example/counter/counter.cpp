@@ -23,10 +23,13 @@
 #include "raft/protobuf_file.h"
 #include "raft/storage.h"
 
+DEFINE_int64(max_duplicated_request_cache, 300000, "duplicated request cache maxsize");
+
 namespace counter {
 
 Counter::Counter(const raft::GroupId& group_id, const raft::ReplicaId& replica_id)
-    : StateMachine(), _node(group_id, replica_id), _value(0), _is_leader(false) {
+    : StateMachine(), _node(group_id, replica_id), _value(0), _is_leader(false),
+    _duplicated_request_cache(FLAGS_max_duplicated_request_cache) {
     bthread_mutex_init(&_mutex, NULL);
 }
 
@@ -116,16 +119,31 @@ base::EndPoint Counter::self() {
     return _node.node_id().peer_id.addr;
 }
 
-void Counter::fetch_and_add(int64_t value, FetchAndAddDone* done) {
-    //TODO: set req_id
-    FetchAndAddRequest request;
-    request.set_req_id(0);
-    request.set_value(value);
-    base::IOBuf data;
-    base::IOBufAsZeroCopyOutputStream wrapper(&data);
-    request.SerializeToZeroCopyStream(&wrapper);
+void Counter::fetch_and_add(int32_t ip, int32_t pid, int64_t req_id,
+                            int64_t value, FetchAndAddDone* done) {
+    std::lock_guard<bthread_mutex_t> guard(_mutex);
 
-    _node.apply(data, done);
+    ClientRequestId client_req_id(ip, pid, req_id);
+    CounterDuplicatedRequestCache::iterator iter = _duplicated_request_cache.Get(client_req_id);
+    if (iter != _duplicated_request_cache.end()) {
+        FetchAndAddResult* result = iter->second;
+        LOG(WARNING) << "find duplicated request from cache, ip: " << base::EndPoint(base::int2ip(ip), 0)
+            << " pid: " << pid << " req_id: " << req_id << " value: " << value
+            << " return " << result->value << " at index: " << result->index;
+        done->set_result(result->value, result->index);
+        done->Run();
+    } else {
+        FetchAndAddRequest request;
+        request.set_ip(ip);
+        request.set_pid(pid);
+        request.set_req_id(req_id);
+        request.set_value(value);
+        base::IOBuf data;
+        base::IOBufAsZeroCopyOutputStream wrapper(&data);
+        request.SerializeToZeroCopyStream(&wrapper);
+
+        _node.apply(data, done);
+    }
 }
 
 int Counter::get(int64_t* value_ptr, const int64_t index) {
@@ -152,6 +170,10 @@ void Counter::on_apply(const base::IOBuf &data, const int64_t index, raft::Closu
 
     LOG(NOTICE) << "fetch_and_add, index: " << index
         << " val: " << request.value() << " ret: " << _value;
+
+    // add to duplicated request cache
+    ClientRequestId client_req_id(request.ip(), request.pid(), request.req_id());
+    _duplicated_request_cache.Put(client_req_id, new FetchAndAddResult(_value, index));
 
     // fetch
     if (done) {

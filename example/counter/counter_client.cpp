@@ -235,6 +235,8 @@ int fetch_and_add(const std::vector<raft::PeerId>& peers) {
         baidu::rpc::Controller cntl;
         counter::CounterService_Stub stub(&channel);
         counter::FetchAndAddRequest request;
+        request.set_ip(0); // fake, server get from controller::remote_side
+        request.set_pid(getpid());
         request.set_req_id(rand_int64());
         request.set_value(1);
         counter::FetchAndAddResponse response;

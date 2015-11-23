@@ -45,7 +45,6 @@ DEFINE_int32(raft_max_segment_size, 8 * 1024 * 1024 /*8M*/,
              "Max size of one segment file");
 BAIDU_RPC_VALIDATE_GFLAG(raft_max_segment_size, baidu::rpc::PositiveInteger);
 
-
 // Format of Header, all fields are in network order
 // | ----------------- term (64bits) ----------------- |
 // | type (8bits) | -------- data len (56bits) ------- |
@@ -608,7 +607,6 @@ int SegmentLogStorage::append_entries(const std::vector<LogEntry*>& entries) {
     }
 
     Segment* last_segment = NULL;
-    // FIXME: Should flush all the entries in one system call
     for (size_t i = 0; i < entries.size(); i++) {
         LogEntry* entry = entries[i];
 
