@@ -20,7 +20,6 @@
 
 #include <vector>
 #include <map>
-#include <base/callback.h>
 #include <base/iobuf.h>
 #include "raft/log_entry.h"
 #include "raft/storage.h"
@@ -53,7 +52,7 @@ public:
 
     // load open or closed segment
     // open fd, load index, truncate uncompleted entry
-    int load(const base::Callback<void(int64_t, const Configuration&)>& configuration_cb);
+    int load(ConfigurationManager* configuration_manager);
 
     // serialize entry, and append to open segment
     int append(const LogEntry* entry);
@@ -114,15 +113,28 @@ private:
 //      log_meta: record start_log
 //      log_000001-0001000: closed segment
 //      log_inprogress_0001001: open segment
-class SegmentLogStorage : public LogStorage, public base::RefCountedThreadSafe<SegmentLogStorage>{
+class SegmentLogStorage : public LogStorage {
 public:
     typedef std::map<int64_t, Segment*> SegmentMap;
 
     SegmentLogStorage(const std::string& path)
         : LogStorage(path), _path(path),
-        _committed_log_index(0), _start_log_index(1),
-        _is_inited(false), _open_segment(NULL) {
-            AddRef();
+        _start_log_index(1), _is_inited(false), _open_segment(NULL) {
+    }
+
+    virtual ~SegmentLogStorage() {
+        SegmentMap::iterator it;
+        for (it = _segments.begin(); it != _segments.end(); ++it) {
+            delete it->second;
+        }
+        _segments.clear();
+
+        if (_open_segment) {
+            delete _open_segment;
+            _open_segment = NULL;
+        }
+
+        _is_inited = false;
     }
 
     // init logstorage, check consistency and integrity
@@ -130,6 +142,7 @@ public:
 
     // first log index in log
     virtual int64_t first_log_index() {
+        CHECK(_is_inited);
         return _start_log_index;
     }
 
@@ -154,52 +167,22 @@ public:
     // delete uncommitted logs from storage's tail, (first_index_kept, infinity) will be discarded
     virtual int truncate_suffix(const int64_t last_index_kept);
 
-    int64_t committed_log_index() const {
-        return _committed_log_index;
-    }
-
-    void mark_committed(const int64_t committed_index);
-
     SegmentMap& segments() {
         return _segments;
     }
 
-    scoped_refptr<ConfigurationManager> configuration_manager() {
-        return _configuration_manager;
-    }
-
-    void add_configuration(int64_t index, const Configuration& config);
-
 private:
-    friend class base::RefCountedThreadSafe<SegmentLogStorage>;
-    virtual ~SegmentLogStorage() {
-        SegmentMap::iterator it;
-        for (it = _segments.begin(); it != _segments.end(); ++it) {
-            delete it->second;
-        }
-        _segments.clear();
-
-        if (_open_segment) {
-            delete _open_segment;
-            _open_segment = NULL;
-        }
-
-        _is_inited = false;
-    }
-
     Segment* open_segment();
     int save_meta(const int64_t log_index);
     int load_meta();
     int list_segments(bool is_empty);
-    int load_segments();
+    int load_segments(ConfigurationManager* configuration_manager);
 
     std::string _path;
-    int64_t _committed_log_index;
     int64_t _start_log_index;
     bool _is_inited;
     SegmentMap _segments;
     Segment* _open_segment;
-    scoped_refptr<ConfigurationManager> _configuration_manager;
 };
 
 LogStorage* create_local_log_storage(const std::string& uri);

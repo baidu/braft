@@ -53,7 +53,7 @@ NodeImpl::~NodeImpl() {
     bthread_mutex_destroy(&_mutex);
 
     if (_config_manager) {
-        _config_manager->Release();
+        delete _config_manager;
         _config_manager = NULL;
     }
     if (_log_manager) {

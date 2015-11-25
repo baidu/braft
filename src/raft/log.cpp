@@ -169,7 +169,7 @@ int Segment::_load_entry(off_t offset, EntryHeader* head, base::IOBuf* data,
     return 0;
 }
 
-int Segment::load(const base::Callback<void(int64_t, const Configuration&)>& configuration_cb) {
+int Segment::load(ConfigurationManager* configuration_manager) {
     int ret = 0;
 
     std::string path(_path);
@@ -241,7 +241,7 @@ int Segment::load(const base::Callback<void(int64_t, const Configuration&)>& con
                 peers.push_back(peer_id);
             }
             if (meta_ok) {
-                configuration_cb.Run(i, Configuration(peers));
+                configuration_manager->add(i, Configuration(peers));
             } else {
                 break;
             }
@@ -497,7 +497,8 @@ int Segment::truncate(const int64_t last_index_kept) {
     int64_t first_truncate_in_offset = last_index_kept + 1 - _start_index;
     int64_t truncate_size = _offset[first_truncate_in_offset];
     LOG(INFO) << "Truncating " << _path << " start_index: " << _start_index
-              << " end_index from " << _end_index << " to " << last_index_kept;
+              << " end_index from " << _end_index << " to " << last_index_kept
+              << " truncate size to " << truncate_size;
 
     int ret = 0;
     do {
@@ -548,8 +549,6 @@ int SegmentLogStorage::init(ConfigurationManager* configuration_manager) {
         return -1;
     }
 
-    _configuration_manager = make_scoped_refptr<ConfigurationManager>(configuration_manager);
-
     int ret = 0;
     bool is_empty = false;
     do {
@@ -565,7 +564,7 @@ int SegmentLogStorage::init(ConfigurationManager* configuration_manager) {
             break;
         }
 
-        ret = load_segments();
+        ret = load_segments(configuration_manager);
         if (ret != 0) {
             break;
         }
@@ -581,7 +580,7 @@ int SegmentLogStorage::init(ConfigurationManager* configuration_manager) {
 }
 
 int64_t SegmentLogStorage::last_log_index() {
-    assert(_is_inited);
+    CHECK(_is_inited);
 
     Segment* segment = NULL;
     if (_open_segment) {
@@ -618,12 +617,6 @@ int SegmentLogStorage::append_entries(const std::vector<LogEntry*>& entries) {
     }
     last_segment->sync();
     return entries.size();
-}
-
-void SegmentLogStorage::mark_committed(const int64_t committed_index) {
-    if (_committed_log_index < committed_index && committed_index <= last_log_index()) {
-        _committed_log_index = committed_index;
-    }
 }
 
 int SegmentLogStorage::append_entry(const LogEntry* entry) {
@@ -721,13 +714,10 @@ int SegmentLogStorage::truncate_prefix(const int64_t first_index_kept) {
         if (_open_segment->end_index() < first_index_kept) {
             _open_segment->unlink();
             _open_segment = NULL;
-        } else if (_open_segment->start_index() >= first_index_kept) {
+        } else if (_open_segment->start_index() <= first_index_kept) {
             _open_segment->truncate(first_index_kept);
         }
     }
-
-    // configurations
-    _configuration_manager->truncate_prefix(first_index_kept);
 
     return save_meta(first_index_kept);
 }
@@ -776,9 +766,6 @@ int SegmentLogStorage::truncate_suffix(const int64_t last_index_kept) {
         _segments.erase(segment->start_index());
         ret = segment->unlink();
     }
-
-    // configurations
-    _configuration_manager->truncate_suffix(last_index_kept);
 
     return ret;
 }
@@ -889,11 +876,9 @@ int SegmentLogStorage::list_segments(bool is_empty) {
     return 0;
 }
 
-int SegmentLogStorage::load_segments() {
+int SegmentLogStorage::load_segments(ConfigurationManager* configuration_manager) {
     int ret = 0;
 
-    base::Callback<void(const int64_t, const Configuration&)> configuration_cb =
-        base::Bind(&SegmentLogStorage::add_configuration, this);
     // closed segments
     SegmentMap::iterator it;
     for (it = _segments.begin(); it != _segments.end(); ++it) {
@@ -901,7 +886,7 @@ int SegmentLogStorage::load_segments() {
         LOG(TRACE) << "load closed segment, path: " << _path
             << " start_index: " << segment->start_index()
             << " end_index: " << segment->end_index();
-        ret = segment->load(configuration_cb);
+        ret = segment->load(configuration_manager);
         if (ret != 0) {
             return ret;
         }
@@ -911,7 +896,7 @@ int SegmentLogStorage::load_segments() {
     if (_open_segment) {
         LOG(TRACE) << "load open segment, path: " << _path
             << " start_index: " << _open_segment->start_index();
-        ret = _open_segment->load(configuration_cb);
+        ret = _open_segment->load(configuration_manager);
         if (ret != 0) {
             return ret;
         }
@@ -926,10 +911,6 @@ int SegmentLogStorage::load_segments() {
     }
 
     return 0;
-}
-
-void SegmentLogStorage::add_configuration(const int64_t index, const Configuration& config) {
-    _configuration_manager->add(index, config);
 }
 
 int SegmentLogStorage::save_meta(const int64_t log_index) {

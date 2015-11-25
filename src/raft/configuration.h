@@ -19,7 +19,6 @@
 #define PUBLIC_RAFT_RAFT_CONFIGURATION_H
 
 #include <base/endpoint.h>
-#include <base/memory/ref_counted.h>
 #include <string>
 #include <ostream>
 #include <vector>
@@ -217,12 +216,12 @@ private:
 std::ostream& operator<<(std::ostream& os, const Configuration& a);
 
 typedef std::pair<int64_t, Configuration> ConfigurationPair;
-class ConfigurationManager : public base::RefCountedThreadSafe<ConfigurationManager>{
+class ConfigurationManager {
 public:
     ConfigurationManager() {
-        AddRef();
         _snapshot = std::pair<int64_t, Configuration>(0, Configuration());
     }
+    virtual ~ConfigurationManager() {}
 
     // add new configuration at index
     void add(const int64_t index, const Configuration& config);
@@ -242,8 +241,6 @@ public:
     ConfigurationPair last_configuration();
 
 private:
-    friend class base::RefCountedThreadSafe<ConfigurationManager>;
-    virtual ~ConfigurationManager() {}
 
     typedef std::map<int64_t, Configuration> ConfigurationMap;
     ConfigurationMap _configurations;
