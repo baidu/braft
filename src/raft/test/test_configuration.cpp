@@ -90,8 +90,7 @@ TEST_F(TestUsageSuits, Configuration) {
 }
 
 TEST_F(TestUsageSuits, ConfigurationManager) {
-    scoped_refptr<raft::ConfigurationManager> conf_manager =
-        make_scoped_refptr(new raft::ConfigurationManager());
+    raft::ConfigurationManager* conf_manager = new raft::ConfigurationManager();
 
     raft::ConfigurationPair it1 = conf_manager->get_configuration(10);
     ASSERT_EQ(it1.first, 0);
@@ -124,4 +123,6 @@ TEST_F(TestUsageSuits, ConfigurationManager) {
 
     raft::ConfigurationPair pair = conf_manager->last_configuration();
     ASSERT_EQ(pair.first, 0);
+
+    delete conf_manager;
 }

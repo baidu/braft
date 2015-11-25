@@ -5,7 +5,7 @@ WORKROOT('../../../../../')
 
 CopyUsingHardLink(True)
 
-CPPFLAGS('-D_GNU_SOURCE -D__STDC_LIMIT_MACROS -DVERSION=\\\"1.9.8.7\\\"')
+CPPFLAGS('-D_GNU_SOURCE -D__STDC_LIMIT_MACROS -D__RAFT_VERSION_ID__=\\\"1.9.8.7\\\"')
 #XXX: remove NDEBUG for assert
 CPPFLAGS(' -D__const__=')
 CPPFLAGS('-Dprivate=public')

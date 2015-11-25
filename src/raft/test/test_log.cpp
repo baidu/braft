@@ -29,10 +29,6 @@ protected:
     void TearDown() {}
 };
 
-static void config_add(const int64_t index, const raft::Configuration& config) {
-    LOG(NOTICE) << "load index: " << index << " index: " << config;
-}
-
 TEST_F(TestUsageSuits, open_segment) {
     // open segment operation
     raft::Segment* seg1 = new raft::Segment("./data", 1L);
@@ -73,11 +69,10 @@ TEST_F(TestUsageSuits, open_segment) {
         ASSERT_TRUE(entry == NULL);
     }
 
-    base::Callback<void(const int64_t, const raft::Configuration&)> configuration_cb =
-        base::Bind(&config_add);
+    raft::ConfigurationManager* configuration_manager = new raft::ConfigurationManager;
     // load open segment
     raft::Segment* seg2 = new raft::Segment("./data", 1);
-    ASSERT_EQ(0, seg2->load(configuration_cb));
+    ASSERT_EQ(0, seg2->load(configuration_manager));
 
     for (int i = 0; i < 10; i++) {
         raft::LogEntry* entry = seg2->get(i+1);
@@ -133,6 +128,8 @@ TEST_F(TestUsageSuits, open_segment) {
     ASSERT_EQ(0, seg1->close());
     ASSERT_FALSE(seg1->is_open());
     ASSERT_EQ(0, seg1->unlink());
+
+    delete configuration_manager;
 }
 
 TEST_F(TestUsageSuits, closed_segment) {
@@ -176,11 +173,10 @@ TEST_F(TestUsageSuits, closed_segment) {
         ASSERT_TRUE(entry == NULL);
     }
 
-    base::Callback<void(const int64_t, const raft::Configuration&)> configuration_cb =
-        base::Bind(&config_add);
+    raft::ConfigurationManager* configuration_manager = new raft::ConfigurationManager;
     // load open segment
     raft::Segment* seg2 = new raft::Segment("./data", 1, 10);
-    ASSERT_EQ(0, seg2->load(configuration_cb));
+    ASSERT_EQ(0, seg2->load(configuration_manager));
 
     for (int i = 0; i < 10; i++) {
         raft::LogEntry* entry = seg2->get(i+1);
@@ -235,11 +231,44 @@ TEST_F(TestUsageSuits, closed_segment) {
     }
 
     ASSERT_EQ(0, seg1->unlink());
+
+    delete configuration_manager;
+}
+
+TEST_F(TestUsageSuits, no_inited) {
+    ::system("rm -rf data");
+
+    raft::LogStorage* storage = raft::create_local_log_storage("file://./data");
+
+    // no inited
+    {
+        ASSERT_TRUE(NULL == storage->get_entry(10));
+        ASSERT_EQ(0, storage->get_term(10));
+
+        raft::LogEntry* entry = new raft::LogEntry();
+        entry->type = raft::ENTRY_TYPE_DATA;
+        entry->term = 1;
+        entry->index = 1;
+
+        char data_buf[128];
+        snprintf(data_buf, sizeof(data_buf), "hello, world: %ld", entry->index);
+        entry->data.append(data_buf);
+
+        ASSERT_NE(0, storage->append_entry(entry));
+        std::vector<raft::LogEntry*> entries;
+        entries.push_back(entry);
+        ASSERT_NE(1, storage->append_entries(entries));
+
+        ASSERT_NE(0, storage->truncate_prefix(10));
+        ASSERT_NE(0, storage->truncate_suffix(10));
+    }
+
+    delete storage;
 }
 
 TEST_F(TestUsageSuits, multi_segment_and_segment_logstorage) {
     ::system("rm -rf data");
-    scoped_refptr<raft::SegmentLogStorage> storage(new raft::SegmentLogStorage("./data"));
+    raft::SegmentLogStorage* storage = new raft::SegmentLogStorage("./data");
 
     // no init append
     {
@@ -387,22 +416,22 @@ TEST_F(TestUsageSuits, multi_segment_and_segment_logstorage) {
         delete entry;
     }
 
-    //delete storage;
+    delete storage;
 
     // re load
     ::system("rm -rf data/log_meta");
-    scoped_refptr<raft::SegmentLogStorage> storage2(new raft::SegmentLogStorage("./data"));
+    raft::SegmentLogStorage* storage2 = new raft::SegmentLogStorage("./data");
     ASSERT_EQ(0, storage2->init(new raft::ConfigurationManager()));
     ASSERT_EQ(1, storage2->first_log_index());
     ASSERT_EQ(0, storage2->last_log_index());
-    //delete storage;
+    delete storage2;
 }
 
 TEST_F(TestUsageSuits, configuration) {
     ::system("rm -rf data");
-    scoped_refptr<raft::SegmentLogStorage> storage(new raft::SegmentLogStorage("./data"));
-    ASSERT_EQ(0, storage->init(new raft::ConfigurationManager()));
-    scoped_refptr<raft::ConfigurationManager> config_manager = storage->configuration_manager();
+    raft::SegmentLogStorage* storage = new raft::SegmentLogStorage("./data");
+    raft::ConfigurationManager* configuration_manager = new raft::ConfigurationManager;
+    ASSERT_EQ(0, storage->init(configuration_manager));
 
     {
         raft::LogEntry entry;
@@ -424,20 +453,7 @@ TEST_F(TestUsageSuits, configuration) {
         entry.peers->push_back(raft::PeerId("1.1.1.1:2000:0"));
         entry.peers->push_back(raft::PeerId("1.1.1.1:3000:0"));
         storage->append_entry(&entry);
-
-        std::vector<raft::PeerId> peers;
-        peers.push_back(raft::PeerId("1.1.1.1:1000:0"));
-        peers.push_back(raft::PeerId("1.1.1.1:2000:0"));
-        peers.push_back(raft::PeerId("1.1.1.1:3000:0"));
-        config_manager->add(2, raft::Configuration(peers));
     }
-
-    std::pair<int64_t, raft::Configuration> pair = config_manager->get_configuration(1);
-    ASSERT_EQ(0, pair.first);
-
-    pair = config_manager->get_configuration(2);
-    ASSERT_EQ(2, pair.first);
-    LOG(NOTICE) << pair.second;
 
     // append entry
     for (int i = 0; i < 100000; i++) {
@@ -472,31 +488,29 @@ TEST_F(TestUsageSuits, configuration) {
         entry.peers->push_back(raft::PeerId("1.1.1.1:1000:0"));
         entry.peers->push_back(raft::PeerId("1.1.1.1:2000:0"));
         storage->append_entry(&entry);
-
-        std::vector<raft::PeerId> peers;
-        peers.push_back(raft::PeerId("1.1.1.1:1000:0"));
-        peers.push_back(raft::PeerId("1.1.1.1:2000:0"));
-        config_manager->add(index, raft::Configuration(peers));
     }
 
-    scoped_refptr<raft::SegmentLogStorage> storage2(new raft::SegmentLogStorage("./data"));
-    ASSERT_EQ(0, storage2->init(new raft::ConfigurationManager()));
-    scoped_refptr<raft::ConfigurationManager> config_manager2 = storage2->configuration_manager();
+    delete storage;
 
-    pair = config_manager2->get_configuration(2 + 100000*5);
+    raft::SegmentLogStorage* storage2 = new raft::SegmentLogStorage("./data");
+    ASSERT_EQ(0, storage2->init(configuration_manager));
+
+    std::pair<int64_t, raft::Configuration> pair =
+        configuration_manager->get_configuration(2 + 100000*5);
     ASSERT_EQ(2, pair.first);
     LOG(NOTICE) << pair.second;
 
-    pair = config_manager2->get_configuration(2 + 100000*5 + 1);
+    pair = configuration_manager->get_configuration(2 + 100000*5 + 1);
     ASSERT_EQ(2+100000*5+1, pair.first);
     LOG(NOTICE) << pair.second;
 
-    storage->truncate_suffix(400000);
-    pair = config_manager->get_configuration(400000);
+    storage2->truncate_suffix(400000);
+    pair = configuration_manager->get_configuration(400000);
     ASSERT_EQ(2, pair.first);
 
-    storage->truncate_prefix(2);
-    pair = config_manager->get_configuration(400000);
+    storage2->truncate_prefix(2);
+    pair = configuration_manager->get_configuration(400000);
     ASSERT_EQ(2, pair.first);
+
+    delete storage2;
 }
-
