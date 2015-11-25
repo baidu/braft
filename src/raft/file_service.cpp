@@ -94,6 +94,7 @@ void FileServiceImpl::get_file(::google::protobuf::RpcController* controller,
         }
     }
     cntl->response_attachment().swap(buf);
+    response->set_eof(false);
     if (nread < request->count()) {
         response->set_eof(true);
     } else {

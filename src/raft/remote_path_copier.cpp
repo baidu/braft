@@ -57,6 +57,8 @@ int RemotePathCopier::_copy_file(const std::string& source, const std::string& d
             return 0;
         }
         cntl.Reset();
+
+        offset += FLAGS_raft_max_byte_count_per_rpc;
     }
 }
 
