@@ -21,6 +21,7 @@
 #include <vector>
 #include <map>
 #include <base/iobuf.h>
+#include <base/logging.h>
 #include "raft/log_entry.h"
 #include "raft/storage.h"
 

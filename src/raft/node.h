@@ -79,17 +79,14 @@ public:
     google::protobuf::Closure* _done;
 };
 
-class LeaderStableClosure : public Closure {
+class LeaderStableClosure : public LogManager::StableClosure {
 public:
-    LeaderStableClosure(const NodeId& node_id, CommitmentManager* commit_manager,
-                        LogManager* log_manager, LogEntry* entry);
-    virtual ~LeaderStableClosure();
     void Run();
-
+private:
+    LeaderStableClosure(const NodeId& node_id, CommitmentManager* commit_manager);
+friend class NodeImpl;
     NodeId _node_id;
     CommitmentManager* _commit_manager;
-    LogManager* _log_manager;
-    LogEntry* _entry;
 };
 
 class NodeImpl : public base::RefCountedThreadSafe<NodeImpl> {
@@ -301,6 +298,12 @@ public:
     // get node by group_id and peer_id
     scoped_refptr<NodeImpl> get(const GroupId& group_id, const PeerId& peer_id);
 
+    // get all the nodes of |group_id|
+    void get_nodes_by_group_id(const GroupId& group_id, 
+                               std::vector<scoped_refptr<NodeImpl> >* nodes);
+
+    void get_all_nodes(std::vector<scoped_refptr<NodeImpl> >* nodes);
+
 private:
     NodeManager();
     ~NodeManager();
@@ -308,12 +311,19 @@ private:
     friend struct DefaultSingletonTraits<NodeManager>;
     
     // TODO(chenzhangyi01): replace std::map with FlatMap
+    // To make implementation simplicity, we use two maps here, although
+    // it works practically with only one GroupMap
     typedef std::map<NodeId, NodeImpl*> NodeMap;
+    typedef std::multimap<GroupId, NodeImpl*> GroupMap;
+    struct Maps {
+        NodeMap node_map;
+        GroupMap group_map;
+    };
     // Functor to modify DBD
-    static size_t _add_node(NodeMap&, const NodeImpl* node);
-    static size_t _remove_node(NodeMap&, const NodeImpl* node);
+    static size_t _add_node(Maps&, const NodeImpl* node);
+    static size_t _remove_node(Maps&, const NodeImpl* node);
 
-    base::DoublyBufferedData<NodeMap> _nodes;
+    base::DoublyBufferedData<Maps> _nodes;
 
     base::EndPoint _address;
     baidu::rpc::Server* _server;

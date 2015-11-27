@@ -17,6 +17,7 @@
  */
 
 #include "raft/configuration.h"
+#include <base/logging.h>
 
 namespace raft {
 
@@ -48,7 +49,7 @@ void ConfigurationManager::truncate_suffix(const int64_t last_index_kept) {
 }
 
 void ConfigurationManager::set_snapshot(const int64_t index, const Configuration& config) {
-    assert(index >= _snapshot.first);
+    CHECK(index >= _snapshot.first);
     _snapshot.first = index;
     _snapshot.second = config;
 }

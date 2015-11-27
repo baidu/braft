@@ -39,6 +39,7 @@ void* run_lock_guard(void *arg) {
         std::lock_guard<bthread_mutex_t> guard(*(meta->mutex));
         meta->value++;
     }
+    return NULL;
 }
 
 TEST_F(TestUsageSuits, lock) {

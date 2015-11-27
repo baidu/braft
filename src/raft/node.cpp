@@ -23,6 +23,7 @@
 #include "raft/stable.h"
 #include "raft/snapshot.h"
 #include "raft/file_service.h"
+#include "raft/builtin_service_impl.h"
 #include <bthread_unstable.h>
 
 #include "baidu/rpc/errno.pb.h"
@@ -130,7 +131,7 @@ void NodeImpl::on_snapshot_load_done() {
 
     // update configuration
     _log_manager->set_snapshot(_loading_snapshot_meta);
-    _log_manager->check_and_set_configuration(_conf);
+    _log_manager->check_and_set_configuration(&_conf);
 
     // reset commit manager
     if (_commit_manager && _state == LEADER) {
@@ -187,7 +188,7 @@ int NodeImpl::on_snapshot_save_done(const int64_t last_included_index, SnapshotW
         //TODO: discard unneed snapshot
 
         // update configuration
-        _log_manager->check_and_set_configuration(_conf);
+        _log_manager->check_and_set_configuration(&_conf);
 
         ret = writer->save_meta();
     } while (0);
@@ -387,7 +388,7 @@ int NodeImpl::init(const NodeOptions& options) {
 
         // if have log using conf in log, else using conf in options
         if (_log_manager->last_log_index() > 0) {
-            _log_manager->check_and_set_configuration(_conf);
+            _log_manager->check_and_set_configuration(&_conf);
         } else {
             _conf.second = _options.conf;
         }
@@ -1226,29 +1227,18 @@ void NodeImpl::become_leader() {
         << " term " << _current_term << " start stepdown_timer";
 }
 
-LeaderStableClosure::LeaderStableClosure(const NodeId& node_id, CommitmentManager* commit_manager,
-                                         LogManager* log_manager, LogEntry* entry)
-    : _node_id(node_id),
-    _commit_manager(commit_manager),
-    _log_manager(log_manager), _entry(entry) {
-    // node not need AddRef, stop_disk_thread is sync
-    _entry->AddRef();
-}
-
-LeaderStableClosure::~LeaderStableClosure() {
-    int64_t index = _entry->index;
-    // last entry ref, clear entry in memory
-    if (1 == _entry->Release()) {
-        _log_manager->clear_memory_logs(index);
-    }
+LeaderStableClosure::LeaderStableClosure(const NodeId& node_id, 
+                                         CommitmentManager* commit_manager)
+    : _node_id(node_id), _commit_manager(commit_manager)
+{
 }
 
 void LeaderStableClosure::Run() {
     if (_err_code == 0) {
         // commit_manager check quorum ok, will call fsm_caller
-        _commit_manager->set_stable_at_peer_reentrant(_entry->index, _node_id.peer_id);
+        _commit_manager->set_stable_at_peer_reentrant(_log_index, _node_id.peer_id);
     } else {
-        LOG(ERROR) << "node " << _node_id << " append " << _entry->index << " failed";
+        LOG(ERROR) << "node " << _node_id << " append " << _log_index << " failed";
     }
     delete this;
 }
@@ -1285,11 +1275,11 @@ void NodeImpl::append(LogEntry* entry, Closure* done) {
     //  follower total ref: 1 (not include get_entry)
     entry->quorum = quorum;
     entry->AddRef(quorum);
-    _log_manager->append_entry(entry, new LeaderStableClosure(NodeId(_group_id, _server_id),
-                                                              _commit_manager,
-                                                              _log_manager,
-                                                              entry));
-    if (_log_manager->check_and_set_configuration(_conf)) {
+    _log_manager->append_entry(entry, 
+                               new LeaderStableClosure(
+                                        NodeId(_group_id, _server_id), 
+                                        _commit_manager));
+    if (_log_manager->check_and_set_configuration(&_conf)) {
         _conf_ctx.set(old_peers);
     }
 }
@@ -1300,7 +1290,7 @@ int NodeImpl::append(const std::vector<LogEntry*>& entries) {
     }
     int ret = _log_manager->append_entries(entries);
     if (ret == 0) {
-        _log_manager->check_and_set_configuration(_conf);
+        _log_manager->check_and_set_configuration(&_conf);
     } else {
         LogEntry* first_entry = entries[0];
         LogEntry* last_entry = entries[entries.size() - 1];
@@ -1462,7 +1452,7 @@ int NodeImpl::handle_append_entries_request(base::IOBuf& data_buf,
 
                 _log_manager->truncate_suffix(last_index_kept);
                 // truncate configuration
-                _log_manager->check_and_set_configuration(_conf);
+                _log_manager->check_and_set_configuration(&_conf);
             }
 
             if (entry.type() != ENTRY_TYPE_UNKNOWN) {
@@ -1730,6 +1720,10 @@ int NodeManager::init(const char* ip_str, int start_port, int end_port,
         LOG(ERROR) << "Add Raft Service Failed.";
         return EINVAL;
     }
+    if (0 != _server->AddService(new RaftStatImpl, baidu::rpc::SERVER_OWNS_SERVICE)) {
+        LOG(ERROR) << "Add Raft Service Failed.";
+        return EINVAL;
+    }
     if (0 != _server->Start(ip_str, start_port, end_port, &server_options)) {
         LOG(ERROR) << "Start Raft Server Failed.";
         return EINVAL;
@@ -1743,15 +1737,32 @@ int NodeManager::init(const char* ip_str, int start_port, int end_port,
     return 0;
 }
 
-size_t NodeManager::_add_node(NodeMap& m, const NodeImpl* node) {
+size_t NodeManager::_add_node(Maps& m, const NodeImpl* node) {
     NodeId node_id = node->node_id();
-    std::pair<NodeMap::iterator, bool> ret = m.insert(
+    std::pair<NodeMap::iterator, bool> ret = m.node_map.insert(
             NodeMap::value_type(node_id, const_cast<NodeImpl*>(node)));
-    return ret.second ? 1 : 0;
+    if (ret.second) {
+        m.group_map.insert(GroupMap::value_type(
+                    node_id.group_id, const_cast<NodeImpl*>(node)));
+        return 1;
+    }
+    return 0;
 }
 
-size_t NodeManager::_remove_node(NodeMap& m, const NodeImpl* node) {
-    return m.erase(node->node_id());
+size_t NodeManager::_remove_node(Maps& m, const NodeImpl* node) {
+    if (m.node_map.erase(node->node_id()) != 0) {
+        std::pair<GroupMap::iterator, GroupMap::iterator> 
+                range = m.group_map.equal_range(node->node_id().group_id);
+        for (GroupMap::iterator it = range.first; it != range.second; ++it) {
+            if (it->second == node) {
+                m.group_map.erase(it);
+                return 1;
+            }
+        }
+        CHECK(false) << "Can't reach here";
+        return 0;
+    }
+    return 0;
 }
 
 bool NodeManager::add(NodeImpl* node) {
@@ -1763,16 +1774,43 @@ bool NodeManager::remove(NodeImpl* node) {
 }
 
 scoped_refptr<NodeImpl> NodeManager::get(const GroupId& group_id, const PeerId& peer_id) {
-    base::DoublyBufferedData<NodeMap>::ScopedPtr ptr;
-    scoped_refptr<NodeImpl> ret;
+    base::DoublyBufferedData<Maps>::ScopedPtr ptr;
     if (_nodes.Read(&ptr) != 0) {
-        return ret;
+        return NULL;
     }
-    NodeMap::const_iterator it = ptr->find(NodeId(group_id, peer_id));
-    if (it != ptr->end()) {
-        ret = it->second;
+    NodeMap::const_iterator it = ptr->node_map.find(NodeId(group_id, peer_id));
+    if (it != ptr->node_map.end()) {
+        return it->second;
     }
-    return ret;
+    return NULL;
+}
+
+void NodeManager::get_nodes_by_group_id(
+        const GroupId& group_id, std::vector<scoped_refptr<NodeImpl> >* nodes) {
+
+    nodes->clear();
+    base::DoublyBufferedData<Maps>::ScopedPtr ptr;
+    if (_nodes.Read(&ptr) != 0) {
+        return;
+    }
+    std::pair<GroupMap::const_iterator, GroupMap::const_iterator> 
+            range = ptr->group_map.equal_range(group_id);
+    for (GroupMap::const_iterator it = range.first; it != range.second; ++it) {
+        nodes->push_back(it->second);
+    }
+}
+
+void NodeManager::get_all_nodes(std::vector<scoped_refptr<NodeImpl> >* nodes) {
+    nodes->clear();
+    base::DoublyBufferedData<Maps>::ScopedPtr ptr;
+    if (_nodes.Read(&ptr) != 0) {
+        return;
+    }
+    nodes->reserve(ptr->group_map.size());
+    for (GroupMap::const_iterator 
+            it = ptr->group_map.begin(); it != ptr->group_map.end(); ++it) {
+        nodes->push_back(it->second);
+    }
 }
 
 }

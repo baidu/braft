@@ -24,10 +24,20 @@ struct LogManagerOptions {
 };
 
 class NodeImpl;
-class LeaderStableClosure;
 class SnapshotMeta;
 class BAIDU_CACHELINE_ALIGNMENT LogManager {
 public:
+
+    class StableClosure : public Closure {
+    public:
+        StableClosure() : _log_index(0), _entry(NULL) {}
+    protected:
+        int64_t _log_index;
+    private:
+    friend class LogManager;
+        LogEntry* _entry;
+    };
+
     LogManager();
     ~LogManager();
     int init(const LogManagerOptions& options);
@@ -42,8 +52,9 @@ public:
     // success return 0, fail return errno
     int append_entries(const std::vector<LogEntry *>& entries);
     // Append a log entry and call closure when it's stable
-    void append_entry(LogEntry* log_entry, LeaderStableClosure* done);
+    void append_entry(LogEntry* log_entry, StableClosure* done);
 
+    // Clear the logs in memory whose log_index <= |index|
     void clear_memory_logs(const int64_t index);
 
     // delete logs from storage's head, [1, first_index_kept) will be discarded
@@ -79,10 +90,10 @@ public:
 
     ConfigurationPair get_configuration(const int64_t index);
 
-    // check and set configuration
-    // Returns:
-    //  change return true; else return false
-    bool check_and_set_configuration(std::pair<int64_t, Configuration>& current);
+    // Check if |current| should be updated to the latest configuration
+    // Returns true and |current| is assigned to the lastest configuration, returns
+    // false otherweise
+    bool check_and_set_configuration(std::pair<int64_t, Configuration>* current);
 
     // Wait until there are more logs since |last_log_index| or error occurs
     // Returns:
@@ -99,7 +110,7 @@ public:
 
 private:
     static int leader_disk_run(void* meta,
-                               LeaderStableClosure** const tasks[], size_t tasks_size);
+                               StableClosure** const tasks[], size_t tasks_size);
 
     LogEntry* get_entry_from_memory(const int64_t index);
 
@@ -118,7 +129,7 @@ private:
     int64_t _last_snapshot_index;
     int64_t _last_snapshot_term;
 
-    bthread::ExecutionQueueId<LeaderStableClosure*> _leader_disk_queue;
+    bthread::ExecutionQueueId<StableClosure*> _leader_disk_queue;
     bool _leader_disk_thread_running;
     bool _stopped;
 };

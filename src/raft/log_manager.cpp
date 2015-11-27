@@ -61,7 +61,7 @@ int LogManager::start_disk_thread() {
     queue_options.max_tasks_size = 5;
     int ret = bthread::execution_queue_start(&_leader_disk_queue,
                                    &queue_options,
-                                   LogManager::leader_disk_run,
+                                   leader_disk_run,
                                    this);
     if (ret == 0) {
         _leader_disk_thread_running = true;
@@ -73,9 +73,12 @@ int LogManager::start_disk_thread() {
 
 int LogManager::stop_disk_thread() {
     std::lock_guard<bthread_mutex_t> guard(_mutex);
-
-    bthread::execution_queue_stop(_leader_disk_queue);
-    int ret = bthread::execution_queue_join(_leader_disk_queue);
+    bthread::ExecutionQueueId<StableClosure*> saved_queue = _leader_disk_queue;
+    // FIXME: see the comments in truncate_prefix
+    bthread_mutex_unlock(&_mutex);
+    bthread::execution_queue_stop(saved_queue);
+    int ret = bthread::execution_queue_join(saved_queue);
+    bthread_mutex_lock(&_mutex);
     if (0 == ret) {
         _leader_disk_thread_running = false;
     }
@@ -121,7 +124,15 @@ int LogManager::truncate_prefix(const int64_t first_index_kept) {
             LOG(FATAL) << "leader disk thread stop failed";
             return ret;
         }
-        ret = bthread::execution_queue_join(_leader_disk_queue);
+        bthread::ExecutionQueueId<StableClosure*> saved_queue = _leader_disk_queue;
+        // FIXME: join in mutex which might lead to deadlock. We unlock _mutex
+        // here as NodeImpl holds a mutex before calling this function so that
+        // only one truncate_prefix calls at the same time. But it's weird here
+        // which should be refined soon.
+        // One solution is that we let the disk thread do the truncation
+        bthread_mutex_unlock(&_mutex);
+        ret = bthread::execution_queue_join(saved_queue);
+        bthread_mutex_lock(&_mutex);
         if (ret != 0) {
             LOG(FATAL) << "leader disk thread join failed";
             return ret;
@@ -132,7 +143,7 @@ int LogManager::truncate_prefix(const int64_t first_index_kept) {
         queue_options.max_tasks_size = 5;
         ret = bthread::execution_queue_start(&_leader_disk_queue,
                                                  &queue_options,
-                                                 LogManager::leader_disk_run,
+                                                 leader_disk_run,
                                                  this);
         if (ret != 0) {
             LOG(FATAL) << "leader disk thread start failed";
@@ -194,6 +205,9 @@ int LogManager::append_entries(const std::vector<LogEntry*>& entries) {
         }
         _last_log_index += entries.size();
     } else {
+        // Remove partially appended logs which would make later appending
+        // undefined
+        _log_storage->truncate_suffix(_last_log_index);
         ret = EIO;
     }
 
@@ -201,10 +215,13 @@ int LogManager::append_entries(const std::vector<LogEntry*>& entries) {
 }
 
 void LogManager::append_entry(
-            LogEntry* log_entry, LeaderStableClosure* done) {
+            LogEntry* log_entry, StableClosure* done) {
     bthread_mutex_lock(&_mutex);
-
     log_entry->index = ++_last_log_index;
+    done->_log_index = log_entry->index;
+    // Add ref for disk thread, release in 
+    log_entry->AddRef();
+    done->_entry = log_entry;
     _logs_in_memory.push_back(log_entry);
     if (log_entry->type == ENTRY_TYPE_ADD_PEER || log_entry->type == ENTRY_TYPE_REMOVE_PEER) {
         _config_manager->add(log_entry->index, Configuration(*(log_entry->peers)));
@@ -224,32 +241,42 @@ void LogManager::append_entry(
 }
 
 int LogManager::leader_disk_run(void* meta,
-                                LeaderStableClosure** const tasks[], size_t tasks_size) {
+                                StableClosure** const tasks[], size_t tasks_size) {
     LogManager* log_manager = static_cast<LogManager*>(meta);
     std::vector<LogEntry*> entries;
+    entries.reserve(tasks_size);
     for (size_t i = 0; i < tasks_size; i++) {
-        LeaderStableClosure* done = *tasks[i];
+        StableClosure* done = *tasks[i];
         entries.push_back(done->_entry);
     }
 
     int ret = 0;
     if (entries.size() > 0) {
         // mutex protect, log_storage not thread-safe
+        // It seems that this lock is unneccessary
         std::lock_guard<bthread_mutex_t> guard(log_manager->_mutex);
         ret = log_manager->_log_storage->append_entries(entries);
         if (entries.size() == static_cast<size_t>(ret)) {
             ret = 0;
         } else {
+            CHECK(false) << entries.size() << "!=" << ret;
             ret = EIO;
         }
     }
-
+    int64_t log_should_be_clear = 0;
     for (size_t i = 0; i < tasks_size; i++) {
-        LeaderStableClosure* done = *tasks[i];
+        StableClosure* done = *tasks[i];
         if (ret != 0) {
             done->set_error(EIO, "append entry failed");
         }
+        if (done->_entry->Release() == 1) {
+            log_should_be_clear = done->_log_index;
+        }
+        done->_entry = NULL;
         done->Run();
+    }
+    if (log_should_be_clear != 0) {
+        log_manager->clear_memory_logs(log_should_be_clear);
     }
 
     return 0;
@@ -319,22 +346,18 @@ ConfigurationPair LogManager::get_configuration(const int64_t index) {
     return _config_manager->get_configuration(index);
 }
 
-bool LogManager::check_and_set_configuration(ConfigurationPair& current) {
+bool LogManager::check_and_set_configuration(ConfigurationPair* current) {
+    if (current == NULL) {
+        CHECK(false) << "current should not be NULL";
+        return false;
+    }
     std::lock_guard<bthread_mutex_t> guard(_mutex);
 
     int64_t last_config_index = _config_manager->last_configuration_index();
-    if (BAIDU_UNLIKELY(current.first < last_config_index)) {
-        current = _config_manager->last_configuration();
+    if (current->first != last_config_index) {
+        *current = _config_manager->last_configuration();
         return true;
     }
-    /*
-    std::pair<int64_t, Configuration> last = _config_manager->last_configuration();
-    if (BAIDU_UNLIKELY(current.first < last.first)) {
-        current = _config_manager->last_configuration();
-        return true;
-    }
-    assert(current.first == last.first);
-    //*/
     return false;
 }
 

@@ -106,10 +106,7 @@ inline bool operator!=(const PeerId& id1, const PeerId& id2) {
 }
 
 inline std::ostream& operator << (std::ostream& os, const PeerId& id) {
-    char str[128];
-    snprintf(str, sizeof(str), "%s:%d", base::endpoint2str(id.addr).c_str(), id.idx);
-    os << str;
-    return os;
+    return os << id.addr << ':' << id.idx;
 }
 
 struct NodeId {

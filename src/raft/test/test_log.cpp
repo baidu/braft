@@ -342,9 +342,12 @@ TEST_F(TestUsageSuits, multi_segment_and_segment_logstorage) {
         entry->Release();
     }
 
+    ASSERT_EQ(storage->first_log_index(), 1);
+    ASSERT_EQ(storage->last_log_index(), 500000);
     // truncate prefix
     ASSERT_EQ(0, storage->truncate_prefix(10001));
     ASSERT_EQ(storage->first_log_index(), 10001);
+    ASSERT_EQ(storage->last_log_index(), 500000);
 
     // boundary truncate prefix
     {
@@ -363,6 +366,7 @@ TEST_F(TestUsageSuits, multi_segment_and_segment_logstorage) {
 
     ASSERT_EQ(0, storage->truncate_prefix(250001));
     ASSERT_EQ(storage->first_log_index(), 250001);
+    ASSERT_EQ(storage->last_log_index(), 500000);
     for (int i = 250001; i <= 500000; i++) {
         int64_t index = i;
         raft::LogEntry* entry = storage->get_entry(index);

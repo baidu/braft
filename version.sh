@@ -1,6 +1,6 @@
 #!/bin/bash
 
-export LC_ALL=en_US.utf8
+export LANG=en_US
 REVISION=`svn info | grep Revision | awk '{print $2}'`
 BUILDHOST=`hostname`
 SVNURL=`svn info | grep URL | awk -Fsvn.baidu.com '{print $2}'`

@@ -25,7 +25,11 @@
 
 namespace raft {
 
-static const char* s_libraft_version = "libraft_version_"__RAFT_VERSION_ID__;
+#if defined(__RAFT_VERSION_ID__)
+static const char* s_libraft_version = "libraft_version_" __RAFT_VERSION_ID__;
+#else
+static const char* s_libraft_version = "libraft_version_unknown";
+#endif  // __RAFT_VERSION_ID__
 
 DEFINE_string(raft_ip_and_port, "0.0.0.0:8000-9000",
               "Make raft listen to the given address. "
@@ -36,7 +40,7 @@ void Closure::set_error(int err_code, const char* reason_fmt, ...) {
 
     va_list ap;
     va_start(ap, reason_fmt);
-    base::string_vappendf(&_err_text, reason_fmt, ap);
+    base::string_vprintf(&_err_text, reason_fmt, ap);
     va_end(ap);
 }
 

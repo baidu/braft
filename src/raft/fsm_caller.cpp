@@ -28,14 +28,6 @@ FSMCaller::~FSMCaller() {
 }
 
 int FSMCaller::run(void* meta, google::protobuf::Closure** const tasks[], size_t tasks_size) {
-    // stop
-    /*
-    FSMCaller* caller = static_cast<FSMCaller*>(meta);
-    if (tasks_size == 0) {
-        caller->_node->Release();
-        return;
-    }
-    //*/
     // run closure
     for (size_t i = 0; i < tasks_size; i++) {
         google::protobuf::Closure* done = *tasks[i];

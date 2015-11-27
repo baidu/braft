@@ -20,6 +20,10 @@ protocol/raft/errno.proto -text
 protocol/raft/file_service.proto -text
 protocol/raft/local_storage.proto -text
 protocol/raft/raft.proto -text
+src/raft/builtin_service.pb.cc -text
+src/raft/builtin_service.pb.h -text
+src/raft/builtin_service_impl.cpp -text
+src/raft/builtin_service_impl.h -text
 src/raft/commitment_manager.cpp -text
 src/raft/commitment_manager.h -text
 src/raft/configuration.cpp -text
@@ -65,6 +69,7 @@ src/raft/test/test_configuration.cpp -text
 src/raft/test/test_file_service.cpp -text
 src/raft/test/test_log.cpp -text
 src/raft/test/test_log_entry.cpp -text
+src/raft/test/test_log_manager.cpp -text
 src/raft/test/test_protobuf_file.cpp -text
 src/raft/test/test_snapshot.cpp -text
 src/raft/test/test_stable.cpp -text
