@@ -191,6 +191,12 @@ int NodeImpl::on_snapshot_save_done(const int64_t last_included_index, SnapshotW
         _log_manager->check_and_set_configuration(&_conf);
 
         ret = writer->save_meta();
+
+        LOG(INFO) << "node " << _group_id << ":" << _server_id << " finish snapshot_save,"
+            << " ret " << ret
+            << " last_snapshot_index " << meta.last_included_index
+            << " last_snapshot_term " << meta.last_included_term
+            << " last_configuration " << meta.last_configuration;
     } while (0);
 
     _snapshot_saving = false;

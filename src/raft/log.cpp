@@ -714,8 +714,8 @@ int SegmentLogStorage::truncate_prefix(const int64_t first_index_kept) {
         if (_open_segment->end_index() < first_index_kept) {
             _open_segment->unlink();
             _open_segment = NULL;
-        } else if (_open_segment->start_index() < first_index_kept) {
-            _open_segment->truncate(first_index_kept);
+        } else {
+            CHECK(_open_segment->start_index() <= first_index_kept);
         }
     }
 
