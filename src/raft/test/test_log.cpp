@@ -17,9 +17,9 @@
  */
 
 #include <gtest/gtest.h>
-#include <base/bind.h>
-#include <base/callback.h>
-#include <base/memory/ref_counted.h>
+#include <base/file_util.h>
+#include <base/files/file_path.h>
+#include <base/files/file_enumerator.h>
 #include <base/logging.h>
 #include "raft/log.h"
 
@@ -32,8 +32,15 @@ protected:
 TEST_F(TestUsageSuits, open_segment) {
     // open segment operation
     raft::Segment* seg1 = new raft::Segment("./data", 1L);
+
+    // not open
+    raft::LogEntry* entry = seg1->get(1);
+    ASSERT_TRUE(entry == NULL);
+
+    // create and open
     ASSERT_EQ(0, seg1->create());
     ASSERT_TRUE(seg1->is_open());
+
     // append entry
     for (int i = 0; i < 10; i++) {
         raft::LogEntry* entry = new raft::LogEntry();
@@ -47,11 +54,14 @@ TEST_F(TestUsageSuits, open_segment) {
 
         ASSERT_EQ(0, seg1->append(entry));
 
-        delete entry;
+        entry->Release();
     }
 
     // read entry
     for (int i = 0; i < 10; i++) {
+        int64_t term = seg1->get_term(i+1);
+        ASSERT_EQ(term, 1);
+
         raft::LogEntry* entry = seg1->get(i+1);
         ASSERT_EQ(entry->term, 1);
         ASSERT_EQ(entry->type, raft::ENTRY_TYPE_DATA);
@@ -60,7 +70,7 @@ TEST_F(TestUsageSuits, open_segment) {
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "hello, world: %d", i + 1);
         ASSERT_EQ(data_buf, entry->data.to_string());
-        delete entry;
+        entry->Release();
     }
     {
         raft::LogEntry* entry = seg1->get(0);
@@ -83,7 +93,7 @@ TEST_F(TestUsageSuits, open_segment) {
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "hello, world: %d", i + 1);
         ASSERT_EQ(data_buf, entry->data.to_string());
-        delete entry;
+        entry->Release();
     }
     {
         raft::LogEntry* entry = seg2->get(0);
@@ -107,7 +117,7 @@ TEST_F(TestUsageSuits, open_segment) {
 
         ASSERT_EQ(0, seg1->append(entry));
 
-        delete entry;
+        entry->Release();
     }
     for (int i = 0; i < 10; i++) {
         raft::LogEntry* entry = seg1->get(i+1);
@@ -122,7 +132,7 @@ TEST_F(TestUsageSuits, open_segment) {
             snprintf(data_buf, sizeof(data_buf), "HELLO, WORLD: %d", i + 1);
         }
         ASSERT_EQ(data_buf, entry->data.to_string());
-        delete entry;
+        entry->Release();
     }
 
     ASSERT_EQ(0, seg1->close());
@@ -150,7 +160,7 @@ TEST_F(TestUsageSuits, closed_segment) {
 
         ASSERT_EQ(0, seg1->append(entry));
 
-        delete entry;
+        entry->Release();
     }
     seg1->close();
 
@@ -164,7 +174,7 @@ TEST_F(TestUsageSuits, closed_segment) {
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "hello, world: %d", i + 1);
         ASSERT_EQ(data_buf, entry->data.to_string());
-        delete entry;
+        entry->Release();
     }
     {
         raft::LogEntry* entry = seg1->get(0);
@@ -187,7 +197,7 @@ TEST_F(TestUsageSuits, closed_segment) {
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "hello, world: %d", i + 1);
         ASSERT_EQ(data_buf, entry->data.to_string());
-        delete entry;
+        entry->Release();
     }
     {
         raft::LogEntry* entry = seg2->get(0);
@@ -211,7 +221,7 @@ TEST_F(TestUsageSuits, closed_segment) {
 
         ASSERT_NE(0, seg1->append(entry));
 
-        delete entry;
+        entry->Release();
     }
     for (int i = 0; i < 10; i++) {
         raft::LogEntry* entry = seg1->get(i+1);
@@ -227,7 +237,7 @@ TEST_F(TestUsageSuits, closed_segment) {
         ASSERT_EQ(entry->type, raft::ENTRY_TYPE_DATA);
         ASSERT_EQ(entry->index, i+1);
         ASSERT_EQ(data_buf, entry->data.to_string());
-        delete entry;
+        entry->Release();
     }
 
     ASSERT_EQ(0, seg1->unlink());
@@ -238,7 +248,11 @@ TEST_F(TestUsageSuits, closed_segment) {
 TEST_F(TestUsageSuits, no_inited) {
     ::system("rm -rf data");
 
-    raft::LogStorage* storage = raft::create_local_log_storage("file://./data");
+    raft::LogStorage* storage = raft::create_local_log_storage("");
+    ASSERT_TRUE(storage == NULL);
+
+    storage = raft::create_local_log_storage("file://./data");
+    ASSERT_TRUE(storage != NULL);
 
     // no inited
     {
@@ -263,7 +277,13 @@ TEST_F(TestUsageSuits, no_inited) {
         ASSERT_NE(0, storage->truncate_suffix(10));
     }
 
+    // double init
+    raft::ConfigurationManager* configuration_manager = new raft::ConfigurationManager;
+    ASSERT_EQ(0, storage->init(configuration_manager));
+    ASSERT_EQ(0, storage->init(configuration_manager));
+
     delete storage;
+    delete configuration_manager;
 }
 
 TEST_F(TestUsageSuits, multi_segment_and_segment_logstorage) {
@@ -319,7 +339,7 @@ TEST_F(TestUsageSuits, multi_segment_and_segment_logstorage) {
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "hello, world: %ld", index);
         ASSERT_EQ(data_buf, entry->data.to_string());
-        delete entry;
+        entry->Release();
     }
 
     // truncate prefix
@@ -353,7 +373,7 @@ TEST_F(TestUsageSuits, multi_segment_and_segment_logstorage) {
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "hello, world: %ld", index);
         ASSERT_EQ(data_buf, entry->data.to_string());
-        delete entry;
+        entry->Release();
     }
 
     // append
@@ -413,7 +433,7 @@ TEST_F(TestUsageSuits, multi_segment_and_segment_logstorage) {
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "hello, world: %ld", index);
         ASSERT_EQ(data_buf, entry->data.to_string());
-        delete entry;
+        entry->Release();
     }
 
     delete storage;
@@ -425,6 +445,197 @@ TEST_F(TestUsageSuits, multi_segment_and_segment_logstorage) {
     ASSERT_EQ(1, storage2->first_log_index());
     ASSERT_EQ(0, storage2->last_log_index());
     delete storage2;
+}
+
+TEST_F(TestUsageSuits, append_close_load_append) {
+    ::system("rm -rf data");
+    raft::LogStorage* storage = raft::create_local_log_storage("file://./data");
+    raft::ConfigurationManager* configuration_manager = new raft::ConfigurationManager;
+    ASSERT_EQ(0, storage->init(configuration_manager));
+
+    // append entry
+    for (int i = 0; i < 100000; i++) {
+        std::vector<raft::LogEntry*> entries;
+        for (int j = 0; j < 5; j++) {
+            int64_t index = 5*i + j + 1;
+            raft::LogEntry* entry = new raft::LogEntry();
+            entry->type = raft::ENTRY_TYPE_DATA;
+            entry->term = 1;
+            entry->index = index;
+
+            char data_buf[128];
+            snprintf(data_buf, sizeof(data_buf), "hello, world: %ld", index);
+            entry->data.append(data_buf);
+            entries.push_back(entry);
+        }
+
+        ASSERT_EQ(5, storage->append_entries(entries));
+
+        for (size_t j = 0; j < entries.size(); j++) {
+            delete entries[j];
+        }
+    }
+
+    delete storage;
+    delete configuration_manager;
+
+    // reinit 
+    storage = raft::create_local_log_storage("file://./data");
+    configuration_manager = new raft::ConfigurationManager;
+    ASSERT_EQ(0, storage->init(configuration_manager));
+
+    // append entry
+    for (int i = 100000; i < 200000; i++) {
+        std::vector<raft::LogEntry*> entries;
+        for (int j = 0; j < 5; j++) {
+            int64_t index = 5*i + j + 1;
+            raft::LogEntry* entry = new raft::LogEntry();
+            entry->type = raft::ENTRY_TYPE_DATA;
+            entry->term = 2;
+            entry->index = index;
+
+            char data_buf[128];
+            snprintf(data_buf, sizeof(data_buf), "hello, world: %ld", index);
+            entry->data.append(data_buf);
+            entries.push_back(entry);
+        }
+
+        ASSERT_EQ(5, storage->append_entries(entries));
+
+        for (size_t j = 0; j < entries.size(); j++) {
+            delete entries[j];
+        }
+    }
+
+    // check and read
+    ASSERT_EQ(storage->first_log_index(), 1);
+    ASSERT_EQ(storage->last_log_index(), 200000*5);
+
+    for (int i = 0; i < 200000*5; i++) {
+        int64_t index = i + 1;
+        raft::LogEntry* entry = storage->get_entry(index);
+        if (i < 100000*5) {
+            ASSERT_EQ(entry->term, 1);
+        } else {
+            ASSERT_EQ(entry->term, 2);
+        }
+        ASSERT_EQ(entry->type, raft::ENTRY_TYPE_DATA);
+        ASSERT_EQ(entry->index, index);
+
+        char data_buf[128];
+        snprintf(data_buf, sizeof(data_buf), "hello, world: %ld", index);
+        ASSERT_EQ(data_buf, entry->data.to_string());
+        entry->Release();
+    }
+
+    delete storage;
+    delete configuration_manager;
+}
+
+TEST_F(TestUsageSuits, append_read_badcase) {
+    ::system("rm -rf data");
+    raft::LogStorage* storage = raft::create_local_log_storage("file://./data");
+    raft::ConfigurationManager* configuration_manager = new raft::ConfigurationManager;
+    ASSERT_EQ(0, storage->init(configuration_manager));
+
+    // append entry
+    for (int i = 0; i < 100000; i++) {
+        std::vector<raft::LogEntry*> entries;
+        for (int j = 0; j < 5; j++) {
+            int64_t index = 5*i + j + 1;
+            raft::LogEntry* entry = new raft::LogEntry();
+            entry->type = raft::ENTRY_TYPE_DATA;
+            entry->term = 1;
+            entry->index = index;
+
+            char data_buf[128];
+            snprintf(data_buf, sizeof(data_buf), "hello, world: %ld", index);
+            entry->data.append(data_buf);
+            entries.push_back(entry);
+        }
+
+        ASSERT_EQ(5, storage->append_entries(entries));
+
+        for (size_t j = 0; j < entries.size(); j++) {
+            delete entries[j];
+        }
+    }
+
+    // check and read
+    ASSERT_EQ(storage->first_log_index(), 1);
+    ASSERT_EQ(storage->last_log_index(), 100000*5);
+
+    delete storage;
+    delete configuration_manager;
+
+    // make file unwrite
+    base::FileEnumerator dir1(base::FilePath("./data"), false, 
+                              base::FileEnumerator::FILES 
+                              | base::FileEnumerator::DIRECTORIES);
+    for (base::FilePath sub_path = dir1.Next(); !sub_path.empty(); sub_path = dir1.Next()) {
+        base::File::Info info;
+        base::GetFileInfo(sub_path, &info);
+        if (!info.is_directory) {
+            chmod(sub_path.value().c_str(), 0444);
+        }
+    }
+
+    // reinit failed, because load open no permission
+    storage = raft::create_local_log_storage("file://./data");
+    configuration_manager = new raft::ConfigurationManager;
+    ASSERT_NE(0, storage->init(configuration_manager));
+    delete storage;
+    delete configuration_manager;
+
+    base::FileEnumerator dir2(base::FilePath("./data"), false, 
+                              base::FileEnumerator::FILES 
+                              | base::FileEnumerator::DIRECTORIES);
+    for (base::FilePath sub_path = dir2.Next(); !sub_path.empty(); sub_path = dir2.Next()) {
+        base::File::Info info;
+        base::GetFileInfo(sub_path, &info);
+        if (!info.is_directory) {
+            chmod(sub_path.value().c_str(), 0644);
+        }
+    }
+
+    // reinit success
+    storage = raft::create_local_log_storage("file://./data");
+    configuration_manager = new raft::ConfigurationManager;
+    ASSERT_EQ(0, storage->init(configuration_manager));
+
+    // make file chaos
+    base::FileEnumerator dir3(base::FilePath("./data"), false, 
+                              base::FileEnumerator::FILES 
+                              | base::FileEnumerator::DIRECTORIES);
+    for (base::FilePath sub_path = dir3.Next(); !sub_path.empty(); sub_path = dir3.Next()) {
+        base::File::Info info;
+        base::GetFileInfo(sub_path, &info);
+        if (!info.is_directory) {
+            chmod(sub_path.value().c_str(), 0644);
+
+            int fd = ::open(sub_path.value().c_str(), O_RDWR, 0644);
+            int64_t off = rand() % info.size;
+            int64_t len = rand() % (info.size - off);
+            if (len > 4096) {
+                len = 4096;
+            }
+            char data[4096] = {0};
+            pwrite(fd, data, len, off);
+            close(fd);
+        }
+    }
+
+    // read will fail
+    for (int i = 0; i < 100000*5; i++) {
+        int64_t index = i + 1;
+        raft::LogEntry* entry = storage->get_entry(index);
+        if (entry) {
+            entry->Release();
+        }
+    }
+
+    delete storage;
+    delete configuration_manager;
 }
 
 TEST_F(TestUsageSuits, configuration) {

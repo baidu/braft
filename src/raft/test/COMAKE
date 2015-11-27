@@ -8,7 +8,7 @@ CopyUsingHardLink(True)
 CPPFLAGS('-D_GNU_SOURCE -D__STDC_LIMIT_MACROS -D__RAFT_VERSION_ID__=\\\"1.9.8.7\\\"')
 #XXX: remove NDEBUG for assert
 CPPFLAGS(' -D__const__=')
-CPPFLAGS('-Dprivate=public')
+CPPFLAGS('-Dprivate=public -Dprotected=public')
 
 CFLAGS('-g -pipe -Wall -W -fPIC -Wno-unused-parameter -Wno-unused-variable -Wno-strict-aliasing')
 
@@ -36,9 +36,11 @@ user_headers = GLOB('src/raft/*.h')
 
 StaticLibrary('raft',Sources(GLOB('../../raft/*.cpp ../../raft/*.cc')),HeaderFiles(user_headers))
 
+Application('test_log_entry',Sources('test_log_entry.cpp'), Libraries('libraft.a'))
 Application('test_protobuf_file',Sources('test_protobuf_file.cpp'), Libraries('libraft.a'))
 Application('test_log',Sources('test_log.cpp'), Libraries('libraft.a'))
 Application('test_stable',Sources('test_stable.cpp'), Libraries('libraft.a'))
+Application('test_snapshot',Sources('test_snapshot.cpp'), Libraries('libraft.a'))
 Application('test_configuration',Sources('test_configuration.cpp'), Libraries('libraft.a'))
 Application('test_file_service',Sources('test_file_service.cpp'), Libraries('libraft.a'))
 Application('test_util',Sources('test_util.cpp'), Libraries('libraft.a'))

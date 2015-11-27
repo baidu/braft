@@ -64,7 +64,9 @@ src/raft/test/COMAKE -text
 src/raft/test/test_configuration.cpp -text
 src/raft/test/test_file_service.cpp -text
 src/raft/test/test_log.cpp -text
+src/raft/test/test_log_entry.cpp -text
 src/raft/test/test_protobuf_file.cpp -text
+src/raft/test/test_snapshot.cpp -text
 src/raft/test/test_stable.cpp -text
 src/raft/test/test_util.cpp -text
 src/raft/util.cpp -text

@@ -135,14 +135,6 @@ int LocalSnapshotReader::load_meta(SnapshotMeta* meta) {
     meta_path.append(_s_snapshot_meta);
 
     SnapshotPBMeta pb_meta;
-    pb_meta.set_last_included_index(meta->last_included_index);
-    pb_meta.set_last_included_term(meta->last_included_term);
-    std::vector<PeerId> peers;
-    meta->last_configuration.peer_vector(&peers);
-    for (size_t i = 0; i < peers.size(); i++) {
-        pb_meta.add_peers(peers[i].to_string());
-    }
-
     ProtoBufFile pb_file(meta_path);
     int ret = pb_file.load(&pb_meta);
     if (ret == 0) {
