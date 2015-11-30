@@ -19,24 +19,10 @@
 #===============================================================================
 
 IP=`hostname -i`
+#./counter_client -peers="${IP}:8100,${IP}:8101,${IP}:8102"
 
 #stats
-#./counter_client -stats="${IP}:8100"
-#./counter_client -stats="${IP}:8101"
-#./counter_client -stats="${IP}:8102"
-
-#fetch_and_add
-./counter_client -peers="${IP}:8100,${IP}:8101,${IP}:8102" -fetch_and_add_num=1000 -threads=10
-
-#shutdown
-#./counter_client -shutdown="${IP}:8102"
-
-#snapshot
-#./counter_client -snapshot="${IP}:8101"
-
-#remove_peer
-#./counter_client -peers="${IP}:8100,${IP}:8101,${IP}:8102" -new_peers="${IP}:8100,${IP}:8101"
-
-#add_peer
-#./counter_client -peers="${IP}:8100,${IP}:8101" -new_peers="${IP}:8100,${IP}:8101,${IP}:8102"
+./block_client -stats="${IP}:8200"
+./block_client -stats="${IP}:8201"
+./block_client -stats="${IP}:8202"
 

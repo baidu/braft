@@ -21,22 +21,23 @@
 IP=`hostname -i`
 
 #stats
-#./counter_client -stats="${IP}:8100"
-#./counter_client -stats="${IP}:8101"
-#./counter_client -stats="${IP}:8102"
+#./block_client -stats="${IP}:8200"
+#./block_client -stats="${IP}:8201"
+#./block_client -stats="${IP}:8202"
 
-#fetch_and_add
-./counter_client -peers="${IP}:8100,${IP}:8101,${IP}:8102" -fetch_and_add_num=1000 -threads=10
+#write/read
+# rm -rf 1G.data
+./block_client -peers="${IP}:8200,${IP}:8201,${IP}:8202" -rw_num=100 -threads=1 -write_percent=80 -local_path=./1G.data
 
 #shutdown
-#./counter_client -shutdown="${IP}:8102"
+#./block_client -shutdown="${IP}:8202"
 
 #snapshot
-#./counter_client -snapshot="${IP}:8101"
+#./block_client -snapshot="${IP}:8201"
 
 #remove_peer
-#./counter_client -peers="${IP}:8100,${IP}:8101,${IP}:8102" -new_peers="${IP}:8100,${IP}:8101"
+#./block_client -peers="${IP}:8200,${IP}:8201,${IP}:8202" -new_peers="${IP}:8200,${IP}:8201"
 
 #add_peer
-#./counter_client -peers="${IP}:8100,${IP}:8101" -new_peers="${IP}:8100,${IP}:8101,${IP}:8102"
+#./block_client -peers="${IP}:8200,${IP}:8201" -new_peers="${IP}:8200,${IP}:8201,${IP}:8202"
 

@@ -24,6 +24,7 @@
 #include "raft/util.h"
 #include "raft/raft.h"
 #include "client_req_id.h"
+#include "state_machine.h"
 
 namespace counter {
 
@@ -51,21 +52,9 @@ private:
     google::protobuf::Closure* _done;
 };
 
-class Counter : public raft::StateMachine {
+class Counter : public example::CommonStateMachine {
 public:
     Counter(const raft::GroupId& group_id, const raft::ReplicaId& replica_id);
-
-    // user operation method
-    int init(const raft::NodeOptions& options);
-    void set_peer(const std::vector<raft::PeerId>& old_peers,
-                  const std::vector<raft::PeerId>& new_peers, raft::Closure* done);
-    raft::NodeStats stats();
-    void snapshot(raft::Closure* done);
-    void shutdown(raft::Closure* done);
-
-    // geter
-    base::EndPoint leader();
-    base::EndPoint self();
 
     // FSM method
     virtual void on_apply(const base::IOBuf& buf,
@@ -84,7 +73,6 @@ public:
 private:
     virtual ~Counter();
 
-    raft::Node _node;
     bthread_mutex_t _mutex;
     int64_t _value;
     int64_t _applied_index;

@@ -11,7 +11,7 @@ CXXFLAGS('-fPIC ')
 #CXXFLAGS('-fsanitize=address  -fno-omit-frame-pointer')
 CPPFLAGS('-D__const__= ')
 
-INCPATHS('../../src ../common')
+INCPATHS('../../src')
 
 ImportConfigsFrom('../..')
 
@@ -24,9 +24,5 @@ LDFLAGS('-lpthread -lrt -ldl -lz')
 PROTOC('../../../../third-64/protobuf/bin/protoc')
 LIBS('../../output/lib/libraft.a')
 
-common_sources = (GLOB('../common/*.proto ../common/*.cpp'))
-StaticLibrary('counter',Sources('counter.proto counter_service.cpp counter.cpp', common_sources))
-
-Application('counter_server',Sources('counter_server.cpp'), Libraries('libcounter.a ../../output/lib/libraft.a'))
-Application('counter_client',Sources('counter_client.cpp'), Libraries('libcounter.a ../../output/lib/libraft.a'))
+StaticLibrary('example',Sources('cli.proto cli.cpp cli_service.cpp state_machine.cpp'))
 

@@ -21,12 +21,12 @@
 rm -rf runtime
 mkdir -p runtime/0
 cp comlog.conf runtime/0
-cp counter_server runtime/0
+cp block_server runtime/0
 mkdir -p runtime/1
 cp comlog.conf runtime/1
-cp counter_server runtime/1
+cp block_server runtime/1
 mkdir -p runtime/2
 cp comlog.conf runtime/2
-cp counter_server runtime/2
+cp block_server runtime/2
 
- #./counter_server -port=8501 -raft_start_port=8100 -raft_end_port=8102 -peers="10.46.46.54:8100:0,10.46.46.54:8101:0,10.46.46.54:8102:0"
+ #./block_server -port=8501 -raft_start_port=8100 -raft_end_port=8102 -peers="10.46.46.54:8100:0,10.46.46.54:8101:0,10.46.46.54:8102:0"

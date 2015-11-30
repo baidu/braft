@@ -15,8 +15,8 @@ INCPATHS('../../src ../common')
 
 ImportConfigsFrom('../..')
 
-CPPFLAGS('-DBAIDU_RPC_ENABLE_CPU_PROFILER -DBAIDU_RPC_ENABLE_HEAP_PROFILER')
-CONFIGS('third-64/tcmalloc@1.7.0.200',Libraries('lib/libtcmalloc_and_profiler.a'))
+#CPPFLAGS('-DBAIDU_RPC_ENABLE_CPU_PROFILER -DBAIDU_RPC_ENABLE_HEAP_PROFILER')
+#CONFIGS('third-64/tcmalloc@1.7.0.200',Libraries('lib/libtcmalloc_and_profiler.a'))
 
 LDFLAGS('-lpthread -lrt -ldl -lz')
 #LDFLAGS('-lasan')
@@ -25,8 +25,7 @@ PROTOC('../../../../third-64/protobuf/bin/protoc')
 LIBS('../../output/lib/libraft.a')
 
 common_sources = (GLOB('../common/*.proto ../common/*.cpp'))
-StaticLibrary('counter',Sources('counter.proto counter_service.cpp counter.cpp', common_sources))
+StaticLibrary('block',Sources('block.proto block_service.cpp block.cpp', common_sources))
 
-Application('counter_server',Sources('counter_server.cpp'), Libraries('libcounter.a ../../output/lib/libraft.a'))
-Application('counter_client',Sources('counter_client.cpp'), Libraries('libcounter.a ../../output/lib/libraft.a'))
-
+Application('block_server',Sources('block_server.cpp'), Libraries('libblock.a ../../output/lib/libraft.a'))
+Application('block_client',Sources('block_client.cpp'), Libraries('libblock.a ../../output/lib/libraft.a'))

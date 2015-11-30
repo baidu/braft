@@ -1,0 +1,32 @@
+package block;
+option cc_generic_services = true;
+
+// logic request/response
+// data in attachment
+message WriteRequest {
+    required int64 offset     = 1;
+    required int32 size       = 2;
+}
+
+message WriteResponse {
+    required bool success = 1;
+    optional string leader = 2;
+}
+
+message ReadRequest {
+    required int64 offset   = 1;
+    required int32 size     = 2;
+    optional int64 index = 3;
+}
+
+// data in attachment
+message ReadResponse {
+    required bool success  = 1;
+    optional string leader = 2;
+}
+
+// service
+service BlockService {
+    rpc write(WriteRequest) returns(WriteResponse);
+    rpc read(ReadRequest) returns(ReadResponse);
+};

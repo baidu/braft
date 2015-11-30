@@ -1,12 +1,12 @@
 /*
  * =====================================================================================
  *
- *       Filename:  main.cpp
+ *       Filename:  block_server.cpp
  *
  *    Description:  
  *
  *        Version:  1.0
- *        Created:  2015年10月23日 17时00分00秒
+ *        Created:  2015/11/30 00:15:44
  *       Revision:  none
  *       Compiler:  gcc
  *
@@ -20,13 +20,13 @@
 #include <gflags/gflags.h>
 #include <base/logging.h>
 #include <base/comlog_sink.h>
-#include "counter_service.h"
+#include "block_service.h"
 #include "cli_service.h"
-#include "counter.h"
+#include "block.h"
 #include "raft/util.h"
 
 DEFINE_string(ip_and_port, "0.0.0.0:8000", "server listen address");
-DEFINE_string(name, "test", "Counter Name");
+DEFINE_string(name, "test", "Block Name");
 DEFINE_string(peers, "", "cluster peer set");
 
 bool g_signal_quit = false;
@@ -38,13 +38,13 @@ int main(int argc, char* argv[]) {
     google::ParseCommandLineFlags(&argc, &argv, true);
 
     // [ Setup from ComlogSinkOptions ]
-    //logging::ComlogSinkOptions options;
-    //options.async = true;
-    //options.process_name = "counter_server";
-    //options.print_vlog_as_warning = false;
-    //options.splite_type = 1;
-    //if (logging::ComlogSink::GetInstance()->Setup(&options) != 0) {
-    if (logging::ComlogSink::GetInstance()->SetupFromConfig("./comlog.conf") != 0) {
+    logging::ComlogSinkOptions options;
+    options.async = true;
+    options.process_name = "block_server";
+    options.print_vlog_as_warning = false;
+    options.split_type = 1;
+    if (logging::ComlogSink::GetInstance()->Setup(&options) != 0) {
+    //if (logging::ComlogSink::GetInstance()->SetupFromConfig("./comlog.conf") != 0) {
         LOG(ERROR) << "Fail to setup comlog";
         return -1;
     }
@@ -52,8 +52,8 @@ int main(int argc, char* argv[]) {
 
     // add service
     baidu::rpc::Server server;
-    counter::CounterServiceImpl counter_service_impl(NULL);
-    if (0 != server.AddService(&counter_service_impl, baidu::rpc::SERVER_DOESNT_OWN_SERVICE)) {
+    block::BlockServiceImpl block_service_impl(NULL);
+    if (0 != server.AddService(&block_service_impl, baidu::rpc::SERVER_DOESNT_OWN_SERVICE)) {
         LOG(FATAL) << "Fail to AddService";
         return -1;
     }
@@ -78,25 +78,25 @@ int main(int argc, char* argv[]) {
         peers.push_back(peer);
     }
 
-    // init counter
-    counter::Counter* counter = new counter::Counter(FLAGS_name, 0);
+    // init block
+    block::Block* block = new block::Block(FLAGS_name, 0);
     raft::NodeOptions node_options;
     node_options.election_timeout = 5000;
-    node_options.fsm = counter;
+    node_options.fsm = block;
     node_options.conf = raft::Configuration(peers); // bootstrap need
     node_options.snapshot_interval = 30;
     node_options.log_uri = "file://./data/log";
     node_options.stable_uri = "file://./data/stable";
     node_options.snapshot_uri = "file://./data/snapshot";
 
-    if (0 != counter->init(node_options)) {
+    if (0 != block->init(node_options)) {
         LOG(FATAL) << "Fail to init node";
         return -1;
     }
     LOG(NOTICE) << "init Node success";
 
-    counter_service_impl.set_counter(counter);
-    cli_service_impl.set_state_machine(counter);
+    block_service_impl.set_block(block);
+    cli_service_impl.set_state_machine(block);
 
     signal(SIGINT, sigint_handler);
     while (!g_signal_quit) {
@@ -106,7 +106,7 @@ int main(int argc, char* argv[]) {
     server.Stop(200);
     server.Join();
 
-    //TODO: counter shutdown?
+    //TODO: block shutdown?
 
     return 0;
 }

@@ -28,95 +28,14 @@ DEFINE_int64(max_duplicated_request_cache, 300000, "duplicated request cache max
 namespace counter {
 
 Counter::Counter(const raft::GroupId& group_id, const raft::ReplicaId& replica_id)
-    : StateMachine(), _node(group_id, replica_id), _value(0), _is_leader(false),
+    : example::CommonStateMachine(group_id, replica_id), _value(0),
+    _applied_index(0), _is_leader(false),
     _duplicated_request_cache(FLAGS_max_duplicated_request_cache) {
     bthread_mutex_init(&_mutex, NULL);
 }
 
 Counter::~Counter() {
     bthread_mutex_destroy(&_mutex);
-}
-
-int Counter::init(const raft::NodeOptions& options) {
-    return _node.init(options);
-}
-
-raft::NodeStats Counter::stats() {
-    return _node.stats();
-}
-
-static int diff_peers(const std::vector<raft::PeerId>& old_peers,
-                  const std::vector<raft::PeerId>& new_peers, raft::PeerId* peer) {
-    raft::Configuration old_conf(old_peers);
-    raft::Configuration new_conf(new_peers);
-    LOG(TRACE) << "diff conf, old: " << old_conf << " new: " << new_conf;
-    if (old_peers.size() == new_peers.size() - 1 && new_conf.contain(old_peers)) {
-        // add peer
-        for (size_t i = 0; i < old_peers.size(); i++) {
-            new_conf.remove_peer(old_peers[i]);
-        }
-        std::vector<raft::PeerId> peers;
-        new_conf.peer_vector(&peers);
-        CHECK(1 == peers.size());
-        *peer = peers[0];
-        return 0;
-    } else if (old_peers.size() == new_peers.size() + 1 && old_conf.contain(new_peers)) {
-        // remove peer
-        for (size_t i = 0; i < new_peers.size(); i++) {
-            old_conf.remove_peer(new_peers[i]);
-        }
-        std::vector<raft::PeerId> peers;
-        old_conf.peer_vector(&peers);
-        CHECK(1 == peers.size());
-        *peer = peers[0];
-        return 0;
-    } else {
-        return -1;
-    }
-}
-
-void Counter::set_peer(const std::vector<raft::PeerId>& old_peers,
-                  const std::vector<raft::PeerId>& new_peers, raft::Closure* done) {
-    raft::PeerId peer;
-    if (new_peers.size() == old_peers.size() + 1) {
-        if (0 == diff_peers(old_peers, new_peers, &peer)) {
-            LOG(TRACE) << "add peer " << peer;
-            _node.add_peer(old_peers, peer, done);
-        } else {
-            done->set_error(EINVAL, "add_peer invalid peers");
-            done->Run();
-        }
-    } else if (old_peers.size() == new_peers.size() + 1) {
-        if (0 == diff_peers(old_peers, new_peers, &peer)) {
-            LOG(TRACE) << "remove peer " << peer;
-            _node.remove_peer(old_peers, peer, done);
-        } else {
-            done->set_error(EINVAL, "remove_peer invalid peers");
-            done->Run();
-        }
-    } else {
-        int ret = _node.set_peer(old_peers, new_peers);
-        if (ret != 0) {
-            done->set_error(ret, "set_peer failed");
-        }
-        done->Run();
-    }
-}
-
-void Counter::snapshot(raft::Closure* done) {
-    _node.snapshot(done);
-}
-
-void Counter::shutdown(raft::Closure* done) {
-    _node.shutdown(done);
-}
-
-base::EndPoint Counter::leader() {
-    return _node.leader_id().addr;
-}
-
-base::EndPoint Counter::self() {
-    return _node.node_id().peer_id.addr;
 }
 
 void Counter::fetch_and_add(int32_t ip, int32_t pid, int64_t req_id,
@@ -151,7 +70,7 @@ int Counter::get(int64_t* value_ptr, const int64_t index) {
     if (_is_leader) {
         *value_ptr = _value;
         return 0;
-    } else if (index >= _applied_index) {
+    } else if (index <= _applied_index) {
         *value_ptr = _value;
         return 0;
     } else {

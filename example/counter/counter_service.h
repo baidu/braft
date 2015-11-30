@@ -45,26 +45,6 @@ public:
                      GetResponse* response,
                      google::protobuf::Closure* done);
 
-    virtual void set_peer(google::protobuf::RpcController* controller,
-                     const SetPeerRequest* request,
-                     SetPeerResponse* response,
-                     google::protobuf::Closure* done);
-
-    virtual void stats(google::protobuf::RpcController* controller,
-                     const StatsRequest* request,
-                     StatsResponse* response,
-                     google::protobuf::Closure* done);
-
-    virtual void shutdown(google::protobuf::RpcController* controller,
-                     const ShutdownRequest* request,
-                     ShutdownResponse* response,
-                     google::protobuf::Closure* done);
-
-    virtual void snapshot(google::protobuf::RpcController* controller,
-                     const SnapshotRequest* request,
-                     SnapshotResponse* response,
-                     google::protobuf::Closure* done);
-
 private:
     Counter* _counter;
 };
