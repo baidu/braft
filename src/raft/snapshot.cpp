@@ -6,7 +6,7 @@
  *    Description:  
  *
  *        Version:  1.0
- *        Created:  2015年11月04日 14时07分03秒
+ *        Created:  2015/11/05 11:34:03
  *       Revision:  none
  *       Compiler:  gcc
  *
@@ -36,8 +36,8 @@ const char* LocalSnapshotReader::_s_snapshot_meta = "snapshot_meta";
 const char* LocalSnapshotStorage::_s_temp_path = "temp";
 const char* LocalSnapshotStorage::_s_lock_path = "lock";
 
-LocalSnapshotWriter::LocalSnapshotWriter(const std::string& path, const SnapshotMeta& meta)
-    : SnapshotWriter(meta), _path(path) {
+LocalSnapshotWriter::LocalSnapshotWriter(const std::string& path)
+    : _path(path) {
 }
 
 LocalSnapshotWriter::~LocalSnapshotWriter() {
@@ -85,7 +85,8 @@ int LocalSnapshotWriter::copy(const std::string& uri) {
     return ret;
 }
 
-int LocalSnapshotWriter::save_meta() {
+int LocalSnapshotWriter::save_meta(const SnapshotMeta& meta) {
+    _meta = meta;
     std::string meta_path(_path);
     meta_path.append("/");
     meta_path.append(_s_snapshot_meta);
@@ -233,7 +234,7 @@ int LocalSnapshotStorage::init() {
     return 0;
 }
 
-SnapshotWriter* LocalSnapshotStorage::create(const SnapshotMeta& meta) {
+SnapshotWriter* LocalSnapshotStorage::create() {
     LocalSnapshotWriter* writer = NULL;
 
     do {
@@ -258,7 +259,13 @@ SnapshotWriter* LocalSnapshotStorage::create(const SnapshotMeta& meta) {
             LOG(WARNING) << "create temp snapshot path failed, path " << snapshot_path;
             break;
         }
-        writer = new LocalSnapshotWriter(snapshot_path, meta);
+        writer = new LocalSnapshotWriter(snapshot_path);
+        if (writer->init() != 0) {
+            LOG(ERROR) << "Fail to init writer";
+            delete writer;
+            writer = NULL;
+            break;
+        }
     } while (0);
 
     return writer;
@@ -317,7 +324,12 @@ SnapshotReader* LocalSnapshotStorage::open() {
     if (_last_snapshot_index != 0) {
         std::string snapshot_path(_path);
         base::string_appendf(&snapshot_path, "/" RAFT_SNAPSHOT_PATTERN, _last_snapshot_index);
-        return new LocalSnapshotReader(snapshot_path);
+        LocalSnapshotReader* reader =  new LocalSnapshotReader(snapshot_path);
+        if (reader->init() != 0) {
+            delete reader;
+            return NULL;
+        }
+        return reader;
     } else {
         return NULL;
     }
@@ -335,7 +347,11 @@ SnapshotStorage* create_local_snapshot_storage(const std::string& uri) {
     }
 
     LocalSnapshotStorage* storage = new LocalSnapshotStorage(local_path);
-    return storage;
+    if (storage->init() == 0) {
+        return storage;
+    }
+    delete storage;
+    return NULL;
 }
 
 }

@@ -66,7 +66,7 @@ private:
     };
 
     bthread_mutex_t                                     _mutex;
-    FSMCaller*                                   _waiter;
+    FSMCaller*                                          _waiter;
     boost::atomic<int64_t>                              _last_committed_index;
     int64_t                                             _pending_index;
     std::deque<PendingMeta*>                            _pending_apps;

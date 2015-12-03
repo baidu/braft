@@ -34,6 +34,47 @@ namespace raft {
 
 extern void global_init_or_dir();
 
+class ConfigurationChangeDone : public Closure {
+public:
+    void Run() {
+        if (_err_code != 0) {
+            if (_node != NULL) {
+                _node->on_configuration_change_done(_entry_type, _new_peers);
+            }
+        }
+        if (_user_done) {
+            _user_done->set_error(_err_code, _err_text);
+            _user_done->Run();
+            _user_done = NULL;
+        }
+        delete this;
+    }
+private:
+    ConfigurationChangeDone(
+            EntryType entry_type,
+            const std::vector<PeerId> new_peers,
+            NodeImpl* node, Closure* user_done)
+        : _entry_type(entry_type)
+        , _new_peers(new_peers)
+        , _node(node)
+        , _user_done(user_done)
+    {
+        _node->AddRef();
+    }
+    ~ConfigurationChangeDone() {
+        CHECK(_user_done == NULL);
+        if (_node != NULL) {
+            _node->Release();
+            _node = NULL;
+        }
+    }
+friend class NodeImpl;
+    EntryType _entry_type;
+    std::vector<PeerId> _new_peers;
+    NodeImpl* _node;
+    Closure* _user_done;
+};
+
 NodeImpl::NodeImpl(const GroupId& group_id, const ReplicaId& replica_id)
     : _group_id(group_id),
     _state(SHUTDOWN), _current_term(0),
@@ -148,34 +189,28 @@ void NodeImpl::on_snapshot_load_done() {
     _loading_snapshot_meta = NULL;
 }
 
-int NodeImpl::on_snapshot_save_done(const int64_t last_included_index, SnapshotWriter* writer) {
+int NodeImpl::on_snapshot_save_done(const SnapshotMeta& meta, SnapshotWriter* writer) {
     std::lock_guard<bthread_mutex_t> guard(_mutex);
     int ret = 0;
 
     do {
         // InstallSnapshot can break SaveSnapshot, check InstallSnapshot when SaveSnapshot
         // because upstream Snapshot mybe newer than local Snapshot.
-        if (last_included_index <= _last_snapshot_index) {
+        if (meta.last_included_index <= _last_snapshot_index) {
             ret = ESTALE;
             LOG(WARNING) << "node " << _group_id << ":" << _server_id
                 << " discard saved snapshot, because has a newer snapshot."
-                << " last_included_index " << last_included_index
+                << " last_included_index " << meta.last_included_index
                 << " last_snapshot_index " << _last_snapshot_index;
             writer->set_error(ESTALE, "snapshot is staled, maybe InstallSnapshot when snapshot");
             break;
         }
 
-        CHECK(last_included_index >= _log_manager->first_log_index());
-        CHECK(last_included_index <= _log_manager->last_log_index());
+        CHECK_GE(meta.last_included_index, _log_manager->first_log_index());
+        CHECK_LE(meta.last_included_index, _log_manager->last_log_index());
 
-        _last_snapshot_index = last_included_index;
-        _last_snapshot_term = _log_manager->get_term(last_included_index);
-
-        // set snapshot to configration
-        SnapshotMeta meta;
-        meta.last_included_index = _last_snapshot_index;
-        meta.last_included_term = _last_snapshot_term;
-        meta.last_configuration = _config_manager->get_configuration(last_included_index).second;
+        _last_snapshot_index = meta.last_included_index;
+        _last_snapshot_term = meta.last_included_term;
 
         _log_manager->set_snapshot(&meta);
 
@@ -190,7 +225,7 @@ int NodeImpl::on_snapshot_save_done(const int64_t last_included_index, SnapshotW
         // update configuration
         _log_manager->check_and_set_configuration(&_conf);
 
-        ret = writer->save_meta();
+        ret = writer->save_meta(meta);
 
         LOG(INFO) << "node " << _group_id << ":" << _server_id << " finish snapshot_save,"
             << " ret " << ret
@@ -220,14 +255,6 @@ int NodeImpl::init_snapshot_storage() {
             LOG(WARNING) << "node " << _group_id << ":" << _server_id
                 << " find snapshot storage failed, uri " << _options.snapshot_uri;
             ret = ENOENT;
-            break;
-        }
-
-        ret = _snapshot_storage->init();
-        if (ret != 0) {
-            LOG(WARNING) << "node " << _group_id << ":" << _server_id
-                << " init snapshot storage failed, uri " << _options.snapshot_uri;
-            ret = EINVAL;
             break;
         }
 
@@ -339,7 +366,7 @@ void NodeImpl::handle_snapshot_timeout() {
     std::lock_guard<bthread_mutex_t> guard(_mutex);
 
     // check state
-    if (_state == SHUTDOWN) {
+    if (!is_active_state(_state)) {
         return;
     }
 
@@ -402,12 +429,15 @@ int NodeImpl::init(const NodeOptions& options) {
         // fsm caller init, node AddRef in init
         _fsm_caller = new FSMCaller();
         FSMCallerOptions fsm_caller_options;
-        fsm_caller_options.last_applied_index = _last_snapshot_index;
-        fsm_caller_options.node = this;
+        this->AddRef();
+        fsm_caller_options.after_shutdown = 
+                google::protobuf::NewCallback<NodeImpl*>(after_shutdown, this);
         fsm_caller_options.log_manager = _log_manager;
         fsm_caller_options.fsm = _options.fsm;
         ret = _fsm_caller->init(fsm_caller_options);
         if (ret != 0) {
+            delete fsm_caller_options.after_shutdown;
+            this->Release();
             break;
         }
 
@@ -461,7 +491,7 @@ void NodeImpl::apply(const base::IOBuf& data, Closure* done) {
     std::lock_guard<bthread_mutex_t> guard(_mutex);
 
     // check state
-    CHECK(_state != SHUTDOWN);
+    CHECK(is_active_state(_state));
     if (_state != LEADER) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id << " can't apply not in LEADER";
         _fsm_caller->on_cleared(0, done, EPERM);
@@ -530,7 +560,9 @@ void NodeImpl::on_caughtup(const PeerId& peer, int error_code, Closure* done) {
             entry->type = ENTRY_TYPE_ADD_PEER;
             entry->peers = new std::vector<PeerId>;
             new_conf.peer_vector(entry->peers);
-            append(entry, done);
+            ConfigurationChangeDone* configration_change_done = 
+                    new ConfigurationChangeDone(entry->type, *entry->peers, this, done);
+            append(entry, configration_change_done);
             return;
         }
 
@@ -621,7 +653,7 @@ void NodeImpl::add_peer(const std::vector<PeerId>& old_peers, const PeerId& peer
     std::lock_guard<bthread_mutex_t> guard(_mutex);
 
     // check state
-    CHECK(_state != SHUTDOWN);
+    CHECK(is_active_state(_state));
     if (_state != LEADER) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id << " can't apply not in LEADER";
         _fsm_caller->on_cleared(0, done, EPERM);
@@ -688,7 +720,7 @@ void NodeImpl::remove_peer(const std::vector<PeerId>& old_peers, const PeerId& p
     std::lock_guard<bthread_mutex_t> guard(_mutex);
 
     // check state
-    CHECK(_state != SHUTDOWN);
+    CHECK(is_active_state(_state));
     if (_state != LEADER) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id << " can't apply not in LEADER";
         _fsm_caller->on_cleared(0, done, EPERM);
@@ -734,13 +766,15 @@ void NodeImpl::remove_peer(const std::vector<PeerId>& old_peers, const PeerId& p
     entry->type = ENTRY_TYPE_REMOVE_PEER;
     entry->peers = new std::vector<PeerId>;
     new_conf.peer_vector(entry->peers);
-    append(entry, done);
+    ConfigurationChangeDone* configration_change_done
+            = new ConfigurationChangeDone(entry->type, *entry->peers, this, done);
+    append(entry, configration_change_done);
 }
 
 int NodeImpl::set_peer(const std::vector<PeerId>& old_peers, const std::vector<PeerId>& new_peers) {
     std::lock_guard<bthread_mutex_t> guard(_mutex);
 
-    CHECK(_state != SHUTDOWN);
+    CHECK(is_active_state(_state));
     // check bootstrap
     if (_conf.second.empty() && old_peers.size() == 0) {
         Configuration new_conf(new_peers);
@@ -799,14 +833,17 @@ SaveSnapshotDone::~SaveSnapshotDone() {
 }
 
 SnapshotWriter* SaveSnapshotDone::start(const SnapshotMeta& meta) {
+    if (_writer != NULL) {
+        CHECK(false) << __FUNCTION__ << " is supposed to called once at most";
+    }
     _meta = meta;
-    _writer = _snapshot_storage->create(meta);
+    _writer = _snapshot_storage->create();
     return _writer;
 }
 
 void SaveSnapshotDone::Run() {
     if (_err_code == 0) {
-        int ret = _node->on_snapshot_save_done(_meta.last_included_index, _writer);
+        int ret = _node->on_snapshot_save_done(_meta, _writer);
         if (ret != 0) {
             set_error(ret, "node call on_snapshot_save_done failed");
         }
@@ -819,7 +856,7 @@ void SaveSnapshotDone::Run() {
 
     //user done, need set error
     if (_err_code != 0 && _done) {
-        _done->set_error(_err_code, _err_text.c_str());
+        _done->set_error(_err_code, _err_text);
     }
     if (_done) {
         _done->Run();
@@ -835,7 +872,7 @@ void NodeImpl::snapshot(Closure* done) {
 
 void NodeImpl::do_snapshot(Closure* done) {
     // check state
-    CHECK(_state != SHUTDOWN);
+    CHECK(is_active_state(_state));
 
     // check support snapshot?
     if (NULL == _snapshot_storage) {
@@ -873,49 +910,65 @@ void NodeImpl::do_snapshot(Closure* done) {
     _fsm_caller->on_snapshot_save(snapshot_save_done);
 }
 
+void* run_closure(void* arg) {
+    Closure *c = (Closure*)arg;
+    c->Run();
+    return NULL;
+}
+
 void NodeImpl::shutdown(Closure* done) {
     // remove node from NodeManager, rpc will not touch Node
     NodeManager::GetInstance()->remove(this);
 
-    std::lock_guard<bthread_mutex_t> guard(_mutex);
+    {
+        std::lock_guard<bthread_mutex_t> guard(_mutex);
 
-    LOG(INFO) << "node " << _group_id << ":" << _server_id << " shutdown,"
-        " current_term " << _current_term << " state " << state2str(_state);
+        LOG(INFO) << "node " << _group_id << ":" << _server_id << " shutdown,"
+            " current_term " << _current_term << " state " << state2str(_state);
 
-    // check state
-    CHECK(_state != SHUTDOWN);
-    // leader stop disk thread and replicator, stop stepdown timer, change state to FOLLOWER
-    // candidate stop vote timer, change state to FOLLOWER
-    if (_state != FOLLOWER) {
-        step_down(_current_term);
+        if (is_active_state(_state)) {
+            // leader stop disk thread and replicator, stop stepdown timer, change state to FOLLOWER
+            // candidate stop vote timer, change state to FOLLOWER
+            if (_state != FOLLOWER) {
+                step_down(_current_term);
+            }
+            // change state to shutdown
+            _state = SHUTTING;
+
+            // follower stop election timer
+            RAFT_VLOG << "node " << _group_id << ":" << _server_id
+                << " term " << _current_term << " stop election_timer";
+            int ret = bthread_timer_del(_election_timer);
+            if (ret == 0) {
+                Release();
+            }
+
+            // all stop snapshot timer
+            RAFT_VLOG << "node " << _group_id << ":" << _server_id
+                << " term " << _current_term << " stop snapshot_timer";
+            ret = bthread_timer_del(_snapshot_timer);
+            if (ret == 0) {
+                Release();
+            }
+
+            // stop replicator and fsm_caller wait
+            _log_manager->shutdown();
+
+            // step_down will call _commitment_manager->clear_pending_applications(),
+            // this can avoid send LogEntry with closure to fsm_caller.
+            // fsm_caller shutdown will not leak user's closure.
+            _fsm_caller->shutdown();//done);
+        }
+        if (_state != SHUTDOWN) {
+            _shutdown_continuations.push_back(done);
+            return;
+        }
+    }  // out of _mutex;
+    bthread_t tid;
+    if (bthread_start_urgent(&tid, NULL, run_closure, done) != 0) {
+        PLOG(ERROR) << "Fail to start bthread";
+        done->Run();
     }
-
-    // follower stop election timer
-    RAFT_VLOG << "node " << _group_id << ":" << _server_id
-        << " term " << _current_term << " stop election_timer";
-    int ret = bthread_timer_del(_election_timer);
-    if (ret == 0) {
-        Release();
-    }
-
-    // all stop snapshot timer
-    RAFT_VLOG << "node " << _group_id << ":" << _server_id
-        << " term " << _current_term << " stop snapshot_timer";
-    ret = bthread_timer_del(_snapshot_timer);
-    if (ret == 0) {
-        Release();
-    }
-
-    // change state to shutdown
-    _state = SHUTDOWN;
-
-    // stop replicator and fsm_caller wait
-    _log_manager->shutdown();
-
-    // step_down will call _commitment_manager->clear_pending_applications(),
-    // this can avoid send LogEntry with closure to fsm_caller.
-    // fsm_caller shutdown will not leak user's closure.
-    _fsm_caller->shutdown(done);
 }
 
 static void on_election_timer(void* arg) {
@@ -1222,8 +1275,9 @@ void NodeImpl::become_leader() {
     _conf.second.peer_vector(entry->peers);
     CHECK(entry->peers->size() > 0);
 
-    //append(entry, NULL);
-    append(entry, _fsm_caller->on_leader_start());
+    append(entry, 
+           new ConfigurationChangeDone(entry->type, *entry->peers,
+                                       this, _fsm_caller->on_leader_start()));
 
     AddRef();
     int64_t stepdown_timeout = _options.election_timeout;
@@ -1644,7 +1698,7 @@ int NodeImpl::handle_install_snapshot_request(baidu::rpc::Controller* controller
     do {
         CHECK(_snapshot_storage);
 
-        writer = _snapshot_storage->create(*_loading_snapshot_meta);
+        writer = _snapshot_storage->create();
         if (NULL == writer) {
             ret = EINVAL;
             break;
@@ -1655,7 +1709,7 @@ int NodeImpl::handle_install_snapshot_request(baidu::rpc::Controller* controller
             break;
         }
 
-        ret = writer->save_meta();
+        ret = writer->save_meta(*_loading_snapshot_meta);
         if (0 != ret) {
             break;
         }
@@ -1694,6 +1748,28 @@ int NodeImpl::increase_term_to(int64_t new_term) {
     }
     step_down(new_term);
     return 0;
+}
+
+void NodeImpl::after_shutdown(NodeImpl* node) {
+    return node->after_shutdown();
+}
+
+void NodeImpl::after_shutdown() {
+    std::vector<Closure*> saved_done;
+    {
+        std::lock_guard<bthread_mutex_t> guard(_mutex);
+        CHECK_EQ(SHUTTING, _state);
+        _state = SHUTDOWN;
+        std::swap(saved_done, _shutdown_continuations);
+    }
+    Release();
+    for (size_t i = 0; i < saved_done.size(); ++i) {
+        bthread_t tid;
+        if (bthread_start_urgent(&tid, NULL, run_closure, saved_done[i]) != 0) {
+            PLOG(ERROR) << "Fail to start bthread";
+            saved_done[i]->Run();
+        }
+    }
 }
 
 NodeManager::NodeManager() : _server(NULL) {

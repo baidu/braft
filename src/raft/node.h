@@ -42,7 +42,7 @@ class LogStorage;
 class StableStorage;
 class SnapshotStorage;
 
-class SaveSnapshotDone : public Closure {
+class SaveSnapshotDone : public SaveSnapshotClosure {
 public:
     SaveSnapshotDone(NodeImpl* node, SnapshotStorage* snapshot_storage, Closure* done);
     virtual ~SaveSnapshotDone();
@@ -57,7 +57,7 @@ public:
     SnapshotMeta _meta;
 };
 
-class InstallSnapshotDone : public Closure {
+class InstallSnapshotDone : public LoadSnapshotClosure {
 public:
     InstallSnapshotDone(NodeImpl* node,
                         SnapshotStorage* snapshot_storage,
@@ -167,7 +167,7 @@ public:
                                       const RequestVoteResponse& response);
     void on_caughtup(const PeerId& peer, int error_code, Closure* done);
     void on_snapshot_load_done();
-    int on_snapshot_save_done(const int64_t last_included_index, SnapshotWriter* writer);
+    int on_snapshot_save_done(const SnapshotMeta& meta, SnapshotWriter* writer);
 
     // other func
     //
@@ -206,6 +206,10 @@ private:
     int append(const std::vector<LogEntry*>& entries);
 
     void do_snapshot(Closure* done);
+
+    void after_shutdown();
+    static void after_shutdown(NodeImpl* node);
+
 private:
     struct VoteCtx {
         size_t needed;
@@ -276,6 +280,7 @@ private:
     FSMCaller* _fsm_caller;
     CommitmentManager* _commit_manager;
     ReplicatorGroup _replicator_group;
+    std::vector<Closure*> _shutdown_continuations;
 };
 
 class NodeManager {

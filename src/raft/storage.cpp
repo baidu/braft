@@ -105,7 +105,7 @@ int SnapshotWriter::error_code() {
     return _err_code;
 }
 
-std::string SnapshotWriter::error_text() {
+const std::string& SnapshotWriter::error_text() {
     return _err_text;
 }
 
@@ -122,7 +122,7 @@ int SnapshotReader::error_code() {
     return _err_code;
 }
 
-std::string SnapshotReader::error_text() {
+const std::string& SnapshotReader::error_text() {
     return _err_text;
 }
 

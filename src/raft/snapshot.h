@@ -25,17 +25,18 @@ namespace raft {
 
 class LocalSnapshotWriter : public SnapshotWriter {
 public:
-    LocalSnapshotWriter(const std::string& path, const SnapshotMeta& meta);
+    LocalSnapshotWriter(const std::string& path);
     virtual ~LocalSnapshotWriter();
 
     int64_t snapshot_index();
     virtual int init();
     virtual int copy(const std::string& uri);
-    virtual int save_meta();
+    virtual int save_meta(const SnapshotMeta& meta);
     virtual std::string get_uri();
 protected:
     static const char* _s_snapshot_meta;
     std::string _path;
+    SnapshotMeta _meta;
 };
 
 class LocalSnapshotReader: public SnapshotReader {
@@ -59,7 +60,7 @@ public:
     static const char* _s_temp_path;
 
     virtual int init();
-    virtual SnapshotWriter* create(const SnapshotMeta& meta);
+    virtual SnapshotWriter* create();
     virtual int close(SnapshotWriter* writer);
 
     virtual SnapshotReader* open();

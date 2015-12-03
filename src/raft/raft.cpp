@@ -44,6 +44,11 @@ void Closure::set_error(int err_code, const char* reason_fmt, ...) {
     va_end(ap);
 }
 
+void Closure::set_error(int err_code, const std::string& error_text) {
+    _err_code = err_code;
+    _err_text = error_text;
+}
+
 static pthread_once_t global_init_once = PTHREAD_ONCE_INIT;
 static pthread_mutex_t init_mutex = PTHREAD_MUTEX_INITIALIZER;
 static bool ever_initialized = false;

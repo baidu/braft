@@ -16,18 +16,24 @@
 namespace raft {
 
 FSMCaller::FSMCaller()
-    : _node(NULL)
-    , _log_manager(NULL)
+    : _log_manager(NULL)
     , _fsm(NULL)
     , _last_applied_index(0)
     , _last_applied_term(0)
+    , _after_shutdown(NULL)
 {
 }
 
 FSMCaller::~FSMCaller() {
+    CHECK(_after_shutdown == NULL);
 }
 
 int FSMCaller::run(void* meta, google::protobuf::Closure** const tasks[], size_t tasks_size) {
+    FSMCaller* caller = (FSMCaller*)meta;
+    if (tasks_size == 0) {
+        caller->do_shutdown();
+        return 0;
+    }
     // run closure
     for (size_t i = 0; i < tasks_size; i++) {
         google::protobuf::Closure* done = *tasks[i];
@@ -39,39 +45,35 @@ int FSMCaller::run(void* meta, google::protobuf::Closure** const tasks[], size_t
 }
 
 int FSMCaller::init(const FSMCallerOptions &options) {
-    if (options.log_manager == NULL || options.fsm == NULL
-            || options.last_applied_index < 0) {
+    if (options.log_manager == NULL || options.fsm == NULL) {
         return EINVAL;
     }
-    _node = options.node;
     _log_manager = options.log_manager;
     _fsm = options.fsm;
-    _last_applied_index.store(options.last_applied_index, boost::memory_order_release);
+    _after_shutdown = options.after_shutdown;
 
     bthread::execution_queue_start(&_queue,
                                    NULL, /*queue_options*/
                                    FSMCaller::run,
                                    this);
     // bind lifecycle with node, need AddRef, shutdown is async
-    _node->AddRef();
+    //_node->AddRef();
     return 0;
 }
 
-int FSMCaller::shutdown(Closure* done) {
-    google::protobuf::Closure* new_done =
-        google::protobuf::NewCallback(this, &FSMCaller::do_shutdown, done);
-    bthread::execution_queue_execute(_queue, new_done);
-    // call execution_queue_stop to release some resource
+int FSMCaller::shutdown() {
     return bthread::execution_queue_stop(_queue);
 }
 
-void FSMCaller::do_shutdown(Closure* done) {
-    if (done) {
-        done->Run();
-    }
+void FSMCaller::do_shutdown() {
     _fsm->on_shutdown();
-    // bind lifecycle with node, need AddRef, shutdown is async
-    _node->Release();
+    if (_after_shutdown) {
+        google::protobuf::Closure* saved_done = _after_shutdown;
+        _after_shutdown = NULL;
+        // after this point, |this| is likely to be destroyed, don't touch
+        // anything
+        saved_done->Run();
+    }
 }
 
 int FSMCaller::on_committed(int64_t committed_index, void *context) {
@@ -109,7 +111,7 @@ void FSMCaller::do_committed(int64_t committed_index, Closure* done) {
         case ENTRY_TYPE_ADD_PEER:
         case ENTRY_TYPE_REMOVE_PEER:
             // Notify that configuration change is successfully executed
-            _node->on_configuration_change_done(entry->type, *(entry->peers));
+            //_node->on_configuration_change_done(entry->type, *(entry->peers));
             if (done && index == committed_index) {
                 done->Run();
             }
@@ -138,20 +140,19 @@ int FSMCaller::on_cleared(int64_t log_index, void* context, int error_code) {
     return bthread::execution_queue_execute(_queue, done);
 }
 
-void FSMCaller::do_cleared(int64_t log_index, Closure* done, int error_code) {
-    log_index = log_index; // no used
+void FSMCaller::do_cleared(int64_t /*log_index*/, Closure* done, int error_code) {
     CHECK(done);
-    done->set_error(error_code, "operation failed");
+    done->set_error(error_code, "%s", berror(error_code));
     done->Run();
 }
 
-int FSMCaller::on_snapshot_save(SaveSnapshotDone* done) {
+int FSMCaller::on_snapshot_save(SaveSnapshotClosure* done) {
     google::protobuf::Closure* new_done =
         google::protobuf::NewCallback(this, &FSMCaller::do_snapshot_save, done);
     return bthread::execution_queue_execute(_queue, new_done);
 }
 
-void FSMCaller::do_snapshot_save(SaveSnapshotDone* done) {
+void FSMCaller::do_snapshot_save(SaveSnapshotClosure* done) {
     CHECK(done);
 
 #if 0
@@ -169,8 +170,6 @@ void FSMCaller::do_snapshot_save(SaveSnapshotDone* done) {
     meta.last_included_index = last_applied_index;
     meta.last_included_term = _last_applied_term;
     ConfigurationPair pair = _log_manager->get_configuration(last_applied_index);
-    CHECK(pair.first > 0) << "last_applied_index " << last_applied_index
-        << " last_applied_term " << _last_applied_term << " pair.first " << pair.first;
     meta.last_configuration = pair.second;
 
     SnapshotWriter* writer = done->start(meta);
@@ -190,13 +189,13 @@ void FSMCaller::do_snapshot_save(SaveSnapshotDone* done) {
     return;
 }
 
-int FSMCaller::on_snapshot_load(InstallSnapshotDone* done) {
+int FSMCaller::on_snapshot_load(LoadSnapshotClosure* done) {
     google::protobuf::Closure* new_done =
         google::protobuf::NewCallback(this, &FSMCaller::do_snapshot_load, done);
     return bthread::execution_queue_execute(_queue, new_done);
 }
 
-void FSMCaller::do_snapshot_load(InstallSnapshotDone* done) {
+void FSMCaller::do_snapshot_load(LoadSnapshotClosure* done) {
     //TODO done_guard
     SnapshotReader* reader = done->start();
     if (!reader) {
@@ -205,17 +204,17 @@ void FSMCaller::do_snapshot_load(InstallSnapshotDone* done) {
         return;
     }
 
-    int ret = _fsm->on_snapshot_load(reader);
-    if (ret != 0) {
-        done->set_error(ret, "StateMachine on_snapshot_load failed");
+    SnapshotMeta meta;
+    int ret = reader->load_meta(&meta);
+    if (0 != ret) {
+        done->set_error(ret, "SnapshotReader load_meta failed.");
         done->Run();
         return;
     }
 
-    SnapshotMeta meta;
-    ret = reader->load_meta(&meta);
-    if (0 != ret) {
-        done->set_error(ret, "SnapshotReader load_meta failed.");
+    ret = _fsm->on_snapshot_load(reader);
+    if (ret != 0) {
+        done->set_error(ret, "StateMachine on_snapshot_load failed");
         done->Run();
         return;
     }

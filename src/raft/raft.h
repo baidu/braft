@@ -43,6 +43,7 @@ public:
     virtual ~Closure() {}
 
     void set_error(int err_code, const char* reason_fmt, ...);
+    void set_error(int err_code, const std::string &error_text);
 
     virtual void Run() = 0;
 protected:
@@ -52,8 +53,6 @@ protected:
 
 class StateMachine {
 public:
-    StateMachine() {}
-
     // user defined logentry proc function
     // [OPTIMIZE] add Closure argument to avoid parse data
     // [NOTE] index: realize follower read strong consistency
@@ -84,8 +83,6 @@ public:
     //        maybe before some method: apply success on_apply or fail done.
     //        user sure resource available.
     virtual void on_leader_stop();
-protected:
-    virtual ~StateMachine() {}
 };
 
 enum State {
@@ -93,15 +90,28 @@ enum State {
     CANDIDATE = 2,
     FOLLOWER = 3,
     SHUTDOWN = 4,
-    STATE_END = 5,
+    SHUTTING = 5,
+    STATE_END = 6,
 };
 
 inline const char* state2str(State state) {
-    const char* str[] = {"LEADER", "CANDIDATE", "FOLLOWER", "SHUTDOWN"};
+    const char* str[] = {"LEADER", "CANDIDATE", "FOLLOWER", "SHUTDOWN", "SHUTTING"};
     if (state < STATE_END) {
         return str[(int)state - 1];
     } else {
         return "UNKNOWN";
+    }
+}
+
+inline bool is_active_state(State s) {
+    // This should be as fast as possible
+    switch (s) {
+    case LEADER:
+    case CANDIDATE:
+    case FOLLOWER:
+        return true;
+    default:
+        return false;
     }
 }
 
