@@ -27,8 +27,8 @@ DEFINE_int64(max_duplicated_request_cache, 300000, "duplicated request cache max
 
 namespace counter {
 
-Counter::Counter(const raft::GroupId& group_id, const raft::ReplicaId& replica_id)
-    : example::CommonStateMachine(group_id, replica_id), _value(0),
+Counter::Counter(const raft::GroupId& group_id, const raft::PeerId& peer_id)
+    : example::CommonStateMachine(group_id, peer_id), _value(0),
     _applied_index(0), _is_leader(false),
     _duplicated_request_cache(FLAGS_max_duplicated_request_cache) {
     bthread_mutex_init(&_mutex, NULL);
@@ -116,7 +116,7 @@ void Counter::on_shutdown() {
 int Counter::on_snapshot_save(raft::SnapshotWriter* writer, raft::Closure* done) {
     baidu::rpc::ClosureGuard done_guard(done);
 
-    std::string snapshot_path = raft::fileuri2path(writer->get_uri());
+    std::string snapshot_path = raft::fileuri2path(writer->get_uri(base::EndPoint()));
     snapshot_path.append("/data");
 
     LOG(INFO) << "on_snapshot_save to " << snapshot_path;
@@ -128,7 +128,7 @@ int Counter::on_snapshot_save(raft::SnapshotWriter* writer, raft::Closure* done)
 }
 
 int Counter::on_snapshot_load(raft::SnapshotReader* reader) {
-    std::string snapshot_path = raft::fileuri2path(reader->get_uri());
+    std::string snapshot_path = raft::fileuri2path(reader->get_uri(base::EndPoint()));
     snapshot_path.append("/data");
 
     LOG(INFO) << "on_snapshot_load from " << snapshot_path;

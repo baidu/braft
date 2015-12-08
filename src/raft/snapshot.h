@@ -32,7 +32,7 @@ public:
     virtual int init();
     virtual int copy(const std::string& uri);
     virtual int save_meta(const SnapshotMeta& meta);
-    virtual std::string get_uri();
+    virtual std::string get_uri(const base::EndPoint& hint_addr);
 protected:
     static const char* _s_snapshot_meta;
     std::string _path;
@@ -46,7 +46,7 @@ public:
 
     virtual int init();
     virtual int load_meta(SnapshotMeta* meta);
-    virtual std::string get_uri();
+    virtual std::string get_uri(const base::EndPoint& hint_addr);
 protected:
     static const char* _s_snapshot_meta;
     std::string _path;

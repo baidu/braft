@@ -54,7 +54,7 @@ private:
 
 class Counter : public example::CommonStateMachine {
 public:
-    Counter(const raft::GroupId& group_id, const raft::ReplicaId& replica_id);
+    Counter(const raft::GroupId& group_id, const raft::PeerId& peer_id);
 
     // FSM method
     virtual void on_apply(const base::IOBuf& buf,

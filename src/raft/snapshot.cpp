@@ -109,7 +109,7 @@ int LocalSnapshotWriter::save_meta(const SnapshotMeta& meta) {
     return ret;
 }
 
-std::string LocalSnapshotWriter::get_uri() {
+std::string LocalSnapshotWriter::get_uri(const base::EndPoint& /*hint_addr*/) {
     return std::string("file://") + _path;
 }
 
@@ -151,11 +151,9 @@ int LocalSnapshotReader::load_meta(SnapshotMeta* meta) {
     return ret;
 }
 
-std::string LocalSnapshotReader::get_uri() {
+std::string LocalSnapshotReader::get_uri(const base::EndPoint& hint_addr) {
     std::string snapshot_uri("file://");
-    base::EndPoint addr = NodeManager::GetInstance()->address();
-    CHECK(addr.port != 0);
-    snapshot_uri.append(base::endpoint2str(addr).c_str());
+    snapshot_uri.append(base::endpoint2str(hint_addr).c_str());
     snapshot_uri.append("/");
     snapshot_uri.append(_path);
     return snapshot_uri;
@@ -315,6 +313,12 @@ int LocalSnapshotStorage::close(SnapshotWriter* writer_) {
     if (0 != ::lockf(_lock_fd, F_ULOCK, 0)) {
         LOG(WARNING) << "unlock file failed, path " << _path;
         ret = EIO;
+    }
+    if (ret != 0) {
+        std::string temp_path(_path);
+        temp_path.append("/");
+        temp_path.append(_s_temp_path);
+        base::DeleteFile(base::FilePath(temp_path), true);
     }
     delete writer;
     return ret;

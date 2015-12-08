@@ -81,6 +81,7 @@ public:
     // get votefor information
     virtual int get_votedfor(PeerId* peer_id) = 0;
 
+    // set term and votedfor information
     virtual int set_term_and_votedfor(const int64_t term, const PeerId& peer_id) = 0;
 };
 
@@ -97,7 +98,7 @@ public:
 
     virtual int copy(const std::string& uri) = 0;
     virtual int save_meta(const SnapshotMeta& meta) = 0;
-    virtual std::string get_uri() = 0;
+    virtual std::string get_uri(const base::EndPoint& hint_addr) = 0;
 
     // error func
     int error_code();
@@ -114,7 +115,7 @@ public:
     virtual ~SnapshotReader() {}
 
     virtual int load_meta(SnapshotMeta* meta) = 0;
-    virtual std::string get_uri() = 0;
+    virtual std::string get_uri(const base::EndPoint& hint_addr) = 0;
 
     // error func
     int error_code();

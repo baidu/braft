@@ -436,7 +436,7 @@ void Replicator::_wait_more_entries(long start_time_us) {
 
 void Replicator::_install_snapshot() {
     SnapshotReader* reader = _options.snapshot_storage->open();
-    std::string uri = reader->get_uri();
+    std::string uri = reader->get_uri(_options.server_id.addr);
     SnapshotMeta meta;
     // TODO: shutdown on failure
     CHECK_EQ(0, reader->load_meta(&meta));

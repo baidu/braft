@@ -17,27 +17,35 @@
  */
 #include "block.h"
 #include "raft/util.h"
+#include "raft/snapshot.h"
 
 namespace block {
 
-Block::Block(const raft::GroupId& group_id, const raft::ReplicaId& replica_id)
-    : example::CommonStateMachine(group_id, replica_id), _is_leader(false), _applied_index(0),
+Block::Block(const raft::GroupId& group_id, const raft::PeerId& peer_id)
+    : example::CommonStateMachine(group_id, peer_id), _is_leader(false), _applied_index(0),
     _fd(-1) {
+        pthread_mutex_init(&_mutex, NULL);
 }
 
 Block::~Block() {
-    if (_fd >= 0) {
-        ::close(_fd);
-        _fd = -1;
-    }
+    set_fd(-1);
+    pthread_mutex_destroy(&_mutex);
 }
 
 int Block::get_fd() {
+    //TODO: optimize
+    std::lock_guard<pthread_mutex_t> guard(_mutex);
     if (_fd < 0) {
         _fd = ::open(_path.c_str(), O_CREAT | O_RDWR, 0644);
         CHECK(_fd >= 0) << "open block failed: " << berror();
     }
     return _fd;
+}
+
+void Block::set_fd(int fd) {
+    std::lock_guard<pthread_mutex_t> guard(_mutex);
+    ::close(_fd);
+    _fd = fd;
 }
 
 int Block::init(const raft::NodeOptions& options) {
@@ -84,6 +92,8 @@ int Block::read(int64_t offset, int32_t size, base::IOBuf* data, int64_t index) 
 }
 
 void Block::on_apply(const base::IOBuf &data, const int64_t index, raft::Closure* done) {
+    base::Timer timer;
+    timer.start();
     baidu::rpc::ClosureGuard done_guard(done);
 
     base::IOBuf log_data(data);
@@ -106,11 +116,14 @@ void Block::on_apply(const base::IOBuf &data, const int64_t index, raft::Closure
     CHECK(static_cast<size_t>(size) == log_body.size())
         << "size: " << size << " data_size: " << log_body.size();
 
-    ::lseek(get_fd(), offset, SEEK_SET);
+    //::lseek(get_fd(), offset, SEEK_SET);
     base::IOBuf* pieces[] = {&log_body};
-    ssize_t writen = base::IOBuf::cut_multiple_into_file_descriptor(get_fd(), pieces, 1);
+    ssize_t writen = base::IOBuf::cut_multiple_into_file_descriptor(get_fd(), pieces, 1, offset);
     CHECK_EQ(writen, size) << "writen: " << writen << " size: " << size;
-    LOG(NOTICE) << "write success, offset: " << offset << " size: " << size;
+
+    timer.stop();
+    LOG(NOTICE) << "write success, index: " << index << " time: " << timer.u_elapsed()
+        << " offset: " << offset << " size: " << size;
 
     _applied_index = index;
 }
@@ -123,16 +136,51 @@ void Block::on_shutdown() {
 }
 
 int Block::on_snapshot_save(raft::SnapshotWriter* writer, raft::Closure* done) {
+    base::Timer timer;
+    timer.start();
+
     baidu::rpc::ClosureGuard done_guard(done);
 
-    LOG(NOTICE) << "on_snapshot_save do nothing";
+    //raft::LocalSnapshotWriter* local_writer = dynamic_cast<raft::LocalSnapshotWriter*>(writer);
+    std::string snapshot_path(writer->get_uri(base::EndPoint()));
+    snapshot_path.append("/../data");
+    std::string data_path(writer->get_uri(base::EndPoint()));
+    data_path.append("/data");
+
+    CHECK_EQ(0, link(raft::fileuri2path(snapshot_path).c_str(),
+                     raft::fileuri2path(data_path).c_str()))
+        << "link failed, src " << snapshot_path << " dst: " << data_path << " error: " << berror();
+
+    timer.stop();
+
+    LOG(NOTICE) << "on_snapshot_save, time: " << timer.u_elapsed()
+        << " link " << snapshot_path << " to " << data_path;
     // snapshot save do nothing
     return 0;
 }
 
 int Block::on_snapshot_load(raft::SnapshotReader* reader) {
-    LOG(NOTICE) << "on_snapshot_load do nothing";
-    // snapshot load do nothing
+    base::Timer timer;
+    timer.start();
+
+    std::string snapshot_path(reader->get_uri(base::EndPoint()));
+    snapshot_path.append("/../data");
+    std::string data_path(reader->get_uri(base::EndPoint()));
+    data_path.append("/data");
+
+    unlink(raft::fileuri2path(snapshot_path).c_str());
+    CHECK_EQ(0, link(raft::fileuri2path(data_path).c_str(),
+                     raft::fileuri2path(snapshot_path).c_str()))
+        << "link failed, src " << data_path << " dst: " << snapshot_path << " error: " << berror();
+
+    timer.stop();
+
+    int fd = ::open(raft::fileuri2path(snapshot_path).c_str(), O_RDWR, 0644);
+    CHECK(fd >= 0) << "open snapshot file failed, path: "
+        << snapshot_path << " error: " << berror();
+    set_fd(fd);
+    LOG(NOTICE) << "on_snapshot_load, time: " << timer.u_elapsed()
+        << " link " << data_path << " to " << snapshot_path;
     return 0;
 }
 

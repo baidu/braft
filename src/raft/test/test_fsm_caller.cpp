@@ -136,7 +136,7 @@ public:
     {
     };
     ~DummySnapshotReader() {}
-    std::string get_uri() { return std::string(); }
+    std::string get_uri(const base::EndPoint& /*hint_addr*/) { return std::string(); }
     int load_meta(raft::SnapshotMeta* meta) {
         *meta = *_meta;
         return 0;
@@ -157,7 +157,7 @@ public:
         EXPECT_TRUE(false) << "Should never be called";
         return 0;
     }
-    std::string get_uri() { return std::string(); }
+    std::string get_uri(const base::EndPoint& /*hint_addr*/) { return std::string(); }
 private:
 };
 

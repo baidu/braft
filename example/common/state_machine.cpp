@@ -25,8 +25,8 @@
 namespace example {
 
 CommonStateMachine::CommonStateMachine(const raft::GroupId& group_id,
-                                       const raft::ReplicaId& replica_id)
-    : StateMachine(), _node(group_id, replica_id) {
+                                       const raft::PeerId& peer_id)
+    : StateMachine(), _node(group_id, peer_id) {
 }
 
 CommonStateMachine::~CommonStateMachine() {

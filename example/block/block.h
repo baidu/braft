@@ -47,7 +47,7 @@ private:
 
 class Block : public example::CommonStateMachine {
 public:
-    Block(const raft::GroupId& group_id, const raft::ReplicaId& replica_id);
+    Block(const raft::GroupId& group_id, const raft::PeerId& peer_id);
 
     // init path
     int init(const raft::NodeOptions& options);
@@ -76,7 +76,9 @@ private:
 
     virtual ~Block();
     int get_fd();
+    void set_fd(int fd);
 
+    pthread_mutex_t _mutex;
     std::string _path;
     bool _is_leader;
     int64_t _applied_index;

@@ -31,10 +31,6 @@ static const char* s_libraft_version = "libraft_version_" __RAFT_VERSION_ID__;
 static const char* s_libraft_version = "libraft_version_unknown";
 #endif  // __RAFT_VERSION_ID__
 
-DEFINE_string(raft_ip_and_port, "0.0.0.0:8000-9000",
-              "Make raft listen to the given address. "
-              "format : ip:begin_port[-end_port]");
-
 void Closure::set_error(int err_code, const char* reason_fmt, ...) {
     _err_code = err_code;
 
@@ -50,71 +46,33 @@ void Closure::set_error(int err_code, const std::string& error_text) {
 }
 
 static pthread_once_t global_init_once = PTHREAD_ONCE_INIT;
-static pthread_mutex_t init_mutex = PTHREAD_MUTEX_INITIALIZER;
-static bool ever_initialized = false;
+static void global_init_or_die_impl() {
+    if (init_storage() != 0) {
+        LOG(FATAL) << "Fail to init storage";
+        exit(1);
+    }
+    LOG(NOTICE) << "init libraft ver: " << s_libraft_version;
+}
 
 int init_raft(const char* server_desc,
               baidu::rpc::Server* server, baidu::rpc::ServerOptions* options) {
-    s_libraft_version = s_libraft_version; // no used
-    BAIDU_SCOPED_LOCK(init_mutex);
-    if (ever_initialized) {
-        return 1;
-    }
-    if (init_storage() != 0) {
-        LOG(FATAL) << "Fail to init storage";
-        return -1;
-    }
-    if (server_desc != NULL) {
-        FLAGS_raft_ip_and_port = server_desc;
-    }
-    std::string ip_str("0.0.0.0");
-    int start_port = 0;
-    int end_port = 0;
-    int index = 0;
-    for (base::StringMultiSplitter 
-            sp(FLAGS_raft_ip_and_port.c_str(), ":-"); sp != NULL; ++sp) {
-        if (index == 0) {
-            ip_str.assign(sp.field(), sp.length());
-        } else if (index == 1) {
-            if (sp.to_int(&start_port) != 0) {
-                index = 0;
-                break;
-            }
-        } else if (index == 2) {
-            if (sp.to_int(&end_port) != 0) {
-                index = 0;
-                break;
-            }
-        }
-        index ++;
-    }
-    if (index == 2) {
-        end_port = start_port;
-    }
-    if (index < 2 || index > 3 || end_port < start_port) {
-        LOG(WARNING) << "bad server description format : " << server_desc;
-        return EINVAL;
-    }
-    if (NodeManager::GetInstance()->init(ip_str.c_str(), start_port, end_port,
-                                         server, options) != 0) {
-        return -1;
-    }
-    ever_initialized = true;
-    return 0;
-}
-
-void global_init_or_dir_impl() {
-    if (init_raft(NULL, NULL, NULL) < 0) {
-        LOG(FATAL) << "Fail to init raft";
-        exit(1);
-    }
-}
-
-void global_init_or_dir() {
-    if (pthread_once(&global_init_once, global_init_or_dir_impl) != 0) {
+    if (pthread_once(&global_init_once, global_init_or_die_impl) != 0) {
         PLOG(FATAL) << "Fail to pthread_once";
         exit(1);
     }
+
+    base::EndPoint ip_and_port;
+    if (0 == base::hostname2endpoint(server_desc, &ip_and_port) ||
+        0 == base::str2endpoint(server_desc, &ip_and_port)) {
+    } else {
+        LOG(WARNING) << "bad server description format : " << server_desc;
+        return EINVAL;
+    }
+
+    if (NodeManager::GetInstance()->init(ip_and_port, server, options) != 0) {
+        return -1;
+    }
+    return 0;
 }
 
 int StateMachine::on_snapshot_save(SnapshotWriter* writer, Closure* done) {
@@ -135,8 +93,8 @@ void StateMachine::on_leader_stop() {
     LOG(WARNING) << "StateMachine: " << this << " on_leader_stop not implement";
 }
 
-Node::Node(const GroupId& group_id, const ReplicaId& replica_id) {
-    _impl = new NodeImpl(group_id, replica_id);
+Node::Node(const GroupId& group_id, const PeerId& peer_id) {
+    _impl = new NodeImpl(group_id, peer_id);
 }
 
 Node::~Node() {

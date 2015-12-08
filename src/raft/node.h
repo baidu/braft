@@ -92,7 +92,7 @@ friend class NodeImpl;
 class NodeImpl : public base::RefCountedThreadSafe<NodeImpl> {
 friend class RaftServiceImpl;
 public:
-    NodeImpl(const GroupId& group_id, const ReplicaId& replica_id);
+    NodeImpl(const GroupId& group_id, const PeerId& peer_id);
 
     NodeId node_id() const {
         return NodeId(_group_id, _server_id);
@@ -289,10 +289,8 @@ public:
         return Singleton<NodeManager>::get();
     }
 
-    int init(const char* ip_str, int start_port, int end_port,
+    int init(const base::EndPoint& ip_and_port,
              baidu::rpc::Server* server, baidu::rpc::ServerOptions* options);
-
-    base::EndPoint address() const { return _address; }
 
     // add raft node
     bool add(NodeImpl* node);
@@ -330,8 +328,12 @@ private:
 
     base::DoublyBufferedData<Maps> _nodes;
 
-    base::EndPoint _address;
-    baidu::rpc::Server* _server;
+    baidu::rpc::Server* get_server(const base::EndPoint& ip_and_port);
+    void add_server(const base::EndPoint& ip_and_port, baidu::rpc::Server* server);
+
+    typedef std::map<base::EndPoint, baidu::rpc::Server*> ServerMap;
+    bthread_mutex_t _mutex;
+    ServerMap _servers;
     RaftServiceImpl _service_impl;
 };
 

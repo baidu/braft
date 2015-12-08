@@ -24,7 +24,7 @@ namespace example {
 
 class CommonStateMachine : public raft::StateMachine {
 public:
-    CommonStateMachine(const raft::GroupId& group_id, const raft::ReplicaId& replica_id);
+    CommonStateMachine(const raft::GroupId& group_id, const raft::PeerId& peer_id);
 
     // user operation method
     int init(const raft::NodeOptions& options);

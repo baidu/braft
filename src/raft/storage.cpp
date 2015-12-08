@@ -76,15 +76,19 @@ int register_storage(const std::string& uri, const Storage& storage) {
 }
 
 Storage* find_storage(const std::string& uri) {
+    int fields = 0;
     std::string uri_prefix;
     for (base::StringSplitter s(uri.c_str(), ':'); s; ++s) {
-        uri_prefix = std::string(s.field(), s.length());
-        if (uri_prefix.length() > 0) {
-            break;
+        if (0 == fields++) {
+            uri_prefix = std::string(s.field(), s.length());
+        } else {
+            continue;
         }
     }
 
-    if (uri_prefix.length() == 0) {
+    if (fields == 1) {
+        uri_prefix = "file";
+    } else if (uri_prefix.length() == 0) {
         LOG(WARNING) << "storage " << uri << " bad format";
         return NULL;
     }

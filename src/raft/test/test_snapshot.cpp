@@ -22,6 +22,7 @@
 #include <baidu/rpc/server.h>
 #include "raft/snapshot.h"
 #include "raft/raft.h"
+#include "raft/util.h"
 
 class TestUsageSuits : public testing::Test {
 protected:
@@ -96,7 +97,7 @@ TEST_F(TestUsageSuits, writer_and_reader) {
     writer = storage->create();
     ASSERT_TRUE(writer != NULL);
     ASSERT_EQ(0, writer->save_meta(meta));
-    ASSERT_EQ("file://./data/temp", writer->get_uri());
+    ASSERT_EQ("file://./data/temp", writer->get_uri(base::EndPoint()));
     ASSERT_EQ(0, storage->close(writer));
 
     // normal open reader after reinit
@@ -138,7 +139,7 @@ TEST_F(TestUsageSuits, copy) {
 
     raft::SnapshotReader* reader1 = storage1->open();
     ASSERT_TRUE(reader1 != NULL);
-    std::string uri = reader1->get_uri();
+    std::string uri = reader1->get_uri(base::EndPoint(base::get_host_ip(), 60006));
     ASSERT_EQ(0, storage1->close(reader1));
 
     // storage2

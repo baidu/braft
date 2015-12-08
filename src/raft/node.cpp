@@ -32,8 +32,6 @@
 
 namespace raft {
 
-extern void global_init_or_dir();
-
 class ConfigurationChangeDone : public Closure {
 public:
     void Run() {
@@ -75,7 +73,7 @@ friend class NodeImpl;
     Closure* _user_done;
 };
 
-NodeImpl::NodeImpl(const GroupId& group_id, const ReplicaId& replica_id)
+NodeImpl::NodeImpl(const GroupId& group_id, const PeerId& peer_id)
     : _group_id(group_id),
     _state(SHUTDOWN), _current_term(0),
     _last_snapshot_term(0), _last_snapshot_index(0),
@@ -85,8 +83,7 @@ NodeImpl::NodeImpl(const GroupId& group_id, const ReplicaId& replica_id)
     _config_manager(NULL), _log_manager(NULL),
     _fsm_caller(NULL), _commit_manager(NULL) {
     
-        global_init_or_dir();
-        _server_id = PeerId(NodeManager::GetInstance()->address(), replica_id);
+        _server_id = peer_id;
         AddRef();
         bthread_mutex_init(&_mutex, NULL);
 }
@@ -381,12 +378,12 @@ void NodeImpl::handle_snapshot_timeout() {
 }
 
 int NodeImpl::init(const NodeOptions& options) {
-    if (NodeManager::GetInstance()->address() == base::EndPoint(base::IP_ANY, 0)) {
-        LOG(ERROR) << "Raft Server not inited.";
-        return EINVAL;
-    }
-
     int ret = 0;
+
+    // check _server_id
+    if (base::IP_ANY == _server_id.addr.ip) {
+        _server_id.addr.ip = base::get_host_ip();
+    }
 
     _options = options;
 
@@ -458,8 +455,8 @@ int NodeImpl::init(const NodeOptions& options) {
 
         // add node to NodeManager
         if (!NodeManager::GetInstance()->add(this)) {
-            LOG(WARNING) << "NodeManager add " << _group_id << ":" << _server_id << "failed, exist";
-            ret = EEXIST;
+            LOG(WARNING) << "NodeManager add " << _group_id << ":" << _server_id << "failed";
+            ret = EINVAL;
             break;
         }
 
@@ -1545,6 +1542,7 @@ int NodeImpl::handle_append_entries_request(base::IOBuf& data_buf,
             << " in term " << request->term()
             << " prev_index " << request->prev_log_index()
             << " prev_term " << request->prev_log_term()
+            << " committed_index " << request->committed_index()
             << " count " << entries.size()
             << " current_term " << _current_term;
 
@@ -1563,7 +1561,9 @@ int NodeImpl::handle_append_entries_request(base::IOBuf& data_buf,
     response->set_last_log_index(_log_manager->last_log_index());
     if (success) {
         // commit manager call fsmcaller
-        _commit_manager->set_last_committed_index(request->committed_index());
+        if (request->committed_index() <= _log_manager->last_log_index()) {
+            CHECK_EQ(0, _commit_manager->set_last_committed_index(request->committed_index()));
+        }
         _last_leader_timestamp = base::monotonic_time_ms();
     }
     return 0;
@@ -1764,6 +1764,9 @@ void NodeImpl::after_shutdown() {
     }
     Release();
     for (size_t i = 0; i < saved_done.size(); ++i) {
+        if (NULL == saved_done[i]) {
+            continue;
+        }
         bthread_t tid;
         if (bthread_start_urgent(&tid, NULL, run_closure, saved_done[i]) != 0) {
             PLOG(ERROR) << "Fail to start bthread";
@@ -1772,50 +1775,70 @@ void NodeImpl::after_shutdown() {
     }
 }
 
-NodeManager::NodeManager() : _server(NULL) {
+NodeManager::NodeManager() {
+    bthread_mutex_init(&_mutex, NULL);
 }
 
 NodeManager::~NodeManager() {
+    bthread_mutex_destroy(&_mutex);
 }
 
-int NodeManager::init(const char* ip_str, int start_port, int end_port,
+baidu::rpc::Server* NodeManager::get_server(const base::EndPoint& ip_and_port) {
+    std::lock_guard<bthread_mutex_t> guard(_mutex);
+    ServerMap::iterator it = _servers.find(ip_and_port);
+    if (it != _servers.end()) {
+        return it->second;
+    } else {
+        for (it = _servers.begin(); it != _servers.end(); ++it) {
+            base::EndPoint address = it->first;
+            if (address.port == ip_and_port.port &&
+                (address.ip == base::IP_ANY || address.ip == ip_and_port.ip)) {
+                return it->second;
+            }
+        }
+        return NULL;
+    }
+}
+
+void NodeManager::add_server(const base::EndPoint& ip_and_port, baidu::rpc::Server* server) {
+    std::lock_guard<bthread_mutex_t> guard(_mutex);
+    _servers.insert(std::make_pair<base::EndPoint, baidu::rpc::Server*>(ip_and_port, server));
+}
+
+int NodeManager::init(const base::EndPoint& ip_and_port,
                       baidu::rpc::Server* server, baidu::rpc::ServerOptions* options) {
-    if (_address.ip != base::IP_ANY) {
-        LOG(ERROR) << "Raft has be inited";
+    if (!server) {
+        server = new baidu::rpc::Server;
+    } else if (0 != server->listen_address().port ||
+               NULL != get_server(ip_and_port)){
+        LOG(ERROR) << "Add Raft Server has inited.";
         return EINVAL;
     }
 
-    if (server) {
-        _server = server;
-    } else {
-        _server = new baidu::rpc::Server;
-    }
     baidu::rpc::ServerOptions server_options;
     if (options) {
         server_options = *options;
     }
-    if (0 != _server->AddService(new FileServiceImpl, baidu::rpc::SERVER_OWNS_SERVICE)) {
+    if (0 != server->AddService(new FileServiceImpl, baidu::rpc::SERVER_OWNS_SERVICE)) {
         LOG(ERROR) << "Add File Service Failed.";
         return EINVAL;
     }
-    if (0 != _server->AddService(&_service_impl, baidu::rpc::SERVER_DOESNT_OWN_SERVICE)) {
+    if (0 != server->AddService(&_service_impl, baidu::rpc::SERVER_DOESNT_OWN_SERVICE)) {
         LOG(ERROR) << "Add Raft Service Failed.";
         return EINVAL;
     }
-    if (0 != _server->AddService(new RaftStatImpl, baidu::rpc::SERVER_OWNS_SERVICE)) {
+    if (0 != server->AddService(new RaftStatImpl, baidu::rpc::SERVER_OWNS_SERVICE)) {
         LOG(ERROR) << "Add Raft Service Failed.";
         return EINVAL;
     }
-    if (0 != _server->Start(ip_str, start_port, end_port, &server_options)) {
+    if (0 != server->Start(ip_and_port, &server_options)) {
         LOG(ERROR) << "Start Raft Server Failed.";
         return EINVAL;
     }
 
-    _address = _server->listen_address();
-    if (_address.ip == base::IP_ANY) {
-        _address.ip = base::get_host_ip();
-    }
-    LOG(WARNING) << "start raft server " << _address;
+    base::EndPoint address = server->listen_address();
+    LOG(WARNING) << "start raft server " << address;
+    add_server(ip_and_port, server);
     return 0;
 }
 
@@ -1848,6 +1871,11 @@ size_t NodeManager::_remove_node(Maps& m, const NodeImpl* node) {
 }
 
 bool NodeManager::add(NodeImpl* node) {
+    // check address ok?
+    if (NULL == get_server(node->node_id().peer_id.addr)) {
+        return false;
+    }
+
     return _nodes.Modify(_add_node, node) != 0;
 }
 

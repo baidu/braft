@@ -38,13 +38,13 @@ int main(int argc, char* argv[]) {
     google::ParseCommandLineFlags(&argc, &argv, true);
 
     // [ Setup from ComlogSinkOptions ]
-    //logging::ComlogSinkOptions options;
-    //options.async = true;
-    //options.process_name = "counter_server";
-    //options.print_vlog_as_warning = false;
-    //options.splite_type = 1;
-    //if (logging::ComlogSink::GetInstance()->Setup(&options) != 0) {
-    if (logging::ComlogSink::GetInstance()->SetupFromConfig("./comlog.conf") != 0) {
+    logging::ComlogSinkOptions options;
+    options.async = true;
+    options.process_name = "counter_server";
+    options.print_vlog_as_warning = false;
+    options.split_type = logging::COMLOG_SPLIT_SIZECUT;
+    if (logging::ComlogSink::GetInstance()->Setup(&options) != 0) {
+    //if (logging::ComlogSink::GetInstance()->SetupFromConfig("./comlog.conf") != 0) {
         LOG(ERROR) << "Fail to setup comlog";
         return -1;
     }
@@ -78,8 +78,13 @@ int main(int argc, char* argv[]) {
         peers.push_back(peer);
     }
 
+    base::EndPoint addr;
+    base::str2endpoint(FLAGS_ip_and_port.c_str(), &addr);
+    if (base::IP_ANY == addr.ip) {
+        addr.ip = base::get_host_ip();
+    }
     // init counter
-    counter::Counter* counter = new counter::Counter(FLAGS_name, 0);
+    counter::Counter* counter = new counter::Counter(FLAGS_name, raft::PeerId(addr, 0));
     raft::NodeOptions node_options;
     node_options.election_timeout = 5000;
     node_options.fsm = counter;

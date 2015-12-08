@@ -54,9 +54,8 @@ protected:
 class StateMachine {
 public:
     // user defined logentry proc function
-    // [OPTIMIZE] add Closure argument to avoid parse data
     // [NOTE] index: realize follower read strong consistency
-    // [NOTE] done: on_apply return some result to done
+    // [NOTE] done: on_apply return some result to done, user call it when finish
     virtual void on_apply(const base::IOBuf& buf, const int64_t index, Closure* done) = 0;
 
     // user define shutdown function
@@ -151,7 +150,7 @@ struct NodeOptions {
 class NodeImpl;
 class Node {
 public:
-    Node(const GroupId& group_id, const ReplicaId& replica_id);
+    Node(const GroupId& group_id, const PeerId& peer_id);
     virtual ~Node();
 
     // get node id

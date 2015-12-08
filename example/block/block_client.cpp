@@ -100,10 +100,10 @@ public:
 
         // write local path
         if (_fd >= 0) {
-            std::lock_guard<pthread_mutex_t> guard(_mutex);
-            ::lseek(_fd, offset, SEEK_SET);
+            //std::lock_guard<pthread_mutex_t> guard(_mutex);
+            //::lseek(_fd, offset, SEEK_SET);
             base::IOBuf* pieces[] = {&request_data};
-            ssize_t writen = base::IOBuf::cut_multiple_into_file_descriptor(_fd, pieces, 1);
+            ssize_t writen = base::IOBuf::cut_multiple_into_file_descriptor(_fd, pieces, 1, offset);
             CHECK_EQ(writen, size);
         }
         return 0;
@@ -226,7 +226,7 @@ public:
         _write_percent = write_percent;
         _rw_limit = rw_num;
 
-        threads = (int)log2(double(threads));
+        threads = std::max(1, (int)log2(double(threads)));
         CHECK(threads >= 1);
         for (int i = 0; i < threads; i++) {
             pthread_t tid;
