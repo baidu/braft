@@ -66,9 +66,7 @@ public:
     virtual SnapshotReader* open();
     virtual int close(SnapshotReader* reader);
 protected:
-    static const char* _s_lock_path;
     std::string _path;
-    int _lock_fd;
     int64_t _last_snapshot_index;
 };
 

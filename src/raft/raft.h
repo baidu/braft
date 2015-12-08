@@ -198,8 +198,15 @@ private:
     NodeImpl* _impl;
 };
 
-int init_raft(const char* server_desc,
+// start raft server, MUST assign listen_addr or server_desc.
+// server and options can be NULL, create internal baidu::rpc::Server
+int start_raft(const base::EndPoint& listen_addr,
               baidu::rpc::Server* server, baidu::rpc::ServerOptions* options);
+int start_raft(const char* server_desc,
+              baidu::rpc::Server* server, baidu::rpc::ServerOptions* options);
+// stop raft server
+int stop_raft(const base::EndPoint& listen_addr, baidu::rpc::Server** server);
+int stop_raft(const char* server_desc, baidu::rpc::Server** server_ptr);
 
 };
 

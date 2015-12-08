@@ -289,8 +289,9 @@ public:
         return Singleton<NodeManager>::get();
     }
 
-    int init(const base::EndPoint& ip_and_port,
+    int start(const base::EndPoint& listen_addr,
              baidu::rpc::Server* server, baidu::rpc::ServerOptions* options);
+    baidu::rpc::Server* stop(const base::EndPoint& listen_addr);
 
     // add raft node
     bool add(NodeImpl* node);
@@ -330,10 +331,12 @@ private:
 
     baidu::rpc::Server* get_server(const base::EndPoint& ip_and_port);
     void add_server(const base::EndPoint& ip_and_port, baidu::rpc::Server* server);
+    baidu::rpc::Server* remove_server(const base::EndPoint& ip_and_port);
 
     typedef std::map<base::EndPoint, baidu::rpc::Server*> ServerMap;
     bthread_mutex_t _mutex;
     ServerMap _servers;
+    std::set<base::EndPoint> _own_servers;
     RaftServiceImpl _service_impl;
 };
 

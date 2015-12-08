@@ -34,7 +34,6 @@ namespace raft {
 const char* LocalSnapshotWriter::_s_snapshot_meta = "snapshot_meta";
 const char* LocalSnapshotReader::_s_snapshot_meta = "snapshot_meta";
 const char* LocalSnapshotStorage::_s_temp_path = "temp";
-const char* LocalSnapshotStorage::_s_lock_path = "lock";
 
 LocalSnapshotWriter::LocalSnapshotWriter(const std::string& path)
     : _path(path) {
@@ -161,30 +160,16 @@ std::string LocalSnapshotReader::get_uri(const base::EndPoint& hint_addr) {
 
 LocalSnapshotStorage::LocalSnapshotStorage(const std::string& path)
     : SnapshotStorage(path), _path(path),
-    _lock_fd(-1), _last_snapshot_index(0) {
+    _last_snapshot_index(0) {
 }
 
 LocalSnapshotStorage::~LocalSnapshotStorage() {
-    if (_lock_fd >= 0) {
-        ::close(_lock_fd);
-        _lock_fd = -1;
-    }
 }
 
 int LocalSnapshotStorage::init() {
     base::FilePath dir_path(_path);
     if (!base::CreateDirectory(dir_path)) {
         LOG(ERROR) << "CreateDirectory failed, path: " << _path;
-        return EIO;
-    }
-
-    // open lock fd
-    std::string lock_path(_path);
-    lock_path.append("/");
-    lock_path.append(_s_lock_path);
-    _lock_fd = ::open(lock_path.c_str(), O_CREAT | O_WRONLY, 0600);
-    if (_lock_fd < 0) {
-        LOG(WARNING) << "open snapshot lockfile failed, path " << lock_path;
         return EIO;
     }
 
@@ -236,11 +221,6 @@ SnapshotWriter* LocalSnapshotStorage::create() {
     LocalSnapshotWriter* writer = NULL;
 
     do {
-        if (0 != ::lockf(_lock_fd, F_TLOCK, 0)) {
-            LOG(WARNING) << "lock file failed, path " << _path;
-            break;
-        }
-
         std::string snapshot_path(_path);
         snapshot_path.append("/");
         snapshot_path.append(_s_temp_path);
@@ -310,10 +290,6 @@ int LocalSnapshotStorage::close(SnapshotWriter* writer_) {
         _last_snapshot_index = new_index;
     } while (0);
 
-    if (0 != ::lockf(_lock_fd, F_ULOCK, 0)) {
-        LOG(WARNING) << "unlock file failed, path " << _path;
-        ret = EIO;
-    }
     if (ret != 0) {
         std::string temp_path(_path);
         temp_path.append("/");

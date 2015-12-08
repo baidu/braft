@@ -54,25 +54,48 @@ static void global_init_or_die_impl() {
     LOG(NOTICE) << "init libraft ver: " << s_libraft_version;
 }
 
-int init_raft(const char* server_desc,
+int start_raft(const base::EndPoint& listen_addr,
               baidu::rpc::Server* server, baidu::rpc::ServerOptions* options) {
     if (pthread_once(&global_init_once, global_init_or_die_impl) != 0) {
         PLOG(FATAL) << "Fail to pthread_once";
         exit(1);
     }
 
-    base::EndPoint ip_and_port;
-    if (0 == base::hostname2endpoint(server_desc, &ip_and_port) ||
-        0 == base::str2endpoint(server_desc, &ip_and_port)) {
-    } else {
-        LOG(WARNING) << "bad server description format : " << server_desc;
+    if (NodeManager::GetInstance()->start(listen_addr, server, options) != 0) {
         return EINVAL;
     }
+    return 0;
+}
 
-    if (NodeManager::GetInstance()->init(ip_and_port, server, options) != 0) {
-        return -1;
+int stop_raft(const base::EndPoint& listen_addr, baidu::rpc::Server** server_ptr) {
+    baidu::rpc::Server* server = NodeManager::GetInstance()->stop(listen_addr);
+    if (server_ptr) {
+        *server_ptr = server;
     }
     return 0;
+}
+
+int start_raft(const char* server_desc,
+              baidu::rpc::Server* server, baidu::rpc::ServerOptions* options) {
+    base::EndPoint listen_addr;
+    if (0 == base::hostname2endpoint(server_desc, &listen_addr) ||
+        0 == base::str2endpoint(server_desc, &listen_addr)) {
+        return start_raft(listen_addr, server, options);
+    } else {
+        LOG(ERROR) << "bad server desc format: " << server_desc;
+        return EINVAL;
+    }
+}
+
+int stop_raft(const char* server_desc, baidu::rpc::Server** server_ptr) {
+    base::EndPoint listen_addr;
+    if (0 == base::hostname2endpoint(server_desc, &listen_addr) ||
+        0 == base::str2endpoint(server_desc, &listen_addr)) {
+        return stop_raft(listen_addr, server_ptr);
+    } else {
+        LOG(ERROR) << "bad server desc format: " << server_desc;
+        return EINVAL;
+    }
 }
 
 int StateMachine::on_snapshot_save(SnapshotWriter* writer, Closure* done) {

@@ -65,7 +65,7 @@ int main(int argc, char* argv[]) {
 
     // init raft and server
     baidu::rpc::ServerOptions server_options;
-    if (0 != raft::init_raft(FLAGS_ip_and_port.c_str(), &server, &server_options)) {
+    if (0 != raft::start_raft(FLAGS_ip_and_port.c_str(), &server, &server_options)) {
         LOG(FATAL) << "Fail to init raft";
         return -1;
     }
@@ -108,6 +108,7 @@ int main(int argc, char* argv[]) {
         sleep(1);
     }
 
+    raft::stop_raft(FLAGS_ip_and_port.c_str(), NULL);
     server.Stop(200);
     server.Join();
 

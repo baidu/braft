@@ -1805,9 +1805,31 @@ void NodeManager::add_server(const base::EndPoint& ip_and_port, baidu::rpc::Serv
     _servers.insert(std::make_pair<base::EndPoint, baidu::rpc::Server*>(ip_and_port, server));
 }
 
-int NodeManager::init(const base::EndPoint& ip_and_port,
+baidu::rpc::Server* NodeManager::remove_server(const base::EndPoint& ip_and_port) {
+    std::lock_guard<bthread_mutex_t> guard(_mutex);
+    ServerMap::iterator it = _servers.find(ip_and_port);
+    if (it == _servers.end()) {
+        for (it = _servers.begin(); it != _servers.end(); ++it) {
+            base::EndPoint address = it->first;
+            if (address.port == ip_and_port.port &&
+                (address.ip == base::IP_ANY || address.ip == ip_and_port.ip)) {
+                break;
+            }
+        }
+    }
+    baidu::rpc::Server* server = NULL;
+    if (it != _servers.end()) {
+        server = it->second;
+        _servers.erase(it);
+    }
+    return server;
+}
+
+int NodeManager::start(const base::EndPoint& ip_and_port,
                       baidu::rpc::Server* server, baidu::rpc::ServerOptions* options) {
+    bool own = false;
     if (!server) {
+        own = true;
         server = new baidu::rpc::Server;
     } else if (0 != server->listen_address().port ||
                NULL != get_server(ip_and_port)){
@@ -1839,7 +1861,31 @@ int NodeManager::init(const base::EndPoint& ip_and_port,
     base::EndPoint address = server->listen_address();
     LOG(WARNING) << "start raft server " << address;
     add_server(ip_and_port, server);
+    if (own) {
+        std::lock_guard<bthread_mutex_t> guard(_mutex);
+        _own_servers.insert(ip_and_port);
+    }
     return 0;
+}
+
+baidu::rpc::Server* NodeManager::stop(const base::EndPoint& ip_and_port) {
+    baidu::rpc::Server* server = remove_server(ip_and_port);
+    if (server) {
+        bool own = false;
+        {
+            std::lock_guard<bthread_mutex_t> guard(_mutex);
+            if (_own_servers.end() != _own_servers.find(server->listen_address())) {
+                _own_servers.erase(server->listen_address());
+                own = true;
+            }
+        }
+        if (own) {
+            delete server; // ~Server() call Stop(0) and Join()
+            server = NULL;
+        }
+    }
+
+    return server;
 }
 
 size_t NodeManager::_add_node(Maps& m, const NodeImpl* node) {

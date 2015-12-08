@@ -116,7 +116,7 @@ TEST_F(TestUsageSuits, copy) {
     ::system("rm -rf data");
 
     baidu::rpc::Server server;
-    ASSERT_EQ(0, raft::init_raft("0.0.0.0:60006", &server, NULL));
+    ASSERT_EQ(0, raft::start_raft("0.0.0.0:60006", &server, NULL));
 
     std::vector<raft::PeerId> peers;
     peers.push_back(raft::PeerId("1.2.3.4:1000"));
