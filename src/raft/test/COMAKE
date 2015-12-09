@@ -46,4 +46,4 @@ Application('test_file_service',Sources('test_file_service.cpp'), Libraries('lib
 Application('test_util',Sources('test_util.cpp'), Libraries('libraft.a'))
 Application('test_log_manager',Sources('test_log_manager.cpp'), Libraries('libraft.a'))
 Application('test_fsm_caller',Sources('test_fsm_caller.cpp'), Libraries('libraft.a'))
-#Application('test_node',Sources('test_node.cpp'), Libraries('libraft.a'))
+Application('test_node',Sources('test_node.cpp'), Libraries('libraft.a'))

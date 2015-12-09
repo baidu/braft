@@ -137,10 +137,18 @@ int FSMCaller::on_cleared(int64_t log_index, void* context, int error_code) {
     google::protobuf::Closure* done =
         google::protobuf::NewCallback(this, &FSMCaller::do_cleared,
                                       log_index, static_cast<Closure*>(context), error_code);
-    return bthread::execution_queue_execute(_queue, done);
+    int ret = bthread::execution_queue_execute(_queue, done);
+    if (0 != ret) {
+        delete done;
+        Closure* closure = static_cast<Closure*>(context);
+        closure->set_error(error_code, "%s", berror(error_code));
+        ret = run_closure_in_bthread(closure);
+    }
+    return ret;
 }
 
-void FSMCaller::do_cleared(int64_t /*log_index*/, Closure* done, int error_code) {
+void FSMCaller::do_cleared(int64_t log_index, Closure* done, int error_code) {
+    RAFT_VLOG << "do_cleared" << log_index << " err: " << error_code;
     CHECK(done);
     done->set_error(error_code, "%s", berror(error_code));
     done->Run();

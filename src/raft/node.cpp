@@ -35,7 +35,7 @@ namespace raft {
 class ConfigurationChangeDone : public Closure {
 public:
     void Run() {
-        if (_err_code != 0) {
+        if (_err_code == 0) {
             if (_node != NULL) {
                 _node->on_configuration_change_done(_entry_type, _new_peers);
             }
@@ -488,7 +488,8 @@ void NodeImpl::apply(const base::IOBuf& data, Closure* done) {
     std::lock_guard<bthread_mutex_t> guard(_mutex);
 
     // check state
-    CHECK(is_active_state(_state));
+    CHECK(is_active_state(_state))
+        << "node " << _group_id << ":" << _server_id << " shutdown, can't apply";
     if (_state != LEADER) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id << " can't apply not in LEADER";
         _fsm_caller->on_cleared(0, done, EPERM);
@@ -650,15 +651,17 @@ void NodeImpl::add_peer(const std::vector<PeerId>& old_peers, const PeerId& peer
     std::lock_guard<bthread_mutex_t> guard(_mutex);
 
     // check state
-    CHECK(is_active_state(_state));
+    CHECK(is_active_state(_state))
+        << "node " << _group_id << ":" << _server_id << " shutdown, can't add_peer";
     if (_state != LEADER) {
-        LOG(WARNING) << "node " << _group_id << ":" << _server_id << " can't apply not in LEADER";
+        LOG(WARNING) << "node " << _group_id << ":" << _server_id
+            << " can't add_peer not in LEADER";
         _fsm_caller->on_cleared(0, done, EPERM);
         return;
     }
     // check concurrent conf change
     if (!_conf_ctx.empty()) {
-        LOG(WARNING) << "node " << _group_id << ":" << _server_id << " remove_peer need wait "
+        LOG(WARNING) << "node " << _group_id << ":" << _server_id << " add_peer need wait "
             "current conf change";
         _fsm_caller->on_cleared(0, done, EINVAL);
         return;
@@ -667,6 +670,8 @@ void NodeImpl::add_peer(const std::vector<PeerId>& old_peers, const PeerId& peer
     std::vector<PeerId> new_peers(old_peers);
     new_peers.push_back(peer);
     if (_conf.second.equal(new_peers)) {
+        LOG(WARNING) << "node " << _group_id << ":" << _server_id
+            << " add_peer equal cureent conf " << _conf.second;
         _fsm_caller->on_cleared(0, done, 0);
         return;
     }
@@ -717,9 +722,10 @@ void NodeImpl::remove_peer(const std::vector<PeerId>& old_peers, const PeerId& p
     std::lock_guard<bthread_mutex_t> guard(_mutex);
 
     // check state
-    CHECK(is_active_state(_state));
+    CHECK(is_active_state(_state))
+        << "node " << _group_id << ":" << _server_id << " shutdown, can't remove_peer";
     if (_state != LEADER) {
-        LOG(WARNING) << "node " << _group_id << ":" << _server_id << " can't apply not in LEADER";
+        LOG(WARNING) << "node " << _group_id << ":" << _server_id << " can't remove_peer not in LEADER";
         _fsm_caller->on_cleared(0, done, EPERM);
         return;
     }
@@ -771,7 +777,9 @@ void NodeImpl::remove_peer(const std::vector<PeerId>& old_peers, const PeerId& p
 int NodeImpl::set_peer(const std::vector<PeerId>& old_peers, const std::vector<PeerId>& new_peers) {
     std::lock_guard<bthread_mutex_t> guard(_mutex);
 
-    CHECK(is_active_state(_state));
+    // check state
+    CHECK(is_active_state(_state))
+        << "node " << _group_id << ":" << _server_id << " shutdown, can't set_peer";
     // check bootstrap
     if (_conf.second.empty() && old_peers.size() == 0) {
         Configuration new_conf(new_peers);
@@ -783,7 +791,7 @@ int NodeImpl::set_peer(const std::vector<PeerId>& old_peers, const std::vector<P
     }
     // check concurrent conf change
     if (_state == LEADER && !_conf_ctx.empty()) {
-        LOG(WARNING) << "node " << _group_id << ":" << _server_id << " remove_peer need wait "
+        LOG(WARNING) << "node " << _group_id << ":" << _server_id << " set_peer need wait "
             "current conf change";
         return EINVAL;
     }
@@ -869,7 +877,8 @@ void NodeImpl::snapshot(Closure* done) {
 
 void NodeImpl::do_snapshot(Closure* done) {
     // check state
-    CHECK(is_active_state(_state));
+    CHECK(is_active_state(_state))
+        << "node " << _group_id << ":" << _server_id << " shutdown, can't do_snapshot";
 
     // check support snapshot?
     if (NULL == _snapshot_storage) {
@@ -905,12 +914,6 @@ void NodeImpl::do_snapshot(Closure* done) {
     //TODO:
     SaveSnapshotDone* snapshot_save_done = new SaveSnapshotDone(this, _snapshot_storage, done);
     _fsm_caller->on_snapshot_save(snapshot_save_done);
-}
-
-void* run_closure(void* arg) {
-    Closure *c = (Closure*)arg;
-    c->Run();
-    return NULL;
 }
 
 void NodeImpl::shutdown(Closure* done) {
@@ -961,11 +964,8 @@ void NodeImpl::shutdown(Closure* done) {
             return;
         }
     }  // out of _mutex;
-    bthread_t tid;
-    if (bthread_start_urgent(&tid, NULL, run_closure, done) != 0) {
-        PLOG(ERROR) << "Fail to start bthread";
-        done->Run();
-    }
+
+    run_closure_in_bthread(done);
 }
 
 static void on_election_timer(void* arg) {
@@ -1767,11 +1767,8 @@ void NodeImpl::after_shutdown() {
         if (NULL == saved_done[i]) {
             continue;
         }
-        bthread_t tid;
-        if (bthread_start_urgent(&tid, NULL, run_closure, saved_done[i]) != 0) {
-            PLOG(ERROR) << "Fail to start bthread";
-            saved_done[i]->Run();
-        }
+
+        run_closure_in_bthread(saved_done[i]);
     }
 }
 
@@ -1802,7 +1799,7 @@ baidu::rpc::Server* NodeManager::get_server(const base::EndPoint& ip_and_port) {
 
 void NodeManager::add_server(const base::EndPoint& ip_and_port, baidu::rpc::Server* server) {
     std::lock_guard<bthread_mutex_t> guard(_mutex);
-    _servers.insert(std::make_pair<base::EndPoint, baidu::rpc::Server*>(ip_and_port, server));
+    _servers.insert(std::pair<base::EndPoint, baidu::rpc::Server*>(ip_and_port, server));
 }
 
 baidu::rpc::Server* NodeManager::remove_server(const base::EndPoint& ip_and_port) {

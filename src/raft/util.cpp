@@ -9,6 +9,8 @@
 #include <base/macros.h>
 #include <baidu/rpc/random_number_seed.h>
 
+#include "raft/raft.h"
+
 namespace raft {
 
 static __thread uint32_t __tls_seed = 0;
@@ -20,6 +22,28 @@ int get_random_number(int min, int max) {
     long range = max - min;
     int result  = min + range * rand_r(&__tls_seed) / RAND_MAX;
     return result;
+}
+
+static void* run_closure(void* arg) {
+    Closure *c = (Closure*)arg;
+    if (c) {
+        c->Run();
+    }
+    return NULL;
+}
+
+int run_closure_in_bthread(Closure* closure) {
+    if (NULL == closure) {
+        return 0;
+    }
+
+    bthread_t tid;
+    int ret = bthread_start_urgent(&tid, NULL, run_closure, closure);
+    if (0 != ret) {
+        PLOG(ERROR) << "Fail to start bthread";
+        closure->Run();
+    }
+    return ret;
 }
 
 std::string fileuri2path(const std::string& uri) {

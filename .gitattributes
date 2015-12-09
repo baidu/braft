@@ -88,12 +88,14 @@ src/raft/stable.h -text
 src/raft/storage.cpp -text
 src/raft/storage.h -text
 src/raft/test/COMAKE -text
+src/raft/test/bthread_sync.h -text
 src/raft/test/test_configuration.cpp -text
 src/raft/test/test_file_service.cpp -text
 src/raft/test/test_fsm_caller.cpp -text
 src/raft/test/test_log.cpp -text
 src/raft/test/test_log_entry.cpp -text
 src/raft/test/test_log_manager.cpp -text
+src/raft/test/test_node.cpp -text
 src/raft/test/test_protobuf_file.cpp -text
 src/raft/test/test_snapshot.cpp -text
 src/raft/test/test_stable.cpp -text

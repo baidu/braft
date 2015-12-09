@@ -113,6 +113,7 @@ inline ip_t get_host_ip() {
 }  // namespace std
 
 namespace raft {
+class Closure;
 
 int get_random_number(int min, int max);
 
@@ -139,6 +140,8 @@ inline uint32_t murmurhash32(const base::IOBuf& buf) {
     MurmurHash3_x86_32_Final(&hash, &ctx);
     return hash;
 }
+
+int run_closure_in_bthread(Closure* closure);
 
 std::string fileuri2path(const std::string& uri);
 

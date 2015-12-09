@@ -198,10 +198,17 @@ public:
         return true;
     }
     bool equal(const std::vector<PeerId>& peers) {
-        if (_peers.size() != peers.size()) {
+        std::set<PeerId> peer_set;
+        std::vector<PeerId> uniq_peers;
+        for (size_t i = 0; i < peers.size(); i++) {
+            if (peer_set.insert(peers[i]).second) {
+                uniq_peers.push_back(peers[i]);
+            }
+        }
+        if (_peers.size() != uniq_peers.size()) {
             return false;
         }
-        return contain(peers);
+        return contain(uniq_peers);
     }
     size_t quorum() {
         return _peers.size() / 2 + 1;
