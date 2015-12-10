@@ -781,13 +781,19 @@ int NodeImpl::set_peer(const std::vector<PeerId>& old_peers, const std::vector<P
     CHECK(is_active_state(_state))
         << "node " << _group_id << ":" << _server_id << " shutdown, can't set_peer";
     // check bootstrap
-    if (_conf.second.empty() && old_peers.size() == 0) {
-        Configuration new_conf(new_peers);
-        LOG(INFO) << "node " << _group_id << ":" << _server_id << " set_peer boot from "
-            << new_conf;
-        _conf.second = new_conf;
-        step_down(1);
-        return 0;
+    if (_conf.second.empty()) {
+        if (old_peers.size() == 0 && new_peers.size() > 0) {
+            Configuration new_conf(new_peers);
+            LOG(INFO) << "node " << _group_id << ":" << _server_id << " set_peer boot from "
+                << new_conf;
+            _conf.second = new_conf;
+            step_down(1);
+            return 0;
+        } else {
+            LOG(WARNING) << "node " << _group_id << ":" << _server_id
+                << " set_peer boot need old_peers empty and new_peers no_empty";
+            return EINVAL;
+        }
     }
     // check concurrent conf change
     if (_state == LEADER && !_conf_ctx.empty()) {
@@ -1562,7 +1568,10 @@ int NodeImpl::handle_append_entries_request(base::IOBuf& data_buf,
     if (success) {
         // commit manager call fsmcaller
         if (request->committed_index() <= _log_manager->last_log_index()) {
-            CHECK_EQ(0, _commit_manager->set_last_committed_index(request->committed_index()));
+            // 3 nodes cluster, old leader's committed_index may greater than some node.
+            // committed_index not the key of elect, the lesser committed_index node can be leader.
+            // new leader's committed_index may lesser than local committed_index
+            _commit_manager->set_last_committed_index(request->committed_index());
         }
         _last_leader_timestamp = base::monotonic_time_ms();
     }
