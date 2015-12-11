@@ -999,13 +999,16 @@ void NodeImpl::handle_election_timeout() {
         return;
     }
 
+    // reset leader_id before vote
+    _leader_id.reset();
+
     // start pre_vote, need restart election_timer
     AddRef();
     int64_t election_timeout = random_timeout(_options.election_timeout);
     bthread_timer_add(&_election_timer, base::milliseconds_from_now(election_timeout),
                       on_election_timer, this);
     RAFT_VLOG << "node " << _group_id << ":" << _server_id
-        << " term " << _current_term << " restart election_timer " << _election_timer;
+        << " term " << _current_term << " restart election_timer";
 
     RAFT_VLOG << "node " << _group_id << ":" << _server_id
         << " term " << _current_term << " start elect";
