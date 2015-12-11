@@ -44,6 +44,7 @@ using ::baidu::rpc::RawUnpacker;
 DEFINE_int32(raft_max_segment_size, 8 * 1024 * 1024 /*8M*/, 
              "Max size of one segment file");
 BAIDU_RPC_VALIDATE_GFLAG(raft_max_segment_size, baidu::rpc::PositiveInteger);
+DEFINE_bool(raft_sync_every_log, true, "call fsync when every log");
 
 int ftruncate_uninterrupted(int fd, off_t length) {
     int rc = 0;
@@ -606,7 +607,9 @@ int SegmentLogStorage::append_entries(const std::vector<LogEntry*>& entries) {
         _last_log_index.fetch_add(1, boost::memory_order_release);
         last_segment = segment;
     }
-    last_segment->sync();
+    if (FLAGS_raft_sync_every_log) {
+        last_segment->sync();
+    }
     return entries.size();
 }
 
@@ -618,7 +621,10 @@ int SegmentLogStorage::append_entry(const LogEntry* entry) {
     }
     _last_log_index.fetch_add(1, boost::memory_order_release);
 
-    return segment->sync();
+    if (FLAGS_raft_sync_every_log) {
+        ret = segment->sync();
+    }
+    return ret;
 }
 
 LogEntry* SegmentLogStorage::get_entry(const int64_t index) {

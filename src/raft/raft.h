@@ -133,6 +133,7 @@ struct NodeStats {
 struct NodeOptions {
     int election_timeout; //ms, follower to candidate timeout
     int snapshot_interval; // s, snapshot interval. 0 is disable internal snapshot timer
+    int catchup_margin; // catchup margin to judge finish
     bool enable_pipeline; // pipeline switch
     Configuration conf; // peer conf
     StateMachine* fsm; // user defined function [MUST]
@@ -143,6 +144,7 @@ struct NodeOptions {
     NodeOptions()
         : election_timeout(1000),
         snapshot_interval(86400),
+        catchup_margin(1000),
         enable_pipeline(false),
         fsm(NULL) {}
 };

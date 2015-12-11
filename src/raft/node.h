@@ -147,7 +147,7 @@ public:
                      RequestVoteResponse* response);
 
     // handle received AppendEntries
-    int handle_append_entries_request(base::IOBuf& data_buf,
+    int handle_append_entries_request(const base::IOBuf& data_buf,
                        const AppendEntriesRequest* request,
                        AppendEntriesResponse* response);
 

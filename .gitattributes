@@ -10,6 +10,8 @@ example/block/block_client.cpp -text
 example/block/block_server.cpp -text
 example/block/block_service.cpp -text
 example/block/block_service.h -text
+example/block/block_util.cpp -text
+example/block/block_util.h -text
 example/block/comlog.conf -text
 example/block/run_client.sh -text
 example/block/run_server.sh -text

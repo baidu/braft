@@ -29,4 +29,6 @@ mkdir -p runtime/2
 cp comlog.conf runtime/2
 cp block_server runtime/2
 
+rm -rf 1G.data
+
  #./block_server -port=8501 -raft_start_port=8100 -raft_end_port=8102 -peers="10.46.46.54:8100:0,10.46.46.54:8101:0,10.46.46.54:8102:0"

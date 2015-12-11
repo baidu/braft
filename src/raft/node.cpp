@@ -576,7 +576,7 @@ void NodeImpl::on_caughtup(const PeerId& peer, int error_code, Closure* done) {
             caught_up.on_caught_up = on_peer_caught_up;
             caught_up.done = done;
             caught_up.arg = this;
-            caught_up.min_margin = 1000; //TODO0
+            caught_up.min_margin = _options.catchup_margin;
 
             if (0 == _replicator_group.wait_caughtup(peer, caught_up, &due_time)) {
                 return;
@@ -706,7 +706,7 @@ void NodeImpl::add_peer(const std::vector<PeerId>& old_peers, const PeerId& peer
     caught_up.on_caught_up = on_peer_caught_up;
     caught_up.done = done;
     caught_up.arg = this;
-    caught_up.min_margin = 1000; //TODO0
+    caught_up.min_margin = _options.catchup_margin;
 
     if (0 != _replicator_group.wait_caughtup(peer, caught_up, &due_time)) {
         LOG(ERROR) << "node " << _group_id << ":" << _server_id

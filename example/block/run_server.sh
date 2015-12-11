@@ -22,16 +22,19 @@ IP=`hostname -i`
 #VALGRIND="/home/wangyao/opt/bin/valgrind --tool=memcheck --leak-check=full"
 #HAS_VALGRIND="-has_valgrind"
 #MAX_SEGMENT_SIZE="-raft_max_segment_size=524288"
+CRASH_ON_FATAL="-crash_on_fatal_log=true"
+VLOG_LEVEL="-verbose=90"
 BTHREAD_CONCURRENCY="-bthread_concurrency=18"
+SYNC_EVERY_LOG="-raft_sync_every_log=false"
 
 cd runtime/0
-${VALGRIND} ./block_server ${HAS_VALGRIND} ${MAX_SEGMENT_SIZE} ${BTHREAD_CONCURRENCY} -verbose=90 -ip_and_port="0.0.0.0:8200" -peers="${IP}:8200:0,${IP}:8201:0,${IP}:8202:0" > std.log 2>&1 &
+${VALGRIND} ./block_server ${HAS_VALGRIND} ${BTHREAD_CONCURRENCY} ${CRASH_ON_FATAL} ${VLOG_LEVEL} ${MAX_SEGMENT_SIZE} ${SYNC_EVERY_LOG} -ip_and_port="0.0.0.0:8200" -peers="${IP}:8200:0,${IP}:8201:0,${IP}:8202:0" > std.log 2>&1 &
 cd -
 
 cd runtime/1
-${VALGRIND} ./block_server ${HAS_VALGRIND} ${MAX_SEGMENT_SIZE} ${BTHREAD_CONCURRENCY} -verbose=90 -ip_and_port="0.0.0.0:8201" -peers="${IP}:8200:0,${IP}:8201:0,${IP}:8202:0" > std.log 2>&1 &
+${VALGRIND} ./block_server ${HAS_VALGRIND} ${BTHREAD_CONCURRENCY} ${CRASH_ON_FATAL} ${VLOG_LEVEL} ${MAX_SEGMENT_SIZE} ${SYNC_EVERY_LOG} -ip_and_port="0.0.0.0:8201" -peers="${IP}:8200:0,${IP}:8201:0,${IP}:8202:0" > std.log 2>&1 &
 cd -
 
 cd runtime/2
-${VALGRIND} ./block_server ${HAS_VALGRIND} ${MAX_SEGMENT_SIZE} ${BTHREAD_CONCURRENCY} -verbose=90 -ip_and_port="0.0.0.0:8202" -peers="${IP}:8200:0,${IP}:8201:0,${IP}:8202:0" > std.log 2>&1 &
+${VALGRIND} ./block_server ${HAS_VALGRIND} ${BTHREAD_CONCURRENCY} ${CRASH_ON_FATAL} ${VLOG_LEVEL} ${MAX_SEGMENT_SIZE} ${SYNC_EVERY_LOG} -ip_and_port="0.0.0.0:8202" -peers="${IP}:8200:0,${IP}:8201:0,${IP}:8202:0" > std.log 2>&1 &
 cd -

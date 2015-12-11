@@ -16,6 +16,7 @@
  * =====================================================================================
  */
 #include "block.h"
+#include "block_util.h"
 #include "raft/util.h"
 #include "raft/snapshot.h"
 
@@ -83,8 +84,7 @@ int Block::read(int64_t offset, int32_t size, base::IOBuf* data, int64_t index) 
     }
 
     base::IOPortal portal;
-    ssize_t ret = portal.append_from_file_descriptor(get_fd(), size, offset);
-    CHECK_EQ(ret, size);
+    read_at_offset(&portal, get_fd(), offset, size);
     data->append(portal);
 
     LOG(NOTICE) << "read success, offset: " << offset << " size: " << size;
@@ -117,9 +117,7 @@ void Block::on_apply(const base::IOBuf &data, const int64_t index, raft::Closure
         << "size: " << size << " data_size: " << log_body.size();
 
     //::lseek(get_fd(), offset, SEEK_SET);
-    base::IOBuf* pieces[] = {&log_body};
-    ssize_t writen = base::IOBuf::cut_multiple_into_file_descriptor(get_fd(), pieces, 1, offset);
-    CHECK_EQ(writen, size) << "writen: " << writen << " size: " << size;
+    write_at_offset(log_body, get_fd(), offset, size);
 
     timer.stop();
     LOG(NOTICE) << "write success, index: " << index << " time: " << timer.u_elapsed()

@@ -19,11 +19,13 @@
 #include <stdint.h>
 #include <algorithm>
 #include <gflags/gflags.h>
+#include <base/comlog_sink.h>
 #include <base/string_splitter.h>
 #include <baidu/rpc/channel.h>
 #include "block.pb.h"
 #include "raft/util.h"
 #include "cli.h"
+#include "block_util.h"
 
 static const int64_t GB = 1024*1024*1024;
 DEFINE_string(peers, "", "current cluster peer set");
@@ -102,9 +104,7 @@ public:
         if (_fd >= 0) {
             //std::lock_guard<pthread_mutex_t> guard(_mutex);
             //::lseek(_fd, offset, SEEK_SET);
-            base::IOBuf* pieces[] = {&request_data};
-            ssize_t writen = base::IOBuf::cut_multiple_into_file_descriptor(_fd, pieces, 1, offset);
-            CHECK_EQ(writen, size);
+            write_at_offset(request_data, _fd, offset, size);
         }
         return 0;
     }
@@ -157,14 +157,12 @@ public:
         // check local
         if (_fd >= 0) {
             base::IOPortal portal;
-            ssize_t read_len = portal.append_from_file_descriptor(
-                    _fd, static_cast<size_t>(size), offset);
+            read_at_offset(&portal, _fd, offset, size);
 
             // check len
-            CHECK(read_len == static_cast<ssize_t>(response_data.size()))
-                << "read from local failed, " << berror();
+            CHECK_EQ(portal.size(), response_data.size()) << "local size: " << portal.size() << "response size: " << response_data.size();
             CHECK(raft::murmurhash32(portal) == raft::murmurhash32(response_data))
-                << "checksum unmatch";
+                << "checksum unmatch, offset: " << offset << " size: " << size;
         }
 
         return 0;
@@ -226,7 +224,7 @@ public:
         _write_percent = write_percent;
         _rw_limit = rw_num;
 
-        threads = std::max(1, (int)log2(double(threads)));
+        threads = 1 << (int)log2(double(threads));
         CHECK(threads >= 1);
         for (int i = 0; i < threads; i++) {
             pthread_t tid;
@@ -235,6 +233,7 @@ public:
             arg->client = this;
             arg->start = i * unit_size;
             arg->end = (i + 1) * unit_size;
+            LOG(NOTICE) << "thread " << i << " start: " << arg->start << " end: " << arg->end;
             pthread_create(&tid, NULL, run_block_thread, arg);
 
             _threads.push_back(tid);
@@ -283,6 +282,17 @@ private:
 
 int main(int argc, char* argv[]) {
     google::ParseCommandLineFlags(&argc, &argv, true);
+
+    // [ Setup from ComlogSinkOptions ]
+    logging::ComlogSinkOptions options;
+    options.async = true;
+    options.print_vlog_as_warning = false;
+    options.split_type = logging::COMLOG_SPLIT_SIZECUT;
+    if (logging::ComlogSink::GetInstance()->Setup(&options) != 0) {
+        LOG(ERROR) << "Fail to setup comlog";
+        return -1;
+    }
+    logging::SetLogSink(logging::ComlogSink::GetInstance());
 
     // stats
     if (!FLAGS_stats.empty()) {
