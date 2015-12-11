@@ -994,6 +994,93 @@ TEST_F(RaftTestSuits, RemoveLeader) {
     cluster.ensure_same();
 }
 
+TEST_F(RaftTestSuits, PreVote) {
+    std::vector<raft::PeerId> peers;
+    for (int i = 0; i < 3; i++) {
+        raft::PeerId peer;
+        peer.addr.ip = base::get_host_ip();
+        peer.addr.port = 60006 + i;
+        peer.idx = 0;
+
+        peers.push_back(peer);
+    }
+
+    // start cluster
+    Cluster cluster("unittest", peers);
+    for (size_t i = 0; i < peers.size(); i++) {
+        ASSERT_EQ(0, cluster.start(peers[i].addr));
+    }
+
+    cluster.wait_leader();
+    raft::Node* leader = cluster.leader();
+    ASSERT_TRUE(leader != NULL);
+    LOG(WARNING) << "leader is " << leader->node_id();
+
+    BthreadCond cond;
+    // apply something
+    cond.Init(10);
+    for (int i = 0; i < 10; i++) {
+        base::IOBuf data;
+        char data_buf[128];
+        snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
+        data.append(data_buf);
+
+        leader->apply(data, new ApplyClosure(&cond, 0));
+    }
+    cond.Wait();
+
+    cluster.ensure_same();
+
+    std::vector<raft::Node*> nodes;
+    cluster.followers(&nodes);
+    ASSERT_EQ(2, nodes.size());
+    base::EndPoint follower_addr = nodes[0]->node_id().peer_id.addr;
+
+    raft::NodeStats old_stats = leader->stats();
+    //remove follower
+    LOG(WARNING) << "remove follower " << follower_addr;
+    cond.Init(1);
+    leader->remove_peer(peers, follower_addr, new RemovePeerClosure(&cond, 0));
+    cond.Wait();
+
+    // apply something
+    cond.Init(10);
+    for (int i = 10; i < 20; i++) {
+        base::IOBuf data;
+        char data_buf[128];
+        snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
+        data.append(data_buf);
+
+        leader->apply(data, new ApplyClosure(&cond, 0));
+    }
+    cond.Wait();
+
+    sleep(2);
+
+    //add follower
+    LOG(WARNING) << "add follower " << follower_addr;
+    peers.clear();
+    for (int i = 0; i < 3; i++) {
+        raft::PeerId peer;
+        peer.addr.ip = base::get_host_ip();
+        peer.addr.port = 60006 + i;
+        peer.idx = 0;
+
+        if (peer.addr != follower_addr) {
+            peers.push_back(peer);
+        }
+    }
+    cond.Init(1);
+    leader->add_peer(peers, follower_addr, new RemovePeerClosure(&cond, 0));
+    cond.Wait();
+
+    leader = cluster.leader();
+    ASSERT_TRUE(leader != NULL);
+    raft::NodeStats new_stats = leader->stats();
+
+    ASSERT_EQ(old_stats.term, new_stats.term);
+}
+
 TEST_F(RaftTestSuits, SetPeer1) {
     // bootstrap from null
     Cluster cluster("unittest", std::vector<raft::PeerId>());

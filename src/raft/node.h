@@ -139,6 +139,9 @@ public:
 
     // rpc request proc func
     //
+    // handle received PreVote
+    int handle_pre_vote_request(const RequestVoteRequest* request,
+                                RequestVoteResponse* response);
     // handle received RequestVote
     int handle_request_vote_request(const RequestVoteRequest* request,
                      RequestVoteResponse* response);
@@ -163,6 +166,8 @@ public:
 
     // Closure call func
     //
+    void handle_pre_vote_response(const PeerId& peer_id, const int64_t term,
+                                      const RequestVoteResponse& response);
     void handle_request_vote_response(const PeerId& peer_id, const int64_t term,
                                       const RequestVoteResponse& response);
     void on_caughtup(const PeerId& peer, int error_code, Closure* done);
@@ -192,6 +197,9 @@ private:
 
     // step down to follower
     void step_down(const int64_t term);
+
+    // pre vote before elect_self
+    void pre_vote();
 
     // elect self to candidate
     void elect_self();
@@ -263,6 +271,7 @@ private:
 
     bthread_mutex_t _mutex;
     VoteCtx _vote_ctx; // candidate vote ctx
+    VoteCtx _pre_vote_ctx; // prevote ctx
     ConfigurationCtx _conf_ctx;
     bthread_timer_t _election_timer; // follower -> candidate timer
     bthread_timer_t _vote_timer; // candidate retry timer

@@ -969,6 +969,10 @@ class RaftService : public ::google::protobuf::Service {
   
   static const ::google::protobuf::ServiceDescriptor* descriptor();
   
+  virtual void pre_vote(::google::protobuf::RpcController* controller,
+                       const ::raft::RequestVoteRequest* request,
+                       ::raft::RequestVoteResponse* response,
+                       ::google::protobuf::Closure* done);
   virtual void request_vote(::google::protobuf::RpcController* controller,
                        const ::raft::RequestVoteRequest* request,
                        ::raft::RequestVoteResponse* response,
@@ -1010,6 +1014,10 @@ class RaftService_Stub : public RaftService {
   
   // implements RaftService ------------------------------------------
   
+  void pre_vote(::google::protobuf::RpcController* controller,
+                       const ::raft::RequestVoteRequest* request,
+                       ::raft::RequestVoteResponse* response,
+                       ::google::protobuf::Closure* done);
   void request_vote(::google::protobuf::RpcController* controller,
                        const ::raft::RequestVoteRequest* request,
                        ::raft::RequestVoteResponse* response,

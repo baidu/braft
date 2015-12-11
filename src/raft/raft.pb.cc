@@ -261,13 +261,14 @@ void protobuf_AddDesc_raft_2fraft_2eproto() {
     "yType\022\026\n\022ENTRY_TYPE_UNKNOWN\020\000\022\024\n\020ENTRY_T"
     "YPE_NO_OP\020\001\022\023\n\017ENTRY_TYPE_DATA\020\002\022\027\n\023ENTR"
     "Y_TYPE_ADD_PEER\020\003\022\032\n\026ENTRY_TYPE_REMOVE_P"
-    "EER\020\0042\356\001\n\013RaftService\022C\n\014request_vote\022\030."
-    "raft.RequestVoteRequest\032\031.raft.RequestVo"
-    "teResponse\022I\n\016append_entries\022\032.raft.Appe"
-    "ndEntriesRequest\032\033.raft.AppendEntriesRes"
-    "ponse\022O\n\020install_snapshot\022\034.raft.Install"
-    "SnapshotRequest\032\035.raft.InstallSnapshotRe"
-    "sponseB\003\200\001\001", 1211);
+    "EER\020\0042\257\002\n\013RaftService\022\?\n\010pre_vote\022\030.raft"
+    ".RequestVoteRequest\032\031.raft.RequestVoteRe"
+    "sponse\022C\n\014request_vote\022\030.raft.RequestVot"
+    "eRequest\032\031.raft.RequestVoteResponse\022I\n\016a"
+    "ppend_entries\022\032.raft.AppendEntriesReques"
+    "t\032\033.raft.AppendEntriesResponse\022O\n\020instal"
+    "l_snapshot\022\034.raft.InstallSnapshotRequest"
+    "\032\035.raft.InstallSnapshotResponseB\003\200\001\001", 1276);
   ::google::protobuf::MessageFactory::InternalRegisterGeneratedFile(
     "raft/raft.proto", &protobuf_RegisterTypes);
   EntryMeta::default_instance_ = new EntryMeta();
@@ -3009,6 +3010,14 @@ const ::google::protobuf::ServiceDescriptor* RaftService::GetDescriptor() {
   return RaftService_descriptor_;
 }
 
+void RaftService::pre_vote(::google::protobuf::RpcController* controller,
+                         const ::raft::RequestVoteRequest*,
+                         ::raft::RequestVoteResponse*,
+                         ::google::protobuf::Closure* done) {
+  controller->SetFailed("Method pre_vote() not implemented.");
+  done->Run();
+}
+
 void RaftService::request_vote(::google::protobuf::RpcController* controller,
                          const ::raft::RequestVoteRequest*,
                          ::raft::RequestVoteResponse*,
@@ -3041,18 +3050,24 @@ void RaftService::CallMethod(const ::google::protobuf::MethodDescriptor* method,
   GOOGLE_DCHECK_EQ(method->service(), RaftService_descriptor_);
   switch(method->index()) {
     case 0:
-      request_vote(controller,
+      pre_vote(controller,
              ::google::protobuf::down_cast<const ::raft::RequestVoteRequest*>(request),
              ::google::protobuf::down_cast< ::raft::RequestVoteResponse*>(response),
              done);
       break;
     case 1:
+      request_vote(controller,
+             ::google::protobuf::down_cast<const ::raft::RequestVoteRequest*>(request),
+             ::google::protobuf::down_cast< ::raft::RequestVoteResponse*>(response),
+             done);
+      break;
+    case 2:
       append_entries(controller,
              ::google::protobuf::down_cast<const ::raft::AppendEntriesRequest*>(request),
              ::google::protobuf::down_cast< ::raft::AppendEntriesResponse*>(response),
              done);
       break;
-    case 2:
+    case 3:
       install_snapshot(controller,
              ::google::protobuf::down_cast<const ::raft::InstallSnapshotRequest*>(request),
              ::google::protobuf::down_cast< ::raft::InstallSnapshotResponse*>(response),
@@ -3071,8 +3086,10 @@ const ::google::protobuf::Message& RaftService::GetRequestPrototype(
     case 0:
       return ::raft::RequestVoteRequest::default_instance();
     case 1:
-      return ::raft::AppendEntriesRequest::default_instance();
+      return ::raft::RequestVoteRequest::default_instance();
     case 2:
+      return ::raft::AppendEntriesRequest::default_instance();
+    case 3:
       return ::raft::InstallSnapshotRequest::default_instance();
     default:
       GOOGLE_LOG(FATAL) << "Bad method index; this should never happen.";
@@ -3087,8 +3104,10 @@ const ::google::protobuf::Message& RaftService::GetResponsePrototype(
     case 0:
       return ::raft::RequestVoteResponse::default_instance();
     case 1:
-      return ::raft::AppendEntriesResponse::default_instance();
+      return ::raft::RequestVoteResponse::default_instance();
     case 2:
+      return ::raft::AppendEntriesResponse::default_instance();
+    case 3:
       return ::raft::InstallSnapshotResponse::default_instance();
     default:
       GOOGLE_LOG(FATAL) << "Bad method index; this should never happen.";
@@ -3107,25 +3126,32 @@ RaftService_Stub::~RaftService_Stub() {
   if (owns_channel_) delete channel_;
 }
 
-void RaftService_Stub::request_vote(::google::protobuf::RpcController* controller,
+void RaftService_Stub::pre_vote(::google::protobuf::RpcController* controller,
                               const ::raft::RequestVoteRequest* request,
                               ::raft::RequestVoteResponse* response,
                               ::google::protobuf::Closure* done) {
   channel_->CallMethod(descriptor()->method(0),
                        controller, request, response, done);
 }
+void RaftService_Stub::request_vote(::google::protobuf::RpcController* controller,
+                              const ::raft::RequestVoteRequest* request,
+                              ::raft::RequestVoteResponse* response,
+                              ::google::protobuf::Closure* done) {
+  channel_->CallMethod(descriptor()->method(1),
+                       controller, request, response, done);
+}
 void RaftService_Stub::append_entries(::google::protobuf::RpcController* controller,
                               const ::raft::AppendEntriesRequest* request,
                               ::raft::AppendEntriesResponse* response,
                               ::google::protobuf::Closure* done) {
-  channel_->CallMethod(descriptor()->method(1),
+  channel_->CallMethod(descriptor()->method(2),
                        controller, request, response, done);
 }
 void RaftService_Stub::install_snapshot(::google::protobuf::RpcController* controller,
                               const ::raft::InstallSnapshotRequest* request,
                               ::raft::InstallSnapshotResponse* response,
                               ::google::protobuf::Closure* done) {
-  channel_->CallMethod(descriptor()->method(2),
+  channel_->CallMethod(descriptor()->method(3),
                        controller, request, response, done);
 }
 

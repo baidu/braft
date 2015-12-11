@@ -995,14 +995,24 @@ void NodeImpl::handle_election_timeout() {
         bthread_timer_add(&_election_timer, base::milliseconds_from_now(election_timeout),
                           on_election_timer, this);
         RAFT_VLOG << "node " << _group_id << ":" << _server_id
-            << " term " << _current_term << " restart elect_timer";
+            << " term " << _current_term << " restart election_timer";
         return;
     }
 
-    // first vote
+    // start pre_vote, need restart election_timer
+    AddRef();
+    int64_t election_timeout = random_timeout(_options.election_timeout);
+    bthread_timer_add(&_election_timer, base::milliseconds_from_now(election_timeout),
+                      on_election_timer, this);
+    RAFT_VLOG << "node " << _group_id << ":" << _server_id
+        << " term " << _current_term << " restart election_timer " << _election_timer;
+
     RAFT_VLOG << "node " << _group_id << ":" << _server_id
         << " term " << _current_term << " start elect";
-    elect_self();
+    pre_vote();
+
+    // first vote
+    //elect_self();
 }
 
 static void on_vote_timer(void* arg) {
@@ -1091,6 +1101,73 @@ struct OnRequestVoteRPCDone : public google::protobuf::Closure {
     NodeImpl* node;
 };
 
+void NodeImpl::handle_pre_vote_response(const PeerId& peer_id, const int64_t term,
+                                            const RequestVoteResponse& response) {
+    std::lock_guard<bthread_mutex_t> guard(_mutex);
+
+    // check state
+    if (_state != FOLLOWER) {
+        LOG(WARNING) << "node " << _group_id << ":" << _server_id
+            << " received invalid PreVoteResponse from " << peer_id
+            << " state not in FOLLOWER but " << state2str(_state);
+        return;
+    }
+    // check stale response
+    if (term != _current_term) {
+        LOG(WARNING) << "node " << _group_id << ":" << _server_id
+            << " received stale PreVoteResponse from " << peer_id
+            << " term " << term << " current_term " << _current_term;
+        return;
+    }
+    // check response term
+    if (response.term() > _current_term) {
+        LOG(WARNING) << "node " << _group_id << ":" << _server_id
+            << " received invalid PreVoteResponse from " << peer_id
+            << " term " << response.term() << " expect " << _current_term;
+        step_down(response.term());
+        return;
+    }
+
+    LOG(INFO) << "node " << _group_id << ":" << _server_id
+        << " received PreVoteResponse from " << peer_id
+        << " term " << response.term() << " granted " << response.granted();
+    // check granted quorum?
+    if (response.granted()) {
+        _pre_vote_ctx.grant(peer_id);
+        if (_pre_vote_ctx.quorum()) {
+            elect_self();
+        }
+    }
+}
+
+struct OnPreVoteRPCDone : public google::protobuf::Closure {
+    OnPreVoteRPCDone(const PeerId& peer_id_, const int64_t term_, NodeImpl* node_)
+        : peer(peer_id_), term(term_), node(node_) {
+            node->AddRef();
+    }
+    virtual ~OnPreVoteRPCDone() {
+        node->Release();
+    }
+
+    void Run() {
+        do {
+            if (cntl.ErrorCode() != 0) {
+                LOG(WARNING) << "node " << node->node_id()
+                    << " PreVote to " << peer << " error: " << cntl.ErrorText();
+                break;
+            }
+            node->handle_pre_vote_response(peer, term, response);
+        } while (0);
+        delete this;
+    }
+
+    PeerId peer;
+    int64_t term;
+    RequestVoteResponse response;
+    baidu::rpc::Controller cntl;
+    NodeImpl* node;
+};
+
 // in lock
 int64_t NodeImpl::last_log_term() {
     int64_t term = 0;
@@ -1103,6 +1180,48 @@ int64_t NodeImpl::last_log_term() {
     return term;
 }
 
+void NodeImpl::pre_vote() {
+    LOG(INFO) << "node " << _group_id << ":" << _server_id
+        << " term " << _current_term
+        << " start pre_vote";
+
+    _pre_vote_ctx.reset();
+    std::vector<PeerId> peers;
+    _conf.second.peer_vector(&peers);
+    _pre_vote_ctx.set(peers.size());
+    for (size_t i = 0; i < peers.size(); i++) {
+        if (peers[i] == _server_id) {
+            continue;
+        }
+        baidu::rpc::ChannelOptions options;
+        options.connection_type = baidu::rpc::CONNECTION_TYPE_SINGLE;
+        options.max_retry = 0;
+        baidu::rpc::Channel channel;
+        if (0 != channel.Init(peers[i].addr, &options)) {
+            LOG(WARNING) << "node " << _group_id << ":" << _server_id
+                << " channel init failed, addr " << peers[i].addr;
+            continue;
+        }
+
+        RequestVoteRequest request;
+        request.set_group_id(_group_id);
+        request.set_server_id(_server_id.to_string());
+        request.set_peer_id(peers[i].to_string());
+        request.set_term(_current_term + 1); // next term
+        request.set_last_log_term(last_log_term());
+        request.set_last_log_index(_log_manager->last_log_index());
+
+        OnPreVoteRPCDone* done = new OnPreVoteRPCDone(peers[i], _current_term, this);
+        RaftService_Stub stub(&channel);
+        stub.pre_vote(&done->cntl, &request, &done->response, done);
+    }
+    _pre_vote_ctx.grant(_server_id);
+
+    if (_pre_vote_ctx.quorum()) {
+        elect_self();
+    }
+}
+
 // in lock
 void NodeImpl::elect_self() {
     LOG(INFO) << "node " << _group_id << ":" << _server_id
@@ -1111,7 +1230,7 @@ void NodeImpl::elect_self() {
     // cancel follower election timer
     if (_state == FOLLOWER) {
         RAFT_VLOG << "node " << _group_id << ":" << _server_id
-            << " term " << _current_term << " stop elect_timer";
+            << " term " << _current_term << " stop election_timer";
         int ret = bthread_timer_del(_election_timer);
         if (ret == 0) {
             Release();
@@ -1364,6 +1483,61 @@ int NodeImpl::append(const std::vector<LogEntry*>& entries) {
     return ret;
 }
 
+int NodeImpl::handle_pre_vote_request(const RequestVoteRequest* request,
+                                          RequestVoteResponse* response) {
+    std::lock_guard<bthread_mutex_t> guard(_mutex);
+
+    PeerId candidate_id;
+    if (0 != candidate_id.parse(request->server_id())) {
+        LOG(WARNING) << "node " << _group_id << ":" << _server_id
+            << " received PreVote from " << request->server_id()
+            << " server_id bad format";
+        return EINVAL;
+    }
+
+    bool granted = false;
+    do {
+        // check leader to tolerate network partitioning:
+        //     1. leader always reject RequstVote
+        //     2. follower reject RequestVote before change to candidate
+        if (!_leader_id.is_empty()) {
+            LOG(WARNING) << "node " << _group_id << ":" << _server_id
+                << " reject PreVote from " << request->server_id()
+                << " in term " << request->term()
+                << " current_term " << _current_term
+                << " current_leader " << _leader_id;
+            break;
+        }
+
+        // check next term
+        if (request->term() < _current_term) {
+            // ignore older term
+            LOG(INFO) << "node " << _group_id << ":" << _server_id
+                << " ignore PreVote from " << request->server_id()
+                << " in term " << request->term()
+                << " current_term " << _current_term;
+            break;
+        }
+
+        int64_t last_log_index = _log_manager->last_log_index();
+        int64_t last_log_term = this->last_log_term();
+        granted = (request->last_log_term() > last_log_term ||
+                          (request->last_log_term() == last_log_term &&
+                           request->last_log_index() >= last_log_index));
+
+        LOG(INFO) << "node " << _group_id << ":" << _server_id
+            << " received PreVote from " << request->server_id()
+            << " in term " << request->term()
+            << " current_term " << _current_term
+            << " granted " << granted;
+
+    } while (0);
+
+    response->set_term(_current_term);
+    response->set_granted(granted);
+    return 0;
+}
+
 int NodeImpl::handle_request_vote_request(const RequestVoteRequest* request,
                                           RequestVoteResponse* response) {
     std::lock_guard<bthread_mutex_t> guard(_mutex);
@@ -1434,7 +1608,7 @@ int NodeImpl::handle_append_entries_request(base::IOBuf& data_buf,
     PeerId server_id;
     if (0 != server_id.parse(request->server_id())) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
-            << " received RequestVote from " << request->server_id()
+            << " received AppendEntries from " << request->server_id()
             << " server_id bad format";
         return EINVAL;
     }

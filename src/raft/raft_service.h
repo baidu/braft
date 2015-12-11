@@ -27,6 +27,11 @@ public:
     RaftServiceImpl() {}
     virtual ~RaftServiceImpl() {}
 
+    virtual void pre_vote(google::protobuf::RpcController* controller,
+                              const RequestVoteRequest* request,
+                              RequestVoteResponse* response,
+                              google::protobuf::Closure* done);
+
     virtual void request_vote(google::protobuf::RpcController* controller,
                               const RequestVoteRequest* request,
                               RequestVoteResponse* response,

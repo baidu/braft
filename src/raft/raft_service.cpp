@@ -24,6 +24,37 @@
 
 namespace raft {
 
+void RaftServiceImpl::pre_vote(google::protobuf::RpcController* cntl_base,
+                          const RequestVoteRequest* request,
+                          RequestVoteResponse* response,
+                          google::protobuf::Closure* done) {
+    baidu::rpc::ClosureGuard done_guard(done);
+    baidu::rpc::Controller* cntl =
+        static_cast<baidu::rpc::Controller*>(cntl_base);
+
+    PeerId peer_id;
+    if (BAIDU_UNLIKELY(0 != peer_id.parse(request->peer_id()))) {
+        cntl->SetFailed(baidu::rpc::SYS_EINVAL, "peer_id invalid");
+        return;
+    }
+
+    scoped_refptr<NodeImpl> node_ptr = NodeManager::GetInstance()->get(request->group_id(),
+                                                                       peer_id);
+    NodeImpl* node = node_ptr.get();
+    if (BAIDU_UNLIKELY(!node)) {
+        cntl->SetFailed(baidu::rpc::SYS_ENOENT, "peer_id not exist");
+        return;
+    }
+
+    int rc = node->handle_pre_vote_request(request, response);
+    if (BAIDU_UNLIKELY(rc != 0)) {
+        char err_buf[128];
+        strerror_r(rc, err_buf, sizeof(err_buf));
+        cntl->SetFailed(rc, err_buf);
+        return;
+    }
+}
+
 void RaftServiceImpl::request_vote(google::protobuf::RpcController* cntl_base,
                           const RequestVoteRequest* request,
                           RequestVoteResponse* response,
