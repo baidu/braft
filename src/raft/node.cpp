@@ -1439,7 +1439,7 @@ void NodeImpl::append(LogEntry* entry, Closure* done) {
         _commit_manager->append_pending_application(Configuration(*(entry->peers)), done);
     }
 
-    entry->AddRef();
+    //entry->AddRef();
     _log_manager->append_entry(entry, 
                                new LeaderStableClosure(
                                         NodeId(_group_id, _server_id), 
@@ -1583,9 +1583,10 @@ int NodeImpl::handle_request_vote_request(const RequestVoteRequest* request,
     return 0;
 }
 
-int NodeImpl::handle_append_entries_request(base::IOBuf& data_buf,
+int NodeImpl::handle_append_entries_request(const base::IOBuf& data,
                                             const AppendEntriesRequest* request,
                                             AppendEntriesResponse* response) {
+    base::IOBuf data_buf(data);
     std::lock_guard<bthread_mutex_t> guard(_mutex);
 
     PeerId server_id;
