@@ -17,9 +17,11 @@
  */
 
 #include <gtest/gtest.h>
+#include <boost/atomic.hpp>
 #include <base/file_util.h>
 #include <base/files/file_path.h>
 #include <base/files/file_enumerator.h>
+#include <base/string_printf.h>
 #include <base/logging.h>
 #include "raft/log.h"
 
@@ -245,60 +247,9 @@ TEST_F(TestUsageSuits, closed_segment) {
     delete configuration_manager;
 }
 
-TEST_F(TestUsageSuits, no_inited) {
-    ::system("rm -rf data");
-
-    raft::LogStorage* storage = raft::create_local_log_storage("");
-    ASSERT_TRUE(storage == NULL);
-
-    storage = raft::create_local_log_storage("file://./data");
-    ASSERT_TRUE(storage != NULL);
-
-    // no inited
-    {
-        ASSERT_TRUE(NULL == storage->get_entry(10));
-        ASSERT_EQ(0, storage->get_term(10));
-
-        raft::LogEntry* entry = new raft::LogEntry();
-        entry->type = raft::ENTRY_TYPE_DATA;
-        entry->term = 1;
-        entry->index = 1;
-
-        char data_buf[128];
-        snprintf(data_buf, sizeof(data_buf), "hello, world: %ld", entry->index);
-        entry->data.append(data_buf);
-
-        ASSERT_NE(0, storage->append_entry(entry));
-        std::vector<raft::LogEntry*> entries;
-        entries.push_back(entry);
-        ASSERT_NE(1, storage->append_entries(entries));
-
-        ASSERT_NE(0, storage->truncate_prefix(10));
-        ASSERT_NE(0, storage->truncate_suffix(10));
-    }
-
-    // double init
-    raft::ConfigurationManager* configuration_manager = new raft::ConfigurationManager;
-    ASSERT_EQ(0, storage->init(configuration_manager));
-    ASSERT_EQ(0, storage->init(configuration_manager));
-
-    delete storage;
-    delete configuration_manager;
-}
-
 TEST_F(TestUsageSuits, multi_segment_and_segment_logstorage) {
     ::system("rm -rf data");
     raft::SegmentLogStorage* storage = new raft::SegmentLogStorage("./data");
-
-    // no init append
-    {
-        raft::LogEntry entry;
-        entry.type = raft::ENTRY_TYPE_NO_OP;
-        entry.term = 1;
-        entry.index = 1;
-
-        ASSERT_NE(0, storage->append_entry(&entry));
-    }
 
     // init
     ASSERT_EQ(0, storage->init(new raft::ConfigurationManager()));
@@ -324,7 +275,7 @@ TEST_F(TestUsageSuits, multi_segment_and_segment_logstorage) {
         ASSERT_EQ(5, storage->append_entries(entries));
 
         for (size_t j = 0; j < entries.size(); j++) {
-            delete entries[j];
+            entries[j]->Release();
         }
     }
 
@@ -353,13 +304,13 @@ TEST_F(TestUsageSuits, multi_segment_and_segment_logstorage) {
     {
         raft::SegmentLogStorage::SegmentMap& segments1 = storage->segments();
         size_t old_segment_num = segments1.size();
-        raft::Segment* first_seg = segments1.begin()->second;
+        raft::Segment* first_seg = segments1.begin()->second.get();
 
-        ASSERT_EQ(0, storage->truncate_prefix(first_seg->end_index()));
+        ASSERT_EQ(0, storage->truncate_prefix(first_seg->last_index()));
         raft::SegmentLogStorage::SegmentMap& segments2 = storage->segments();
         ASSERT_EQ(old_segment_num, segments2.size());
 
-        ASSERT_EQ(0, storage->truncate_prefix(first_seg->end_index() + 1));
+        ASSERT_EQ(0, storage->truncate_prefix(first_seg->last_index() + 1));
         raft::SegmentLogStorage::SegmentMap& segments3 = storage->segments();
         ASSERT_EQ(old_segment_num - 1, segments3.size());
     }
@@ -413,17 +364,17 @@ TEST_F(TestUsageSuits, multi_segment_and_segment_logstorage) {
     // boundary truncate suffix
     {
         raft::SegmentLogStorage::SegmentMap& segments1 = storage->segments();
-        raft::Segment* first_seg = segments1.begin()->second;
+        raft::Segment* first_seg = segments1.begin()->second.get();
         if (segments1.size() > 1) {
-            storage->truncate_suffix(first_seg->end_index() + 1);
+            storage->truncate_suffix(first_seg->last_index() + 1);
         }
         raft::SegmentLogStorage::SegmentMap& segments2 = storage->segments();
         ASSERT_EQ(2ul, segments2.size());
-        ASSERT_EQ(storage->last_log_index(), first_seg->end_index() + 1);
-        storage->truncate_suffix(first_seg->end_index());
+        ASSERT_EQ(storage->last_log_index(), first_seg->last_index() + 1);
+        storage->truncate_suffix(first_seg->last_index());
         raft::SegmentLogStorage::SegmentMap& segments3 = storage->segments();
         ASSERT_EQ(1ul, segments3.size());
-        ASSERT_EQ(storage->last_log_index(), first_seg->end_index());
+        ASSERT_EQ(storage->last_log_index(), first_seg->last_index());
     }
 
     // read
@@ -729,3 +680,120 @@ TEST_F(TestUsageSuits, configuration) {
 
     delete storage2;
 }
+
+boost::atomic<int> g_first_read_index(0); 
+boost::atomic<int> g_last_read_index(0);
+bool g_stop = false;
+
+void* read_thread_routine(void* arg) {
+    raft::SegmentLogStorage* storage = (raft::SegmentLogStorage*)arg;
+    while (!g_stop) {
+        int a = g_first_read_index.load(boost::memory_order_relaxed);
+        int b = g_last_read_index.load(boost::memory_order_relaxed);
+        EXPECT_LE(a, b);
+        int index = raft::get_random_number(a, b + 1);
+        raft::LogEntry* entry = storage->get_entry(index);
+        if (entry != NULL) {
+            std::string expect;
+            base::string_printf(&expect, "hello_%d", index);
+            EXPECT_EQ(expect, entry->data.to_string());
+            entry->Release();
+        } else {
+            EXPECT_LT(index, storage->first_log_index()) 
+                    << "first_read_index=" << g_first_read_index.load()
+                    << " last_read_index=" << g_last_read_index.load()
+                    << " a=" << a << " b=" << b;
+            g_stop = true;
+            return NULL;
+        }
+    }
+    return NULL;
+}
+
+void* write_thread_routine(void* arg) {
+    raft::SegmentLogStorage* storage = (raft::SegmentLogStorage*)arg;
+    // Write operation distrubution: 
+    //  - 10% truncate_prefix
+    //  - 10% truncate_suffix,
+    //  - 30% increase last_read_index (which stands for committment in the real
+    // world), 
+    //  - 50% append new entry
+    int next_log_index = storage->last_log_index() + 1;
+    while (!g_stop) {
+        const int r = raft::get_random_number(0, 10);
+        if (r < 1) {  // truncate_prefix
+            int truncate_index = raft::get_random_number(
+                    g_first_read_index.load(boost::memory_order_relaxed), 
+                    g_last_read_index.load(boost::memory_order_relaxed) + 1);
+            EXPECT_EQ(0, storage->truncate_prefix(truncate_index));
+            g_first_read_index.store(truncate_index, boost::memory_order_relaxed);
+        } else if (r < 2) {  // truncate suffix
+            int truncate_index = raft::get_random_number(
+                    g_last_read_index.load(boost::memory_order_relaxed), next_log_index);
+            EXPECT_EQ(0, storage->truncate_suffix(truncate_index));
+            next_log_index = truncate_index + 1;
+        } else if (r < 5) { // increase last_read_index which cannot be truncate
+            int next_read_index = raft::get_random_number(
+                    g_last_read_index.load(boost::memory_order_relaxed), next_log_index);
+            g_last_read_index.store(next_read_index, boost::memory_order_relaxed);
+        } else  {  // Append entry
+            raft::LogEntry* entry = new raft::LogEntry;
+            entry->type = raft::ENTRY_TYPE_DATA;
+            entry->index = next_log_index;
+            std::string data;
+            base::string_printf(&data, "hello_%d", next_log_index);
+            entry->data.append(data);
+            ++next_log_index;
+            EXPECT_EQ(0, storage->append_entry(entry));
+            EXPECT_EQ(0, entry->Release());
+        }
+    }
+    return NULL;
+}
+
+namespace raft {
+DECLARE_int32(raft_max_segment_size);
+}
+
+TEST_F(TestUsageSuits, multi_read_single_modify_thread_safe) {
+    int32_t saved_max_segment_size = raft::FLAGS_raft_max_segment_size;
+    raft::FLAGS_raft_max_segment_size = 1024;
+    system("rm -rf ./data");
+    raft::SegmentLogStorage* storage = new raft::SegmentLogStorage("./data");
+    raft::ConfigurationManager* configuration_manager = new raft::ConfigurationManager;
+    ASSERT_EQ(0, storage->init(configuration_manager));
+    const int N = 10000;
+    for (int i = 1; i <= N; ++i) {
+        raft::LogEntry* entry = new raft::LogEntry;
+        entry->type = raft::ENTRY_TYPE_DATA;
+        entry->index = i;
+        std::string data;
+        base::string_printf(&data, "hello_%d", i);
+        entry->data.append(data);
+        ASSERT_EQ(0, storage->append_entry(entry));
+        ASSERT_EQ(0, entry->Release());
+    }
+    ASSERT_EQ(N, storage->last_log_index());
+    g_stop = false;
+    g_first_read_index.store(1);
+    g_last_read_index.store(N);
+    bthread_t read_thread[8];
+    for (size_t i = 0; i < ARRAY_SIZE(read_thread); ++i) {
+        ASSERT_EQ(0, bthread_start_urgent(&read_thread[i], NULL, 
+                                   read_thread_routine, storage));
+    }
+    bthread_t write_thread;
+    ASSERT_EQ(0, bthread_start_urgent(&write_thread, NULL,
+                                      write_thread_routine, storage));
+    ::usleep(5 * 1000 * 1000);
+    g_stop = true;
+    for (size_t i = 0; i < ARRAY_SIZE(read_thread); ++i) {
+        bthread_join(read_thread[i], NULL);
+    }
+    bthread_join(write_thread, NULL);
+
+    delete configuration_manager;
+    delete storage;
+    raft::FLAGS_raft_max_segment_size = saved_max_segment_size;
+}
+

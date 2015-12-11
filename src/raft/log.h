@@ -20,30 +20,36 @@
 
 #include <vector>
 #include <map>
+#include <boost/shared_ptr.hpp>
+#include <boost/atomic.hpp>
 #include <base/iobuf.h>
 #include <base/logging.h>
 #include "raft/log_entry.h"
 #include "raft/storage.h"
+#include "raft/util.h"
 
 namespace raft {
 
-class Segment {
+class BAIDU_CACHELINE_ALIGNMENT Segment {
 public:
-    Segment(const std::string& path, const int64_t start_index)
+    Segment(const std::string& path, const int64_t first_index)
         : _path(path), _bytes(0),
         _fd(-1), _is_open(true),
-        _start_index(start_index), _end_index(start_index - 1) {
+        _first_index(first_index), _last_index(first_index - 1) {
+            CHECK_EQ(0, bthread_mutex_init(&_mutex, NULL));
     }
-    Segment(const std::string& path, const int64_t start_index, const int64_t end_index)
+    Segment(const std::string& path, const int64_t first_index, const int64_t last_index)
         : _path(path), _bytes(0),
         _fd(-1), _is_open(false),
-        _start_index(start_index), _end_index(end_index) {
+        _first_index(first_index), _last_index(last_index) {
+            CHECK_EQ(0, bthread_mutex_init(&_mutex, NULL));
     }
-    virtual ~Segment() {
+    ~Segment() {
         if (_fd >= 0) {
             ::close(_fd);
             _fd = -1;
         }
+        bthread_mutex_destroy(&_mutex);
     }
 
     struct EntryHeader;
@@ -59,10 +65,10 @@ public:
     int append(const LogEntry* entry);
 
     // get entry by index
-    LogEntry* get(const int64_t index);
+    LogEntry* get(const int64_t index) const;
 
     // get entry's term by index
-    int64_t get_term(const int64_t index);
+    int64_t get_term(const int64_t index) const;
 
     // close open segment
     int close();
@@ -84,27 +90,38 @@ public:
         return _bytes;
     }
 
-    int64_t start_index() const {
-        return _start_index;
+    int64_t first_index() const {
+        return _first_index;
     }
 
-    int64_t end_index() const {
-        return _end_index;
+    int64_t last_index() const {
+        return _last_index;
     }
 
 private:
 
+    struct LogMeta {
+        off_t offset;
+        size_t length;
+        int64_t term;
+    };
+
     int _load_entry(off_t offset, EntryHeader *head, base::IOBuf *body, 
-                    size_t size_hint);
-    ssize_t _read_up(base::IOPortal* buf, size_t count, off_t offset);
+                    size_t size_hint) const;
+    ssize_t _read_up(base::IOPortal* buf, size_t count, off_t offset) const;
+
+    int _get_meta(int64_t index, LogMeta* meta) const;
+
+    int _truncate_meta_and_get_last(int64_t last);
 
     std::string _path;
     int64_t _bytes;
+    mutable bthread_mutex_t _mutex;
     int _fd;
     bool _is_open;
-    int64_t _start_index;
-    int64_t _end_index;
-    std::vector<int64_t> _offset;
+    int64_t _first_index;
+    int64_t _last_index;
+    std::vector<std::pair<int64_t/*offset*/, int64_t/*term*/> > _offset_and_term;
 };
 
 // LogStorage use segmented append-only file, all data in disk, all index in memory.
@@ -116,26 +133,22 @@ private:
 //      log_inprogress_0001001: open segment
 class SegmentLogStorage : public LogStorage {
 public:
-    typedef std::map<int64_t, Segment*> SegmentMap;
+    typedef std::map<int64_t, boost::shared_ptr<Segment> > SegmentMap;
 
     SegmentLogStorage(const std::string& path)
         : LogStorage(path), _path(path),
-        _start_log_index(1), _is_inited(false), _open_segment(NULL) {
+        _first_log_index(1) {
+            CHECK_EQ(0, bthread_mutex_init(&_mutex, NULL));
     }
 
     virtual ~SegmentLogStorage() {
-        SegmentMap::iterator it;
-        for (it = _segments.begin(); it != _segments.end(); ++it) {
-            delete it->second;
-        }
         _segments.clear();
 
         if (_open_segment) {
-            delete _open_segment;
-            _open_segment = NULL;
+            _open_segment.reset();
         }
 
-        _is_inited = false;
+        bthread_mutex_destroy(&_mutex);
     }
 
     // init logstorage, check consistency and integrity
@@ -143,8 +156,7 @@ public:
 
     // first log index in log
     virtual int64_t first_log_index() {
-        CHECK(_is_inited);
-        return _start_log_index;
+        return _first_log_index.load(boost::memory_order_acquire);
     }
 
     // last log index in log
@@ -178,12 +190,22 @@ private:
     int load_meta();
     int list_segments(bool is_empty);
     int load_segments(ConfigurationManager* configuration_manager);
+    int get_segment(int64_t log_index, boost::shared_ptr<Segment>* ptr);
+    void pop_segments(
+            int64_t first_index_kept, 
+            std::vector<boost::shared_ptr<Segment> >* poped);
+    void pop_segments_from_back(
+            const int64_t first_index_kept,
+            std::vector<boost::shared_ptr<Segment> >* popped,
+            boost::shared_ptr<Segment>* last_segment);
+
 
     std::string _path;
-    int64_t _start_log_index;
-    bool _is_inited;
+    boost::atomic<int64_t> _first_log_index;
+    boost::atomic<int64_t> _last_log_index;
+    bthread_mutex_t _mutex;
     SegmentMap _segments;
-    Segment* _open_segment;
+    boost::shared_ptr<Segment> _open_segment;
 };
 
 LogStorage* create_local_log_storage(const std::string& uri);

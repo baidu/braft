@@ -54,9 +54,6 @@ public:
     // Append a log entry and call closure when it's stable
     void append_entry(LogEntry* log_entry, StableClosure* done);
 
-    // Clear the logs in memory whose log_index <= |index|
-    void clear_memory_logs(const int64_t index);
-
     // delete logs from storage's head, [1, first_index_kept) will be discarded
     // Returns:
     //  success return 0, failed return -1
@@ -107,14 +104,28 @@ public:
     void wait(int64_t expected_last_log_index,
               const timespec *due_time,
               int (*on_new_log)(void *arg, int error_code), void *arg);
+    
+    
+    // Set the applied index, indicating that the log and all the previose ones
+    // can be droped from memory logs
+    void set_applied_index(int64_t applied_index);
 
 private:
     static int leader_disk_run(void* meta,
                                StableClosure** const tasks[], size_t tasks_size);
+    
+    // Must be called in the disk thread, otherwise the
+    // behavior is undefined
+    void set_disk_index(int64_t index);
+
 
     LogEntry* get_entry_from_memory(const int64_t index);
 
     void notify_on_new_log(int64_t expected_last_log_index, bthread_id_t wait_id);
+
+    // Clear the logs in memory whose log_index <= |index|
+    void clear_memory_logs(const int64_t index);
+
     // Fast implementation with one lock
     // TODO(chenzhangyi01): reduce the critical section
     LogStorage* _log_storage;
@@ -123,7 +134,9 @@ private:
     bthread_mutex_t _mutex;
     bthread_id_list_t _wait_list;
 
-    // TODO(chenzhangyi01): replace deque with a thread-safe data struture
+    boost::atomic<int64_t> _disk_index;
+    boost::atomic<int64_t> _applied_index;
+    // TODO(chenzhangyi01): replace deque with a thread-safe data structrue
     std::deque<LogEntry* /*FIXME*/> _logs_in_memory;
     int64_t _last_log_index;
     int64_t _last_snapshot_index;

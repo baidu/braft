@@ -45,6 +45,15 @@ DEFINE_int32(raft_max_segment_size, 8 * 1024 * 1024 /*8M*/,
              "Max size of one segment file");
 BAIDU_RPC_VALIDATE_GFLAG(raft_max_segment_size, baidu::rpc::PositiveInteger);
 
+int ftruncate_uninterrupted(int fd, off_t length) {
+    int rc = 0;
+    do {
+        rc = ftruncate(fd, length);
+    } while (rc == -1 && errno == EINTR);
+    return rc;
+}
+
+
 // Format of Header, all fields are in network order
 // | ----------------- term (64bits) ----------------- |
 // | type (8bits) | -------- data len (56bits) ------- |
@@ -67,13 +76,13 @@ std::ostream& operator<<(std::ostream& os, const Segment::EntryHeader& h) {
 
 int Segment::create() {
     if (!_is_open) {
-        CHECK(false) << "Create on a closed segment at start_index=" 
-                     << _start_index << " in " << _path;
+        CHECK(false) << "Create on a closed segment at first_index=" 
+                     << _first_index << " in " << _path;
         return -1;
     }
 
     std::string path(_path);
-    base::string_appendf(&path, "/" RAFT_SEGMENT_OPEN_PATTERN, _start_index);
+    base::string_appendf(&path, "/" RAFT_SEGMENT_OPEN_PATTERN, _first_index);
     base::FilePath dir_path(_path);
     if (!base::CreateDirectory(dir_path)) {
         return -1;
@@ -85,7 +94,7 @@ int Segment::create() {
     return _fd >= 0 ? 0 : -1;
 }
 
-ssize_t Segment::_read_up(base::IOPortal* buf, size_t count, off_t offset) {
+ssize_t Segment::_read_up(base::IOPortal* buf, size_t count, off_t offset) const {
     size_t nread = 0;
     while (nread < count) {
         ssize_t n = buf->append_from_file_descriptor(
@@ -94,8 +103,7 @@ ssize_t Segment::_read_up(base::IOPortal* buf, size_t count, off_t offset) {
             nread += n;
         } else {
             if (n < 0) {
-                LOG(ERROR) << "Fail to read from fd=" << _fd << ", " 
-                           <<  berror();
+                PLOG(ERROR) << "Fail to read from fd=" << _fd;
                 return -1;
             } else {
                 return nread;
@@ -106,7 +114,7 @@ ssize_t Segment::_read_up(base::IOPortal* buf, size_t count, off_t offset) {
 }
 
 int Segment::_load_entry(off_t offset, EntryHeader* head, base::IOBuf* data,
-                         size_t size_hint) {
+                         size_t size_hint) const {
     base::IOPortal buf;
     size_t to_read = std::max(size_hint, ENTRY_HEADER_SIZE);
     const ssize_t n = _read_up(&buf, to_read, offset);
@@ -169,16 +177,40 @@ int Segment::_load_entry(off_t offset, EntryHeader* head, base::IOBuf* data,
     return 0;
 }
 
+int Segment::_get_meta(int64_t index, LogMeta* meta) const {
+    BAIDU_SCOPED_LOCK(_mutex);
+    if (index > _last_index || index < _first_index) {
+        // out of range
+        RAFT_VLOG << "_last_index=" << _last_index
+                  << " _first_index=" << _first_index;
+        return -1;
+    } else if (_last_index == _first_index - 1) {
+        RAFT_VLOG << "_last_index=" << _last_index
+                  << " _first_index=" << _first_index;
+        // empty
+        return -1;
+    }
+    int64_t meta_index = index - _first_index;
+    int64_t entry_cursor = _offset_and_term[meta_index].first;
+    int64_t next_cursor = (index < _last_index)
+                          ? _offset_and_term[meta_index + 1].first : _bytes;
+    DCHECK_LT(entry_cursor, next_cursor);
+    meta->offset = entry_cursor;
+    meta->term = _offset_and_term[meta_index].second;
+    meta->length = next_cursor - entry_cursor;
+    return 0;
+}
+
 int Segment::load(ConfigurationManager* configuration_manager) {
     int ret = 0;
 
     std::string path(_path);
     // create fd
     if (_is_open) {
-        base::string_appendf(&path, "/" RAFT_SEGMENT_OPEN_PATTERN, _start_index);
+        base::string_appendf(&path, "/" RAFT_SEGMENT_OPEN_PATTERN, _first_index);
     } else {
         base::string_appendf(&path, "/" RAFT_SEGMENT_CLOSED_PATTERN, 
-                             _start_index, _end_index);
+                             _first_index, _last_index);
     }
     _fd = ::open(path.c_str(), O_RDWR);
     if (_fd < 0) {
@@ -198,11 +230,11 @@ int Segment::load(ConfigurationManager* configuration_manager) {
     // load entry index
     int64_t file_size = st_buf.st_size;
     int64_t entry_off = 0;
-    for (int64_t i = _start_index; entry_off < file_size; i++) {
+    for (int64_t i = _first_index; entry_off < file_size; i++) {
         EntryHeader header;
         const int rc = _load_entry(entry_off, &header, NULL, ENTRY_HEADER_SIZE);
         if (rc > 0) {
-            // The last log was not completely written which should be truncated
+            // The last log was not completely written, which should be truncated
             break;
         }
         if (rc < 0) {
@@ -246,9 +278,9 @@ int Segment::load(ConfigurationManager* configuration_manager) {
                 break;
             }
         }
-        _offset.push_back(entry_off);
+        _offset_and_term.push_back(std::make_pair(entry_off, header.term));
         if (_is_open) {
-            ++_end_index;
+            ++_last_index;
         }
         entry_off += skip_len;
     }
@@ -256,9 +288,9 @@ int Segment::load(ConfigurationManager* configuration_manager) {
     // truncate last uncompleted entry
     if (ret == 0 && entry_off != file_size) {
         LOG(INFO) << "truncate last uncompleted write entry, path: " << _path
-            << " start_index: " << _start_index
+            << " first_index: " << _first_index
             << " old_size: " << file_size << " new_size: " << entry_off;
-        ret = ::ftruncate(_fd, entry_off);
+        ret = ftruncate_uninterrupted(_fd, entry_off);
     }
 
     // seek to end, for opening segment
@@ -272,10 +304,10 @@ int Segment::append(const LogEntry* entry) {
 
     if (BAIDU_UNLIKELY(!entry || !_is_open)) {
         return -1;
-    } else if (BAIDU_UNLIKELY(entry->index != _end_index + 1)) {
-        LOG(INFO) << "entry->index=" << entry->index
-                  << " _end_index=" << _end_index
-                  << " _start_index=" << _start_index;
+    } else if (BAIDU_UNLIKELY(entry->index != _last_index + 1)) {
+        CHECK(false) << "entry->index=" << entry->index
+                  << " _last_index=" << _last_index
+                  << " _first_index=" << _first_index;
         return -1;
     }
 
@@ -327,33 +359,29 @@ int Segment::append(const LogEntry* entry) {
         written += n;
         for (;start < ARRAY_SIZE(pieces) && pieces[start]->empty(); ++start) {}
     }
-    
-    _offset.push_back(_bytes);
-    _end_index++;
-    _bytes += to_write;
+    {
+        BAIDU_SCOPED_LOCK(_mutex);
+        _offset_and_term.push_back(std::make_pair(_bytes, entry->term));
+        _last_index++;
+        _bytes += to_write;
+    }
 
     return 0;
 }
 
 int Segment::sync() {
-    if (_end_index > _start_index) {
-        assert(_is_open);
+    if (_last_index > _first_index) {
+        CHECK(_is_open);
         return ::fsync(_fd);
     } else {
         return 0;
     }
 }
 
-LogEntry* Segment::get(const int64_t index) {
-    if (index > _end_index || index < _start_index) {
-        // out of range
-        LOG(INFO) << "_end_index=" << _end_index
-                  << " _start_index=" << _start_index;
-        return NULL;
-    } else if (_end_index == _start_index - 1) {
-        LOG(INFO) << "_end_index=" << _end_index
-                  << " _start_index=" << _start_index;
-        // empty
+LogEntry* Segment::get(const int64_t index) const {
+
+    LogMeta meta;
+    if (_get_meta(index, &meta) != 0) {
         return NULL;
     }
 
@@ -361,16 +389,14 @@ LogEntry* Segment::get(const int64_t index) {
     LogEntry* entry = NULL;
     do {
         ConfigurationPBMeta configuration_meta;
-        int64_t entry_cursor = _offset[index - _start_index];
-        int64_t next_cursor = index < _end_index 
-                              ? _offset[index - _start_index + 1] : _bytes;
         EntryHeader header;
         base::IOBuf data;
-        if (_load_entry(entry_cursor, &header, &data, 
-                        next_cursor - entry_cursor) != 0) {
+        if (_load_entry(meta.offset, &header, &data, 
+                        meta.length) != 0) {
             ok = false;
             break;
         }
+        CHECK_EQ(meta.term, header.term);
         entry = new LogEntry();
         switch (header.type) {
         case ENTRY_TYPE_DATA:
@@ -413,23 +439,12 @@ LogEntry* Segment::get(const int64_t index) {
     return entry;
 }
 
-int64_t Segment::get_term(const int64_t index) {
-    if (BAIDU_UNLIKELY(index > _end_index || index < _start_index)) {
-        // out of range
-        return 0;
-    } else if (BAIDU_UNLIKELY(_end_index == _start_index - 1)) {
-        // empty
+int64_t Segment::get_term(const int64_t index) const {
+    LogMeta meta;
+    if (_get_meta(index, &meta) != 0) {
         return 0;
     }
-
-    int64_t entry_cursor = _offset[index - _start_index];
-
-    EntryHeader header;
-    if (_load_entry(entry_cursor, &header, NULL, ENTRY_HEADER_SIZE) != 0) {
-        LOG(WARNING) << "Fail to load header";
-        return 0;
-    }
-    return header.term;
+    return meta.term;
 }
 
 int Segment::close() {
@@ -437,10 +452,10 @@ int Segment::close() {
 
     std::string old_path(_path);
     base::string_appendf(&old_path, "/" RAFT_SEGMENT_OPEN_PATTERN,
-                         _start_index);
+                         _first_index);
     std::string new_path(_path);
     base::string_appendf(&new_path, "/" RAFT_SEGMENT_CLOSED_PATTERN, 
-                         _start_index, _end_index);
+                         _first_index, _last_index);
 
     // TODO: optimize index memory usage by reconstruct vector
     int ret = this->sync();
@@ -453,57 +468,53 @@ int Segment::close() {
                               << "' to `" << new_path <<"\', "
                               << berror();
         return rc;
-    } else {
-        return ret;
     }
+    return ret;
 }
 
 int Segment::unlink() {
     int ret = 0;
     do {
-        ret = ::close(_fd);
-        if (ret != 0) {
-            break;
-        }
-        _fd = -1;
-
         std::string path(_path);
         if (_is_open) {
             base::string_appendf(&path, "/" RAFT_SEGMENT_OPEN_PATTERN,
-                                 _start_index);
+                                 _first_index);
         } else {
             base::string_appendf(&path, "/" RAFT_SEGMENT_CLOSED_PATTERN,
-                                _start_index, _end_index);
+                                _first_index, _last_index);
         }
 
         ret = ::unlink(path.c_str());
         if (ret != 0) {
+            PLOG(ERROR) << "Fail to unlink " << path;
             break;
         }
 
         LOG(INFO) << "Unlinked segment `" << path << '\'';
     } while (0);
 
-
-    if (ret == 0) {
-        delete this;
-        return 0;
-    } else {
-        return ret;
-    }
+    return ret;
 }
 
 int Segment::truncate(const int64_t last_index_kept) {
-    int64_t first_truncate_in_offset = last_index_kept + 1 - _start_index;
-    int64_t truncate_size = _offset[first_truncate_in_offset];
-    LOG(INFO) << "Truncating " << _path << " start_index: " << _start_index
-              << " end_index from " << _end_index << " to " << last_index_kept
-              << " truncate size to " << truncate_size;
+    int64_t truncate_size = 0;
+    int64_t first_truncate_in_offset = 0;
+    {
+        BAIDU_SCOPED_LOCK(_mutex);
+        if (last_index_kept >= _last_index) {
+            return 0;
+        }
+        first_truncate_in_offset = last_index_kept + 1 - _first_index;
+        truncate_size = _offset_and_term[first_truncate_in_offset].first;
+        LOG(INFO) << "Truncating " << _path << " first_index: " << _first_index
+                  << " last_index from " << _last_index << " to " << last_index_kept
+                  << " truncate size to " << truncate_size;
+    }
 
     int ret = 0;
     do {
         // truncate fd
-        ret = ::ftruncate(_fd, truncate_size);
+        ret = ftruncate_uninterrupted(_fd, truncate_size);
         if (ret < 0) {
             break;
         }
@@ -519,33 +530,34 @@ int Segment::truncate(const int64_t last_index_kept) {
         if (!_is_open) {
             std::string old_path(_path);
             base::string_appendf(&old_path, "/" RAFT_SEGMENT_CLOSED_PATTERN,
-                                 _start_index, _end_index);
+                                 _first_index, _last_index);
 
             std::string new_path(_path);
             base::string_appendf(&new_path, "/" RAFT_SEGMENT_CLOSED_PATTERN,
-                                 _start_index, last_index_kept);
+                                 _first_index, last_index_kept);
             ret = ::rename(old_path.c_str(), new_path.c_str());
             LOG_IF(INFO, ret == 0) << "Renamed `" << old_path << "' to `"
                                    << new_path << '\'';
             LOG_IF(ERROR, ret != 0) << "Fail to rename `" << old_path << "' to `"
                                     << new_path << "', " << berror();
         }
-        // update memory var
-        _offset.erase(_offset.begin() + first_truncate_in_offset, _offset.end());
-        _end_index = last_index_kept;
-        _bytes = truncate_size;
+        {
+            BAIDU_SCOPED_LOCK(_mutex);
+            // update memory var
+            _offset_and_term.resize(first_truncate_in_offset);
+            _last_index = last_index_kept;
+            _bytes = truncate_size;
+        }
     } while (0);
 
     return ret;
 }
 
 int SegmentLogStorage::init(ConfigurationManager* configuration_manager) {
-    if (_is_inited) {
-        return 0;
-    }
 
     base::FilePath dir_path(_path);
     if (!base::CreateDirectory(dir_path)) {
+        LOG(ERROR) << "Fail to create " << dir_path.AsUTF8Unsafe();
         return -1;
     }
 
@@ -570,41 +582,19 @@ int SegmentLogStorage::init(ConfigurationManager* configuration_manager) {
         }
     } while (0);
 
-    if (ret == 0) {
-        _is_inited = true;
-    }
     if (is_empty) {
+        _first_log_index.store(1);
+        _last_log_index.store(0);
         ret = save_meta(1);
     }
     return ret;
 }
 
 int64_t SegmentLogStorage::last_log_index() {
-    CHECK(_is_inited);
-
-    Segment* segment = NULL;
-    if (_open_segment) {
-        segment = _open_segment;
-    } else {
-        SegmentMap::reverse_iterator it = _segments.rbegin();
-        if (it != _segments.rend()) {
-            segment = it->second;
-        }
-    }
-
-    if (segment) {
-        return segment->end_index();
-    } else {
-        return _start_log_index - 1;
-    }
+    return _last_log_index.load(boost::memory_order_acquire);
 }
 
 int SegmentLogStorage::append_entries(const std::vector<LogEntry*>& entries) {
-    if (BAIDU_UNLIKELY(!_is_inited)) {
-        LOG(WARNING) << "SegmentLogStorage not init(), path: " << _path;
-        return 0;
-    }
-
     Segment* last_segment = NULL;
     for (size_t i = 0; i < entries.size(); i++) {
         LogEntry* entry = entries[i];
@@ -613,6 +603,7 @@ int SegmentLogStorage::append_entries(const std::vector<LogEntry*>& entries) {
         if (0 != segment->append(entry)) {
             return i;
         }
+        _last_log_index.fetch_add(1, boost::memory_order_release);
         last_segment = segment;
     }
     last_segment->sync();
@@ -620,154 +611,134 @@ int SegmentLogStorage::append_entries(const std::vector<LogEntry*>& entries) {
 }
 
 int SegmentLogStorage::append_entry(const LogEntry* entry) {
-    if (BAIDU_UNLIKELY(!_is_inited)) {
-        LOG(WARNING) << "SegmentLogStorage not init(), path: " << _path;
-        return -1;
-    }
-
     Segment* segment = open_segment();
     int ret = segment->append(entry);
     if (ret != 0) {
         return ret;
     }
+    _last_log_index.fetch_add(1, boost::memory_order_release);
 
     return segment->sync();
 }
 
 LogEntry* SegmentLogStorage::get_entry(const int64_t index) {
-    if (BAIDU_UNLIKELY(!_is_inited)) {
-        LOG(WARNING) << "SegmentLogStorage not init(), path: " << _path;
+    boost::shared_ptr<Segment> ptr;
+    if (get_segment(index, &ptr) != 0) {
         return NULL;
-    } else {
-        int64_t first_index = first_log_index();
-        int64_t last_index = last_log_index();
-        if (BAIDU_UNLIKELY(index < first_index || index > last_index + 1)) {
-            LOG(WARNING) << "Attempted to access entry " << index << " outside of log, "
-                << " first_log_index: " << first_index
-                << " last_log_index: " << last_index;
-            return NULL;
-        } else if (BAIDU_UNLIKELY(index == last_index + 1)) {
-            return NULL;
-        }
     }
-
-    Segment* segment = NULL;
-    if (_open_segment && index >= _open_segment->start_index()) {
-        segment = _open_segment;
-    } else {
-        SegmentMap::iterator it = _segments.upper_bound(index);
-        --it;
-        segment = it->second;
-    }
-
-    return segment->get(index);
+    return ptr->get(index);
 }
 
 int64_t SegmentLogStorage::get_term(const int64_t index) {
-    if (BAIDU_UNLIKELY(!_is_inited)) {
-        LOG(WARNING) << "SegmentLogStorage not init(), path: " << _path;
+    boost::shared_ptr<Segment> ptr;
+    if (get_segment(index, &ptr) != 0) {
         return 0;
-    } else {
-        int64_t first_index = first_log_index();
-        int64_t last_index = last_log_index();
-        if (BAIDU_UNLIKELY(index < first_index || index > last_index)) {
-            LOG(WARNING) << "Attempted to access entry " << index << " outside of log, "
-                << " first_log_index: " << first_index
-                << " last_log_index: " << last_index;
-            return 0;
-        } else if (BAIDU_UNLIKELY(index == last_index + 1)) {
-            return 0;
+    }
+    return ptr->get_term(index);
+}
+
+void SegmentLogStorage::pop_segments(
+        const int64_t first_index_kept,
+        std::vector<boost::shared_ptr<Segment> >* popped) {
+    popped->clear();
+    popped->reserve(32);
+    BAIDU_SCOPED_LOCK(_mutex);
+    _first_log_index.store(first_index_kept, boost::memory_order_release);
+    for (SegmentMap::iterator it = _segments.begin(); it != _segments.end();) {
+        boost::shared_ptr<Segment>& segment = it->second;
+        if (segment->last_index() < first_index_kept) {
+            popped->push_back(segment);
+            _segments.erase(it++);
+        } else {
+            return;
         }
     }
-
-    Segment* segment = NULL;
-    if (_open_segment && index >= _open_segment->start_index()) {
-        segment = _open_segment;
+    if (_open_segment) {
+        if (_open_segment->last_index() < first_index_kept) {
+            popped->push_back(_open_segment);
+            _open_segment.reset();
+            // _log_storage is empty
+            _last_log_index.store(first_index_kept -1);
+        } else {
+            CHECK(_open_segment->first_index() <= first_index_kept);
+        }
     } else {
-        SegmentMap::iterator it = _segments.upper_bound(index);
-        --it;
-        segment = it->second;
+        // _log_storage is empty
+        _last_log_index.store(first_index_kept - 1);
     }
-
-    return segment->get_term(index);
 }
 
 int SegmentLogStorage::truncate_prefix(const int64_t first_index_kept) {
-    if (!_is_inited) {
-        LOG(WARNING) << "SegmentLogStorage not init(), path: " << _path;
-        return -1;
-    }
-
     // segment files
-    SegmentMap::iterator it;
-    for (it = _segments.begin(); it != _segments.end();) {
-        Segment* segment = it->second;
-        if (segment->end_index() < first_index_kept) {
-            _segments.erase(it++);
-            segment->unlink();
-        } else {
-            break;
-        }
+    if (_first_log_index.load(boost::memory_order_acquire) >= first_index_kept) {
+        LOG(WARNING) << "Nothing is going to happen since _first_log_index=" 
+                     << _first_log_index.load(boost::memory_order_relaxed)
+                     << " >= first_index_kept="
+                     << first_index_kept;
+        return 0;
     }
-
-    if (_open_segment) {
-        if (_open_segment->end_index() < first_index_kept) {
-            _open_segment->unlink();
-            _open_segment = NULL;
-        } else {
-            CHECK(_open_segment->start_index() <= first_index_kept);
-        }
+    std::vector<boost::shared_ptr<Segment> > popped;
+    pop_segments(first_index_kept, &popped);
+    for (size_t i = 0; i < popped.size(); ++i) {
+        popped[i]->unlink();
+        popped[i].reset();
     }
-
     return save_meta(first_index_kept);
 }
 
-int SegmentLogStorage::truncate_suffix(const int64_t last_index_kept) {
-    if (!_is_inited) {
-        LOG(WARNING) << "SegmentLogStorage not init(), path: " << _path;
-        return -1;
-    }
-
-    int ret = 0;
+void SegmentLogStorage::pop_segments_from_back(
+        const int64_t last_index_kept,
+        std::vector<boost::shared_ptr<Segment> >* popped,
+        boost::shared_ptr<Segment>* last_segment) {
+    popped->clear();
+    popped->reserve(32);
+    last_segment->reset();
+    BAIDU_SCOPED_LOCK(_mutex);
+    _last_log_index.store(last_index_kept, boost::memory_order_release);
     if (_open_segment) {
-        if (_open_segment->end_index() <= last_index_kept) {
-            return 0;
-        } else if (_open_segment->start_index() > last_index_kept) {
-            ret = _open_segment->unlink();
-            _open_segment = NULL;
-        } else {
-            ret = _open_segment->truncate(last_index_kept);
+        if (_open_segment->first_index() <= last_index_kept) {
+            *last_segment = _open_segment;
+            return;
         }
+        popped->push_back(_open_segment);
+        _open_segment.reset();
     }
-
-    std::vector<Segment*> delete_segments;
-    SegmentMap::reverse_iterator it;
-    for (it = _segments.rbegin(); it != _segments.rend() && ret == 0;) {
-        Segment* segment = it->second;
-        if (segment->end_index() <= last_index_kept) {
-            break;
-        } else if (segment->start_index() > last_index_kept) {
-            //XXX: C++03 not support erase reverse_iterator
-            delete_segments.push_back(segment);
-            ++it;
-            /*
-            SegmentMap::iterator delete_it(it.base());
-            ++it;
-            _segments.erase(delete_it);
-            ret = segment->unlink();
-            //*/
-        } else {
-            ret = segment->truncate(last_index_kept);
+    for (SegmentMap::reverse_iterator 
+            it = _segments.rbegin(); it != _segments.rend(); ++it) {
+        if (it->second->first_index() <= last_index_kept) {
+            // Not return as we need to maintain _segments at the end of this
+            // routine
             break;
         }
+        popped->push_back(it->second);
+        //XXX: C++03 not support erase reverse_iterator
     }
-    for (size_t i = 0; i < delete_segments.size() && ret == 0; i++) {
-        Segment* segment = delete_segments[i];
-        _segments.erase(segment->start_index());
-        ret = segment->unlink();
+    for (size_t i = 0; i < popped->size(); i++) {
+        _segments.erase((*popped)[i]->first_index());
     }
+    if (_segments.rbegin() != _segments.rend()) {
+        *last_segment = _segments.rbegin()->second;
+    } else {
+        // all the logs have been cleared, the we move _first_log_index to the
+        // next index
+        _first_log_index.store(last_index_kept + 1, boost::memory_order_release);
+    }
+}
 
-    return ret;
+int SegmentLogStorage::truncate_suffix(const int64_t last_index_kept) {
+    // segment files
+    std::vector<boost::shared_ptr<Segment> > popped;
+    boost::shared_ptr<Segment> last_segment;
+    pop_segments_from_back(last_index_kept, &popped, &last_segment);
+    if (last_segment) {
+        last_segment->truncate(last_index_kept);
+    } else {
+    }
+    for (size_t i = 0; i < popped.size(); ++i) {
+        popped[i]->unlink();
+        popped[i].reset();
+    }
+    return 0;
 }
 
 int SegmentLogStorage::list_segments(bool is_empty) {
@@ -792,85 +763,86 @@ int SegmentLogStorage::list_segments(bool is_empty) {
         }
 
         int match = 0;
-        int64_t start_index = 0;
-        int64_t end_index = 0;
+        int64_t first_index = 0;
+        int64_t last_index = 0;
         match = sscanf(dir_reader.name(), RAFT_SEGMENT_CLOSED_PATTERN, 
-                       &start_index, &end_index);
+                       &first_index, &last_index);
         if (match == 2) {
             RAFT_VLOG << "restore closed segment, path: " << _path
-                      << " start_index: " << start_index
-                      << " end_index: " << end_index;
-            Segment* segment = new Segment(_path, start_index, end_index);
-            _segments.insert(std::pair<int64_t, Segment*>(start_index, segment));
+                      << " first_index: " << first_index
+                      << " last_index: " << last_index;
+            Segment* segment = new Segment(_path, first_index, last_index);
+            _segments[first_index].reset(segment);
             continue;
         }
 
         match = sscanf(dir_reader.name(), RAFT_SEGMENT_OPEN_PATTERN, 
-                       &start_index);
+                       &first_index);
         if (match == 1) {
-            LOG(DEBUG) << "restore open segment, path: " << _path
-                << " start_index: " << start_index;
-            Segment* segment = new Segment(_path, start_index);
+            LOG(INFO) << "restore open segment, path: " << _path
+                << " first_index: " << first_index;
+            Segment* segment = new Segment(_path, first_index);
             if (!_open_segment) {
-                _open_segment = segment;
+                _open_segment.reset(segment);
                 continue;
             } else {
                 LOG(WARNING) << "open segment conflict, path: " << _path
-                    << " start_index: " << start_index;
+                    << " first_index: " << first_index;
                 return -1;
             }
         }
-
-        //LOG(WARNING) << "no recognize log file: " << _path << "/" << dir_reader.name();
     }
 
     // check segment
-    int64_t last_end_index = -1;
+    int64_t last_log_index = -1;
     SegmentMap::iterator it;
     for (it = _segments.begin(); it != _segments.end();) {
-        Segment* segment = it->second;
-        if (segment->start_index() >= segment->end_index()) {
+        Segment* segment = it->second.get();
+        if (segment->first_index() >= segment->last_index()) {
             LOG(WARNING) << "closed segment is bad, path: " << _path
-                << " start_index: " << segment->start_index()
-                << " end_index: " << segment->end_index();
+                << " first_index: " << segment->first_index()
+                << " last_index: " << segment->last_index();
             return -1;
-        } else if (last_end_index != -1 &&
-                                  segment->start_index() != last_end_index + 1) {
+        } else if (last_log_index != -1 &&
+                                  segment->first_index() != last_log_index + 1) {
             LOG(WARNING) << "closed segment not in order, path: " << _path
-                << " start_index: " << segment->start_index()
-                << " last_end_index: " << last_end_index;
+                << " first_index: " << segment->first_index()
+                << " last_log_index: " << last_log_index;
             return -1;
-        } else if (last_end_index == -1 &&
-                                  _start_log_index < segment->start_index()) {
+        } else if (last_log_index == -1 &&
+                      _first_log_index.load(boost::memory_order_acquire) 
+                      < segment->first_index()) {
             LOG(WARNING) << "closed segment has hole, path: " << _path
-                << " start_log_index: " << _start_log_index
-                << " start_index: " << segment->start_index()
-                << " end_index: " << segment->end_index();
+                << " first_log_index: " << _first_log_index.load(boost::memory_order_relaxed)
+                << " first_index: " << segment->first_index()
+                << " last_index: " << segment->last_index();
             return -1;
-        } else if (last_end_index == -1 &&
-                                  _start_log_index > segment->end_index()) {
+        } else if (last_log_index == -1 &&
+                                  _first_log_index > segment->last_index()) {
             LOG(WARNING) << "closed segment need discard, path: " << _path
-                << " start_log_index: " << _start_log_index
-                << " start_index: " << segment->start_index()
-                << " end_index: " << segment->end_index();
-            _segments.erase(it++);
+                << " first_log_index: " << _first_log_index.load(boost::memory_order_relaxed)
+                << " first_index: " << segment->first_index()
+                << " last_index: " << segment->last_index();
             segment->unlink();
+            _segments.erase(it++);
             continue;
         }
 
-        last_end_index = segment->end_index();
+        last_log_index = segment->last_index();
         it++;
     }
     if (_open_segment) {
-        if (last_end_index == -1 && _start_log_index < _open_segment->start_index()) {
+        if (last_log_index == -1 &&
+                _first_log_index.load(boost::memory_order_relaxed) < _open_segment->first_index()) {
         LOG(WARNING) << "open segment has hole, path: " << _path
-            << " start_log_index: " << _start_log_index
-            << " start_index: " << _open_segment->start_index();
-        } else if (last_end_index != -1 && _open_segment->start_index() != last_end_index + 1) {
+            << " first_log_index: " << _first_log_index.load(boost::memory_order_relaxed)
+            << " first_index: " << _open_segment->first_index();
+        } else if (last_log_index != -1 && _open_segment->first_index() != last_log_index + 1) {
             LOG(WARNING) << "open segment has hole, path: " << _path
-                << " start_log_index: " << _start_log_index
-                << " start_index: " << _open_segment->start_index();
+                << " first_log_index: " << _first_log_index.load(boost::memory_order_relaxed)
+                << " first_index: " << _open_segment->first_index();
         }
+        CHECK_LE(last_log_index, _open_segment->last_index());
     }
 
     return 0;
@@ -882,31 +854,35 @@ int SegmentLogStorage::load_segments(ConfigurationManager* configuration_manager
     // closed segments
     SegmentMap::iterator it;
     for (it = _segments.begin(); it != _segments.end(); ++it) {
-        Segment* segment = it->second;
+        Segment* segment = it->second.get();
         LOG(TRACE) << "load closed segment, path: " << _path
-            << " start_index: " << segment->start_index()
-            << " end_index: " << segment->end_index();
+            << " first_index: " << segment->first_index()
+            << " last_index: " << segment->last_index();
         ret = segment->load(configuration_manager);
         if (ret != 0) {
             return ret;
         }
+        _last_log_index.store(segment->last_index(), boost::memory_order_release);
     }
 
     // open segment
     if (_open_segment) {
         LOG(TRACE) << "load open segment, path: " << _path
-            << " start_index: " << _open_segment->start_index();
+            << " first_index: " << _open_segment->first_index();
         ret = _open_segment->load(configuration_manager);
         if (ret != 0) {
             return ret;
         }
-        if (_start_log_index > _open_segment->end_index()) {
+        if (_first_log_index.load() > _open_segment->last_index()) {
             LOG(WARNING) << "open segment need discard, path: " << _path
-                << " start_log_index: " << _start_log_index
-                << " start_index: " << _open_segment->start_index()
-                << " end_index: " << _open_segment->end_index();
+                << " first_log_index: " << _first_log_index.load()
+                << " first_index: " << _open_segment->first_index()
+                << " last_index: " << _open_segment->last_index();
             _open_segment->unlink();
-            _open_segment = NULL;
+            _open_segment.reset();
+        } else {
+            _last_log_index.store(_open_segment->last_index(), 
+                                 boost::memory_order_release);
         }
     }
 
@@ -917,11 +893,9 @@ int SegmentLogStorage::save_meta(const int64_t log_index) {
     std::string meta_path(_path);
     meta_path.append("/" RAFT_SEGMENT_META_FILE);
 
-    _start_log_index = log_index;
-
     ProtoBufFile pb_file(meta_path);
     LogPBMeta meta;
-    meta.set_start_log_index(log_index);
+    meta.set_first_log_index(log_index);
     return pb_file.save(&meta, true);
 }
 
@@ -935,33 +909,70 @@ int SegmentLogStorage::load_meta() {
         return -1;
     }
 
-    _start_log_index = meta.start_log_index();
+    _first_log_index.store(meta.first_log_index());
     return 0;
 }
 
 Segment* SegmentLogStorage::open_segment() {
-    int ret = 0;
-
-    do {
+    boost::shared_ptr<Segment> prev_open_segment;
+    {
+        BAIDU_SCOPED_LOCK(_mutex);
         if (!_open_segment) {
-            _open_segment = new Segment(_path, last_log_index() + 1);
-            ret = _open_segment->create();
-            break;
-        }
-
-        if (_open_segment->bytes() > FLAGS_raft_max_segment_size) {
-            ret = _open_segment->close();
-            if (ret == 0) {
-                _segments.insert(std::pair<int64_t, Segment*>(_open_segment->start_index(),
-                                                              _open_segment));
-                _open_segment = new Segment(_path, last_log_index() + 1);
-                ret = _open_segment->create();
+            _open_segment.reset(new Segment(_path, last_log_index() + 1));
+            if (_open_segment->create() != 0) {
+                _open_segment.reset();
+                return NULL;
             }
         }
+        if (_open_segment->bytes() > FLAGS_raft_max_segment_size) {
+            _segments[_open_segment->first_index()] = _open_segment;
+            prev_open_segment.swap(_open_segment);
+        }
+    }
+    do {
+        if (prev_open_segment) {
+            if (prev_open_segment->close() == 0) {
+                BAIDU_SCOPED_LOCK(_mutex);
+                _open_segment.reset(new Segment(_path, last_log_index() + 1));
+                if (_open_segment->create() == 0) {
+                    // success
+                    break;
+                }
+            }
+            CHECK(false) << "Fail to create close old open_segment or create new open_segment";
+            // Failed, revert former changes
+            BAIDU_SCOPED_LOCK(_mutex);
+            _segments.erase(prev_open_segment->first_index());
+            _open_segment.swap(prev_open_segment);
+        }
     } while (0);
+    return _open_segment.get();
+}
 
-    assert(ret == 0);
-    return _open_segment;
+int SegmentLogStorage::get_segment(int64_t index, boost::shared_ptr<Segment>* ptr) {
+    BAIDU_SCOPED_LOCK(_mutex);
+    int64_t first_index = first_log_index();
+    int64_t last_index = last_log_index();
+    if (index < first_index || index > last_index + 1) {
+        LOG_IF(WARNING, index > last_index) << "Attempted to access entry " << index << " outside of log, "
+            << " first_log_index: " << first_index
+            << " last_log_index: " << last_index;
+        return -1;
+    } else if (BAIDU_UNLIKELY(index == last_index + 1)) {
+        return -1;
+    }
+
+    if (_open_segment && index >= _open_segment->first_index()) {
+        *ptr = _open_segment;
+        CHECK(ptr->get() != NULL);
+    } else {
+        SegmentMap::iterator it = _segments.upper_bound(index);
+        SegmentMap::iterator saved_it = it;
+        --it;
+        CHECK(it != saved_it);
+        *ptr = it->second;
+    }
+    return 0;
 }
 
 LogStorage* create_local_log_storage(const std::string& uri) {

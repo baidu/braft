@@ -31,7 +31,7 @@ TEST_F(TestUsageSuits, protobuf_file) {
 
     raft::ProtoBufFile pb_file("./log.meta");
     raft::LogPBMeta meta;
-    meta.set_start_log_index(1234);
+    meta.set_first_log_index(1234);
 
     ret = pb_file.save(static_cast<google::protobuf::Message*>(&meta), false);
     ASSERT_EQ(ret, 0);
@@ -41,7 +41,7 @@ TEST_F(TestUsageSuits, protobuf_file) {
         ret = pb_file.load(&new_meta);
         ASSERT_EQ(ret, 0);
 
-        ASSERT_EQ(new_meta.start_log_index(), 1234);
+        ASSERT_EQ(new_meta.first_log_index(), 1234);
     }
 
     ret = pb_file.save(&meta, true);
@@ -52,7 +52,7 @@ TEST_F(TestUsageSuits, protobuf_file) {
         ret = pb_file.load(&new_meta);
         ASSERT_EQ(ret, 0);
 
-        ASSERT_EQ(new_meta.start_log_index(), 1234);
+        ASSERT_EQ(new_meta.first_log_index(), 1234);
 
         new_meta.PrintDebugString();
     }

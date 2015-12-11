@@ -7,7 +7,7 @@ message ConfigurationPBMeta {
 };
 
 message LogPBMeta {
-    required int64 start_log_index = 1;
+    required int64 first_log_index = 1;
 };
 
 message StablePBMeta {

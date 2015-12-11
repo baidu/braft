@@ -124,12 +124,8 @@ void FSMCaller::do_committed(int64_t committed_index, Closure* done) {
 
         _last_applied_index.store(index, boost::memory_order_release);
         _last_applied_term = entry->term;
-        // Release: get_entry ref 1, leader append ref quorum
-        // leader clear memory when both leader and quorum(inlcude leader or not) stable
-        // follower's quorum = 0
-        if (1 == entry->Release(entry->quorum + 1)) {
-            _log_manager->clear_memory_logs(index);
-        }
+        _log_manager->set_applied_index(index);
+        entry->Release();
     }
 }
 

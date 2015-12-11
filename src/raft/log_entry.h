@@ -21,9 +21,8 @@ public:
     int64_t term; // leader term
     std::vector<PeerId>* peers; // peers
     base::IOBuf data;
-    size_t quorum;
 
-    LogEntry(): type(ENTRY_TYPE_UNKNOWN), index(0), term(0), peers(NULL), quorum(0), ref(0) {
+    LogEntry(): type(ENTRY_TYPE_UNKNOWN), index(0), term(0), peers(NULL), ref(0) {
         // FIXME: Use log entry in the RAII way
         AddRef();
     }
@@ -55,8 +54,7 @@ public:
         return ret;
     }
 private:
-    LogEntry(const LogEntry&);
-    void operator=(const LogEntry&);
+    DISALLOW_COPY_AND_ASSIGN(LogEntry);
 
     mutable base::subtle::Atomic32 ref;
     // FIXME: Temporarily make dctor public to make it compilied

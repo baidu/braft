@@ -21,12 +21,15 @@ LogManagerOptions::LogManagerOptions()
 {}
 
 LogManager::LogManager()
-    : _log_storage(NULL), _config_manager(NULL),
-    _last_log_index(0),
-    _last_snapshot_index(0),
-    _last_snapshot_term(0),
-    _leader_disk_thread_running(false),
-    _stopped(false)
+    : _log_storage(NULL)
+    , _config_manager(NULL)
+    , _disk_index(0)
+    , _applied_index(0)
+    , _last_log_index(0)
+    , _last_snapshot_index(0)
+    , _last_snapshot_term(0)
+    , _leader_disk_thread_running(false)
+    , _stopped(false)
 {
     CHECK_EQ(0, bthread_id_list_init(&_wait_list, 16/*FIXME*/, 16));
     CHECK_EQ(0, bthread_mutex_init(&_mutex, NULL));
@@ -44,6 +47,7 @@ int LogManager::init(const LogManagerOptions &options) {
         return ret;
     }
     _last_log_index = _log_storage->last_log_index();
+    _disk_index.store(_last_log_index, boost::memory_order_relaxed);
     return 0;
 }
 
@@ -83,112 +87,130 @@ int LogManager::stop_disk_thread() {
         _leader_disk_thread_running = false;
     }
     return ret;
+    // _mutex is unlock by guard
 }
 
 void LogManager::clear_memory_logs(const int64_t index) {
-    std::lock_guard<bthread_mutex_t> guard(_mutex);
-
-    while (!_logs_in_memory.empty()) {
-        LogEntry* entry = _logs_in_memory.front();
-        if (entry->index <= index) {
-            entry->Release();
-            _logs_in_memory.pop_front();
-        } else {
-            break;
+    LogEntry* entries_to_clear[32];
+    size_t nentries = 0;
+    do {
+        nentries = 0;
+        {
+            std::lock_guard<bthread_mutex_t> guard(_mutex);
+            while (!_logs_in_memory.empty() 
+                    && nentries < ARRAY_SIZE(entries_to_clear)) {
+                LogEntry* entry = _logs_in_memory.front();
+                if (entry->index > index) {
+                    break;
+                }
+                entries_to_clear[nentries++] = entry;
+                _logs_in_memory.pop_front();
+            }
+        }  // out of _mutex
+        for (size_t i = 0; i < nentries; ++i) {
+            entries_to_clear[i]->Release();
         }
-    }
+    } while (nentries == ARRAY_SIZE(entries_to_clear));
 }
 
 int64_t LogManager::first_log_index() {
-    std::lock_guard<bthread_mutex_t> guard(_mutex);
     return _log_storage->first_log_index();
 }
 
 int64_t LogManager::last_log_index() {
-    std::lock_guard<bthread_mutex_t> guard(_mutex);
-    if (_last_log_index != 0) {
-        return _last_log_index;
+    {
+        std::lock_guard<bthread_mutex_t> guard(_mutex);
+        if (_last_log_index != 0) {
+            return _last_log_index;
+        }
     }
     return _log_storage->last_log_index();
 }
 
 int LogManager::truncate_prefix(const int64_t first_index_kept) {
-    std::lock_guard<bthread_mutex_t> guard(_mutex);
+    {
+        std::lock_guard<bthread_mutex_t> guard(_mutex);
 
-    int ret = 0;
-    //OPTIMIZE: flush leader disk thread sync, can be optimize in async
-    //some snapshot included logs not write to storage when leader snapshot finished
-    if (_leader_disk_thread_running) {
-        ret = bthread::execution_queue_stop(_leader_disk_queue);
-        if (ret != 0) {
-            LOG(FATAL) << "leader disk thread stop failed";
-            return ret;
+        int ret = 0;
+        //OPTIMIZE: flush leader disk thread sync, can be optimize in async
+        //some snapshot included logs not write to storage when leader snapshot finished
+        if (_leader_disk_thread_running) {
+            ret = bthread::execution_queue_stop(_leader_disk_queue);
+            if (ret != 0) {
+                LOG(FATAL) << "leader disk thread stop failed";
+                return ret;
+            }
+            bthread::ExecutionQueueId<StableClosure*> saved_queue = _leader_disk_queue;
+            // FIXME: join in mutex might lead to deadlock. We unlock _mutex
+            // here as NodeImpl holds a mutex before calling this function so that
+            // only one truncate_prefix calls at the same time. But it's weird here
+            // which should be refined soon.
+            // One solution is that we let the disk thread do the truncation
+            bthread_mutex_unlock(&_mutex);
+            ret = bthread::execution_queue_join(saved_queue);
+            bthread_mutex_lock(&_mutex);
+            if (ret != 0) {
+                LOG(FATAL) << "leader disk thread join failed";
+                return ret;
+            }
+
+            bthread::ExecutionQueueOptions queue_options;
+            queue_options.bthread_attr = BTHREAD_ATTR_NORMAL;
+            queue_options.max_tasks_size = 5;
+            ret = bthread::execution_queue_start(&_leader_disk_queue,
+                                                     &queue_options,
+                                                     leader_disk_run,
+                                                     this);
+            if (ret != 0) {
+                LOG(FATAL) << "leader disk thread start failed";
+                return ret;
+            }
         }
-        bthread::ExecutionQueueId<StableClosure*> saved_queue = _leader_disk_queue;
-        // FIXME: join in mutex which might lead to deadlock. We unlock _mutex
-        // here as NodeImpl holds a mutex before calling this function so that
-        // only one truncate_prefix calls at the same time. But it's weird here
-        // which should be refined soon.
-        // One solution is that we let the disk thread do the truncation
-        bthread_mutex_unlock(&_mutex);
-        ret = bthread::execution_queue_join(saved_queue);
-        bthread_mutex_lock(&_mutex);
-        if (ret != 0) {
-            LOG(FATAL) << "leader disk thread join failed";
-            return ret;
+        
+        while (!_logs_in_memory.empty()) {
+            LogEntry* entry = _logs_in_memory.front();
+            if (entry->index < first_index_kept) {
+                entry->Release();
+                _logs_in_memory.pop_front();
+            } else {
+                break;
+            }
         }
 
-        bthread::ExecutionQueueOptions queue_options;
-        queue_options.bthread_attr = BTHREAD_ATTR_NORMAL;
-        queue_options.max_tasks_size = 5;
-        ret = bthread::execution_queue_start(&_leader_disk_queue,
-                                                 &queue_options,
-                                                 leader_disk_run,
-                                                 this);
-        if (ret != 0) {
-            LOG(FATAL) << "leader disk thread start failed";
-            return ret;
-        }
+        _config_manager->truncate_prefix(first_index_kept);
     }
-
-    while (!_logs_in_memory.empty()) {
-        LogEntry* entry = _logs_in_memory.front();
-        if (entry->index < first_index_kept) {
-            entry->Release();
-            _logs_in_memory.pop_front();
-        } else {
-            break;
-        }
-    }
-
-    _config_manager->truncate_prefix(first_index_kept);
     return _log_storage->truncate_prefix(first_index_kept);
 }
 
 int LogManager::truncate_suffix(const int64_t last_index_kept) {
-    std::lock_guard<bthread_mutex_t> guard(_mutex);
+    {
+        std::lock_guard<bthread_mutex_t> guard(_mutex);
 
-    while (!_logs_in_memory.empty()) {
-        LogEntry* entry = _logs_in_memory.back();
-        if (entry->index > last_index_kept) {
-            entry->Release();
-            _logs_in_memory.pop_back();
-        } else {
-            break;
+        while (!_logs_in_memory.empty()) {
+            LogEntry* entry = _logs_in_memory.back();
+            if (entry->index > last_index_kept) {
+                entry->Release();
+                _logs_in_memory.pop_back();
+            } else {
+                break;
+            }
         }
+        // not need flush queue, because only leader has queue, leader never call truncate_suffix
+        _last_log_index = last_index_kept;
+        _config_manager->truncate_suffix(last_index_kept);
+        _disk_index.store(last_index_kept, boost::memory_order_release);
     }
-    // not need flush queue, because only leader has queue, leader never call truncate_suffix
-    _last_log_index = last_index_kept;
-    _config_manager->truncate_suffix(last_index_kept);
     return _log_storage->truncate_suffix(last_index_kept);
 }
 
 int LogManager::append_entries(const std::vector<LogEntry*>& entries) {
-    std::lock_guard<bthread_mutex_t> guard(_mutex);
+    {
+        std::lock_guard<bthread_mutex_t> guard(_mutex);
 
-    //TODO: move index setting to LogStorage
-    for (size_t i = 0; i < entries.size(); i++) {
-        entries[i]->index = _last_log_index + 1 + i;
+        //TODO: move index setting to LogStorage
+        for (size_t i = 0; i < entries.size(); i++) {
+            entries[i]->index = _last_log_index + 1 + i;
+        }
     }
 
     RAFT_VLOG << "follower append " << entries[0]->index
@@ -197,6 +219,7 @@ int LogManager::append_entries(const std::vector<LogEntry*>& entries) {
     int ret = _log_storage->append_entries(entries);
     if (static_cast<size_t>(ret) == entries.size()) {
         ret = 0;
+        std::lock_guard<bthread_mutex_t> guard(_mutex);
         for (size_t i = 0; i < entries.size(); i++) {
             _logs_in_memory.push_back(entries[i]);
             if (entries[i]->type == ENTRY_TYPE_ADD_PEER || entries[i]->type == ENTRY_TYPE_REMOVE_PEER) {
@@ -204,13 +227,13 @@ int LogManager::append_entries(const std::vector<LogEntry*>& entries) {
             }
         }
         _last_log_index += entries.size();
+        _disk_index.store(_last_log_index);
     } else {
         // Remove partially appended logs which would make later appending
         // undefined
         _log_storage->truncate_suffix(_last_log_index);
         ret = EIO;
     }
-
     return ret;
 }
 
@@ -252,33 +275,30 @@ int LogManager::leader_disk_run(void* meta,
 
     int ret = 0;
     if (entries.size() > 0) {
-        // mutex protect, log_storage not thread-safe
-        // It seems that this lock is unneccessary
-        std::lock_guard<bthread_mutex_t> guard(log_manager->_mutex);
         ret = log_manager->_log_storage->append_entries(entries);
         if (entries.size() == static_cast<size_t>(ret)) {
             ret = 0;
         } else {
+            // TDOO: make sure the actions on EIO are supposed to be.
             CHECK(false) << entries.size() << "!=" << ret;
             ret = EIO;
         }
     }
-    int64_t log_should_be_clear = 0;
+    int64_t last_log_index = 0;
     for (size_t i = 0; i < tasks_size; i++) {
         StableClosure* done = *tasks[i];
         if (ret != 0) {
             done->set_error(EIO, "append entry failed");
+        } else {
+            last_log_index = done->_log_index;
         }
-        if (done->_entry->Release() == 1) {
-            log_should_be_clear = done->_log_index;
-        }
+        done->_entry->Release();
         done->_entry = NULL;
         done->Run();
     }
-    if (log_should_be_clear != 0) {
-        log_manager->clear_memory_logs(log_should_be_clear);
+    if (last_log_index != 0) {
+        log_manager->set_disk_index(last_log_index);
     }
-
     return 0;
 }
 
@@ -309,35 +329,38 @@ int64_t LogManager::get_term(const int64_t index) {
         return 0;
     }
 
-    std::lock_guard<bthread_mutex_t> guard(_mutex);
-    // check index equal snapshot_index, return snapshot_term
-    if (index == _last_snapshot_index) {
-        return _last_snapshot_term;
-    }
+    {
+        std::lock_guard<bthread_mutex_t> guard(_mutex);
+        // check index equal snapshot_index, return snapshot_term
+        if (index == _last_snapshot_index) {
+            return _last_snapshot_term;
+        }
 
-    LogEntry* entry = get_entry_from_memory(index);
-    if (entry) {
-        return entry->term;
+        LogEntry* entry = get_entry_from_memory(index);
+        if (entry) {
+            return entry->term;
+        }
     }
 
     return _log_storage->get_term(index);
 }
 
 LogEntry* LogManager::get_entry(const int64_t index) {
-    std::lock_guard<bthread_mutex_t> guard(_mutex);
+    {
+        std::lock_guard<bthread_mutex_t> guard(_mutex);
 
-    // out of range, direct return NULL
-    if (index > _last_log_index) {
-        return NULL;
-    }
+        // out of range, direct return NULL
+        if (index > _last_log_index) {
+            return NULL;
+        }
 
-    LogEntry* entry = get_entry_from_memory(index);
-    if (entry) {
-        entry->AddRef();
-    } else {
-        entry = _log_storage->get_entry(index);
+        LogEntry* entry = get_entry_from_memory(index);
+        if (entry) {
+            entry->AddRef();
+            return entry;
+        }
     }
-    return entry;
+    return _log_storage->get_entry(index);
 }
 
 ConfigurationPair LogManager::get_configuration(const int64_t index) {
@@ -359,6 +382,33 @@ bool LogManager::check_and_set_configuration(ConfigurationPair* current) {
         return true;
     }
     return false;
+}
+
+void LogManager::set_disk_index(int64_t index) {
+    CHECK(_leader_disk_thread_running) << "Must be called in the leader disk thread";
+    int64_t old_disk_index = _disk_index.load(boost::memory_order_relaxed);
+    do {
+        if (old_disk_index >= index) {
+            return;
+        }
+    } while (_disk_index.compare_exchange_weak(old_disk_index, index, 
+            boost::memory_order_release, boost::memory_order_relaxed));
+    int64_t clear_index = std::min(
+            index, _applied_index.load(boost::memory_order_acquire));
+    return clear_memory_logs(clear_index);
+}
+
+void LogManager::set_applied_index(int64_t index) {
+    int64_t old_applied_index = _applied_index.load(boost::memory_order_relaxed);
+    do {
+        if (old_applied_index >= index) {
+            return;
+        }
+    } while (!_applied_index.compare_exchange_weak(old_applied_index, index,
+                boost::memory_order_release, boost::memory_order_relaxed));
+    int64_t clear_index = std::min(
+            _disk_index.load(boost::memory_order_acquire), index);
+    return clear_memory_logs(clear_index);
 }
 
 //////////////////////////////////////////

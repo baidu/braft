@@ -1428,35 +1428,15 @@ void LeaderStableClosure::Run() {
 void NodeImpl::append(LogEntry* entry, Closure* done) {
     // configuration change use new peer set
     std::vector<PeerId> old_peers;
-    size_t quorum = 0;
     //TODO: need check append_pending_application return code
     if (entry->type != ENTRY_TYPE_ADD_PEER && entry->type != ENTRY_TYPE_REMOVE_PEER) {
         _commit_manager->append_pending_application(_conf.second, done);
-        quorum = _conf.second.quorum();
     } else  {
         _conf.second.peer_vector(&old_peers);
         _commit_manager->append_pending_application(Configuration(*(entry->peers)), done);
-        quorum = entry->peers->size() / 2 + 1;
     }
 
-    // leader ref 1 to sure leader stable
-    // ref quorum to sure quorum nodes stable (include leader or not)
-    //  if leader not in quorum, leader's ref 1 will make replicator always get_entry from memory
-    //  if leader in quorum, leader ref twice is ok
-    // LogEntry ref:
-    //  new : 1
-    //  leader disk thread : 1
-    //  leader disk thread & replicator : quorum
-    //  get_entry : 1
-    // LogEntry unref:
-    //  clear_memory_logs : 1
-    //  leader disk thread done : 1
-    //  fsm : quorum + 1
-    //
-    //  leader total ref: quorum + 2 (not include get_entry)
-    //  follower total ref: 1 (not include get_entry)
-    entry->quorum = quorum;
-    entry->AddRef(quorum);
+    entry->AddRef();
     _log_manager->append_entry(entry, 
                                new LeaderStableClosure(
                                         NodeId(_group_id, _server_id), 

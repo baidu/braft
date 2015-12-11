@@ -56,7 +56,7 @@ void protobuf_AssignDesc_raft_2flocal_5fstorage_2eproto() {
       sizeof(ConfigurationPBMeta));
   LogPBMeta_descriptor_ = file->message_type(1);
   static const int LogPBMeta_offsets_[1] = {
-    GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(LogPBMeta, start_log_index_),
+    GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(LogPBMeta, first_log_index_),
   };
   LogPBMeta_reflection_ =
     new ::google::protobuf::internal::GeneratedMessageReflection(
@@ -147,7 +147,7 @@ void protobuf_AddDesc_raft_2flocal_5fstorage_2eproto() {
   ::google::protobuf::DescriptorPool::InternalAddGeneratedFile(
     "\n\030raft/local_storage.proto\022\004raft\032\017raft/r"
     "aft.proto\"$\n\023ConfigurationPBMeta\022\r\n\005peer"
-    "s\030\001 \003(\t\"$\n\tLogPBMeta\022\027\n\017start_log_index\030"
+    "s\030\001 \003(\t\"$\n\tLogPBMeta\022\027\n\017first_log_index\030"
     "\001 \002(\003\".\n\014StablePBMeta\022\014\n\004term\030\001 \002(\003\022\020\n\010v"
     "otedfor\030\002 \002(\t\"X\n\016SnapshotPBMeta\022\032\n\022last_"
     "included_term\030\001 \002(\003\022\033\n\023last_included_ind"
@@ -385,7 +385,7 @@ void ConfigurationPBMeta::Swap(ConfigurationPBMeta* other) {
 // ===================================================================
 
 #ifndef _MSC_VER
-const int LogPBMeta::kStartLogIndexFieldNumber;
+const int LogPBMeta::kFirstLogIndexFieldNumber;
 #endif  // !_MSC_VER
 
 LogPBMeta::LogPBMeta()
@@ -404,7 +404,7 @@ LogPBMeta::LogPBMeta(const LogPBMeta& from)
 
 void LogPBMeta::SharedCtor() {
   _cached_size_ = 0;
-  start_log_index_ = GOOGLE_LONGLONG(0);
+  first_log_index_ = GOOGLE_LONGLONG(0);
   ::memset(_has_bits_, 0, sizeof(_has_bits_));
 }
 
@@ -439,7 +439,7 @@ LogPBMeta* LogPBMeta::New() const {
 
 void LogPBMeta::Clear() {
   if (_has_bits_[0 / 32] & (0xffu << (0 % 32))) {
-    start_log_index_ = GOOGLE_LONGLONG(0);
+    first_log_index_ = GOOGLE_LONGLONG(0);
   }
   ::memset(_has_bits_, 0, sizeof(_has_bits_));
   mutable_unknown_fields()->Clear();
@@ -451,14 +451,14 @@ bool LogPBMeta::MergePartialFromCodedStream(
   ::google::protobuf::uint32 tag;
   while ((tag = input->ReadTag()) != 0) {
     switch (::google::protobuf::internal::WireFormatLite::GetTagFieldNumber(tag)) {
-      // required int64 start_log_index = 1;
+      // required int64 first_log_index = 1;
       case 1: {
         if (::google::protobuf::internal::WireFormatLite::GetTagWireType(tag) ==
             ::google::protobuf::internal::WireFormatLite::WIRETYPE_VARINT) {
           DO_((::google::protobuf::internal::WireFormatLite::ReadPrimitive<
                    ::google::protobuf::int64, ::google::protobuf::internal::WireFormatLite::TYPE_INT64>(
-                 input, &start_log_index_)));
-          set_has_start_log_index();
+                 input, &first_log_index_)));
+          set_has_first_log_index();
         } else {
           goto handle_uninterpreted;
         }
@@ -484,9 +484,9 @@ bool LogPBMeta::MergePartialFromCodedStream(
 
 void LogPBMeta::SerializeWithCachedSizes(
     ::google::protobuf::io::CodedOutputStream* output) const {
-  // required int64 start_log_index = 1;
-  if (has_start_log_index()) {
-    ::google::protobuf::internal::WireFormatLite::WriteInt64(1, this->start_log_index(), output);
+  // required int64 first_log_index = 1;
+  if (has_first_log_index()) {
+    ::google::protobuf::internal::WireFormatLite::WriteInt64(1, this->first_log_index(), output);
   }
   
   if (!unknown_fields().empty()) {
@@ -497,9 +497,9 @@ void LogPBMeta::SerializeWithCachedSizes(
 
 ::google::protobuf::uint8* LogPBMeta::SerializeWithCachedSizesToArray(
     ::google::protobuf::uint8* target) const {
-  // required int64 start_log_index = 1;
-  if (has_start_log_index()) {
-    target = ::google::protobuf::internal::WireFormatLite::WriteInt64ToArray(1, this->start_log_index(), target);
+  // required int64 first_log_index = 1;
+  if (has_first_log_index()) {
+    target = ::google::protobuf::internal::WireFormatLite::WriteInt64ToArray(1, this->first_log_index(), target);
   }
   
   if (!unknown_fields().empty()) {
@@ -513,11 +513,11 @@ int LogPBMeta::ByteSize() const {
   int total_size = 0;
   
   if (_has_bits_[0 / 32] & (0xffu << (0 % 32))) {
-    // required int64 start_log_index = 1;
-    if (has_start_log_index()) {
+    // required int64 first_log_index = 1;
+    if (has_first_log_index()) {
       total_size += 1 +
         ::google::protobuf::internal::WireFormatLite::Int64Size(
-          this->start_log_index());
+          this->first_log_index());
     }
     
   }
@@ -547,8 +547,8 @@ void LogPBMeta::MergeFrom(const ::google::protobuf::Message& from) {
 void LogPBMeta::MergeFrom(const LogPBMeta& from) {
   GOOGLE_CHECK_NE(&from, this);
   if (from._has_bits_[0 / 32] & (0xffu << (0 % 32))) {
-    if (from.has_start_log_index()) {
-      set_start_log_index(from.start_log_index());
+    if (from.has_first_log_index()) {
+      set_first_log_index(from.first_log_index());
     }
   }
   mutable_unknown_fields()->MergeFrom(from.unknown_fields());
@@ -574,7 +574,7 @@ bool LogPBMeta::IsInitialized() const {
 
 void LogPBMeta::Swap(LogPBMeta* other) {
   if (other != this) {
-    std::swap(start_log_index_, other->start_log_index_);
+    std::swap(first_log_index_, other->first_log_index_);
     std::swap(_has_bits_[0], other->_has_bits_[0]);
     _unknown_fields_.Swap(&other->_unknown_fields_);
     std::swap(_cached_size_, other->_cached_size_);

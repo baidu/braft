@@ -125,7 +125,7 @@ int CommitmentManager::set_last_committed_index(int64_t last_committed_index) {
         return EINVAL;
     }
     if (last_committed_index > _last_committed_index.load(boost::memory_order_relaxed)) {
-        _last_committed_index.store(last_committed_index, boost::memory_order_release);
+        _last_committed_index.store(last_committed_index, boost::memory_order_relaxed);
         _waiter->on_committed(last_committed_index, NULL);
     }
     return 0;

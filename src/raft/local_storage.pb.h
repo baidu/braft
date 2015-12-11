@@ -183,21 +183,21 @@ class LogPBMeta : public ::google::protobuf::Message {
   
   // accessors -------------------------------------------------------
   
-  // required int64 start_log_index = 1;
-  inline bool has_start_log_index() const;
-  inline void clear_start_log_index();
-  static const int kStartLogIndexFieldNumber = 1;
-  inline ::google::protobuf::int64 start_log_index() const;
-  inline void set_start_log_index(::google::protobuf::int64 value);
+  // required int64 first_log_index = 1;
+  inline bool has_first_log_index() const;
+  inline void clear_first_log_index();
+  static const int kFirstLogIndexFieldNumber = 1;
+  inline ::google::protobuf::int64 first_log_index() const;
+  inline void set_first_log_index(::google::protobuf::int64 value);
   
   // @@protoc_insertion_point(class_scope:raft.LogPBMeta)
  private:
-  inline void set_has_start_log_index();
-  inline void clear_has_start_log_index();
+  inline void set_has_first_log_index();
+  inline void clear_has_first_log_index();
   
   ::google::protobuf::UnknownFieldSet _unknown_fields_;
   
-  ::google::protobuf::int64 start_log_index_;
+  ::google::protobuf::int64 first_log_index_;
   
   mutable int _cached_size_;
   ::google::protobuf::uint32 _has_bits_[(1 + 31) / 32];
@@ -469,26 +469,26 @@ ConfigurationPBMeta::mutable_peers() {
 
 // LogPBMeta
 
-// required int64 start_log_index = 1;
-inline bool LogPBMeta::has_start_log_index() const {
+// required int64 first_log_index = 1;
+inline bool LogPBMeta::has_first_log_index() const {
   return (_has_bits_[0] & 0x00000001u) != 0;
 }
-inline void LogPBMeta::set_has_start_log_index() {
+inline void LogPBMeta::set_has_first_log_index() {
   _has_bits_[0] |= 0x00000001u;
 }
-inline void LogPBMeta::clear_has_start_log_index() {
+inline void LogPBMeta::clear_has_first_log_index() {
   _has_bits_[0] &= ~0x00000001u;
 }
-inline void LogPBMeta::clear_start_log_index() {
-  start_log_index_ = GOOGLE_LONGLONG(0);
-  clear_has_start_log_index();
+inline void LogPBMeta::clear_first_log_index() {
+  first_log_index_ = GOOGLE_LONGLONG(0);
+  clear_has_first_log_index();
 }
-inline ::google::protobuf::int64 LogPBMeta::start_log_index() const {
-  return start_log_index_;
+inline ::google::protobuf::int64 LogPBMeta::first_log_index() const {
+  return first_log_index_;
 }
-inline void LogPBMeta::set_start_log_index(::google::protobuf::int64 value) {
-  set_has_start_log_index();
-  start_log_index_ = value;
+inline void LogPBMeta::set_first_log_index(::google::protobuf::int64 value) {
+  set_has_first_log_index();
+  first_log_index_ = value;
 }
 
 // -------------------------------------------------------------------
