@@ -48,6 +48,7 @@ int FSMCaller::init(const FSMCallerOptions &options) {
     if (options.log_manager == NULL || options.fsm == NULL) {
         return EINVAL;
     }
+    _last_applied_index.store(options.applied_index, boost::memory_order_release);
     _log_manager = options.log_manager;
     _fsm = options.fsm;
     _after_shutdown = options.after_shutdown;

@@ -423,12 +423,15 @@ int NodeImpl::init(const NodeOptions& options) {
             _conf.second = _options.conf;
         }
 
+        //TODO: call fsm on_apply (_last_snapshot_index + 1, last_committed_index]
+
         // fsm caller init, node AddRef in init
         _fsm_caller = new FSMCaller();
         FSMCallerOptions fsm_caller_options;
         this->AddRef();
         fsm_caller_options.after_shutdown = 
                 google::protobuf::NewCallback<NodeImpl*>(after_shutdown, this);
+        fsm_caller_options.applied_index = _last_snapshot_index;
         fsm_caller_options.log_manager = _log_manager;
         fsm_caller_options.fsm = _options.fsm;
         ret = _fsm_caller->init(fsm_caller_options);
@@ -438,14 +441,11 @@ int NodeImpl::init(const NodeOptions& options) {
             break;
         }
 
-        //TODO: call fsm on_apply (_last_snapshot_index + 1, last_committed_index]
-        int64_t last_committed_index = _last_snapshot_index;
-
         // commitment manager init
         _commit_manager = new CommitmentManager();
         CommitmentManagerOptions commit_manager_options;
         commit_manager_options.waiter = _fsm_caller;
-        commit_manager_options.last_committed_index = last_committed_index;
+        commit_manager_options.last_committed_index = _last_snapshot_index;
         ret = _commit_manager->init(commit_manager_options);
         if (ret != 0) {
             // fsm caller init AddRef, here Release

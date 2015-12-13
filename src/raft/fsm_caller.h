@@ -20,10 +20,12 @@ class SnapshotMeta;
 
 struct FSMCallerOptions {
     FSMCallerOptions() 
-        : log_manager(NULL)
+        : applied_index(0)
+        , log_manager(NULL)
         , fsm(NULL)
         , after_shutdown(NULL)
     {}
+    int64_t applied_index;
     LogManager *log_manager;
     StateMachine *fsm;
     google::protobuf::Closure* after_shutdown;

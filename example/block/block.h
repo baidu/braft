@@ -76,9 +76,10 @@ private:
 
     virtual ~Block();
     int get_fd();
-    void set_fd(int fd);
+    void put_fd(int fd);
+    void reset_fd(int fd);
 
-    pthread_mutex_t _mutex;
+    bthread_mutex_t _mutex;
     std::string _path;
     bool _is_leader;
     int64_t _applied_index;

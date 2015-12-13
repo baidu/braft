@@ -25,17 +25,20 @@ namespace block {
 Block::Block(const raft::GroupId& group_id, const raft::PeerId& peer_id)
     : example::CommonStateMachine(group_id, peer_id), _is_leader(false), _applied_index(0),
     _fd(-1) {
-        pthread_mutex_init(&_mutex, NULL);
+        bthread_mutex_init(&_mutex, NULL);
 }
 
 Block::~Block() {
-    set_fd(-1);
-    pthread_mutex_destroy(&_mutex);
+    if (_fd >= 0) {
+        ::close(_fd);
+        _fd = -1;
+    }
+    bthread_mutex_destroy(&_mutex);
 }
 
 int Block::get_fd() {
     //TODO: optimize
-    std::lock_guard<pthread_mutex_t> guard(_mutex);
+    std::lock_guard<bthread_mutex_t> guard(_mutex);
     if (_fd < 0) {
         _fd = ::open(_path.c_str(), O_CREAT | O_RDWR, 0644);
         CHECK(_fd >= 0) << "open block failed: " << berror();
@@ -43,18 +46,28 @@ int Block::get_fd() {
     return _fd;
 }
 
-void Block::set_fd(int fd) {
-    std::lock_guard<pthread_mutex_t> guard(_mutex);
-    ::close(_fd);
+void Block::put_fd(int fd) {
+    std::lock_guard<bthread_mutex_t> guard(_mutex);
+    if (_fd != fd) {
+        ::close(fd);
+    }
+}
+
+void Block::reset_fd(int fd) {
+    std::lock_guard<bthread_mutex_t> guard(_mutex);
     _fd = fd;
 }
 
 int Block::init(const raft::NodeOptions& options) {
+    int ret = _node.init(options);
+
+    // after node.init to create the directory
     _path.clear();
     _path = raft::fileuri2path(options.snapshot_uri);
     _path.append("/data");
+    get_fd();
 
-    return _node.init(options);
+    return ret;
 }
 
 void Block::write(int64_t offset, int32_t size, const base::IOBuf& data,
@@ -84,7 +97,9 @@ int Block::read(int64_t offset, int32_t size, base::IOBuf* data, int64_t index) 
     }
 
     base::IOPortal portal;
-    read_at_offset(&portal, get_fd(), offset, size);
+    int fd = get_fd();
+    read_at_offset(&portal, fd, offset, size);
+    put_fd(fd);
     data->append(portal);
 
     LOG(NOTICE) << "read success, offset: " << offset << " size: " << size;
@@ -116,8 +131,9 @@ void Block::on_apply(const base::IOBuf &data, const int64_t index, raft::Closure
     CHECK(static_cast<size_t>(size) == log_body.size())
         << "size: " << size << " data_size: " << log_body.size();
 
-    //::lseek(get_fd(), offset, SEEK_SET);
-    write_at_offset(log_body, get_fd(), offset, size);
+    int fd = get_fd();
+    write_at_offset(log_body, fd, offset, size);
+    put_fd(fd);
 
     timer.stop();
     LOG(NOTICE) << "write success, index: " << index << " time: " << timer.u_elapsed()
@@ -140,13 +156,13 @@ int Block::on_snapshot_save(raft::SnapshotWriter* writer, raft::Closure* done) {
     baidu::rpc::ClosureGuard done_guard(done);
 
     //raft::LocalSnapshotWriter* local_writer = dynamic_cast<raft::LocalSnapshotWriter*>(writer);
-    std::string snapshot_path(writer->get_uri(base::EndPoint()));
+    std::string snapshot_path(raft::fileuri2path(writer->get_uri(base::EndPoint())));
     snapshot_path.append("/../data");
-    std::string data_path(writer->get_uri(base::EndPoint()));
+    std::string data_path(raft::fileuri2path(writer->get_uri(base::EndPoint())));
     data_path.append("/data");
 
-    CHECK_EQ(0, link(raft::fileuri2path(snapshot_path).c_str(),
-                     raft::fileuri2path(data_path).c_str()))
+    CHECK_EQ(0, link(snapshot_path.c_str(),
+                     data_path.c_str()))
         << "link failed, src " << snapshot_path << " dst: " << data_path << " error: " << berror();
 
     timer.stop();
@@ -161,22 +177,22 @@ int Block::on_snapshot_load(raft::SnapshotReader* reader) {
     base::Timer timer;
     timer.start();
 
-    std::string snapshot_path(reader->get_uri(base::EndPoint()));
+    std::string snapshot_path(raft::fileuri2path(reader->get_uri(base::EndPoint())));
     snapshot_path.append("/../data");
-    std::string data_path(reader->get_uri(base::EndPoint()));
+    std::string data_path(raft::fileuri2path(reader->get_uri(base::EndPoint())));
     data_path.append("/data");
 
-    unlink(raft::fileuri2path(snapshot_path).c_str());
-    CHECK_EQ(0, link(raft::fileuri2path(data_path).c_str(),
-                     raft::fileuri2path(snapshot_path).c_str()))
+    unlink(snapshot_path.c_str());
+    CHECK_EQ(0, link(data_path.c_str(),
+                     snapshot_path.c_str()))
         << "link failed, src " << data_path << " dst: " << snapshot_path << " error: " << berror();
 
     timer.stop();
 
-    int fd = ::open(raft::fileuri2path(snapshot_path).c_str(), O_RDWR, 0644);
+    int fd = ::open(snapshot_path.c_str(), O_RDWR, 0644);
     CHECK(fd >= 0) << "open snapshot file failed, path: "
         << snapshot_path << " error: " << berror();
-    set_fd(fd);
+    reset_fd(fd);
     LOG(NOTICE) << "on_snapshot_load, time: " << timer.u_elapsed()
         << " link " << data_path << " to " << snapshot_path;
     return 0;

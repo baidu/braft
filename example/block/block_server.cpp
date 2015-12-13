@@ -88,7 +88,7 @@ int main(int argc, char* argv[]) {
     node_options.election_timeout = 5000;
     node_options.fsm = block;
     node_options.conf = raft::Configuration(peers); // bootstrap need
-    //node_options.snapshot_interval = 30;
+    node_options.snapshot_interval = 30;
     node_options.log_uri = "file://./data/log";
     node_options.stable_uri = "file://./data/stable";
     node_options.snapshot_uri = "file://./data/snapshot";
