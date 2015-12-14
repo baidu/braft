@@ -50,9 +50,12 @@ void OnCaughtUp::_run() {
 }
 
 Replicator::Replicator() 
-    : _on_caught_up(NULL)
+    : _next_index(0)
+    , _on_caught_up(NULL)
     , _last_response_timestamp(0)
     , _installing_snapshot(false)
+    , _consecutive_error_times(0)
+
 {}
 
 Replicator::~Replicator() {
@@ -172,11 +175,11 @@ void Replicator::_on_block_timedout(void *arg) {
 }
 
 void Replicator::_block(long start_time_us, int /*error_code NOTE*/) {
-    // NOTE: Currently we don't care about error_code which indicates why the
-    // very RPC fails. To make it better there's should be different timeout for
-    // each individual error, e.g. we don't need check every 
-    // heartbeat_timeout_ms whether a dead follower has come back, but it's just
-    // fine.
+    // TODO: Currently we don't care about error_code which indicates why the
+    // very RPC fails. To make it better there should be different timeout for
+    // each individual error (e.g. we don't need check every
+    // heartbeat_timeout_ms whether a dead follower has come back), but it's just
+    // fine now.
     const timespec due_time = base::milliseconds_from(
             base::microseconds_to_timespec(start_time_us), 
             _options.heartbeat_timeout_ms);
@@ -218,15 +221,17 @@ void Replicator::_on_rpc_returned(ReplicatorId id, baidu::rpc::Controller* cntl,
         RAFT_VLOG << " fail, sleep.";
 
         // TODO: Should it be VLOG?
-        LOG(WARNING) << "Fail to issue RPC to " << r->_options.peer_id
-                     << ", " << cntl->ErrorText();
+        LOG_IF(WARNING, (r->_consecutive_error_times++) % 10 == 0) 
+                        << "Fail to issue RPC to " << r->_options.peer_id
+                        << " _consecutive_error_times=" << r->_consecutive_error_times
+                        << ", " << cntl->ErrorText();
         // If the follower crashes, any RPC to the follower fails immediately,
         // so we need to block the follower for a while instead of looping until
         // it comes back or be removed
         // dummy_id is unlock in block
         return r->_block(start_time_us, cntl->ErrorCode());
     }
-
+    r->_consecutive_error_times = 0;
     if (!response->success()) {
         if (response->term() > r->_options.term) {
             RAFT_VLOG << " fail, greater term " << response->term()

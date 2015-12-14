@@ -61,7 +61,7 @@ friend class Replicator;
     void _run();
 };
 
-class Replicator {
+class BAIDU_CACHELINE_ALIGNMENT Replicator {
 public:
     Replicator();
     ~Replicator();
@@ -124,6 +124,7 @@ private:
     OnCaughtUp *_on_caught_up;
     int64_t _last_response_timestamp;
     bool _installing_snapshot;
+    int _consecutive_error_times;
 };
 
 struct ReplicatorGroupOptions {

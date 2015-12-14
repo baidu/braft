@@ -21,7 +21,7 @@ UBRPCFLAGS('--compack')
 
 INCPATHS('. ../../../src')
 
-LDFLAGS('-lpthread -lz -ldl -lrt')
+LDFLAGS('-lpthread -lz -ldl -lrt -lssl -lcrypto')
 #LDFLAGS('-lasan')
 
 CONFIGS('lib2-64/ullib@base')

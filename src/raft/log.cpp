@@ -24,7 +24,7 @@
 #include <base/string_printf.h>                     // base::string_appendf
 #include <base/callback.h>                          // base::Callback
 #include <base/bind.h>                              // base::Bind
-#include <baidu/rpc/raw_pack.h>                     // baidu::rpc::RawPacker
+#include <base/raw_pack.h>                          // base::RawPacker
 #include <baidu/rpc/reloadable_flags.h>             // 
 
 #include "raft/local_storage.pb.h"
@@ -38,8 +38,8 @@
 
 namespace raft {
 
-using ::baidu::rpc::RawPacker;
-using ::baidu::rpc::RawUnpacker;
+using ::base::RawPacker;
+using ::base::RawUnpacker;
 
 DEFINE_int32(raft_max_segment_size, 8 * 1024 * 1024 /*8M*/, 
              "Max size of one segment file");
@@ -98,8 +98,8 @@ int Segment::create() {
 ssize_t Segment::_read_up(base::IOPortal* buf, size_t count, off_t offset) const {
     size_t nread = 0;
     while (nread < count) {
-        ssize_t n = buf->append_from_file_descriptor(
-                         _fd, count - nread, offset + nread);
+        ssize_t n = buf->pappend_from_file_descriptor(
+                         _fd, offset + nread, count - nread);
         if (n >= 0) {
             nread += n;
         } else {

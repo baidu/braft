@@ -8,10 +8,13 @@
 
 #include <base/iobuf.h>                         // base::IOBuf
 #include <base/memory/ref_counted.h>            // base::RefCountedThreadSafe
+#include <bvar/bvar.h>
 #include "raft/configuration.h"
 #include "raft/raft.pb.h"
 
 namespace raft {
+
+extern bvar::Adder<int64_t> g_nentries;
 
 // term start from 1, log index start from 1
 struct LogEntry {
@@ -24,6 +27,7 @@ public:
 
     LogEntry(): type(ENTRY_TYPE_UNKNOWN), index(0), term(0), peers(NULL), ref(0) {
         // FIXME: Use log entry in the RAII way
+        g_nentries << 1;
         AddRef();
     }
 
@@ -59,6 +63,7 @@ private:
     mutable base::subtle::Atomic32 ref;
     // FIXME: Temporarily make dctor public to make it compilied
     virtual ~LogEntry() {
+        g_nentries << -1;
         if (peers) {
             delete peers;
             peers = NULL;

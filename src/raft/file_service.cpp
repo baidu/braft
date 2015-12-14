@@ -80,8 +80,8 @@ void FileServiceImpl::get_file(::google::protobuf::RpcController* controller,
     ssize_t nread = 0;
     off_t offset = request->offset();
     while (nread < request->count()) {
-        const ssize_t nr = buf.append_from_file_descriptor(
-                fd, request->count() - nread, offset);
+        const ssize_t nr = buf.pappend_from_file_descriptor(
+                        fd, offset, request->count() - nread);
         if (nr > 0) {
             nread += nr;
             offset += nr;

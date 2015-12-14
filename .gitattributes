@@ -65,6 +65,7 @@ src/raft/local_storage.pb.cc -text
 src/raft/local_storage.pb.h -text
 src/raft/log.cpp -text
 src/raft/log.h -text
+src/raft/log_entry.cpp -text
 src/raft/log_entry.h -text
 src/raft/log_manager.cpp -text
 src/raft/log_manager.h -text

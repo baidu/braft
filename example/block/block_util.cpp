@@ -23,8 +23,8 @@ void read_at_offset(base::IOPortal* portal, int fd, off_t offset, size_t size) {
     off_t orig_offset = offset;
     ssize_t left = size;
     while (left > 0) {
-        ssize_t read_len = portal->append_from_file_descriptor(
-                fd, static_cast<size_t>(left), offset);
+        ssize_t read_len = portal->pappend_from_file_descriptor(
+                fd, offset, static_cast<size_t>(left));
         if (read_len > 0) {
             left -= read_len;
             offset += read_len;
@@ -53,7 +53,7 @@ void write_at_offset(const base::IOBuf& data, int fd, off_t offset, size_t size)
     while (left > 0) {
         //base::IOBuf* pieces[] = {&piece_data};
         //ssize_t writen = base::IOBuf::cut_multiple_into_file_descriptor(fd, pieces, 1, offset);
-        ssize_t writen = piece_data.cut_into_file_descriptor_at_offset(fd, offset, left);
+        ssize_t writen = piece_data.pcut_into_file_descriptor(fd, offset, left);
         if (writen >= 0) {
             offset += writen;
             left -= writen;
