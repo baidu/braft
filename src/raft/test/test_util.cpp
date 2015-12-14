@@ -150,3 +150,53 @@ TEST_F(TestUsageSuits, fileuri) {
         ASSERT_EQ(path, "a/b/c");
     }
 }
+
+TEST_F(TestUsageSuits, pread_pwrite) {
+    int fd = ::open("./pread_pwrite.data", O_CREAT | O_TRUNC | O_RDWR, 0644);
+
+    base::IOPortal portal;
+    ssize_t nread = raft::file_pread(&portal, fd, 1000, 10);
+    ASSERT_EQ(nread, 0);
+
+    base::IOBuf data;
+    data.append("hello");
+    ssize_t nwriten = raft::file_pwrite(data, fd, 1000);
+    ASSERT_EQ(nwriten, data.size());
+
+    portal.clear();
+    nread = raft::file_pread(&portal, fd, 1000, 10);
+    ASSERT_EQ(nread, data.size());
+    ASSERT_EQ(raft::murmurhash32(data), raft::murmurhash32(portal));
+
+    ::close(fd);
+    ::unlink("./pread_pwrite.data");
+}
+
+TEST_F(TestUsageSuits, FileSegData) {
+    raft::FileSegData seg_writer;
+    for (uint64_t i = 0; i < 10UL; i++) {
+        char buf[1024];
+        snprintf(buf, sizeof(buf), "hello %lu", i);
+        seg_writer.append(buf, 1000 * i, strlen(buf));
+    }
+
+    raft::FileSegData seg_reader(seg_writer.data());
+    uint64_t seg_offset = 0;
+    base::IOBuf seg_data;
+    uint64_t index = 0;
+    while (0 != seg_reader.next(&seg_offset, &seg_data)) {
+        ASSERT_EQ(index * 1000, seg_offset);
+
+        char buf[1024] = {0};
+        snprintf(buf, sizeof(buf), "hello %lu", index);
+
+        char new_buf[1024] = {0};
+        seg_data.copy_to(new_buf, strlen(buf));
+        printf("index:%lu old: %s new: %s\n", index, buf, new_buf);
+        ASSERT_EQ(raft::murmurhash32(seg_data), raft::murmurhash32(buf, strlen(buf)));
+
+        seg_data.clear();
+        index ++;
+    }
+    ASSERT_EQ(index, 10UL);
+}

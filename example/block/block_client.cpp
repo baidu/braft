@@ -25,7 +25,6 @@
 #include "block.pb.h"
 #include "raft/util.h"
 #include "cli.h"
-#include "block_util.h"
 
 static const int64_t GB = 1024*1024*1024;
 DEFINE_string(peers, "", "current cluster peer set");
@@ -102,9 +101,9 @@ public:
 
         // write local path
         if (_fd >= 0) {
-            //std::lock_guard<pthread_mutex_t> guard(_mutex);
-            //::lseek(_fd, offset, SEEK_SET);
-            write_at_offset(request_data, _fd, offset, size);
+            ssize_t nwriten = raft::file_pwrite(request_data, _fd, offset);
+            CHECK(static_cast<size_t>(nwriten) == request_data.size())
+                << "write failed, err: " << berror() << " offset: " << offset;
         }
         return 0;
     }
@@ -147,7 +146,8 @@ public:
                 sleep(1);
                 continue;
             } else {
-                LOG(NOTICE) << "read success, offset: " << offset << ", size: " << size;
+                LOG(NOTICE) << "read success, offset: " << offset << ", size: " << size
+                    << ", ret: " << controller.response_attachment().size();
                 set_leader_addr(leader_addr);
                 response_data.append(controller.response_attachment());
                 break;
@@ -157,10 +157,15 @@ public:
         // check local
         if (_fd >= 0) {
             base::IOPortal portal;
-            read_at_offset(&portal, _fd, offset, size);
+            //read_at_offset(&portal, _fd, offset, size);
+            ssize_t nread = raft::file_pread(&portal, _fd, offset, size);
+            CHECK(nread >= 0) << "read failed, err: " << berror()
+                << " fd: " << _fd << " offset: " << offset << " size: " << size;
 
             // check len
-            CHECK_EQ(portal.size(), response_data.size()) << "local size: " << portal.size() << "response size: " << response_data.size();
+            CHECK_EQ(portal.size(), response_data.size())
+                << "local size: " << portal.size() << "response size: " << response_data.size();
+            // check hash
             CHECK(raft::murmurhash32(portal) == raft::murmurhash32(response_data))
                 << "checksum unmatch, offset: " << offset << " size: " << size;
         }

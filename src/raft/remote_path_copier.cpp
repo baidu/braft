@@ -11,6 +11,7 @@
 #include <base/file_util.h>
 #include <bthread.h>
 #include <baidu/rpc/controller.h>
+#include "raft/util.h"
 
 namespace raft {
 
@@ -47,12 +48,19 @@ int RemotePathCopier::_copy_file(const std::string& source, const std::string& d
             LOG(WARNING) << "Fail to issue RPC, " << cntl.ErrorText();
             return -1;
         }
-        while (!cntl.response_attachment().empty()) {
-            if (cntl.response_attachment().cut_into_file_descriptor(fd) < 0) {
+
+        FileSegData data(cntl.response_attachment());
+        uint64_t seg_offset = 0;
+        base::IOBuf seg_data;
+        while (0 != data.next(&seg_offset, &seg_data)) {
+            ssize_t nwriten = file_pwrite(seg_data, fd, seg_offset);
+            if (nwriten < 0 || static_cast<size_t>(nwriten) != seg_data.size()) {
                 PLOG(WARNING) << "Fail to write into fd=" << fd;
                 return -1;
             }
+            seg_data.clear();
         }
+
         if (response.eof()) {
             return 0;
         }

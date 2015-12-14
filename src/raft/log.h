@@ -108,7 +108,6 @@ private:
 
     int _load_entry(off_t offset, EntryHeader *head, base::IOBuf *body, 
                     size_t size_hint) const;
-    ssize_t _read_up(base::IOPortal* buf, size_t count, off_t offset) const;
 
     int _get_meta(int64_t index, LogMeta* meta) const;
 

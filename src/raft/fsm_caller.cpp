@@ -89,8 +89,10 @@ void FSMCaller::do_committed(int64_t committed_index, Closure* done) {
 
     // some uncommitted logs will be committed when follower become leader
     // and append a new log success. done only call when index equal committed_index
+    // committed_index maybe equal with last_applied_index, first heartbeat after InstallSnapshot
     RAFT_VLOG << "do_committed " << committed_index;
-    CHECK(committed_index > last_applied_index);
+    CHECK(committed_index > last_applied_index ||
+          (committed_index == last_applied_index && done == NULL));
 
     for (int64_t index = last_applied_index + 1; index <= committed_index; ++index) {
         LogEntry *entry = _log_manager->get_entry(index);

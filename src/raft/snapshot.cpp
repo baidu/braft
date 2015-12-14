@@ -129,6 +129,15 @@ int LocalSnapshotReader::init() {
     return 0;
 }
 
+int64_t LocalSnapshotReader::snapshot_index() {
+    base::FilePath path(_path);
+    int64_t index = 0;
+    int ret = sscanf(path.BaseName().value().c_str(), RAFT_SNAPSHOT_PATTERN, &index);
+    CHECK_EQ(ret, 1);
+
+    return index;
+}
+
 int LocalSnapshotReader::load_meta(SnapshotMeta* meta) {
     std::string meta_path(_path);
     meta_path.append("/");
@@ -217,6 +226,24 @@ int LocalSnapshotStorage::init() {
     return 0;
 }
 
+void LocalSnapshotStorage::ref(const int64_t index) {
+    _ref_map[index] ++;
+}
+
+void LocalSnapshotStorage::unref(const int64_t index) {
+    std::map<int64_t, int>::iterator it = _ref_map.find(index);
+    if (it != _ref_map.end()) {
+        it->second--;
+
+        if (it->second == 0) {
+            std::string old_path(_path);
+            base::string_appendf(&old_path, "/" RAFT_SNAPSHOT_PATTERN, index);
+            bool ok = base::DeleteFile(base::FilePath(old_path), true);
+            CHECK(ok) << "delete old snapshot path failed, path " << old_path;
+        }
+    }
+}
+
 SnapshotWriter* LocalSnapshotStorage::create() {
     LocalSnapshotWriter* writer = NULL;
 
@@ -279,15 +306,10 @@ int LocalSnapshotStorage::close(SnapshotWriter* writer_) {
             break;
         }
 
-        std::string old_path(_path);
-        base::string_appendf(&old_path, "/" RAFT_SNAPSHOT_PATTERN, old_index);
-        if (!base::DeleteFile(base::FilePath(old_path), true)) {
-            LOG(WARNING) << "delete old snapshot path failed, path " << old_path;
-            ret = EIO;
-            break;
-        }
-
         _last_snapshot_index = new_index;
+        // unref old_index, ref new_index
+        unref(old_index);
+        ref(new_index);
     } while (0);
 
     if (ret != 0) {
@@ -309,13 +331,16 @@ SnapshotReader* LocalSnapshotStorage::open() {
             delete reader;
             return NULL;
         }
+        ref(_last_snapshot_index);
         return reader;
     } else {
         return NULL;
     }
 }
 
-int LocalSnapshotStorage::close(SnapshotReader* reader) {
+int LocalSnapshotStorage::close(SnapshotReader* reader_) {
+    LocalSnapshotReader* reader = dynamic_cast<LocalSnapshotReader*>(reader_);
+    unref(reader->snapshot_index());
     delete reader;
     return 0;
 }

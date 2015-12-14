@@ -44,6 +44,7 @@ public:
     LocalSnapshotReader(const std::string& path);
     virtual ~LocalSnapshotReader();
 
+    int64_t snapshot_index();
     virtual int init();
     virtual int load_meta(SnapshotMeta* meta);
     virtual std::string get_uri(const base::EndPoint& hint_addr);
@@ -66,8 +67,12 @@ public:
     virtual SnapshotReader* open();
     virtual int close(SnapshotReader* reader);
 protected:
+    void ref(const int64_t index);
+    void unref(const int64_t index);
+
     std::string _path;
     int64_t _last_snapshot_index;
+    std::map<int64_t, int> _ref_map;
 };
 
 SnapshotStorage* create_local_snapshot_storage(const std::string& uri);

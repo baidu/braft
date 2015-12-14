@@ -11,6 +11,7 @@
 #include <base/files/file_enumerator.h>
 #include <baidu/rpc/closure_guard.h>
 #include <baidu/rpc/controller.h>
+#include "raft/util.h"
 
 namespace raft {
 
@@ -51,6 +52,9 @@ void FileServiceImpl::get_file(::google::protobuf::RpcController* controller,
                                const ::raft::GetFileRequest* request,
                                ::raft::GetFileResponse* response,
                                ::google::protobuf::Closure* done) {
+
+    RAFT_VLOG << "get_file path " << request->file_path()
+         << " offset " << request->offset() << " count " << request->count();
     baidu::rpc::ClosureGuard done_gurad(done);
     baidu::rpc::Controller* cntl = (baidu::rpc::Controller*)controller;
     if (request->count() <= 0 || request->offset() < 0) {
@@ -77,28 +81,45 @@ void FileServiceImpl::get_file(::google::protobuf::RpcController* controller,
         return;
     }
     base::IOPortal buf;
-    ssize_t nread = 0;
-    off_t offset = request->offset();
-    while (nread < request->count()) {
-        const ssize_t nr = buf.pappend_from_file_descriptor(
-                        fd, offset, request->count() - nread);
-        if (nr > 0) {
-            nread += nr;
-            offset += nr;
-        } else if (nr == 0) {
-            break;
-        } else {
-            cntl->SetFailed(errno, "Fail to read from %s, %m",
-                            request->file_path().c_str());
-            return;
-        }
+    ssize_t nread = file_pread(&buf, fd, request->offset(), request->count());
+    if (nread < 0) {
+        cntl->SetFailed(errno, "Fail to read from %s, %m",
+                        request->file_path().c_str());
+        return;
     }
-    cntl->response_attachment().swap(buf);
+
+    FileSegData seg_data;
+    uint64_t nparse = 0;
+    uint64_t data_len = buf.size();
+    while (nparse < data_len) {
+        char data_buf[4096];
+        size_t copy_len = buf.copy_to(data_buf, sizeof(data_buf), 0);
+        buf.pop_front(copy_len); // release orig iobuf as early
+        if (copy_len == sizeof(data_buf)) {
+            bool is_zero = true;
+            uint64_t* int64_data_buf = (uint64_t*)data_buf;
+            for (size_t i = 0; i < sizeof(data_buf) / sizeof(uint64_t); i++) {
+                if (int64_data_buf[i] != static_cast<uint64_t>(0)) {
+                    is_zero = false;
+                    break;
+                }
+            }
+            if (is_zero) {
+                nparse += copy_len;
+                continue;
+            }
+        }
+        seg_data.append(data_buf, request->offset() + nparse, copy_len);
+        nparse += copy_len;
+    }
+    cntl->response_attachment().swap(seg_data.data());
+
     response->set_eof(false);
     if (nread < request->count()) {
         response->set_eof(true);
     } else {
-        if (lseek(fd, 0, SEEK_END) == offset) {
+        // if file size is offset + count, set eof reduce next request
+        if (lseek(fd, 0, SEEK_END) == (request->offset() + request->count())) {
             response->set_eof(true);
         }
     }

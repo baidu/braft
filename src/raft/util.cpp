@@ -7,6 +7,7 @@
 
 #include <stdlib.h>
 #include <base/macros.h>
+#include <base/raw_pack.h>                     // base::RawPacker
 #include <baidu/rpc/random_number_seed.h>
 
 #include "raft/raft.h"
@@ -93,6 +94,113 @@ int fileuri_parse(const std::string& uri, base::EndPoint* addr, std::string* pat
     }
 
     return 0;
+}
+
+ssize_t file_pread(base::IOPortal* portal, int fd, off_t offset, size_t size) {
+    off_t orig_offset = offset;
+    ssize_t left = size;
+    while (left > 0) {
+        ssize_t read_len = portal->pappend_from_file_descriptor(
+                fd, offset, static_cast<size_t>(left));
+        if (read_len > 0) {
+            left -= read_len;
+            offset += read_len;
+        } else if (read_len == 0) {
+            break;
+            /*
+            char zero_page[4096] = {0};
+            ssize_t page_num = left / 4096;
+            left -= (page_num * 4096);
+            for (ssize_t i = 0; i < page_num; i++) {
+                portal->append(zero_page, 4096);
+            }
+            portal->append(zero_page, left);
+            //*/
+        } else if (errno == EINTR) {
+            continue;
+        } else {
+            LOG(WARNING) << "read failed, err: " << berror()
+                << " fd: " << fd << " offset: " << orig_offset << " size: " << size;
+            return -1;
+        }
+    }
+
+    return size - left;
+}
+
+ssize_t file_pwrite(const base::IOBuf& data, int fd, off_t offset) {
+    size_t size = data.size();
+    base::IOBuf piece_data(data);
+    off_t orig_offset = offset;
+    ssize_t left = size;
+    while (left > 0) {
+        ssize_t writen = piece_data.pcut_into_file_descriptor(fd, offset, left);
+        if (writen >= 0) {
+            offset += writen;
+            left -= writen;
+            piece_data.pop_front(writen);
+        } else if (errno == EINTR) {
+            continue;
+        } else {
+            LOG(WARNING) << "write falied, err: " << berror()
+                << " fd: " << fd << " offset: " << orig_offset << " size: " << size;
+            return -1;
+        }
+    }
+
+    return size - left;
+}
+
+void FileSegData::append(void* data, uint64_t offset, uint32_t len) {
+    if (0 != _seg_offset && offset == (_seg_offset + _seg_len)) {
+        // append to last segment
+        _seg_len += len;
+        _data.append(data, len);
+    } else {
+        // close last segment
+        char seg_header[sizeof(uint64_t) + sizeof(uint32_t)] = {0};
+        if (_seg_len > 0) {
+            ::base::RawPacker(seg_header).pack64(_seg_offset).pack32(_seg_len);
+            CHECK_EQ(0, _data.unsafe_assign(_seg_header, seg_header));
+        }
+
+        // start new segment
+        _seg_offset = offset;
+        _seg_len = len;
+        _seg_header = _data.reserve(sizeof(seg_header));
+        CHECK(_seg_header != base::IOBuf::INVALID_AREA);
+        _data.append(data, len);
+    }
+}
+
+void FileSegData::close() {
+    char seg_header[sizeof(uint64_t) + sizeof(uint32_t)] = {0};
+    if (_seg_len > 0) {
+        ::base::RawPacker(seg_header).pack64(_seg_offset).pack32(_seg_len);
+        CHECK_EQ(0, _data.unsafe_assign(_seg_header, seg_header));
+    }
+
+    _seg_offset = 0;
+    _seg_len = 0;
+}
+
+size_t FileSegData::next(uint64_t* offset, base::IOBuf* data) {
+    if (_data.length() == 0) {
+        return 0;
+    }
+
+    char header_buf[sizeof(uint64_t) + sizeof(uint32_t)] = {0};
+    size_t header_len = _data.cutn(header_buf, sizeof(header_buf));
+    CHECK_EQ(header_len, sizeof(header_buf)) << "header_len: " << header_len;
+
+    uint64_t seg_offset = 0;
+    uint32_t seg_len = 0;
+    ::base::RawUnpacker(header_buf).unpack64(seg_offset).unpack32(seg_len);
+
+    *offset = seg_offset;
+    size_t body_len = _data.cutn(data, seg_len);
+    CHECK_EQ(body_len, seg_len) << "seg_len: " << seg_len << " body_len: " << body_len;
+    return seg_len;
 }
 
 }  // namespace raft

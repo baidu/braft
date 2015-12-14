@@ -95,30 +95,11 @@ int Segment::create() {
     return _fd >= 0 ? 0 : -1;
 }
 
-ssize_t Segment::_read_up(base::IOPortal* buf, size_t count, off_t offset) const {
-    size_t nread = 0;
-    while (nread < count) {
-        ssize_t n = buf->pappend_from_file_descriptor(
-                         _fd, offset + nread, count - nread);
-        if (n >= 0) {
-            nread += n;
-        } else {
-            if (n < 0) {
-                PLOG(ERROR) << "Fail to read from fd=" << _fd;
-                return -1;
-            } else {
-                return nread;
-            }
-        }
-    }
-    return (ssize_t)nread;
-}
-
 int Segment::_load_entry(off_t offset, EntryHeader* head, base::IOBuf* data,
                          size_t size_hint) const {
     base::IOPortal buf;
     size_t to_read = std::max(size_hint, ENTRY_HEADER_SIZE);
-    const ssize_t n = _read_up(&buf, to_read, offset);
+    const ssize_t n = file_pread(&buf, _fd, offset, to_read);
     if (n != (ssize_t)to_read) {
         return n < 0 ? -1 : 1;
     }
@@ -155,9 +136,7 @@ int Segment::_load_entry(off_t offset, EntryHeader* head, base::IOBuf* data,
     if (data != NULL) {
         if (buf.length() < ENTRY_HEADER_SIZE + data_len) {
             const size_t to_read = ENTRY_HEADER_SIZE + data_len - buf.length();
-            const ssize_t n = _read_up(
-                    &buf, to_read,
-                    offset + buf.length()); 
+            const ssize_t n = file_pread(&buf, _fd, offset + buf.length(), to_read);
             if (n != (ssize_t)to_read) {
                 return n < 0 ? -1 : 1;
             }

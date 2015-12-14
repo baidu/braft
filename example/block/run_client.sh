@@ -27,8 +27,8 @@ IP=`hostname -i`
 
 #write/read
 # rm -rf 1G.data
-#./block_client -crash_on_fatal_log=true -peers="${IP}:8200,${IP}:8201,${IP}:8202" -rw_num=-1 -threads=1 -write_percent=80 -local_path=./1G.data
-./block_client -crash_on_fatal_log=true -peers="${IP}:8200,${IP}:8201,${IP}:8202" -rw_num=-1 -threads=10 -write_percent=80 -local_path=./1G.data > run.log 2>&1 &
+./block_client -crash_on_fatal_log=true -peers="${IP}:8200,${IP}:8201,${IP}:8202" -rw_num=-1 -threads=5 -write_percent=80 -local_path=./1G.data
+#./block_client -crash_on_fatal_log=true -peers="${IP}:8200,${IP}:8201,${IP}:8202" -rw_num=-1 -threads=10 -write_percent=80 -local_path=./1G.data > run.log 2>&1 &
 #./block_client -peers="${IP}:8200,${IP}:8201,${IP}:8202" -rw_num=-1 -threads=10 -write_percent=80 -local_path=./1G.data
 
 #shutdown

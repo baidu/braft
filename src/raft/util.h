@@ -147,6 +147,43 @@ std::string fileuri2path(const std::string& uri);
 
 int fileuri_parse(const std::string& uri, base::EndPoint* addr, std::string* path);
 
+ssize_t file_pread(base::IOPortal* portal, int fd, off_t offset, size_t size);
+
+ssize_t file_pwrite(const base::IOBuf& data, int fd, off_t offset);
+
+// unsequence file data, reduce the overhead of copy some files have hole.
+class FileSegData {
+public:
+    // for reader
+    FileSegData(const base::IOBuf& data)
+        : _data(data), _seg_header(base::IOBuf::INVALID_AREA), _seg_offset(0), _seg_len(0) {}
+    // for writer
+    FileSegData() : _seg_header(base::IOBuf::INVALID_AREA), _seg_offset(0), _seg_len(0) {}
+    ~FileSegData() {
+        close();
+    }
+
+    // writer append
+    void append(void* data, uint64_t offset, uint32_t len);
+
+    // writer get
+    base::IOBuf& data() {
+        close();
+        return _data;
+    }
+
+    // read next, NEED clear data when call next in loop
+    size_t next(uint64_t* offset, base::IOBuf* data);
+
+private:
+    void close();
+
+    base::IOBuf _data;
+    base::IOBuf::Area _seg_header;
+    uint64_t _seg_offset;
+    uint32_t _seg_len;
+};
+
 }  // namespace raft
 
 #endif // PUBLIC_RAFT_RAFT_UTIL_H

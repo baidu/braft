@@ -1819,13 +1819,19 @@ int NodeImpl::handle_install_snapshot_request(baidu::rpc::Controller* controller
             _leader_id = server_id;
         }
 
-        // retry InstallSnapshot
-        if (request->last_included_log_index() == _last_snapshot_index &&
-            request->last_included_log_term() == _last_snapshot_term) {
+        // retry InstallSnapshot or staled InstallSnapshot
+        // When follower is slow, leader send InstallSnapshot.
+        // leader and follower do snapshot in the meantime.
+        // leader will send older snapshot, after follower finish snapshot
+        if (request->last_included_log_index() < _last_snapshot_index ||
+            (request->last_included_log_index() == _last_snapshot_index &&
+             request->last_included_log_term() == _last_snapshot_term)) {
             LOG(WARNING) << "node " << _group_id << ":" << _server_id << " term " << _current_term
-                << " received retry InstallSnapshotRequest from " << request->server_id()
+                << " received staled InstallSnapshotRequest from " << request->server_id()
                 << " last_included_index " << request->last_included_log_index()
-                << " last_included_term " << request->last_included_log_term();
+                << " last_included_term " << request->last_included_log_term()
+                << " local_snapshot_index " << _last_snapshot_index
+                << " local_snapshot_term " << _last_snapshot_term;
             response->set_success(true);
             done->Run();
             return 0;
