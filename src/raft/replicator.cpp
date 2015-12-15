@@ -104,6 +104,7 @@ int Replicator::start(const ReplicatorOptions& options, ReplicatorId *id) {
     }
     r->_on_caught_up = NULL;
     r->_last_response_timestamp = base::monotonic_time_ms();
+    LOG(INFO) << "Replicator=" << r->_id << " is started";
     r.release();
     return 0;
 }
@@ -243,6 +244,7 @@ void Replicator::_on_rpc_returned(ReplicatorId id, baidu::rpc::Controller* cntl,
             // start() to avoid the circular reference issue
             node_impl->AddRef();
             r->_notify_on_caught_up(EPERM, true);
+            LOG(INFO) << "Replicator=" << dummy_id << " is going to quit";
             bthread_id_unlock_and_destroy(dummy_id);
             node_impl->increase_term_to(response->term());
             node_impl->Release();
@@ -572,6 +574,7 @@ int Replicator::_on_failed(bthread_id_t id, void* arg, int error_code) {
     Replicator* r = (Replicator*)arg;
     baidu::rpc::StartCancel(r->_rpc_in_fly);
     r->_notify_on_caught_up(error_code, true);
+    LOG(INFO) << "Replicator=" << id << " is going to quit";
     const int rc = bthread_id_unlock_and_destroy(id);
     CHECK_EQ(0, rc) << "Fail to unlock " << id;
     delete r;

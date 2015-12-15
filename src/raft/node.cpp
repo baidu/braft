@@ -85,11 +85,11 @@ NodeImpl::NodeImpl(const GroupId& group_id, const PeerId& peer_id)
     
         _server_id = peer_id;
         AddRef();
-        bthread_mutex_init(&_mutex, NULL);
+        raft_mutex_init(&_mutex, NULL);
 }
 
 NodeImpl::~NodeImpl() {
-    bthread_mutex_destroy(&_mutex);
+    raft_mutex_destroy(&_mutex);
 
     if (_config_manager) {
         delete _config_manager;
@@ -123,7 +123,7 @@ NodeImpl::~NodeImpl() {
 }
 
 NodeStats NodeImpl::stats() {
-    std::lock_guard<bthread_mutex_t> guard(_mutex);
+    BAIDU_SCOPED_LOCK(_mutex);
 
     NodeStats stats;
     stats.state = _state;
@@ -140,7 +140,7 @@ NodeStats NodeImpl::stats() {
 }
 
 void NodeImpl::on_snapshot_load_done() {
-    std::lock_guard<bthread_mutex_t> guard(_mutex);
+    BAIDU_SCOPED_LOCK(_mutex);
 
     CHECK(_loading_snapshot_meta);
 
@@ -187,7 +187,7 @@ void NodeImpl::on_snapshot_load_done() {
 }
 
 int NodeImpl::on_snapshot_save_done(const SnapshotMeta& meta, SnapshotWriter* writer) {
-    std::lock_guard<bthread_mutex_t> guard(_mutex);
+    BAIDU_SCOPED_LOCK(_mutex);
     int ret = 0;
 
     do {
@@ -360,7 +360,7 @@ static void on_snapshot_timer(void* arg) {
 }
 
 void NodeImpl::handle_snapshot_timeout() {
-    std::lock_guard<bthread_mutex_t> guard(_mutex);
+    BAIDU_SCOPED_LOCK(_mutex);
 
     // check state
     if (!is_active_state(_state)) {
@@ -485,7 +485,7 @@ int NodeImpl::init(const NodeOptions& options) {
 }
 
 void NodeImpl::apply(const base::IOBuf& data, Closure* done) {
-    std::lock_guard<bthread_mutex_t> guard(_mutex);
+    BAIDU_SCOPED_LOCK(_mutex);
 
     // check state
     CHECK(is_active_state(_state))
@@ -505,7 +505,7 @@ void NodeImpl::apply(const base::IOBuf& data, Closure* done) {
 
 void NodeImpl::on_configuration_change_done(const EntryType type,
                                             const std::vector<PeerId>& new_peers) {
-    std::lock_guard<bthread_mutex_t> guard(_mutex);
+    BAIDU_SCOPED_LOCK(_mutex);
 
     if (type == ENTRY_TYPE_ADD_PEER) {
         LOG(INFO) << "node " << _group_id << ":" << _server_id << " add_peer from "
@@ -543,7 +543,7 @@ static void on_peer_caught_up(void* arg, const PeerId& pid, const int error_code
 
 void NodeImpl::on_caughtup(const PeerId& peer, int error_code, Closure* done) {
     {
-        std::lock_guard<bthread_mutex_t> guard(_mutex);
+        BAIDU_SCOPED_LOCK(_mutex);
 
         if (error_code == 0) {
             LOG(INFO) << "node " << _group_id << ":" << _server_id << " add_peer " << peer
@@ -608,7 +608,7 @@ static void on_stepdown_timer(void* arg) {
 }
 
 void NodeImpl::handle_stepdown_timeout() {
-    std::lock_guard<bthread_mutex_t> guard(_mutex);
+    BAIDU_SCOPED_LOCK(_mutex);
 
     // check state
     if (_state != LEADER) {
@@ -648,7 +648,7 @@ void NodeImpl::handle_stepdown_timeout() {
 
 void NodeImpl::add_peer(const std::vector<PeerId>& old_peers, const PeerId& peer,
                        Closure* done) {
-    std::lock_guard<bthread_mutex_t> guard(_mutex);
+    BAIDU_SCOPED_LOCK(_mutex);
 
     // check state
     CHECK(is_active_state(_state))
@@ -719,7 +719,7 @@ void NodeImpl::add_peer(const std::vector<PeerId>& old_peers, const PeerId& peer
 
 void NodeImpl::remove_peer(const std::vector<PeerId>& old_peers, const PeerId& peer,
                           Closure* done) {
-    std::lock_guard<bthread_mutex_t> guard(_mutex);
+    BAIDU_SCOPED_LOCK(_mutex);
 
     // check state
     CHECK(is_active_state(_state))
@@ -775,7 +775,7 @@ void NodeImpl::remove_peer(const std::vector<PeerId>& old_peers, const PeerId& p
 }
 
 int NodeImpl::set_peer(const std::vector<PeerId>& old_peers, const std::vector<PeerId>& new_peers) {
-    std::lock_guard<bthread_mutex_t> guard(_mutex);
+    BAIDU_SCOPED_LOCK(_mutex);
 
     // check state
     CHECK(is_active_state(_state))
@@ -876,7 +876,7 @@ void SaveSnapshotDone::Run() {
 }
 
 void NodeImpl::snapshot(Closure* done) {
-    std::lock_guard<bthread_mutex_t> guard(_mutex);
+    BAIDU_SCOPED_LOCK(_mutex);
 
     do_snapshot(done);
 }
@@ -927,7 +927,7 @@ void NodeImpl::shutdown(Closure* done) {
     NodeManager::GetInstance()->remove(this);
 
     {
-        std::lock_guard<bthread_mutex_t> guard(_mutex);
+        BAIDU_SCOPED_LOCK(_mutex);
 
         LOG(INFO) << "node " << _group_id << ":" << _server_id << " shutdown,"
             " current_term " << _current_term << " state " << state2str(_state);
@@ -982,7 +982,7 @@ static void on_election_timer(void* arg) {
 }
 
 void NodeImpl::handle_election_timeout() {
-    std::lock_guard<bthread_mutex_t> guard(_mutex);
+    BAIDU_SCOPED_LOCK(_mutex);
 
     // check state
     if (_state != FOLLOWER) {
@@ -1026,7 +1026,7 @@ static void on_vote_timer(void* arg) {
 }
 
 void NodeImpl::handle_vote_timeout() {
-    std::lock_guard<bthread_mutex_t> guard(_mutex);
+    BAIDU_SCOPED_LOCK(_mutex);
 
     // check state
     if (_state == CANDIDATE) {
@@ -1039,7 +1039,7 @@ void NodeImpl::handle_vote_timeout() {
 
 void NodeImpl::handle_request_vote_response(const PeerId& peer_id, const int64_t term,
                                             const RequestVoteResponse& response) {
-    std::lock_guard<bthread_mutex_t> guard(_mutex);
+    BAIDU_SCOPED_LOCK(_mutex);
 
     // check state
     if (_state != CANDIDATE) {
@@ -1106,7 +1106,7 @@ struct OnRequestVoteRPCDone : public google::protobuf::Closure {
 
 void NodeImpl::handle_pre_vote_response(const PeerId& peer_id, const int64_t term,
                                             const RequestVoteResponse& response) {
-    std::lock_guard<bthread_mutex_t> guard(_mutex);
+    BAIDU_SCOPED_LOCK(_mutex);
 
     // check state
     if (_state != FOLLOWER) {
@@ -1468,7 +1468,7 @@ int NodeImpl::append(const std::vector<LogEntry*>& entries) {
 
 int NodeImpl::handle_pre_vote_request(const RequestVoteRequest* request,
                                           RequestVoteResponse* response) {
-    std::lock_guard<bthread_mutex_t> guard(_mutex);
+    BAIDU_SCOPED_LOCK(_mutex);
 
     PeerId candidate_id;
     if (0 != candidate_id.parse(request->server_id())) {
@@ -1523,7 +1523,7 @@ int NodeImpl::handle_pre_vote_request(const RequestVoteRequest* request,
 
 int NodeImpl::handle_request_vote_request(const RequestVoteRequest* request,
                                           RequestVoteResponse* response) {
-    std::lock_guard<bthread_mutex_t> guard(_mutex);
+    BAIDU_SCOPED_LOCK(_mutex);
 
     int64_t last_log_index = _log_manager->last_log_index();
     int64_t last_log_term = this->last_log_term();
@@ -1587,7 +1587,7 @@ int NodeImpl::handle_append_entries_request(const base::IOBuf& data,
                                             const AppendEntriesRequest* request,
                                             AppendEntriesResponse* response) {
     base::IOBuf data_buf(data);
-    std::lock_guard<bthread_mutex_t> guard(_mutex);
+    BAIDU_SCOPED_LOCK(_mutex);
 
     PeerId server_id;
     if (0 != server_id.parse(request->server_id())) {
@@ -1778,7 +1778,7 @@ int NodeImpl::handle_install_snapshot_request(baidu::rpc::Controller* controller
 
     // some check
     {
-        std::lock_guard<bthread_mutex_t> guard(_mutex);
+        BAIDU_SCOPED_LOCK(_mutex);
 
         PeerId server_id;
         if (0 != server_id.parse(request->server_id())) {
@@ -1902,7 +1902,7 @@ int NodeImpl::handle_install_snapshot_request(baidu::rpc::Controller* controller
 
     // fsm load snapshot
     {
-        std::lock_guard<bthread_mutex_t> guard(_mutex);
+        BAIDU_SCOPED_LOCK(_mutex);
 
         //TODO:
         // call fsm_caller on_install_snapshot, when finished run on_snapshot_load_done
@@ -1915,7 +1915,7 @@ int NodeImpl::handle_install_snapshot_request(baidu::rpc::Controller* controller
 }
 
 int NodeImpl::increase_term_to(int64_t new_term) {
-    std::lock_guard<bthread_mutex_t> guard(_mutex);
+    BAIDU_SCOPED_LOCK(_mutex);
     if (new_term <= _current_term) {
         return EINVAL;
     }
@@ -1930,7 +1930,7 @@ void NodeImpl::after_shutdown(NodeImpl* node) {
 void NodeImpl::after_shutdown() {
     std::vector<Closure*> saved_done;
     {
-        std::lock_guard<bthread_mutex_t> guard(_mutex);
+        BAIDU_SCOPED_LOCK(_mutex);
         CHECK_EQ(SHUTTING, _state);
         _state = SHUTDOWN;
         std::swap(saved_done, _shutdown_continuations);
@@ -1940,21 +1940,20 @@ void NodeImpl::after_shutdown() {
         if (NULL == saved_done[i]) {
             continue;
         }
-
         run_closure_in_bthread(saved_done[i]);
     }
 }
 
 NodeManager::NodeManager() {
-    bthread_mutex_init(&_mutex, NULL);
+    raft_mutex_init(&_mutex, NULL);
 }
 
 NodeManager::~NodeManager() {
-    bthread_mutex_destroy(&_mutex);
+    raft_mutex_destroy(&_mutex);
 }
 
 baidu::rpc::Server* NodeManager::get_server(const base::EndPoint& ip_and_port) {
-    std::lock_guard<bthread_mutex_t> guard(_mutex);
+    BAIDU_SCOPED_LOCK(_mutex);
     ServerMap::iterator it = _servers.find(ip_and_port);
     if (it != _servers.end()) {
         return it->second;
@@ -1971,12 +1970,12 @@ baidu::rpc::Server* NodeManager::get_server(const base::EndPoint& ip_and_port) {
 }
 
 void NodeManager::add_server(const base::EndPoint& ip_and_port, baidu::rpc::Server* server) {
-    std::lock_guard<bthread_mutex_t> guard(_mutex);
+    BAIDU_SCOPED_LOCK(_mutex);
     _servers.insert(std::pair<base::EndPoint, baidu::rpc::Server*>(ip_and_port, server));
 }
 
 baidu::rpc::Server* NodeManager::remove_server(const base::EndPoint& ip_and_port) {
-    std::lock_guard<bthread_mutex_t> guard(_mutex);
+    BAIDU_SCOPED_LOCK(_mutex);
     ServerMap::iterator it = _servers.find(ip_and_port);
     if (it == _servers.end()) {
         for (it = _servers.begin(); it != _servers.end(); ++it) {
@@ -2032,7 +2031,7 @@ int NodeManager::start(const base::EndPoint& ip_and_port,
     LOG(WARNING) << "start raft server " << address;
     add_server(ip_and_port, server);
     if (own) {
-        std::lock_guard<bthread_mutex_t> guard(_mutex);
+        BAIDU_SCOPED_LOCK(_mutex);
         _own_servers.insert(ip_and_port);
     }
     return 0;
@@ -2043,7 +2042,7 @@ baidu::rpc::Server* NodeManager::stop(const base::EndPoint& ip_and_port) {
     if (server) {
         bool own = false;
         {
-            std::lock_guard<bthread_mutex_t> guard(_mutex);
+            BAIDU_SCOPED_LOCK(_mutex);
             if (_own_servers.end() != _own_servers.find(server->listen_address())) {
                 _own_servers.erase(server->listen_address());
                 own = true;

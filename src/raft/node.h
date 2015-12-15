@@ -99,7 +99,7 @@ public:
     }
 
     PeerId leader_id() {
-        std::lock_guard<bthread_mutex_t> guard(_mutex);
+        BAIDU_SCOPED_LOCK(_mutex);
         return _leader_id;
     }
 
@@ -269,7 +269,7 @@ private:
     int64_t _last_snapshot_index;
     int64_t _last_leader_timestamp;
 
-    bthread_mutex_t _mutex;
+    raft_mutex_t _mutex;
     VoteCtx _vote_ctx; // candidate vote ctx
     VoteCtx _pre_vote_ctx; // prevote ctx
     ConfigurationCtx _conf_ctx;
@@ -343,7 +343,7 @@ private:
     baidu::rpc::Server* remove_server(const base::EndPoint& ip_and_port);
 
     typedef std::map<base::EndPoint, baidu::rpc::Server*> ServerMap;
-    bthread_mutex_t _mutex;
+    raft_mutex_t _mutex;
     ServerMap _servers;
     std::set<base::EndPoint> _own_servers;
     RaftServiceImpl _service_impl;

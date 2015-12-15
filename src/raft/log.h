@@ -36,20 +36,20 @@ public:
         : _path(path), _bytes(0),
         _fd(-1), _is_open(true),
         _first_index(first_index), _last_index(first_index - 1) {
-            CHECK_EQ(0, bthread_mutex_init(&_mutex, NULL));
+            CHECK_EQ(0, raft_mutex_init(&_mutex, NULL));
     }
     Segment(const std::string& path, const int64_t first_index, const int64_t last_index)
         : _path(path), _bytes(0),
         _fd(-1), _is_open(false),
         _first_index(first_index), _last_index(last_index) {
-            CHECK_EQ(0, bthread_mutex_init(&_mutex, NULL));
+            CHECK_EQ(0, raft_mutex_init(&_mutex, NULL));
     }
     ~Segment() {
         if (_fd >= 0) {
             ::close(_fd);
             _fd = -1;
         }
-        bthread_mutex_destroy(&_mutex);
+        raft_mutex_destroy(&_mutex);
     }
 
     struct EntryHeader;
@@ -95,7 +95,7 @@ public:
     }
 
     int64_t last_index() const {
-        return _last_index;
+        return _last_index.load(boost::memory_order_consume);
     }
 
 private:
@@ -115,11 +115,11 @@ private:
 
     std::string _path;
     int64_t _bytes;
-    mutable bthread_mutex_t _mutex;
+    mutable raft_mutex_t _mutex;
     int _fd;
     bool _is_open;
-    int64_t _first_index;
-    int64_t _last_index;
+    const int64_t _first_index;
+    boost::atomic<int64_t> _last_index;
     std::vector<std::pair<int64_t/*offset*/, int64_t/*term*/> > _offset_and_term;
 };
 
@@ -137,7 +137,7 @@ public:
     SegmentLogStorage(const std::string& path)
         : LogStorage(path), _path(path),
         _first_log_index(1) {
-            CHECK_EQ(0, bthread_mutex_init(&_mutex, NULL));
+            CHECK_EQ(0, raft_mutex_init(&_mutex, NULL));
     }
 
     virtual ~SegmentLogStorage() {
@@ -147,7 +147,7 @@ public:
             _open_segment.reset();
         }
 
-        bthread_mutex_destroy(&_mutex);
+        raft_mutex_destroy(&_mutex);
     }
 
     // init logstorage, check consistency and integrity
@@ -202,7 +202,7 @@ private:
     std::string _path;
     boost::atomic<int64_t> _first_log_index;
     boost::atomic<int64_t> _last_log_index;
-    bthread_mutex_t _mutex;
+    raft_mutex_t _mutex;
     SegmentMap _segments;
     boost::shared_ptr<Segment> _open_segment;
 };

@@ -159,20 +159,21 @@ int Segment::_load_entry(off_t offset, EntryHeader* head, base::IOBuf* data,
 
 int Segment::_get_meta(int64_t index, LogMeta* meta) const {
     BAIDU_SCOPED_LOCK(_mutex);
-    if (index > _last_index || index < _first_index) {
+    if (index > _last_index.load(boost::memory_order_relaxed) 
+                    || index < _first_index) {
         // out of range
-        RAFT_VLOG << "_last_index=" << _last_index
+        RAFT_VLOG << "_last_index=" << _last_index.load(boost::memory_order_relaxed)
                   << " _first_index=" << _first_index;
         return -1;
     } else if (_last_index == _first_index - 1) {
-        RAFT_VLOG << "_last_index=" << _last_index
+        RAFT_VLOG << "_last_index=" << _last_index.load(boost::memory_order_relaxed)
                   << " _first_index=" << _first_index;
         // empty
         return -1;
     }
     int64_t meta_index = index - _first_index;
     int64_t entry_cursor = _offset_and_term[meta_index].first;
-    int64_t next_cursor = (index < _last_index)
+    int64_t next_cursor = (index < _last_index.load(boost::memory_order_relaxed))
                           ? _offset_and_term[meta_index + 1].first : _bytes;
     DCHECK_LT(entry_cursor, next_cursor);
     meta->offset = entry_cursor;
@@ -190,7 +191,7 @@ int Segment::load(ConfigurationManager* configuration_manager) {
         base::string_appendf(&path, "/" RAFT_SEGMENT_OPEN_PATTERN, _first_index);
     } else {
         base::string_appendf(&path, "/" RAFT_SEGMENT_CLOSED_PATTERN, 
-                             _first_index, _last_index);
+                             _first_index, _last_index.load());
     }
     _fd = ::open(path.c_str(), O_RDWR);
     if (_fd < 0) {
@@ -284,7 +285,7 @@ int Segment::append(const LogEntry* entry) {
 
     if (BAIDU_UNLIKELY(!entry || !_is_open)) {
         return -1;
-    } else if (BAIDU_UNLIKELY(entry->index != _last_index + 1)) {
+    } else if (BAIDU_UNLIKELY(entry->index != _last_index.load(boost::memory_order_consume) + 1)) {
         CHECK(false) << "entry->index=" << entry->index
                   << " _last_index=" << _last_index
                   << " _first_index=" << _first_index;
@@ -339,12 +340,10 @@ int Segment::append(const LogEntry* entry) {
         written += n;
         for (;start < ARRAY_SIZE(pieces) && pieces[start]->empty(); ++start) {}
     }
-    {
-        BAIDU_SCOPED_LOCK(_mutex);
-        _offset_and_term.push_back(std::make_pair(_bytes, entry->term));
-        _last_index++;
-        _bytes += to_write;
-    }
+    BAIDU_SCOPED_LOCK(_mutex);
+    _offset_and_term.push_back(std::make_pair(_bytes, entry->term));
+    _last_index.fetch_add(1, boost::memory_order_relaxed);
+    _bytes += to_write;
 
     return 0;
 }
@@ -435,7 +434,7 @@ int Segment::close() {
                          _first_index);
     std::string new_path(_path);
     base::string_appendf(&new_path, "/" RAFT_SEGMENT_CLOSED_PATTERN, 
-                         _first_index, _last_index);
+                         _first_index, _last_index.load());
 
     // TODO: optimize index memory usage by reconstruct vector
     int ret = this->sync();
@@ -461,7 +460,7 @@ int Segment::unlink() {
                                  _first_index);
         } else {
             base::string_appendf(&path, "/" RAFT_SEGMENT_CLOSED_PATTERN,
-                                _first_index, _last_index);
+                                _first_index, _last_index.load());
         }
 
         ret = ::unlink(path.c_str());
@@ -479,57 +478,51 @@ int Segment::unlink() {
 int Segment::truncate(const int64_t last_index_kept) {
     int64_t truncate_size = 0;
     int64_t first_truncate_in_offset = 0;
-    {
-        BAIDU_SCOPED_LOCK(_mutex);
-        if (last_index_kept >= _last_index) {
-            return 0;
-        }
-        first_truncate_in_offset = last_index_kept + 1 - _first_index;
-        truncate_size = _offset_and_term[first_truncate_in_offset].first;
-        LOG(INFO) << "Truncating " << _path << " first_index: " << _first_index
-                  << " last_index from " << _last_index << " to " << last_index_kept
-                  << " truncate size to " << truncate_size;
+    std::unique_lock<raft_mutex_t> lck(_mutex);
+    if (last_index_kept >= _last_index) {
+        return 0;
+    }
+    first_truncate_in_offset = last_index_kept + 1 - _first_index;
+    truncate_size = _offset_and_term[first_truncate_in_offset].first;
+    LOG(INFO) << "Truncating " << _path << " first_index: " << _first_index
+              << " last_index from " << _last_index << " to " << last_index_kept
+              << " truncate size to " << truncate_size;
+    lck.unlock();
+
+    // truncate fd
+    int ret = ftruncate_uninterrupted(_fd, truncate_size);
+    if (ret < 0) {
+        return ret;
     }
 
-    int ret = 0;
-    do {
-        // truncate fd
-        ret = ftruncate_uninterrupted(_fd, truncate_size);
-        if (ret < 0) {
-            break;
-        }
+    // seek fd
+    off_t ret_off = ::lseek(_fd, truncate_size, SEEK_SET);
+    if (ret_off < 0) {
+        PLOG(ERROR) << "Fail to lseek fd=" << _fd << " to size=" << truncate_size;
+        return -1;
+    }
 
-        // seek fd
-        off_t ret_off = ::lseek(_fd, truncate_size, SEEK_SET);
-        if (ret_off < 0) {
-            ret = -1;
-            break;
-        }
+    // rename
+    if (!_is_open) {
+        std::string old_path(_path);
+        base::string_appendf(&old_path, "/" RAFT_SEGMENT_CLOSED_PATTERN,
+                             _first_index, _last_index.load());
 
-        // rename
-        if (!_is_open) {
-            std::string old_path(_path);
-            base::string_appendf(&old_path, "/" RAFT_SEGMENT_CLOSED_PATTERN,
-                                 _first_index, _last_index);
+        std::string new_path(_path);
+        base::string_appendf(&new_path, "/" RAFT_SEGMENT_CLOSED_PATTERN,
+                             _first_index, last_index_kept);
+        ret = ::rename(old_path.c_str(), new_path.c_str());
+        LOG_IF(INFO, ret == 0) << "Renamed `" << old_path << "' to `"
+                               << new_path << '\'';
+        LOG_IF(ERROR, ret != 0) << "Fail to rename `" << old_path << "' to `"
+                                << new_path << "', " << berror();
+    }
 
-            std::string new_path(_path);
-            base::string_appendf(&new_path, "/" RAFT_SEGMENT_CLOSED_PATTERN,
-                                 _first_index, last_index_kept);
-            ret = ::rename(old_path.c_str(), new_path.c_str());
-            LOG_IF(INFO, ret == 0) << "Renamed `" << old_path << "' to `"
-                                   << new_path << '\'';
-            LOG_IF(ERROR, ret != 0) << "Fail to rename `" << old_path << "' to `"
-                                    << new_path << "', " << berror();
-        }
-        {
-            BAIDU_SCOPED_LOCK(_mutex);
-            // update memory var
-            _offset_and_term.resize(first_truncate_in_offset);
-            _last_index = last_index_kept;
-            _bytes = truncate_size;
-        }
-    } while (0);
-
+    lck.lock();
+    // update memory var
+    _offset_and_term.resize(first_truncate_in_offset);
+    _last_index.store(last_index_kept, boost::memory_order_relaxed);
+    _bytes = truncate_size;
     return ret;
 }
 

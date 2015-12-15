@@ -131,7 +131,7 @@ private:
     LogStorage* _log_storage;
     ConfigurationManager* _config_manager;
 
-    bthread_mutex_t _mutex;
+    raft_mutex_t _mutex;
     bthread_id_list_t _wait_list;
 
     boost::atomic<int64_t> _disk_index;

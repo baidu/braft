@@ -10,7 +10,7 @@
 #include <set>                                  // std::set
 #include <deque>
 #include <boost/atomic.hpp>                     // boost::atomic
-#include <bthread.h>                            // bthread_mutex_t
+#include <bthread.h>                            // raft_mutex_t
 #include "raft/raft.h"
 #include "raft/util.h"
 
@@ -65,7 +65,7 @@ private:
         int quorum;
     };
 
-    bthread_mutex_t                                     _mutex;
+    raft_mutex_t                                     _mutex;
     FSMCaller*                                          _waiter;
     boost::atomic<int64_t>                              _last_committed_index;
     int64_t                                             _pending_index;

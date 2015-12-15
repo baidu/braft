@@ -30,24 +30,24 @@ class MockFSM : public raft::StateMachine {
 public:
     MockFSM(const base::EndPoint& address_)
         : address(address_), applied_index(0), snapshot_index(0) {
-        bthread_mutex_init(&mutex, NULL);
+        raft_mutex_init(&mutex, NULL);
     }
     virtual ~MockFSM() {
-        bthread_mutex_destroy(&mutex);
+        raft_mutex_destroy(&mutex);
     }
 
     base::EndPoint address;
     std::vector<base::IOBuf> logs;
-    bthread_mutex_t mutex;
+    raft_mutex_t mutex;
     int64_t applied_index;
     int64_t snapshot_index;
 
     void lock() {
-        bthread_mutex_lock(&mutex);
+        raft_mutex_lock(&mutex);
     }
 
     void unlock() {
-        bthread_mutex_unlock(&mutex);
+        raft_mutex_unlock(&mutex);
     }
 
     virtual void on_apply(const base::IOBuf& buf, const int64_t index, raft::Closure* done) {
@@ -152,11 +152,11 @@ class Cluster {
 public:
     Cluster(const std::string& name, const std::vector<raft::PeerId>& peers)
         : _name(name), _peers(peers) {
-        bthread_mutex_init(&_mutex, NULL);
+        raft_mutex_init(&_mutex, NULL);
     }
     ~Cluster() {
         stop_all();
-        bthread_mutex_destroy(&_mutex);
+        raft_mutex_destroy(&_mutex);
     }
 
     int start(const base::EndPoint& listen_addr, bool empty_peers = false) {
@@ -190,7 +190,7 @@ public:
         }
 
         {
-            std::lock_guard<bthread_mutex_t> guard(_mutex);
+            std::lock_guard<raft_mutex_t> guard(_mutex);
             _nodes.push_back(node);
         }
         return 0;
@@ -228,7 +228,7 @@ public:
     }
 
     raft::Node* leader() {
-        std::lock_guard<bthread_mutex_t> guard(_mutex);
+        std::lock_guard<raft_mutex_t> guard(_mutex);
         raft::Node* node = NULL;
         for (size_t i = 0; i < _nodes.size(); i++) {
             if (_nodes[i]->stats().state == raft::LEADER) {
@@ -242,7 +242,7 @@ public:
     void followers(std::vector<raft::Node*>* nodes) {
         nodes->clear();
 
-        std::lock_guard<bthread_mutex_t> guard(_mutex);
+        std::lock_guard<raft_mutex_t> guard(_mutex);
         for (size_t i = 0; i < _nodes.size(); i++) {
             if (_nodes[i]->stats().state != raft::LEADER) {
                 nodes->push_back(_nodes[i]);
@@ -263,7 +263,7 @@ public:
 
     void ensure_leader(const base::EndPoint& expect_addr) {
 CHECK:
-        std::lock_guard<bthread_mutex_t> guard(_mutex);
+        std::lock_guard<raft_mutex_t> guard(_mutex);
         for (size_t i = 0; i < _nodes.size(); i++) {
             raft::PeerId leader_id = _nodes[i]->leader_id();
             if (leader_id.addr != expect_addr) {
@@ -278,7 +278,7 @@ WAIT:
     }
 
     void ensure_same() {
-        std::lock_guard<bthread_mutex_t> guard(_mutex);
+        std::lock_guard<raft_mutex_t> guard(_mutex);
         if (_fsms.size() <= 1) {
             return;
         }
@@ -320,14 +320,14 @@ private:
     void all_nodes(std::vector<base::EndPoint>* addrs) {
         addrs->clear();
 
-        std::lock_guard<bthread_mutex_t> guard(_mutex);
+        std::lock_guard<raft_mutex_t> guard(_mutex);
         for (size_t i = 0; i < _nodes.size(); i++) {
             addrs->push_back(_nodes[i]->node_id().peer_id.addr);
         }
     }
 
     raft::Node* remove_node(const base::EndPoint& addr) {
-        std::lock_guard<bthread_mutex_t> guard(_mutex);
+        std::lock_guard<raft_mutex_t> guard(_mutex);
 
         // remove node
         raft::Node* node = NULL;
@@ -357,7 +357,7 @@ private:
     std::vector<raft::PeerId> _peers;
     std::vector<raft::Node*> _nodes;
     std::vector<MockFSM*> _fsms;
-    bthread_mutex_t _mutex;
+    raft_mutex_t _mutex;
 };
 
 class RaftTestSuits : public testing::Test {

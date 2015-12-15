@@ -14,12 +14,12 @@ CommitmentManager::CommitmentManager()
     : _waiter(NULL)
     , _last_committed_index(0)
 {
-    CHECK_EQ(0, bthread_mutex_init(&_mutex, NULL));
+    CHECK_EQ(0, raft_mutex_init(&_mutex, NULL));
 }
 
 CommitmentManager::~CommitmentManager() {
     clear_pending_applications();
-    bthread_mutex_destroy(&_mutex);
+    raft_mutex_destroy(&_mutex);
 }
 
 int CommitmentManager::init(const CommitmentManagerOptions &options) {

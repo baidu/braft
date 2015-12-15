@@ -28,7 +28,7 @@ protected:
 };
 
 struct LockMeta {
-    bthread_mutex_t* mutex;
+    raft_mutex_t* mutex;
     int64_t value;
 };
 
@@ -36,15 +36,15 @@ void* run_lock_guard(void *arg) {
     LockMeta* meta = (LockMeta*)arg;
 
     for (int i = 0; i < 10000; i++) {
-        std::lock_guard<bthread_mutex_t> guard(*(meta->mutex));
+        std::lock_guard<raft_mutex_t> guard(*(meta->mutex));
         meta->value++;
     }
     return NULL;
 }
 
 TEST_F(TestUsageSuits, lock) {
-    bthread_mutex_t mutex;
-    bthread_mutex_init(&mutex, NULL);
+    raft_mutex_t mutex;
+    raft_mutex_init(&mutex, NULL);
 
     // bthread lock guard
     LockMeta meta;
@@ -61,7 +61,7 @@ TEST_F(TestUsageSuits, lock) {
     }
 
     ASSERT_EQ(meta.value, 10*10000);
-    bthread_mutex_destroy(&mutex);
+    raft_mutex_destroy(&mutex);
 }
 
 TEST_F(TestUsageSuits, get_host_ip) {
