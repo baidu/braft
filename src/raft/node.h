@@ -91,6 +91,7 @@ friend class NodeImpl;
 
 class NodeImpl : public base::RefCountedThreadSafe<NodeImpl> {
 friend class RaftServiceImpl;
+friend class RaftStatImpl;
 public:
     NodeImpl(const GroupId& group_id, const PeerId& peer_id);
 

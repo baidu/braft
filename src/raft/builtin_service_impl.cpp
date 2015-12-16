@@ -104,10 +104,12 @@ void RaftStatImpl::default_method(::google::protobuf::RpcController* controller,
             }
             os << newline;
         }
+        nodes[i]->_log_manager->describe(os, use_html);
+        nodes[i]->_fsm_caller->describe(os, use_html);
         // TODO: list state of replicators for leader
-        
         // 
         os << newline;
+
     }
     os.move_to(cntl->response_attachment());
 }

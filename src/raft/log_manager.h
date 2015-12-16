@@ -110,6 +110,8 @@ public:
     // can be droped from memory logs
     void set_applied_index(int64_t applied_index);
 
+    void describe(std::ostream& os, bool use_html);
+
 private:
     static int leader_disk_run(void* meta,
                                StableClosure** const tasks[], size_t tasks_size);

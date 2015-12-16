@@ -58,6 +58,7 @@ public:
     int64_t last_applied_index() const {
         return _last_applied_index.load(boost::memory_order_relaxed);
     }
+    void describe(std::ostream& os, bool use_html);
 private:
     static int run(void* meta, google::protobuf::Closure** const tasks[], size_t tasks_size);
     void do_shutdown(); //Closure* done);
@@ -73,6 +74,7 @@ private:
     boost::atomic<int64_t> _last_applied_index;
     int64_t _last_applied_term;
     google::protobuf::Closure* _after_shutdown;
+    boost::atomic<const char*> _position;
 };
 
 };

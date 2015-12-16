@@ -522,4 +522,13 @@ void LogManager::notify_on_new_log(int64_t expected_last_log_index,
     }
 }
 
+void LogManager::describe(std::ostream& os, bool use_html) {
+    const char* new_line = use_html ? "<br>" : "\n";
+    int64_t first_index = _log_storage->first_log_index();
+    int64_t last_index = _log_storage->last_log_index();
+    os << "storage: [" << first_index << ", " << last_index << ']' << new_line;
+    os << "disk_index: " << _disk_index.load(boost::memory_order_relaxed) << new_line;
+    os << " known_applied_index: " << _applied_index.load(boost::memory_order_relaxed) << new_line;
+}
+
 }  // namespace raft
