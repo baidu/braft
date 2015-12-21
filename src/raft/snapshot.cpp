@@ -16,6 +16,7 @@
  * =====================================================================================
  */
 
+#include <base/time.h>
 #include <base/file_util.h>                         // base::CreateDirectory
 #include <base/files/dir_reader_posix.h>            // base::DirReaderPosix
 #include <base/string_printf.h>                     // base::string_appendf
@@ -85,6 +86,9 @@ int LocalSnapshotWriter::copy(const std::string& uri) {
 }
 
 int LocalSnapshotWriter::save_meta(const SnapshotMeta& meta) {
+    base::Timer timer;
+    timer.start();
+
     _meta = meta;
     std::string meta_path(_path);
     meta_path.append("/");
@@ -100,11 +104,14 @@ int LocalSnapshotWriter::save_meta(const SnapshotMeta& meta) {
     }
 
     ProtoBufFile pb_file(meta_path);
-    int ret = pb_file.save(&pb_meta, true);
+    int ret = pb_file.save(&pb_meta, FLAGS_raft_sync /*true*/);
     if (0 != ret) {
         set_error(EIO, "PBFile save failed, path: %s %m", meta_path.c_str());
         ret = EIO;
     }
+
+    timer.stop();
+    RAFT_VLOG << "snapshot save_meta " << meta_path << " time: " << timer.u_elapsed();
     return ret;
 }
 
@@ -139,6 +146,9 @@ int64_t LocalSnapshotReader::snapshot_index() {
 }
 
 int LocalSnapshotReader::load_meta(SnapshotMeta* meta) {
+    base::Timer timer;
+    timer.start();
+
     std::string meta_path(_path);
     meta_path.append("/");
     meta_path.append(_s_snapshot_meta);
@@ -156,6 +166,9 @@ int LocalSnapshotReader::load_meta(SnapshotMeta* meta) {
         set_error(EIO, "PBFile load failed, path: %s %m", meta_path.c_str());
         ret = EIO;
     }
+
+    timer.stop();
+    RAFT_VLOG << "snapshot load_meta " << meta_path << " time: " << timer.u_elapsed();
     return ret;
 }
 

@@ -30,6 +30,8 @@ namespace raft {
 const int MAX_STORAGE_SIZE = 16;
 static Storage s_storage_map[MAX_STORAGE_SIZE];
 
+DEFINE_bool(raft_sync, true, "call fsync when need");
+
 int init_storage() {
     Storage local_storage = {
         "file",

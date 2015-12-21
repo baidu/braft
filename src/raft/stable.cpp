@@ -17,6 +17,7 @@
  */
 
 #include <errno.h>
+#include <base/time.h>
 #include <base/logging.h>
 #include "raft/util.h"
 #include "raft/protobuf_file.h"
@@ -99,6 +100,9 @@ int LocalStableStorage::load() {
 }
 
 int LocalStableStorage::save() {
+    base::Timer timer;
+    timer.start();
+
     StablePBMeta meta;
     meta.set_term(_term);
     meta.set_votedfor(_votedfor.to_string());
@@ -109,9 +113,12 @@ int LocalStableStorage::save() {
 
     ProtoBufFile pb_file(path);
 
+    int ret = pb_file.save(&meta, FLAGS_raft_sync /*true*/);
+
+    timer.stop();
     LOG(INFO) << "save stable meta, path " << _path
-        << " term " << _term << " votedfor " << _votedfor.to_string();
-    return pb_file.save(&meta, true);
+        << " term " << _term << " votedfor " << _votedfor.to_string() << " time: " << timer.u_elapsed();
+    return ret;
 }
 
 int LocalStableStorage::get_votedfor(PeerId* peer_id) {

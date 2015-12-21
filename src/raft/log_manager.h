@@ -65,6 +65,7 @@ public:
     int truncate_suffix(const int64_t last_index_kept);
 
     void set_snapshot(const SnapshotMeta* meta);
+
     // Get the log at |index|
     // Returns:
     //  success return ptr, fail return null
@@ -119,7 +120,6 @@ private:
     // Must be called in the disk thread, otherwise the
     // behavior is undefined
     void set_disk_index(int64_t index);
-
 
     LogEntry* get_entry_from_memory(const int64_t index);
 

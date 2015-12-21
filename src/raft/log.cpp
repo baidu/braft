@@ -22,8 +22,7 @@
 #include <base/files/dir_reader_posix.h>            // base::DirReaderPosix
 #include <base/file_util.h>                         // base::CreateDirectory
 #include <base/string_printf.h>                     // base::string_appendf
-#include <base/callback.h>                          // base::Callback
-#include <base/bind.h>                              // base::Bind
+#include <base/time.h>
 #include <base/raw_pack.h>                          // base::RawPacker
 #include <baidu/rpc/reloadable_flags.h>             // 
 
@@ -44,7 +43,6 @@ using ::base::RawUnpacker;
 DEFINE_int32(raft_max_segment_size, 8 * 1024 * 1024 /*8M*/, 
              "Max size of one segment file");
 BAIDU_RPC_VALIDATE_GFLAG(raft_max_segment_size, baidu::rpc::PositiveInteger);
-DEFINE_bool(raft_sync_every_log, true, "call fsync when every log");
 
 int ftruncate_uninterrupted(int fd, off_t length) {
     int rc = 0;
@@ -284,12 +282,14 @@ int Segment::load(ConfigurationManager* configuration_manager) {
 int Segment::append(const LogEntry* entry) {
 
     if (BAIDU_UNLIKELY(!entry || !_is_open)) {
-        return -1;
+        return EINVAL;
+    } else if (BAIDU_UNLIKELY(entry->index <= _last_index.load(boost::memory_order_consume))) {
+        return EEXIST;
     } else if (BAIDU_UNLIKELY(entry->index != _last_index.load(boost::memory_order_consume) + 1)) {
         CHECK(false) << "entry->index=" << entry->index
                   << " _last_index=" << _last_index
                   << " _first_index=" << _first_index;
-        return -1;
+        return ERANGE;
     }
 
     base::IOBuf data;
@@ -351,7 +351,11 @@ int Segment::append(const LogEntry* entry) {
 int Segment::sync() {
     if (_last_index > _first_index) {
         CHECK(_is_open);
-        return ::fsync(_fd);
+        if (FLAGS_raft_sync) {
+            return ::fsync(_fd);
+        } else {
+            return 0;
+        }
     } else {
         return 0;
     }
@@ -451,6 +455,18 @@ int Segment::close() {
     return ret;
 }
 
+static void* run_unlink(void* arg) {
+    char* file_path = (char*) arg;
+    base::Timer timer;
+    timer.start();
+    int ret = ::unlink(file_path);
+    timer.stop();
+    RAFT_VLOG << "unlink " << file_path << " ret " << ret << " time: " << timer.u_elapsed();
+    free(file_path);
+
+    return NULL;
+}
+
 int Segment::unlink() {
     int ret = 0;
     do {
@@ -463,10 +479,20 @@ int Segment::unlink() {
                                 _first_index, _last_index.load());
         }
 
-        ret = ::unlink(path.c_str());
+        std::string tmp_path(path);
+        tmp_path.append(".tmp");
+        ret = ::rename(path.c_str(), tmp_path.c_str());
         if (ret != 0) {
-            PLOG(ERROR) << "Fail to unlink " << path;
+            PLOG(ERROR) << "Fail to rename " << path << " to " << tmp_path;
             break;
+        }
+
+        // start bthread to unlink
+        // TODO unlink follow control
+        char* file_path = strndup(path.c_str(), path.length());
+        bthread_t tid;
+        if (bthread_start_background(&tid, &BTHREAD_ATTR_NORMAL, run_unlink, file_path) != 0) {
+            run_unlink(file_path);
         }
 
         LOG(INFO) << "Unlinked segment `" << path << '\'';
@@ -573,30 +599,32 @@ int SegmentLogStorage::append_entries(const std::vector<LogEntry*>& entries) {
         LogEntry* entry = entries[i];
 
         Segment* segment = open_segment();
-        if (0 != segment->append(entry)) {
+        int ret = segment->append(entry);
+        if (0 != ret && EEXIST != ret) {
+            return i;
+        }
+        if (EEXIST == ret && entry->term != get_term(entry->index)) {
             return i;
         }
         _last_log_index.fetch_add(1, boost::memory_order_release);
         last_segment = segment;
     }
-    if (FLAGS_raft_sync_every_log) {
-        last_segment->sync();
-    }
+    last_segment->sync();
     return entries.size();
 }
 
 int SegmentLogStorage::append_entry(const LogEntry* entry) {
     Segment* segment = open_segment();
     int ret = segment->append(entry);
-    if (ret != 0) {
+    if (ret != 0 && ret != EEXIST) {
         return ret;
+    }
+    if (EEXIST == ret && entry->term != get_term(entry->index)) {
+        return EINVAL;
     }
     _last_log_index.fetch_add(1, boost::memory_order_release);
 
-    if (FLAGS_raft_sync_every_log) {
-        ret = segment->sync();
-    }
-    return ret;
+    return segment->sync();
 }
 
 LogEntry* SegmentLogStorage::get_entry(const int64_t index) {
@@ -709,8 +737,19 @@ int SegmentLogStorage::truncate_suffix(const int64_t last_index_kept) {
     boost::shared_ptr<Segment> last_segment;
     pop_segments_from_back(last_index_kept, &popped, &last_segment);
     if (last_segment) {
-        last_segment->truncate(last_index_kept);
-    } else {
+        if (_first_log_index.load(boost::memory_order_relaxed) <=
+            _last_log_index.load(boost::memory_order_relaxed)) {
+            last_segment->truncate(last_index_kept);
+        } else {
+            // trucate_prefix() and truncate_suffix() to discard entire logs
+            BAIDU_SCOPED_LOCK(_mutex);
+            popped.push_back(last_segment);
+            _segments.erase(last_segment->first_index());
+            if (_open_segment) {
+                CHECK(_open_segment == last_segment);
+                _open_segment.reset();
+            }
+        }
     }
     for (size_t i = 0; i < popped.size(); ++i) {
         popped[i]->unlink();
@@ -728,15 +767,17 @@ int SegmentLogStorage::list_segments(bool is_empty) {
 
     // restore segment meta
     while (dir_reader.Next()) {
-        if (is_empty) {
-            if (0 == strncmp(dir_reader.name(), "log_", strlen("log_"))) {
-                std::string segment_path(_path);
-                segment_path.append("/");
-                segment_path.append(dir_reader.name());
-                ::unlink(segment_path.c_str());
+        // unlink unneed segments and unfinished unlinked segments
+        if ((is_empty && 0 == strncmp(dir_reader.name(), "log_", strlen("log_"))) ||
+            (0 == strncmp(dir_reader.name() + (strlen(dir_reader.name()) - strlen(".tmp")),
+                          ".tmp", strlen(".tmp")))) {
+            std::string segment_path(_path);
+            segment_path.append("/");
+            segment_path.append(dir_reader.name());
+            ::unlink(segment_path.c_str());
 
-                LOG(WARNING) << "unlink unused segment, path: " << segment_path;
-            }
+            LOG(WARNING) << "unlink unused segment, path: " << segment_path;
+
             continue;
         }
 
@@ -868,16 +909,26 @@ int SegmentLogStorage::load_segments(ConfigurationManager* configuration_manager
 }
 
 int SegmentLogStorage::save_meta(const int64_t log_index) {
+    base::Timer timer;
+    timer.start();
+
     std::string meta_path(_path);
     meta_path.append("/" RAFT_SEGMENT_META_FILE);
 
     ProtoBufFile pb_file(meta_path);
     LogPBMeta meta;
     meta.set_first_log_index(log_index);
-    return pb_file.save(&meta, true);
+    int ret = pb_file.save(&meta, FLAGS_raft_sync /*true*/);
+
+    timer.stop();
+    RAFT_VLOG << "log save_meta " << meta_path << " time: " << timer.u_elapsed();
+    return ret;
 }
 
 int SegmentLogStorage::load_meta() {
+    base::Timer timer;
+    timer.start();
+
     std::string meta_path(_path);
     meta_path.append("/" RAFT_SEGMENT_META_FILE);
 
@@ -888,6 +939,9 @@ int SegmentLogStorage::load_meta() {
     }
 
     _first_log_index.store(meta.first_log_index());
+
+    timer.stop();
+    RAFT_VLOG << "log load_meta " << meta_path << " time: " << timer.u_elapsed();
     return 0;
 }
 

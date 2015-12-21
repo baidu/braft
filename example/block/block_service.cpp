@@ -22,12 +22,19 @@
 namespace block {
 
 void WriteDone::Run() {
+    _timer.stop();
     if (_err_code == 0) {
-        LOG(NOTICE) << "block: " << _block << " write success";
+        LOG(NOTICE) << "block: " << _block << " write success,"
+            << " offset: " << _request->offset()
+            << " size: " << _request->size()
+            << " time: " << _timer.u_elapsed();
         _response->set_success(true);
     } else {
-        LOG(WARNING) << "block: " << _block << " write failed: "
-            << _err_code << noflush;
+        LOG(WARNING) << "block: " << _block << " write failed,"
+            << " offset: " << _request->offset()
+            << " size: " << _request->size()
+            << " time: " << _timer.u_elapsed()
+            << " err: " << _err_code << noflush;
         if (!_err_text.empty()) {
             LOG(WARNING) << "(" << _err_text << ")" << noflush;
         }

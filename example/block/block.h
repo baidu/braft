@@ -33,11 +33,14 @@ public:
             const WriteRequest* request, WriteResponse* response,
             google::protobuf::Closure* done)
         : _block(block), _controller(controller),
-        _request(request), _response(response), _done(done) {}
+        _request(request), _response(response), _done(done) {
+        _timer.start();
+    }
     virtual ~WriteDone() {}
 
     virtual void Run();
 private:
+    base::Timer _timer;
     Block* _block; // for leader
     baidu::rpc::Controller* _controller;
     const WriteRequest* _request;

@@ -20,10 +20,13 @@
 
 #include <string>
 #include <vector>
+#include <gflags/gflags.h>
 
 #include "raft/configuration.h"
 
 namespace raft {
+
+DECLARE_bool(raft_sync);
 
 class LogEntry;
 //class ConfigurationManager;

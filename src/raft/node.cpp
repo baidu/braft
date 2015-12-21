@@ -187,7 +187,7 @@ void NodeImpl::on_snapshot_load_done() {
 }
 
 int NodeImpl::on_snapshot_save_done(const SnapshotMeta& meta, SnapshotWriter* writer) {
-    BAIDU_SCOPED_LOCK(_mutex);
+    std::unique_lock<raft_mutex_t> lck(_mutex);
     int ret = 0;
 
     do {
@@ -211,16 +211,18 @@ int NodeImpl::on_snapshot_save_done(const SnapshotMeta& meta, SnapshotWriter* wr
 
         _log_manager->set_snapshot(&meta);
 
+        // update configuration
+        _log_manager->check_and_set_configuration(&_conf);
+
+        lck.unlock();
+
         // discard unneed entries before _last_snapshot_index
         // OPTIMIZE: should be defer discard entries when some followers are catching up.
-        if (_log_manager->first_log_index() <= _last_snapshot_index) {
-            _log_manager->truncate_prefix(_last_snapshot_index + 1);
+        if (_log_manager->first_log_index() <= meta.last_included_index) {
+            _log_manager->truncate_prefix(meta.last_included_index + 1);
         }
 
         //TODO: discard unneed snapshot
-
-        // update configuration
-        _log_manager->check_and_set_configuration(&_conf);
 
         ret = writer->save_meta(meta);
 
@@ -231,6 +233,9 @@ int NodeImpl::on_snapshot_save_done(const SnapshotMeta& meta, SnapshotWriter* wr
             << " last_configuration " << meta.last_configuration;
     } while (0);
 
+    if (!lck.owns_lock()) {
+        lck.lock();
+    }
     _snapshot_saving = false;
     return ret;
 }
@@ -1587,7 +1592,10 @@ int NodeImpl::handle_append_entries_request(const base::IOBuf& data,
                                             const AppendEntriesRequest* request,
                                             AppendEntriesResponse* response) {
     base::IOBuf data_buf(data);
-    BAIDU_SCOPED_LOCK(_mutex);
+    std::unique_lock<raft_mutex_t> lck(_mutex);
+
+    // pre set term, to avoid get term in lock
+    response->set_term(_current_term);
 
     PeerId server_id;
     if (0 != server_id.parse(request->server_id())) {
@@ -1611,6 +1619,7 @@ int NodeImpl::handle_append_entries_request(const base::IOBuf& data,
         // check term and state to step down
         if (request->term() > _current_term || _state != FOLLOWER) {
             step_down(request->term());
+            response->set_term(request->term());
         }
 
         // save current leader
@@ -1679,6 +1688,7 @@ int NodeImpl::handle_append_entries_request(const base::IOBuf& data,
             if (entry.type() != ENTRY_TYPE_UNKNOWN) {
                 LogEntry* log_entry = new LogEntry();
                 log_entry->term = entry.term();
+                log_entry->index = index;
                 log_entry->type = (EntryType)entry.type();
                 if (entry.peers_size() > 0) {
                     log_entry->peers = new std::vector<PeerId>;
@@ -1710,6 +1720,8 @@ int NodeImpl::handle_append_entries_request(const base::IOBuf& data,
             << " count " << entries.size()
             << " current_term " << _current_term;
 
+        lck.unlock();
+
         //TODO2: outof lock
         if (0 != append(entries)) {
             // free entry
@@ -1717,10 +1729,15 @@ int NodeImpl::handle_append_entries_request(const base::IOBuf& data,
                 LogEntry* entry = entries[i];
                 entry->Release();
             }
+            success = false;
         }
     } while (0);
 
-    response->set_term(_current_term);
+    // TOOD: unuse lock use atomic
+    if (!lck.owns_lock()) {
+        lck.lock();
+    }
+
     response->set_success(success);
     response->set_last_log_index(_log_manager->last_log_index());
     if (success) {

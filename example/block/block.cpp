@@ -139,8 +139,8 @@ void Block::on_apply(const base::IOBuf &data, const int64_t index, raft::Closure
     put_fd(fd);
 
     timer.stop();
-    LOG(NOTICE) << "write success, index: " << index << " time: " << timer.u_elapsed()
-        << " offset: " << offset << " size: " << size;
+    LOG(NOTICE) << "write success, index: " << index
+        << " offset: " << offset << " size: " << size << " time: " << timer.u_elapsed();
 
     _applied_index = index;
 }

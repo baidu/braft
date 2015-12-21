@@ -439,6 +439,8 @@ void Replicator::_wait_more_entries(long start_time_us) {
     _options.log_manager->wait(_next_index - 1, &due_time, 
                        _continue_sending, (void*)_id.value);
     CHECK_EQ(0, bthread_id_unlock(_id)) << "Fail to unlock " << _id;
+    RAFT_VLOG << "node " << _options.group_id << ":" << _options.peer_id
+        << " wait more entries";
 }
 
 void Replicator::_install_snapshot() {

@@ -16,6 +16,8 @@
 
 namespace raft {
 
+DEFINE_int32(raft_leader_batch, 50, "max leader io batch");
+
 LogManagerOptions::LogManagerOptions()
     : log_storage(NULL), configuration_manager(NULL)
 {}
@@ -57,11 +59,12 @@ LogManager::~LogManager() {
 }
 
 int LogManager::start_disk_thread() {
+    RAFT_VLOG << "disk_thread start";
     BAIDU_SCOPED_LOCK(_mutex);
     CHECK(!_leader_disk_thread_running);
     bthread::ExecutionQueueOptions queue_options;
     queue_options.bthread_attr = BTHREAD_ATTR_NORMAL;
-    queue_options.max_tasks_size = 5;
+    queue_options.max_tasks_size = FLAGS_raft_leader_batch;
     int ret = bthread::execution_queue_start(&_leader_disk_queue,
                                    &queue_options,
                                    leader_disk_run,
@@ -75,6 +78,7 @@ int LogManager::start_disk_thread() {
 }
 
 int LogManager::stop_disk_thread() {
+    RAFT_VLOG << "disk_thread stop";
     std::unique_lock<raft_mutex_t> lck(_mutex);
     bthread::ExecutionQueueId<StableClosure*> saved_queue = _leader_disk_queue;
     // FIXME: see the comments in truncate_prefix
@@ -126,41 +130,57 @@ int64_t LogManager::last_log_index() {
     return _log_storage->last_log_index();
 }
 
+class LeaderDiskThreadBarrierDone : public LogManager::StableClosure {
+public:
+    LeaderDiskThreadBarrierDone(raft_mutex_t* mutex)
+        : _mutex(mutex), _signaled(false) {
+            raft_cond_init(&_cond, NULL);
+    }
+    virtual ~LeaderDiskThreadBarrierDone() {
+        raft_cond_destroy(&_cond);
+    }
+
+    void Run() {
+        raft_mutex_lock(_mutex);
+        _signaled = true;
+        raft_mutex_unlock(_mutex);
+        raft_cond_signal(&_cond);
+    }
+
+    void wait_locked() {
+        while (!_signaled) {
+            raft_cond_wait(&_cond, _mutex);
+        }
+    }
+
+    void wait_unlocked() {
+        raft_mutex_lock(_mutex);
+        while (!_signaled) {
+            raft_cond_wait(&_cond, _mutex);
+        }
+        raft_mutex_unlock(_mutex);
+    }
+private:
+    raft_mutex_t *_mutex;
+    raft_cond_t _cond;
+    bool _signaled;
+};
+
 int LogManager::truncate_prefix(const int64_t first_index_kept) {
+    base::Timer timer;
+    timer.start();
+
+    RAFT_VLOG << "disk_thread flush";
     std::unique_lock<raft_mutex_t> lck(_mutex);
     int ret = 0;
     //OPTIMIZE: flush leader disk thread sync, can be optimize in async
     //some snapshot included logs not write to storage when leader snapshot finished
-    if (_leader_disk_thread_running) {
-        ret = bthread::execution_queue_stop(_leader_disk_queue);
-        if (ret != 0) {
-            LOG(FATAL) << "leader disk thread stop failed";
-            return ret;
-        }
-        bthread::ExecutionQueueId<StableClosure*> saved_queue = _leader_disk_queue;
-        // FIXME: join in mutex might lead to deadlock. We unlock _mutex
-        // here as NodeImpl holds a mutex before calling this function so that
-        // only one truncate_prefix calls at the same time. But it's weird here
-        // which should be refined soon.
-        // One solution is that we let the disk thread do the truncation
-        lck.unlock();
-        ret = bthread::execution_queue_join(saved_queue);
-        if (ret != 0) {
-            LOG(FATAL) << "leader disk thread join failed";
-            return ret;
-        }
-        lck.lock();
-        bthread::ExecutionQueueOptions queue_options;
-        queue_options.bthread_attr = BTHREAD_ATTR_NORMAL;
-        queue_options.max_tasks_size = 5;
-        ret = bthread::execution_queue_start(&_leader_disk_queue,
-                                                 &queue_options,
-                                                 leader_disk_run,
-                                                 this);
-        if (ret != 0) {
-            LOG(FATAL) << "leader disk thread start failed";
-            return ret;
-        }
+    if (_leader_disk_thread_running &&
+        _disk_index.load(boost::memory_order_relaxed) < first_index_kept) {
+        LeaderDiskThreadBarrierDone done(lck.mutex());
+        ret = bthread::execution_queue_execute(_leader_disk_queue, &done);
+        CHECK_EQ(0, ret) << "execq execute failed, ret: " << ret << " err: " << berror();
+        done.wait_locked();
     }
     // As the duration between two snapshot (which leads to truncate_prefix at
     // last) is likely to be a long period, _logs_in_memory is likely to
@@ -183,10 +203,18 @@ int LogManager::truncate_prefix(const int64_t first_index_kept) {
 
     _config_manager->truncate_prefix(first_index_kept);
     lck.unlock();
-    return _log_storage->truncate_prefix(first_index_kept);
+    ret = _log_storage->truncate_prefix(first_index_kept);
+
+    timer.stop();
+    RAFT_VLOG << "truncate_prefix " << first_index_kept << " time: " << timer.u_elapsed();
+
+    return ret;
 }
 
 int LogManager::truncate_suffix(const int64_t last_index_kept) {
+    base::Timer timer;
+    timer.start();
+
     {
         BAIDU_SCOPED_LOCK(_mutex);
 
@@ -204,7 +232,12 @@ int LogManager::truncate_suffix(const int64_t last_index_kept) {
         _config_manager->truncate_suffix(last_index_kept);
         _disk_index.store(last_index_kept, boost::memory_order_release);
     }
-    return _log_storage->truncate_suffix(last_index_kept);
+    int ret = _log_storage->truncate_suffix(last_index_kept);
+
+    timer.stop();
+    RAFT_VLOG << "truncate_suffix " << last_index_kept << " time: " << timer.u_elapsed();
+
+    return ret;
 }
 
 int LogManager::append_entries(const std::vector<LogEntry*>& entries) {
@@ -212,24 +245,44 @@ int LogManager::append_entries(const std::vector<LogEntry*>& entries) {
 
     //TODO: move index setting to LogStorage
     for (size_t i = 0; i < entries.size(); i++) {
+        // follower append has index, not need set
+        if (entries[i]->index != 0) {
+            break;
+        }
         entries[i]->index = _last_log_index + 1 + i;
     }
     lck.unlock();
 
     RAFT_VLOG << "follower append " << entries[0]->index
-        << "-" << entries[0]->index + entries.size() - 1;
+        << "-" << entries[0]->index + entries.size() - 1 << noflush;
 
+    base::Timer timer;
+    timer.start();
     int ret = _log_storage->append_entries(entries);
     if (static_cast<size_t>(ret) == entries.size()) {
         ret = 0;
         lck.lock();
+        int64_t last_index = 0;
         for (size_t i = 0; i < entries.size(); i++) {
-            _logs_in_memory.push_back(entries[i]);
-            if (entries[i]->type == ENTRY_TYPE_ADD_PEER || entries[i]->type == ENTRY_TYPE_REMOVE_PEER) {
-                _config_manager->add(entries[i]->index, Configuration(*(entries[i]->peers)));
+            last_index = entries[i]->index;
+            // skip duplicated follower append logs
+            if (_logs_in_memory.size() == 0 ||
+                (_logs_in_memory.size() > 0 &&
+                 _logs_in_memory.back()->index + 1 == entries[i]->index)) {
+
+                // new logs append to memory
+                _logs_in_memory.push_back(entries[i]);
+
+                // update configuration
+                if (entries[i]->type == ENTRY_TYPE_ADD_PEER ||
+                    entries[i]->type == ENTRY_TYPE_REMOVE_PEER) {
+                    _config_manager->add(entries[i]->index, Configuration(*(entries[i]->peers)));
+                }
+            } else {
+                entries[i]->Release();
             }
         }
-        _last_log_index += entries.size();
+        _last_log_index = last_index;
         _disk_index.store(_last_log_index);
     } else {
         // Remove partially appended logs which would make later appending
@@ -237,6 +290,9 @@ int LogManager::append_entries(const std::vector<LogEntry*>& entries) {
         _log_storage->truncate_suffix(_last_log_index);
         ret = EIO;
     }
+    timer.stop();
+
+    RAFT_VLOG << " time: " << timer.u_elapsed();
     return ret;
 }
 
@@ -258,7 +314,7 @@ void LogManager::append_entry(
     CHECK(_leader_disk_thread_running);
     // signal leader disk
     int ret = bthread::execution_queue_execute(_leader_disk_queue, done);
-    CHECK(ret == 0);
+    CHECK_EQ(0, ret) << "execq execute failed, ret: " << ret << " err: " << berror();
 
     // signal replicator
     //int64_t last_log_index = log_entry->index;
@@ -267,16 +323,28 @@ void LogManager::append_entry(
 
 int LogManager::leader_disk_run(void* meta,
                                 StableClosure** const tasks[], size_t tasks_size) {
+    if (tasks_size == 0) {
+        return 0;
+    }
+
     LogManager* log_manager = static_cast<LogManager*>(meta);
     std::vector<LogEntry*> entries;
     entries.reserve(tasks_size);
     for (size_t i = 0; i < tasks_size; i++) {
         StableClosure* done = *tasks[i];
-        entries.push_back(done->_entry);
+        //skip barrier
+        if (done->_entry) {
+            entries.push_back(done->_entry);
+        }
     }
 
     int ret = 0;
     if (entries.size() > 0) {
+        base::Timer timer;
+        timer.start();
+        RAFT_VLOG << "leader_disk_thread append " << entries[0]->index
+            << "-" << entries[0]->index + entries.size() - 1 << noflush;
+
         ret = log_manager->_log_storage->append_entries(entries);
         if (entries.size() == static_cast<size_t>(ret)) {
             ret = 0;
@@ -285,22 +353,32 @@ int LogManager::leader_disk_run(void* meta,
             CHECK(false) << entries.size() << "!=" << ret;
             ret = EIO;
         }
+
+        timer.stop();
+        RAFT_VLOG << " time: " << timer.u_elapsed();
     }
+
+
     int64_t last_log_index = 0;
     for (size_t i = 0; i < tasks_size; i++) {
         StableClosure* done = *tasks[i];
         if (ret != 0) {
             done->set_error(EIO, "append entry failed");
-        } else {
+        } else if (done->_entry) {
+            // skip barrier
             last_log_index = done->_log_index;
         }
-        done->_entry->Release();
-        done->_entry = NULL;
+        // skip barrier
+        if (done->_entry) {
+            done->_entry->Release();
+            done->_entry = NULL;
+        }
         done->Run();
     }
     if (last_log_index != 0) {
         log_manager->set_disk_index(last_log_index);
     }
+
     return 0;
 }
 
