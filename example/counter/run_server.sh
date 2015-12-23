@@ -25,7 +25,7 @@ IP=`hostname -i`
 CRASH_ON_FATAL="-crash_on_fatal_log=true"
 VLOG_LEVEL="-verbose=90"
 BTHREAD_CONCURRENCY="-bthread_concurrency=18"
-SYNC_EVERY_LOG="-raft_sync_every_log=false"
+SYNC_EVERY_LOG="-raft_sync=false"
 
 cd runtime/0
 ${VALGRIND} ./counter_server ${HAS_VALGRIND} ${BTHREAD_CONCURRENCY} ${CRASH_ON_FATAL} ${VLOG_LEVEL} ${MAX_SEGMENT_SIZE} ${SYNC_EVERY_LOG} -ip_and_port="0.0.0.0:8100" -peers="${IP}:8100:0,${IP}:8101:0,${IP}:8102:0" > std.log 2>&1 &

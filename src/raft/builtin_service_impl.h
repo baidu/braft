@@ -7,15 +7,18 @@
 #define  PUBLIC_RAFT_BUILTIN_SERVICE_IMPL_H
 
 #include "raft/builtin_service.pb.h"
+#include <baidu/rpc/builtin/tabbed.h>
 
 namespace raft {
 
-class RaftStatImpl : public raft_stat {
+class RaftStatImpl : public raft_stat, public baidu::rpc::Tabbed {
 public:
     void default_method(::google::protobuf::RpcController* controller,
                         const ::raft::IndexRequest* request,
                         ::raft::IndexResponse* response,
                         ::google::protobuf::Closure* done);
+
+    void GetTabInfo(baidu::rpc::TabInfoList*) const;
 };
 
 }  // namespace raft

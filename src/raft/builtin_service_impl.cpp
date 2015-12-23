@@ -8,23 +8,16 @@
 #include <baidu/rpc/controller.h>
 #include <baidu/rpc/closure_guard.h>
 #include <baidu/rpc/http_status_code.h>
+#include <baidu/rpc/builtin/common.h>
 #include "raft/node.h"
 #include "raft/replicator.h"
 
 namespace raft {
 
-inline bool use_html(const baidu::rpc::HttpHeader& header) {
-    const std::string* console = header.uri().GetQuery("console");
-    if (console != NULL) {
-        return atoi(console->c_str()) == 0;
-    }
-    // [curl header]
-    // User-Agent: curl/7.12.1 (x86_64-redhat-linux-gnu) libcurl/7.12.1 ...
-    const std::string* agent = header.GetHeader("user-agent");
-    if (agent == NULL) {  // use text when user-agent is absent
-        return false;
-    }
-    return agent->find("curl/") == std::string::npos;
+void RaftStatImpl::GetTabInfo(baidu::rpc::TabInfoList* info_list) const {
+    baidu::rpc::TabInfo* info = info_list->add();
+    info->tab_name = "raft";
+    info->path = "/raft_stat";
 }
 
 void RaftStatImpl::default_method(::google::protobuf::RpcController* controller,
@@ -41,7 +34,7 @@ void RaftStatImpl::default_method(::google::protobuf::RpcController* controller,
     } else {
         nm->get_nodes_by_group_id(group_id, &nodes);
     }
-    const bool html = use_html(cntl->http_request());
+    const bool html = baidu::rpc::UseHTML(cntl->http_request());
     if (html) {
         cntl->http_response().set_content_type("text/html");
     } else {
@@ -52,6 +45,13 @@ void RaftStatImpl::default_method(::google::protobuf::RpcController* controller,
         return;
     }
     base::IOBufBuilder os;
+    if (html) {
+        os << "<!DOCTYPE html><html><head>\n"
+           << "<script language=\"javascript\" type=\"text/javascript\" src=\"/js/jquery_min\"></script>\n"
+           << baidu::rpc::TabsHead() << "</head><body>";
+        cntl->server()->PrintTabsBody(os, "raft");
+    }
+
     std::string prev_group_id;
     const char *newline = html ? "<br>" : "\r\n";
     for (size_t i = 0; i < nodes.size(); ++i) {
@@ -104,12 +104,15 @@ void RaftStatImpl::default_method(::google::protobuf::RpcController* controller,
             }
             os << newline;
         }
-        nodes[i]->_log_manager->describe(os, use_html);
-        nodes[i]->_fsm_caller->describe(os, use_html);
+        nodes[i]->_log_manager->describe(os, html);
+        nodes[i]->_fsm_caller->describe(os, html);
         // TODO: list state of replicators for leader
         // 
         os << newline;
 
+    }
+    if (html) {
+        os << "</body></html>";
     }
     os.move_to(cntl->response_attachment());
 }
