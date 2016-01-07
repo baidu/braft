@@ -691,7 +691,7 @@ void* read_thread_routine(void* arg) {
         int a = g_first_read_index.load(boost::memory_order_relaxed);
         int b = g_last_read_index.load(boost::memory_order_relaxed);
         EXPECT_LE(a, b);
-        int index = raft::get_random_number(a, b + 1);
+        int index = base::fast_rand_in(a, b);
         raft::LogEntry* entry = storage->get_entry(index);
         if (entry != NULL) {
             std::string expect;
@@ -720,21 +720,23 @@ void* write_thread_routine(void* arg) {
     //  - 50% append new entry
     int next_log_index = storage->last_log_index() + 1;
     while (!g_stop) {
-        const int r = raft::get_random_number(0, 10);
+        const int r = base::fast_rand_in(0, 9);
         if (r < 1) {  // truncate_prefix
-            int truncate_index = raft::get_random_number(
+            int truncate_index = base::fast_rand_in(
                     g_first_read_index.load(boost::memory_order_relaxed), 
-                    g_last_read_index.load(boost::memory_order_relaxed) + 1);
+                    g_last_read_index.load(boost::memory_order_relaxed));
             EXPECT_EQ(0, storage->truncate_prefix(truncate_index));
             g_first_read_index.store(truncate_index, boost::memory_order_relaxed);
         } else if (r < 2) {  // truncate suffix
-            int truncate_index = raft::get_random_number(
-                    g_last_read_index.load(boost::memory_order_relaxed), next_log_index);
+            int truncate_index = base::fast_rand_in(
+                    g_last_read_index.load(boost::memory_order_relaxed),
+                    next_log_index - 1);
             EXPECT_EQ(0, storage->truncate_suffix(truncate_index));
             next_log_index = truncate_index + 1;
         } else if (r < 5) { // increase last_read_index which cannot be truncate
-            int next_read_index = raft::get_random_number(
-                    g_last_read_index.load(boost::memory_order_relaxed), next_log_index);
+            int next_read_index = base::fast_rand_in(
+                    g_last_read_index.load(boost::memory_order_relaxed),
+                    next_log_index - 1);
             g_last_read_index.store(next_read_index, boost::memory_order_relaxed);
         } else  {  // Append entry
             raft::LogEntry* entry = new raft::LogEntry;

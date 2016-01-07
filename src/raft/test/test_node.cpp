@@ -1309,7 +1309,6 @@ TEST_F(RaftTestSuits, InstallSnapshot) {
     raft::Node* leader = cluster.leader();
     ASSERT_TRUE(leader != NULL);
     LOG(WARNING) << "leader is " << leader->node_id();
-    base::EndPoint leader_addr = leader->node_id().peer_id.addr;
 
     // apply something
     BthreadCond cond;

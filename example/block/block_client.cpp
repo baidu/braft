@@ -51,7 +51,8 @@ public:
     }
 
     int write(int64_t start, int64_t end) {
-        int64_t offset = start + rand_int64() % (end - start);
+        CHECK_LT(start, end);
+        int64_t offset = base::fast_rand_in(start, end - 1);
         int64_t size = std::min(end - offset, 4*1024L);
 
         // write remote 
@@ -61,7 +62,7 @@ public:
         block::WriteResponse response;
         base::IOBuf request_data;
         for (int64_t i = 0; i < size; i++) {
-            char c = 'a' + rand_int32() % 26;
+            char c = 'a' + base::fast_rand_less_than(26);
             request_data.push_back(c);
         }
 
@@ -109,7 +110,8 @@ public:
     }
 
     int read(int64_t start, int64_t end) {
-        int64_t offset = start + rand_int64() % (end - start);
+        CHECK_LT(start, end);
+        int64_t offset = base::fast_rand_in(start, end - 1);
         int64_t size = std::min(end - offset, 4*1024L);
 
         block::ReadRequest request;
@@ -180,7 +182,7 @@ public:
             LOG(WARNING) << "reach limit " << _rw_limit;
             return -1;
         }
-        int percent = raft::get_random_number(0, INT32_MAX) % 100;
+        int percent = base::fast_rand_less_than(100);
         if (percent <= _write_percent) {
             return write(start, end);
         } else {
@@ -253,23 +255,13 @@ public:
         return 0;
     }
 private:
-    int rand_int32() {
-        return raft::get_random_number(0, INT32_MAX);
-    }
-
-    int64_t rand_int64() {
-        int64_t first = raft::get_random_number(0, INT32_MAX);
-        int64_t second = raft::get_random_number(0, INT32_MAX);
-        return (first << 32) | second;
-    }
-
     base::EndPoint get_leader_addr() {
         base::EndPoint* tls_addr = base::get_thread_local<base::EndPoint>();
         if (tls_addr->ip != base::IP_ANY) {
             CHECK(tls_addr->port != 0);
             return *tls_addr;
         } else {
-            int index = rand_int32() % _peers.size();
+            int index = base::fast_rand_less_than(_peers.size());
             return _peers[index].addr;
         }
     }

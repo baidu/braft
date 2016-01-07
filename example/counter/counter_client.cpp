@@ -70,7 +70,7 @@ public:
             counter::FetchAndAddRequest request;
             request.set_ip(0); // fake, server get from controller::remote_side
             request.set_pid(getpid());
-            request.set_req_id(rand_int64());
+            request.set_req_id(base::fast_rand());
             request.set_value(1);
             counter::FetchAndAddResponse response;
             stub.fetch_and_add(&cntl, &request, &response, NULL);
@@ -136,23 +136,13 @@ public:
         return 0;
     }
 private:
-    int rand_int32() {
-        return raft::get_random_number(0, INT32_MAX);
-    }
-
-    int64_t rand_int64() {
-        int64_t first = raft::get_random_number(0, INT32_MAX);
-        int64_t second = raft::get_random_number(0, INT32_MAX);
-        return (first << 32) | second;
-    }
-
     base::EndPoint get_leader_addr() {
         base::EndPoint* tls_addr = base::get_thread_local<base::EndPoint>();
         if (tls_addr->ip != base::IP_ANY) {
             CHECK(tls_addr->port != 0);
             return *tls_addr;
         } else {
-            int index = rand_int32() % _peers.size();
+            int index = base::fast_rand_less_than(_peers.size());
             return _peers[index].addr;
         }
     }

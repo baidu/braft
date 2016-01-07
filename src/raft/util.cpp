@@ -8,22 +8,10 @@
 #include <stdlib.h>
 #include <base/macros.h>
 #include <base/raw_pack.h>                     // base::RawPacker
-#include <baidu/rpc/random_number_seed.h>
 
 #include "raft/raft.h"
 
 namespace raft {
-
-static __thread uint32_t __tls_seed = 0;
-
-int get_random_number(int min, int max) {
-    if (BAIDU_UNLIKELY(__tls_seed == 0)) {
-        __tls_seed = baidu::rpc::RandomNumberSeed();
-    }
-    long range = max - min;
-    int result  = min + range * rand_r(&__tls_seed) / RAND_MAX;
-    return result;
-}
 
 static void* run_closure(void* arg) {
     Closure *c = (Closure*)arg;

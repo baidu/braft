@@ -25,7 +25,7 @@
 #include <iterative_murmurhash3.h>
 #include <base/endpoint.h>
 #include <base/scoped_lock.h>
-#include <base/rand_util.h>
+#include <base/fast_rand.h>
 #include <base/time.h>
 #include <base/logging.h>
 #include <base/iobuf.h>
@@ -78,10 +78,8 @@ inline ip_t get_host_ip() {
 namespace raft {
 class Closure;
 
-int get_random_number(int min, int max);
-
 inline int random_timeout(int timeout_ms) {
-    return get_random_number(timeout_ms, timeout_ms << 1);
+    return base::fast_rand_in(timeout_ms, timeout_ms << 1);
 }
 
 inline uint32_t murmurhash32(const void *key, int len) {

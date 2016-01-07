@@ -84,7 +84,7 @@ TEST_F(TestUsageSuits, get_host_ip) {
 
 TEST_F(TestUsageSuits, random) {
     for (int i = 0; i < 10000; i++) {
-        int32_t value = raft::get_random_number(0, 10000);
+        int32_t value = base::fast_rand_in(0, 10000);
         ASSERT_TRUE(value >= 0 && value <= 10000);
     }
 
