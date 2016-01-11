@@ -107,7 +107,7 @@ int CommitmentManager::reset_pending_index(int64_t new_pending_index) {
 
 int CommitmentManager::append_pending_application(const Configuration& conf, void* context) {
     PendingMeta* pm = new PendingMeta;
-    conf.peer_set(&pm->peers);
+    conf.list_peers(&pm->peers);
     pm->quorum = pm->peers.size() / 2 + 1;
     pm->context = context;
 

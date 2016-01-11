@@ -521,7 +521,7 @@ void NodeImpl::on_configuration_change_done(const EntryType type,
 
         ConfigurationCtx old_conf_ctx = _conf_ctx;
         // remove_peer will stop peer replicator or shutdown
-        if (!_conf.second.contain(_server_id)) {
+        if (!_conf.second.contains(_server_id)) {
             //TODO: shutdown?
             _conf.second.reset();
             step_down(_current_term);
@@ -531,7 +531,7 @@ void NodeImpl::on_configuration_change_done(const EntryType type,
                 old_conf.remove_peer(new_peers[i]);
             }
             std::vector<PeerId> removed_peers;
-            old_conf.peer_vector(&removed_peers);
+            old_conf.list_peers(&removed_peers);
             for (size_t i = 0; i < removed_peers.size(); i++) {
                 _replicator_group.stop_replicator(removed_peers[i]);
             }
@@ -562,7 +562,7 @@ void NodeImpl::on_caughtup(const PeerId& peer, int error_code, Closure* done) {
             entry->term = _current_term;
             entry->type = ENTRY_TYPE_ADD_PEER;
             entry->peers = new std::vector<PeerId>;
-            new_conf.peer_vector(entry->peers);
+            new_conf.list_peers(entry->peers);
             ConfigurationChangeDone* configration_change_done = 
                     new ConfigurationChangeDone(entry->type, *entry->peers, this, done);
             append(entry, configration_change_done);
@@ -624,7 +624,7 @@ void NodeImpl::handle_stepdown_timeout() {
     }
 
     std::vector<PeerId> peers;
-    _conf.second.peer_vector(&peers);
+    _conf.second.list_peers(&peers);
     int64_t now_timestamp = base::monotonic_time_ms();
     size_t dead_count = 0;
     for (size_t i = 0; i < peers.size(); i++) {
@@ -674,20 +674,20 @@ void NodeImpl::add_peer(const std::vector<PeerId>& old_peers, const PeerId& peer
     // check equal, maybe retry direct return
     std::vector<PeerId> new_peers(old_peers);
     new_peers.push_back(peer);
-    if (_conf.second.equal(new_peers)) {
+    if (_conf.second.equals(new_peers)) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
             << " add_peer equal cureent conf " << _conf.second;
         _fsm_caller->on_cleared(0, done, 0);
         return;
     }
     // check not equal
-    if (!_conf.second.equal(old_peers)) {
+    if (!_conf.second.equals(old_peers)) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id << " add_peer dismatch old_peers";
         _fsm_caller->on_cleared(0, done, EINVAL);
         return;
     }
     // check contain
-    if (_conf.second.contain(peer)) {
+    if (_conf.second.contains(peer)) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id << " add_peer current peers "
             "contains new_peer";
         _fsm_caller->on_cleared(0, done, EINVAL);
@@ -745,20 +745,20 @@ void NodeImpl::remove_peer(const std::vector<PeerId>& old_peers, const PeerId& p
     Configuration new_conf(old_peers);
     new_conf.remove_peer(peer);
     std::vector<PeerId> new_peers;
-    new_conf.peer_vector(&new_peers);
-    if (_conf.second.equal(new_peers)) {
+    new_conf.list_peers(&new_peers);
+    if (_conf.second.equals(new_peers)) {
         _fsm_caller->on_cleared(0, done, 0);
         return;
     }
     // check not equal
-    if (!_conf.second.equal(old_peers)) {
+    if (!_conf.second.equals(old_peers)) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
             << " remove_peer dismatch old_peers";
         _fsm_caller->on_cleared(0, done, EINVAL);
         return;
     }
     // check contain
-    if (!_conf.second.contain(peer)) {
+    if (!_conf.second.contains(peer)) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id << " remove_peer old_peers not "
             "contains new_peer";
         _fsm_caller->on_cleared(0, done, EINVAL);
@@ -773,7 +773,7 @@ void NodeImpl::remove_peer(const std::vector<PeerId>& old_peers, const PeerId& p
     entry->term = _current_term;
     entry->type = ENTRY_TYPE_REMOVE_PEER;
     entry->peers = new std::vector<PeerId>;
-    new_conf.peer_vector(entry->peers);
+    new_conf.list_peers(entry->peers);
     ConfigurationChangeDone* configration_change_done
             = new ConfigurationChangeDone(entry->type, *entry->peers, this, done);
     append(entry, configration_change_done);
@@ -807,11 +807,11 @@ int NodeImpl::set_peer(const std::vector<PeerId>& old_peers, const std::vector<P
         return EINVAL;
     }
     // check equal, maybe retry direct return
-    if (_conf.second.equal(new_peers)) {
+    if (_conf.second.equals(new_peers)) {
         return 0;
     }
     // check not equal
-    if (!_conf.second.equal(std::vector<PeerId>(old_peers))) {
+    if (!_conf.second.equals(std::vector<PeerId>(old_peers))) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id << " set_peer dismatch old_peers";
         return EINVAL;
     }
@@ -822,7 +822,7 @@ int NodeImpl::set_peer(const std::vector<PeerId>& old_peers, const std::vector<P
         return EINVAL;
     }
     // check contain
-    if (!_conf.second.contain(new_peers)) {
+    if (!_conf.second.contains(new_peers)) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id << " set_peer old_peers not "
             "contains all new_peers";
         return EINVAL;
@@ -1195,7 +1195,7 @@ void NodeImpl::pre_vote() {
 
     _pre_vote_ctx.reset();
     std::vector<PeerId> peers;
-    _conf.second.peer_vector(&peers);
+    _conf.second.list_peers(&peers);
     _pre_vote_ctx.set(peers.size());
     for (size_t i = 0; i < peers.size(); i++) {
         if (peers[i] == _server_id) {
@@ -1258,7 +1258,7 @@ void NodeImpl::elect_self() {
         << " term " << _current_term << " start vote_timer";
 
     std::vector<PeerId> peers;
-    _conf.second.peer_vector(&peers);
+    _conf.second.list_peers(&peers);
     _vote_ctx.set(peers.size());
     for (size_t i = 0; i < peers.size(); i++) {
         if (peers[i] == _server_id) {
@@ -1338,7 +1338,7 @@ void NodeImpl::step_down(const int64_t term) {
     _stable_storage->set_term_and_votedfor(term, _voted_id);
 
     // no empty configuration, start election timer
-    if (!_conf.second.empty() && _conf.second.contain(_server_id)) {
+    if (!_conf.second.empty() && _conf.second.contains(_server_id)) {
         AddRef();
         int64_t election_timeout = random_timeout(_options.election_timeout);
         bthread_timer_add(&_election_timer, base::milliseconds_from_now(election_timeout),
@@ -1381,7 +1381,7 @@ void NodeImpl::become_leader() {
     _replicator_group.init(NodeId(_group_id, _server_id), options);
 
     std::vector<PeerId> peers;
-    _conf.second.peer_vector(&peers);
+    _conf.second.list_peers(&peers);
     for (size_t i = 0; i < peers.size(); i++) {
         if (peers[i] == _server_id) {
             continue;
@@ -1402,7 +1402,7 @@ void NodeImpl::become_leader() {
     entry->term = _current_term;
     entry->type = ENTRY_TYPE_ADD_PEER;
     entry->peers = new std::vector<PeerId>;
-    _conf.second.peer_vector(entry->peers);
+    _conf.second.list_peers(entry->peers);
     CHECK(entry->peers->size() > 0);
 
     append(entry, 
@@ -1440,7 +1440,7 @@ void NodeImpl::append(LogEntry* entry, Closure* done) {
     if (entry->type != ENTRY_TYPE_ADD_PEER && entry->type != ENTRY_TYPE_REMOVE_PEER) {
         _commit_manager->append_pending_application(_conf.second, done);
     } else  {
-        _conf.second.peer_vector(&old_peers);
+        _conf.second.list_peers(&old_peers);
         _commit_manager->append_pending_application(Configuration(*(entry->peers)), done);
     }
 

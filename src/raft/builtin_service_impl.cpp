@@ -75,7 +75,7 @@ void RaftStatImpl::default_method(::google::protobuf::RpcController* controller,
         os << "last_snapshot_index: " << stat.last_snapshot_index << newline;
         os << "last_snapshot_term: " << stat.last_snapshot_term << newline;
         std::vector<PeerId> peers;
-        stat.configuration.peer_vector(&peers);
+        stat.configuration.list_peers(&peers);
         os << "peers:";
         for (size_t j = 0; j < peers.size(); ++j) {
             if (peers[j] != node_id.peer_id) {  // Not list self

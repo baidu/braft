@@ -845,7 +845,8 @@ TEST_F(RaftTestSuits, RemoveFollower) {
     cluster.followers(&nodes);
     ASSERT_EQ(2, nodes.size());
 
-    base::EndPoint follower_addr = nodes[0]->node_id().peer_id.addr;
+    const raft::PeerId follower_id = nodes[0]->node_id().peer_id;
+    const base::EndPoint follower_addr = follower_id.addr;
     // stop follower
     LOG(WARNING) << "stop and clean follower " << follower_addr;
     cluster.stop(follower_addr);
@@ -854,7 +855,7 @@ TEST_F(RaftTestSuits, RemoveFollower) {
     // remove follower
     LOG(WARNING) << "remove follower " << follower_addr;
     cond.Init(1);
-    leader->remove_peer(peers, follower_addr, new RemovePeerClosure(&cond, 0));
+    leader->remove_peer(peers, follower_id, new RemovePeerClosure(&cond, 0));
     cond.Wait();
 
     // stop and clean one follower
@@ -897,7 +898,7 @@ TEST_F(RaftTestSuits, RemoveFollower) {
     // re add follower fail when leader step down
     LOG(WARNING) << "add follower " << follower_addr;
     cond.Init(1);
-    leader->add_peer(peers, follower_addr, new AddPeerClosure(&cond, 0));
+    leader->add_peer(peers, follower_id, new AddPeerClosure(&cond, 0));
     cond.Wait();
 
     cluster.followers(&nodes);
@@ -1034,13 +1035,14 @@ TEST_F(RaftTestSuits, PreVote) {
     std::vector<raft::Node*> nodes;
     cluster.followers(&nodes);
     ASSERT_EQ(2, nodes.size());
-    base::EndPoint follower_addr = nodes[0]->node_id().peer_id.addr;
+    const raft::PeerId follower_id = nodes[0]->node_id().peer_id;
+    const base::EndPoint follower_addr = follower_id.addr;
 
     raft::NodeStats old_stats = leader->stats();
     //remove follower
     LOG(WARNING) << "remove follower " << follower_addr;
     cond.Init(1);
-    leader->remove_peer(peers, follower_addr, new RemovePeerClosure(&cond, 0));
+    leader->remove_peer(peers, follower_id, new RemovePeerClosure(&cond, 0));
     cond.Wait();
 
     // apply something
@@ -1071,7 +1073,7 @@ TEST_F(RaftTestSuits, PreVote) {
         }
     }
     cond.Init(1);
-    leader->add_peer(peers, follower_addr, new RemovePeerClosure(&cond, 0));
+    leader->add_peer(peers, follower_id, new RemovePeerClosure(&cond, 0));
     cond.Wait();
 
     leader = cluster.leader();

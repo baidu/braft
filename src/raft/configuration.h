@@ -1,20 +1,8 @@
-/*
- * =====================================================================================
- *
- *       Filename:  configuration.h
- *
- *    Description:  
- *
- *        Version:  1.0
- *        Created:  2015/09/28 17:34:22
- *       Revision:  none
- *       Compiler:  gcc
- *
- *         Author:  WangYao (fisherman), wangyao02@baidu.com
- *        Company:  Baidu, Inc
- *
- * =====================================================================================
- */
+// libraft - Quorum-based replication of states accross machines.
+// Copyright (c) 2015 Baidu.com, Inc. All Rights Reserved
+
+// Author: WangYao (fisherman), wangyao02@baidu.com
+// Data: 2015/09/28 17:34:22
 #ifndef PUBLIC_RAFT_RAFT_CONFIGURATION_H
 #define PUBLIC_RAFT_RAFT_CONFIGURATION_H
 
@@ -29,20 +17,17 @@ namespace raft {
 
 typedef std::string GroupId;
 typedef int ReplicaId;
+
+// Represent a participant in a replicating group.
 struct PeerId {
-    base::EndPoint addr; // addr
+    base::EndPoint addr; // ip+port.
     int idx; // idx in same addr, default 0
 
     PeerId() : idx(0) {}
-    PeerId(base::EndPoint addr_) : addr(addr_), idx(0) {}
+    explicit PeerId(base::EndPoint addr_) : addr(addr_), idx(0) {}
     PeerId(base::EndPoint addr_, int idx_) : addr(addr_), idx(idx_) {}
-    PeerId(const std::string& str) {
-        parse(str);
-    }
-    PeerId(const PeerId& id) {
-        addr = id.addr;
-        idx = id.idx;
-    }
+    /*intended implicit*/PeerId(const std::string& str) { parse(str); }
+    PeerId(const PeerId& id) : addr(id.addr), idx(id.idx) {}
 
     void reset() {
         addr.ip = base::IP_ANY;
@@ -57,18 +42,6 @@ struct PeerId {
     int parse(const std::string& str) {
         reset();
         char ip_str[64];
-        //
-        //char port_str[16];
-        //char idx_str[64];
-        //if (3 != sscanf(str.c_str(), "%[^:]:%[^:]:%[^:]s", ip_str, port_str, idx_str)) {
-        //    return -1;
-        //}
-        //if (0 != base::str2ip(ip_str, &addr.ip)) {
-        //    return -1;
-        //}
-        //addr.port = atoi(port_str);
-        //idx = atoi(idx_str);
-        //
         if (2 > sscanf(str.c_str(), "%[^:]%*[:]%d%*[:]%d", ip_str, &addr.port, &idx)) {
             reset();
             return -1;
@@ -90,10 +63,8 @@ struct PeerId {
 inline bool operator<(const PeerId& id1, const PeerId& id2) {
     if (id1.addr < id2.addr) {
         return true;
-    } else if (id1.addr == id2.addr && id1.idx < id2.idx) {
-        return true;
     } else {
-        return false;
+        return id1.addr == id2.addr && id1.idx < id2.idx;
     }
 }
 
@@ -119,12 +90,11 @@ struct NodeId {
 };
 
 inline bool operator<(const NodeId& id1, const NodeId& id2) {
-    if (id1.group_id < id1.group_id) {
-        return true;
-    } else if (id1.group_id == id2.group_id && id1.peer_id < id2.peer_id) {
+    const int rc = id1.group_id.compare(id2.group_id);
+    if (rc < 0) {
         return true;
     } else {
-        return false;
+        return rc == 0 && id1.peer_id < id2.peer_id;
     }
 }
 
@@ -144,52 +114,74 @@ inline std::ostream& operator << (std::ostream& os, const NodeId& id) {
     return os;
 }
 
+// A set of peers.
 class Configuration {
 public:
+    // Construct an empty configuration.
     Configuration() {}
-    Configuration(const std::vector<PeerId>& peers) {
+
+    // Construct from peers stored in std::vector.
+    explicit Configuration(const std::vector<PeerId>& peers) {
+        for (size_t i = 0; i < peers.size(); i++) {
+            _peers.insert(peers[i]);
+        }
+    }
+
+    // Construct from peers stored in std::set
+    explicit Configuration(const std::set<PeerId>& peers) : _peers(peers) {}
+
+    // Assign from peers stored in std::vector
+    void operator=(const std::vector<PeerId>& peers) {
         _peers.clear();
         for (size_t i = 0; i < peers.size(); i++) {
             _peers.insert(peers[i]);
         }
     }
-    Configuration(const Configuration& config) {
-        _peers.clear();
-        config.peer_set(&_peers);
+
+    // Assign from peers stored in std::set
+    void operator=(const std::set<PeerId>& peers) {
+        _peers = peers;
     }
 
-    void reset() {
-        _peers.clear();
-    }
-    bool empty() const {
-        return _peers.size() == 0;
-    }
-    void peer_set(std::set<PeerId>* peers) const {
+    // Remove all peers.
+    void reset() { _peers.clear(); }
+
+    bool empty() const { return _peers.empty(); }
+    size_t size() const { return _peers.size(); }
+
+    // Clear the container and put peers in. 
+    void list_peers(std::set<PeerId>* peers) const {
+        peers->clear();
         *peers = _peers;
     }
-    void peer_vector(std::vector<PeerId>* peers) const {
+    void list_peers(std::vector<PeerId>* peers) const {
+        peers->clear();
+        peers->reserve(_peers.size());
         std::set<PeerId>::iterator it;
         for (it = _peers.begin(); it != _peers.end(); ++it) {
             peers->push_back(*it);
         }
     }
-    void set_peer(const std::vector<PeerId>& peers) {
-        _peers.clear();
-        for (size_t i = 0; i < peers.size(); i++) {
-            _peers.insert(peers[i]);
-        }
-    }
-    void add_peer(const PeerId& peer) {
-        _peers.insert(peer);
-    }
-    void remove_peer(const PeerId& peer) {
-        _peers.erase(peer);
+
+    // Add a peer.
+    // Returns true if the peer is newly added.
+    bool add_peer(const PeerId& peer) {
+        return _peers.insert(peer).second;
     }
 
-    bool contain(const PeerId& peer_id) {
+    // Remove a peer.
+    // Returns true if the peer is removed.
+    bool remove_peer(const PeerId& peer) {
+        return _peers.erase(peer);
+    }
+
+    // True if the peer exists.
+    bool contains(const PeerId& peer_id) const {
         return _peers.find(peer_id) != _peers.end();
     }
-    bool contain(const std::vector<PeerId>& peers) {
+
+    // True if ALL peers exist.
+    bool contains(const std::vector<PeerId>& peers) const {
         for (size_t i = 0; i < peers.size(); i++) {
             if (_peers.find(peers[i]) == _peers.end()) {
                 return false;
@@ -197,22 +189,19 @@ public:
         }
         return true;
     }
-    bool equal(const std::vector<PeerId>& peers) {
+
+    // True if peers are same.
+    bool equals(const std::vector<PeerId>& peers) const {
         std::set<PeerId> peer_set;
-        std::vector<PeerId> uniq_peers;
         for (size_t i = 0; i < peers.size(); i++) {
-            if (peer_set.insert(peers[i]).second) {
-                uniq_peers.push_back(peers[i]);
+            if (_peers.find(peers[i]) == _peers.end()) {
+                return false;
             }
+            peer_set.insert(peers[i]);
         }
-        if (_peers.size() != uniq_peers.size()) {
-            return false;
-        }
-        return contain(uniq_peers);
+        return peer_set.size() == _peers.size();
     }
-    size_t quorum() {
-        return _peers.size() / 2 + 1;
-    }
+    
 private:
     std::set<PeerId> _peers;
 
@@ -223,7 +212,7 @@ typedef std::pair<int64_t, Configuration> ConfigurationPair;
 class ConfigurationManager {
 public:
     ConfigurationManager() {
-        _snapshot = std::pair<int64_t, Configuration>(0, Configuration());
+        _snapshot = ConfigurationPair(0, Configuration());
     }
     virtual ~ConfigurationManager() {}
 

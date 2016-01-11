@@ -59,33 +59,33 @@ TEST_F(TestUsageSuits, Configuration) {
     peers.push_back(raft::PeerId("1.1.1.1:1000:0"));
     peers.push_back(raft::PeerId("1.1.1.1:1000:1"));
     peers.push_back(raft::PeerId("1.1.1.1:1000:2"));
-    conf1.set_peer(peers);
+    conf1 = peers;
     LOG(NOTICE) << conf1;
 
-    ASSERT_TRUE(conf1.contain(raft::PeerId("1.1.1.1:1000:0")));
-    ASSERT_FALSE(conf1.contain(raft::PeerId("1.1.1.1:2000:0")));
+    ASSERT_TRUE(conf1.contains(raft::PeerId("1.1.1.1:1000:0")));
+    ASSERT_FALSE(conf1.contains(raft::PeerId("1.1.1.1:2000:0")));
 
     std::vector<raft::PeerId> peers2;
     peers2.push_back(raft::PeerId("1.1.1.1:1000:0"));
     peers2.push_back(raft::PeerId("1.1.1.1:1000:1"));
-    ASSERT_TRUE(conf1.contain(peers2));
+    ASSERT_TRUE(conf1.contains(peers2));
     peers2.push_back(raft::PeerId("1.1.1.1:2000:1"));
-    ASSERT_FALSE(conf1.contain(peers2));
+    ASSERT_FALSE(conf1.contains(peers2));
 
-    ASSERT_FALSE(conf1.equal(peers2));
-    ASSERT_TRUE(conf1.equal(peers));
+    ASSERT_FALSE(conf1.equals(peers2));
+    ASSERT_TRUE(conf1.equals(peers));
 
     raft::Configuration conf2(peers);
     conf2.remove_peer(raft::PeerId("1.1.1.1:1000:1"));
     conf2.add_peer(raft::PeerId("1.1.1.1:1000:3"));
-    ASSERT_FALSE(conf2.contain(raft::PeerId("1.1.1.1:1000:1")));
-    ASSERT_TRUE(conf2.contain(raft::PeerId("1.1.1.1:1000:3")));
+    ASSERT_FALSE(conf2.contains(raft::PeerId("1.1.1.1:1000:1")));
+    ASSERT_TRUE(conf2.contains(raft::PeerId("1.1.1.1:1000:3")));
 
     std::set<raft::PeerId> peer_set;
-    conf2.peer_set(&peer_set);
+    conf2.list_peers(&peer_set);
     ASSERT_EQ(peer_set.size(), 3);
     std::vector<raft::PeerId> peer_vector;
-    conf2.peer_vector(&peer_vector);
+    conf2.list_peers(&peer_vector);
     ASSERT_EQ(peer_vector.size(), 3);
 }
 

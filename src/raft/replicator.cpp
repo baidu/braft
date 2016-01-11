@@ -462,7 +462,7 @@ void Replicator::_install_snapshot() {
     request->set_last_included_log_term(meta.last_included_term);
     request->set_last_included_log_index(meta.last_included_index);
     std::vector<PeerId> peers;
-    meta.last_configuration.peer_vector(&peers);
+    meta.last_configuration.list_peers(&peers);
     for (std::vector<PeerId>::const_iterator 
             iter = peers.begin(); iter != peers.end(); ++iter) {
         request->add_peers(iter->to_string());

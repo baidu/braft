@@ -98,7 +98,7 @@ int LocalSnapshotWriter::save_meta(const SnapshotMeta& meta) {
     pb_meta.set_last_included_index(_meta.last_included_index);
     pb_meta.set_last_included_term(_meta.last_included_term);
     std::vector<PeerId> peers;
-    _meta.last_configuration.peer_vector(&peers);
+    _meta.last_configuration.list_peers(&peers);
     for (size_t i = 0; i < peers.size(); i++) {
         pb_meta.add_peers(peers[i].to_string());
     }
