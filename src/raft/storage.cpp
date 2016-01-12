@@ -19,6 +19,7 @@
 #include <base/string_printf.h>
 #include <base/string_splitter.h>
 #include <base/logging.h>
+#include <baidu/rpc/reloadable_flags.h>
 
 #include "raft/storage.h"
 #include "raft/log.h"
@@ -31,6 +32,7 @@ const int MAX_STORAGE_SIZE = 16;
 static Storage s_storage_map[MAX_STORAGE_SIZE];
 
 DEFINE_bool(raft_sync, true, "call fsync when need");
+BAIDU_RPC_VALIDATE_GFLAG(raft_sync, ::baidu::rpc::PassValidate);
 
 int init_storage() {
     Storage local_storage = {

@@ -27,8 +27,6 @@ int CommitmentManager::init(const CommitmentManagerOptions &options) {
         LOG(ERROR) << "waiter is NULL";
         return EINVAL;
     }
-    _last_committed_index.store(
-            options.last_committed_index, boost::memory_order_relaxed);
     _waiter = options.waiter;
     _pending_index = 0;
     return 0;
@@ -61,8 +59,8 @@ int CommitmentManager::set_stable_at_peer_reentrant(
     // peers, the quorum would decrease by 1, e.g. 3 of 4 changes to 2 of 3. In
     // this case, the log after removal may be committed before some previous
     // logs, since we use the new configuration to deal the quorum of the
-    // removal request, we think it's safe the commit all the uncommitted 
-    // previous logs which is not well proved right now
+    // removal request, we think it's safe to commit all the uncommitted 
+    // previous logs, which is not well proved right now
     // TODO: add vlog when committing previous logs
     for (int64_t index = _pending_index; index <= log_index; ++index) {
         PendingMeta *tmp = _pending_apps.front();
@@ -99,13 +97,14 @@ int CommitmentManager::reset_pending_index(int64_t new_pending_index) {
     BAIDU_SCOPED_LOCK(_mutex);
     CHECK(_pending_index == 0 && _pending_apps.empty())
         << "pending_index " << _pending_index << " pending_apps " << _pending_apps.size();
-    CHECK(new_pending_index > _last_committed_index.load(
+    CHECK_GT(new_pending_index, _last_committed_index.load(
                                     boost::memory_order_relaxed));
     _pending_index = new_pending_index;
     return 0;
 }
 
 int CommitmentManager::append_pending_application(const Configuration& conf, void* context) {
+    CHECK(context);
     PendingMeta* pm = new PendingMeta;
     conf.list_peers(&pm->peers);
     pm->quorum = pm->peers.size() / 2 + 1;
@@ -129,6 +128,24 @@ int CommitmentManager::set_last_committed_index(int64_t last_committed_index) {
         _waiter->on_committed(last_committed_index, NULL);
     }
     return 0;
+}
+
+void CommitmentManager::describe(std::ostream& os, bool use_html) {
+    std::unique_lock<raft_mutex_t> lck(_mutex);
+    int64_t committed_index = _last_committed_index;
+    int64_t pending_index = 0;
+    size_t pending_queue_size = 0;
+    if (_pending_index != 0) {
+        pending_index = _pending_index;
+        pending_queue_size = _pending_apps.size();
+    }
+    lck.unlock();
+    const char *newline = use_html ? "<br>" : "\r\n";
+    os << "last_committed_index: " << committed_index << newline;
+    if (pending_index != 0) {
+        os << "pending_index: " << pending_index << newline;
+        os << "pending_queue_size: " << pending_queue_size << newline;
+    }
 }
 
 }  // namespace raft

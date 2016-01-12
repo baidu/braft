@@ -27,6 +27,7 @@ LogManager::LogManager()
     , _config_manager(NULL)
     , _disk_index(0)
     , _applied_index(0)
+    , _first_log_index(0)
     , _last_log_index(0)
     , _last_snapshot_index(0)
     , _last_snapshot_term(0)
@@ -35,6 +36,7 @@ LogManager::LogManager()
 {
     CHECK_EQ(0, bthread_id_list_init(&_wait_list, 16/*FIXME*/, 16));
     CHECK_EQ(0, raft_mutex_init(&_mutex, NULL));
+    CHECK_EQ(0, raft_mutex_init(&_modify_storage_mutex, NULL));
 }
 
 int LogManager::init(const LogManagerOptions &options) {
@@ -48,6 +50,7 @@ int LogManager::init(const LogManagerOptions &options) {
     if (ret != 0) {
         return ret;
     }
+    _first_log_index = _log_storage->first_log_index();
     _last_log_index = _log_storage->last_log_index();
     _disk_index.store(_last_log_index, boost::memory_order_relaxed);
     return 0;
@@ -56,6 +59,7 @@ int LogManager::init(const LogManagerOptions &options) {
 LogManager::~LogManager() {
     bthread_id_list_destroy(&_wait_list);
     raft_mutex_destroy(&_mutex);
+    raft_mutex_destroy(&_modify_storage_mutex);
 }
 
 int LogManager::start_disk_thread() {
@@ -117,7 +121,8 @@ void LogManager::clear_memory_logs(const int64_t index) {
 }
 
 int64_t LogManager::first_log_index() {
-    return _log_storage->first_log_index();
+    BAIDU_SCOPED_LOCK(_mutex);
+    return _first_log_index;
 }
 
 int64_t LogManager::last_log_index() {
@@ -130,64 +135,46 @@ int64_t LogManager::last_log_index() {
     return _log_storage->last_log_index();
 }
 
-class LeaderDiskThreadBarrierDone : public LogManager::StableClosure {
+class TruncatePrefixClosure : public LogManager::StableClosure {
 public:
-    LeaderDiskThreadBarrierDone(raft_mutex_t* mutex)
-        : _mutex(mutex), _signaled(false) {
-            raft_cond_init(&_cond, NULL);
-    }
-    virtual ~LeaderDiskThreadBarrierDone() {
-        raft_cond_destroy(&_cond);
-    }
-
+    explicit TruncatePrefixClosure(int64_t first_index_kept)
+        : _first_index_kept(first_index_kept)
+    {}
     void Run() {
-        raft_mutex_lock(_mutex);
-        _signaled = true;
-        raft_mutex_unlock(_mutex);
-        raft_cond_signal(&_cond);
+        delete this;
     }
-
-    void wait_locked() {
-        while (!_signaled) {
-            raft_cond_wait(&_cond, _mutex);
-        }
-    }
-
-    void wait_unlocked() {
-        raft_mutex_lock(_mutex);
-        while (!_signaled) {
-            raft_cond_wait(&_cond, _mutex);
-        }
-        raft_mutex_unlock(_mutex);
-    }
+    int64_t first_index_kept() const { return _first_index_kept; }
 private:
-    raft_mutex_t *_mutex;
-    raft_cond_t _cond;
-    bool _signaled;
+    int64_t _first_index_kept;
 };
 
-int LogManager::truncate_prefix(const int64_t first_index_kept) {
+class ResetClosure : public LogManager::StableClosure {
+public:
+    explicit ResetClosure(int64_t next_log_index)
+        : _next_log_index(next_log_index)
+    {}
+    void Run() {
+        delete this;
+    }
+    int64_t next_log_index() const { return _next_log_index; }
+private:
+    int64_t _next_log_index;
+};
+
+int LogManager::truncate_prefix(const int64_t first_index_kept,
+                                std::unique_lock<raft_mutex_t>& lck) {
     base::Timer timer;
     timer.start();
-
-    RAFT_VLOG << "disk_thread flush";
-    std::unique_lock<raft_mutex_t> lck(_mutex);
-    int ret = 0;
-    //OPTIMIZE: flush leader disk thread sync, can be optimize in async
-    //some snapshot included logs not write to storage when leader snapshot finished
-    if (_leader_disk_thread_running &&
-        _disk_index.load(boost::memory_order_relaxed) < first_index_kept) {
-        LeaderDiskThreadBarrierDone done(lck.mutex());
-        ret = bthread::execution_queue_execute(_leader_disk_queue, &done);
-        CHECK_EQ(0, ret) << "execq execute failed, ret: " << ret << " err: " << berror();
-        done.wait_locked();
+    CHECK(lck.owns_lock());
+    if (first_index_kept < _first_log_index) {
+        return EINVAL;
     }
     // As the duration between two snapshot (which leads to truncate_prefix at
     // last) is likely to be a long period, _logs_in_memory is likely to
     // contain a large amount of logs to release, which holds the mutex so that
     // all the replicator/application are blocked.
     // FIXME(chenzhangyi01): to resolve this issue, we have to build a data
-    // strucate which is able to pop_front/pop_back N elements into another
+    // structure which is able to pop_front/pop_back N elements into another
     // container in O(1) time, one solution is a segmented double-linked list
     // along with a bounded queue as the indexer, of which the payoff is that
     // _logs_in_memory has to be bounded.
@@ -200,15 +187,54 @@ int LogManager::truncate_prefix(const int64_t first_index_kept) {
             break;
         }
     }
-
+    _first_log_index  = first_index_kept;
+    if (first_index_kept > _last_log_index) {
+        // The entrie log is dropped
+        _last_log_index = first_index_kept - 1;
+    }
     _config_manager->truncate_prefix(first_index_kept);
-    lck.unlock();
-    ret = _log_storage->truncate_prefix(first_index_kept);
-
+    if (_leader_disk_thread_running &&
+        _disk_index.load(boost::memory_order_relaxed) < first_index_kept) {
+        TruncatePrefixClosure* c = new TruncatePrefixClosure(first_index_kept);
+        const int ret = bthread::execution_queue_execute(_leader_disk_queue, c);
+        CHECK_EQ(0, ret) << "execq execute failed, ret: " << ret << " err: " << berror();
+    } else {
+        // Acquire _modify_storage_mutex first before unlock lck to make sure
+        // there's not the out-of-order issue
+        BAIDU_SCOPED_LOCK(_modify_storage_mutex);
+        lck.unlock();
+        _log_storage->truncate_prefix(first_index_kept);
+    }
     timer.stop();
     RAFT_VLOG << "truncate_prefix " << first_index_kept << " time: " << timer.u_elapsed();
 
-    return ret;
+    return 0;
+}
+
+int LogManager::reset(const int64_t next_log_index,
+                      std::unique_lock<raft_mutex_t>& lck) {
+    CHECK(lck.owns_lock());
+    std::deque<LogEntry*> saved_logs_in_memory;
+    saved_logs_in_memory.swap(_logs_in_memory);
+    _first_log_index = next_log_index;
+    _last_log_index = next_log_index - 1;
+    _config_manager->truncate_prefix(_first_log_index);
+    _config_manager->truncate_suffix(_last_log_index);
+    if (_leader_disk_thread_running) {
+        TruncatePrefixClosure* c = new TruncatePrefixClosure(next_log_index);
+        const int ret = bthread::execution_queue_execute(_leader_disk_queue, c);
+        lck.unlock();
+        CHECK_EQ(0, ret) << "execq execute failed, ret: " << ret << " err: " << berror();
+    } else {
+        BAIDU_SCOPED_LOCK(_modify_storage_mutex);
+        lck.unlock();
+        _log_storage->reset(next_log_index);
+    }
+    CHECK(!lck.owns_lock());
+    for (size_t i = 0; i < saved_logs_in_memory.size(); ++i) {
+        saved_logs_in_memory[i]->Release();
+    }
+    return 0;
 }
 
 int LogManager::truncate_suffix(const int64_t last_index_kept) {
@@ -332,7 +358,10 @@ int LogManager::leader_disk_run(void* meta,
     entries.reserve(tasks_size);
     for (size_t i = 0; i < tasks_size; i++) {
         StableClosure* done = *tasks[i];
-        //skip barrier
+        // Skip TruncatePrefixClosure
+        // FIXME: Currrently only the leader starts disk thread so that there's
+        // no gap around the TruncatePrefixClosure. If followers also start disk
+        // thread, it's buggy after install snapshot.
         if (done->_entry) {
             entries.push_back(done->_entry);
         }
@@ -372,6 +401,26 @@ int LogManager::leader_disk_run(void* meta,
         if (done->_entry) {
             done->_entry->Release();
             done->_entry = NULL;
+        } else {
+            do {
+                TruncatePrefixClosure* tpc = dynamic_cast<TruncatePrefixClosure*>(done);
+                if (tpc) {
+                    LOG(INFO) << "Truncating storage to first_index_kept="
+                        << tpc->first_index_kept();
+                    log_manager->_log_storage->truncate_prefix(
+                                    tpc->first_index_kept());
+                    break;
+                }
+                ResetClosure* rc = dynamic_cast<ResetClosure*>(done);
+                if (rc) {
+                    LOG(INFO) << "Reseting storage to next_log_index="
+                              << rc->next_log_index();
+                    log_manager->_log_storage->reset(rc->next_log_index());
+                    break;
+                }
+
+                CHECK(false) << "Cannot reach here";
+            } while (0);
         }
         done->Run();
     }
@@ -383,12 +432,29 @@ int LogManager::leader_disk_run(void* meta,
 }
 
 void LogManager::set_snapshot(const SnapshotMeta* meta) {
-    BAIDU_SCOPED_LOCK(_mutex);
-
+    std::unique_lock<raft_mutex_t> lck(_mutex);
+    if (meta->last_included_index <= _last_snapshot_index) {
+        return;
+    }
     _last_snapshot_index = meta->last_included_index;
     _last_snapshot_term = meta->last_included_term;
-
     _config_manager->set_snapshot(meta->last_included_index, meta->last_configuration);
+    int64_t term = 0;
+    LogEntry* entry = get_entry_from_memory(meta->last_included_index);
+    if (entry) {
+        term = entry->term;
+    } else {
+        term = _log_storage->get_term(meta->last_included_index);
+    }
+    if (term == 0 || term == meta->last_included_term) {
+        truncate_prefix(meta->last_included_index + 1, lck);
+        return;
+    } else {
+        // TODO: check the result of reset.
+        reset(meta->last_included_index + 1, lck);
+        return;
+    }
+    CHECK(false) << "Cannot reach here";
 }
 
 LogEntry* LogManager::get_entry_from_memory(const int64_t index) {
@@ -398,7 +464,7 @@ LogEntry* LogManager::get_entry_from_memory(const int64_t index) {
         int64_t last_index = _logs_in_memory.back()->index;
         CHECK_EQ(last_index - first_index + 1, static_cast<int64_t>(_logs_in_memory.size()));
         if (index >= first_index && index <= last_index) {
-            entry = _logs_in_memory.at(index - first_index);
+            entry = _logs_in_memory[index - first_index];
         }
     }
     return entry;
@@ -601,12 +667,15 @@ void LogManager::notify_on_new_log(int64_t expected_last_log_index,
 }
 
 void LogManager::describe(std::ostream& os, bool use_html) {
-    const char* new_line = use_html ? "<br>" : "\n";
+    const char* newline = use_html ? "<br>" : "\n";
     int64_t first_index = _log_storage->first_log_index();
     int64_t last_index = _log_storage->last_log_index();
-    os << "storage: [" << first_index << ", " << last_index << ']' << new_line;
-    os << "disk_index: " << _disk_index.load(boost::memory_order_relaxed) << new_line;
-    os << " known_applied_index: " << _applied_index.load(boost::memory_order_relaxed) << new_line;
+    os << "storage: [" << first_index << ", " << last_index << ']' << newline;
+    os << "disk_index: " << _disk_index.load(boost::memory_order_relaxed) << newline;
+    os << " known_applied_index: " << _applied_index.load(boost::memory_order_relaxed) << newline;
+    const int64_t cur_last_log_index = last_log_index();
+    os << " last_log_index: " << cur_last_log_index << newline;
+    os << " last_log_term: " << get_term(cur_last_log_index) << newline; 
 }
 
 }  // namespace raft

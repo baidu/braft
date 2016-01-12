@@ -231,7 +231,7 @@ public:
         std::lock_guard<raft_mutex_t> guard(_mutex);
         raft::Node* node = NULL;
         for (size_t i = 0; i < _nodes.size(); i++) {
-            if (_nodes[i]->stats().state == raft::LEADER) {
+            if (_nodes[i]->is_leader()) {
                 node = _nodes[i];
                 break;
             }
@@ -244,7 +244,7 @@ public:
 
         std::lock_guard<raft_mutex_t> guard(_mutex);
         for (size_t i = 0; i < _nodes.size(); i++) {
-            if (_nodes[i]->stats().state != raft::LEADER) {
+            if (!_nodes[i]->is_leader()) {
                 nodes->push_back(_nodes[i]);
             }
         }
@@ -363,7 +363,7 @@ private:
 class RaftTestSuits : public testing::Test {
 protected:
     void SetUp() {
-        logging::FLAGS_verbose = 90;
+        //logging::FLAGS_verbose = 90;
         ::system("rm -rf data");
     }
     void TearDown() {
@@ -1038,7 +1038,7 @@ TEST_F(RaftTestSuits, PreVote) {
     const raft::PeerId follower_id = nodes[0]->node_id().peer_id;
     const base::EndPoint follower_addr = follower_id.addr;
 
-    raft::NodeStats old_stats = leader->stats();
+    const int64_t saved_term = leader->_impl->_current_term;
     //remove follower
     LOG(WARNING) << "remove follower " << follower_addr;
     cond.Init(1);
@@ -1078,9 +1078,8 @@ TEST_F(RaftTestSuits, PreVote) {
 
     leader = cluster.leader();
     ASSERT_TRUE(leader != NULL);
-    raft::NodeStats new_stats = leader->stats();
 
-    ASSERT_EQ(old_stats.term, new_stats.term);
+    ASSERT_EQ(saved_term, leader->_impl->_current_term);
 }
 
 TEST_F(RaftTestSuits, SetPeer1) {
@@ -1116,6 +1115,7 @@ TEST_F(RaftTestSuits, SetPeer2) {
     }
 
     // start cluster
+    std::cout << "Here" << std::endl;
     Cluster cluster("unittest", peers);
     for (size_t i = 0; i < peers.size(); i++) {
         ASSERT_EQ(0, cluster.start(peers[i].addr));
@@ -1126,6 +1126,7 @@ TEST_F(RaftTestSuits, SetPeer2) {
     ASSERT_TRUE(leader != NULL);
     base::EndPoint leader_addr = leader->node_id().peer_id.addr;
     LOG(WARNING) << "leader is " << leader->node_id();
+    std::cout << "Here" << std::endl;
 
     BthreadCond cond;
     // apply something
@@ -1139,6 +1140,7 @@ TEST_F(RaftTestSuits, SetPeer2) {
         leader->apply(data, new ApplyClosure(&cond, 0));
     }
     cond.Wait();
+    std::cout << "Here" << std::endl;
 
     // check follower
     std::vector<raft::Node*> nodes;
@@ -1151,6 +1153,7 @@ TEST_F(RaftTestSuits, SetPeer2) {
     cluster.stop(follower_peer1.addr);
     cluster.clean(follower_peer1.addr);
 
+    std::cout << "Here" << std::endl;
     // apply something
     cond.Init(10);
     for (int i = 10; i < 20; i++) {
@@ -1163,6 +1166,7 @@ TEST_F(RaftTestSuits, SetPeer2) {
     }
     cond.Wait();
     
+    std::cout << "Here" << std::endl;
     //set peer when no quorum die
     std::vector<raft::PeerId> new_peers;
     LOG(WARNING) << "set peer to " << leader_addr;
@@ -1176,12 +1180,15 @@ TEST_F(RaftTestSuits, SetPeer2) {
             new_peers.push_back(peer);
         }
     }
+    std::cout << "Here" << std::endl;
     ASSERT_EQ(EINVAL, leader->set_peer(peers, new_peers));
+    std::cout << "Here 7" << std::endl;
 
     LOG(WARNING) << "stop and clean follower " << follower_peer2;
     cluster.stop(follower_peer2.addr);
     cluster.clean(follower_peer2.addr);
 
+    std::cout << "Here 8" << std::endl;
     // leader will stepdown, become follower
     sleep(2);
 
@@ -1201,8 +1208,10 @@ TEST_F(RaftTestSuits, SetPeer2) {
     new_peers.clear();
     new_peers.push_back(raft::PeerId(leader_addr, 0));
     ASSERT_EQ(0, leader->set_peer(peers, new_peers));
+    std::cout << "Here 9" << std::endl;
 
     cluster.wait_leader();
+    std::cout << "Here 10" << std::endl;
     leader = cluster.leader();
     ASSERT_TRUE(leader != NULL);
     ASSERT_EQ(leader->node_id().peer_id.addr, leader_addr);

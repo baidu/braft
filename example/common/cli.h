@@ -29,7 +29,6 @@ public:
     virtual ~CommonCli() {}
 
     // single node operation
-    static int stats(const base::EndPoint addr);
     static int snapshot(const base::EndPoint addr);
     static int shutdown(const base::EndPoint addr);
     static int set_peer(const base::EndPoint addr,

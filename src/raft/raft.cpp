@@ -22,6 +22,7 @@
 #include "raft/raft.h"
 #include "raft/node.h"
 #include "raft/storage.h"
+#include "raft/node_manager.h"
 
 namespace raft {
 
@@ -135,8 +136,8 @@ PeerId Node::leader_id() {
     return _impl->leader_id();
 }
 
-NodeStats Node::stats() {
-    return _impl->stats();
+bool Node::is_leader() {
+    return _impl->is_leader();
 }
 
 int Node::init(const NodeOptions& options) {

@@ -20,7 +20,6 @@ class FSMCaller;
 struct CommitmentManagerOptions {
     CommitmentManagerOptions() {}
     FSMCaller* waiter;
-    int64_t last_committed_index;
 };
 
 class CommitmentManager {
@@ -57,6 +56,8 @@ public:
 
     int64_t last_committed_index() 
     { return _last_committed_index.load(boost::memory_order_acquire); }
+
+    void describe(std::ostream& os, bool use_html);
 
 private:
     struct PendingMeta {

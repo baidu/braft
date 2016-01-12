@@ -21,9 +21,8 @@
 #include <set>
 #include <base/atomic_ref_count.h>
 #include <base/memory/ref_counted.h>
-#include <base/memory/singleton.h>
-#include <base/containers/doubly_buffered_data.h>
 #include <base/iobuf.h>
+#include <bthread/execution_queue.h>
 #include <baidu/rpc/server.h>
 
 #include "bthread.h"
@@ -41,43 +40,7 @@ namespace raft {
 class LogStorage;
 class StableStorage;
 class SnapshotStorage;
-
-class SaveSnapshotDone : public SaveSnapshotClosure {
-public:
-    SaveSnapshotDone(NodeImpl* node, SnapshotStorage* snapshot_storage, Closure* done);
-    virtual ~SaveSnapshotDone();
-
-    SnapshotWriter* start(const SnapshotMeta& meta);
-    virtual void Run();
-
-    NodeImpl* _node;
-    SnapshotStorage* _snapshot_storage;
-    SnapshotWriter* _writer;
-    Closure* _done; // user done
-    SnapshotMeta _meta;
-};
-
-class InstallSnapshotDone : public LoadSnapshotClosure {
-public:
-    InstallSnapshotDone(NodeImpl* node,
-                        SnapshotStorage* snapshot_storage,
-                        baidu::rpc::Controller* controller,
-                        const InstallSnapshotRequest* request,
-                        InstallSnapshotResponse* response,
-                        google::protobuf::Closure* done);
-    virtual ~InstallSnapshotDone();
-
-    SnapshotReader* start();
-    virtual void Run();
-
-    NodeImpl* _node;
-    SnapshotStorage* _snapshot_storage;
-    SnapshotReader* _reader;
-    baidu::rpc::Controller* _controller;
-    const InstallSnapshotRequest* _request;
-    InstallSnapshotResponse* _response;
-    google::protobuf::Closure* _done;
-};
+class SnapshotExecutor;
 
 class LeaderStableClosure : public LogManager::StableClosure {
 public:
@@ -89,7 +52,7 @@ friend class NodeImpl;
     CommitmentManager* _commit_manager;
 };
 
-class NodeImpl : public base::RefCountedThreadSafe<NodeImpl> {
+class BAIDU_CACHELINE_ALIGNMENT NodeImpl : public base::RefCountedThreadSafe<NodeImpl> {
 friend class RaftServiceImpl;
 friend class RaftStatImpl;
 public:
@@ -104,7 +67,10 @@ public:
         return _leader_id;
     }
 
-    NodeStats stats();
+    bool is_leader() {
+        BAIDU_SCOPED_LOCK(_mutex);
+        return _state == LEADER;
+    }
 
     // public user api
     //
@@ -153,7 +119,7 @@ public:
                        AppendEntriesResponse* response);
 
     // handle received InstallSnapshot
-    int handle_install_snapshot_request(baidu::rpc::Controller* controller,
+    void handle_install_snapshot_request(baidu::rpc::Controller* controller,
                                         const InstallSnapshotRequest* request,
                                         InstallSnapshotResponse* response,
                                         google::protobuf::Closure* done);
@@ -172,9 +138,6 @@ public:
     void handle_request_vote_response(const PeerId& peer_id, const int64_t term,
                                       const RequestVoteResponse& response);
     void on_caughtup(const PeerId& peer, int error_code, Closure* done);
-    void on_snapshot_load_done();
-    int on_snapshot_save_done(const SnapshotMeta& meta, SnapshotWriter* writer);
-
     // other func
     //
     // called when leader change configuration done, ref with FSMCaller
@@ -182,6 +145,11 @@ public:
 
     // called when leader recv greater term in AppendEntriesResponse, ref with Replicator
     int increase_term_to(int64_t new_term);
+
+    // Temporary solution
+    void update_configuration_after_installing_snapshot();
+
+    void describe(std::ostream& os, bool use_html);
 
 private:
     friend class base::RefCountedThreadSafe<NodeImpl>;
@@ -204,9 +172,6 @@ private:
 
     // elect self to candidate
     void elect_self();
-
-    // get last log term, through log and snapshot
-    int64_t last_log_term();
 
     // leader async append log entry
     void append(LogEntry* entry, Closure* done);
@@ -256,98 +221,37 @@ private:
         }
     };
 
-    NodeOptions _options;
-    GroupId _group_id;
-    PeerId _server_id;
     State _state;
     int64_t _current_term;
+    int64_t _last_leader_timestamp;
     PeerId _leader_id;
     PeerId _voted_id;
-    std::pair<int64_t, Configuration> _conf;
-
-    //int64_t _committed_index;
-    int64_t _last_snapshot_term;
-    int64_t _last_snapshot_index;
-    int64_t _last_leader_timestamp;
-
-    raft_mutex_t _mutex;
     VoteCtx _vote_ctx; // candidate vote ctx
     VoteCtx _pre_vote_ctx; // prevote ctx
+    // Access of the fields before this line should in the critical section of
+    // _state_mutex
+    std::pair<int64_t, Configuration> _conf;
+
+    GroupId _group_id;
+    PeerId _server_id;
+    NodeOptions _options;
+
+    //int64_t _committed_index;
+    raft_mutex_t _mutex;
     ConfigurationCtx _conf_ctx;
-    bthread_timer_t _election_timer; // follower -> candidate timer
-    bthread_timer_t _vote_timer; // candidate retry timer
-    bthread_timer_t _stepdown_timer; // leader check quorum node ok
-    bthread_timer_t _snapshot_timer; // snapshot timer
-
-    bool _snapshot_saving;
-    SnapshotMeta* _loading_snapshot_meta;
-
     LogStorage* _log_storage;
     StableStorage* _stable_storage;
-    SnapshotStorage* _snapshot_storage;
     ConfigurationManager* _config_manager;
     LogManager* _log_manager;
     FSMCaller* _fsm_caller;
     CommitmentManager* _commit_manager;
+    SnapshotExecutor* _snapshot_executor;
     ReplicatorGroup _replicator_group;
     std::vector<Closure*> _shutdown_continuations;
-};
-
-class NodeManager {
-public:
-    static NodeManager* GetInstance() {
-        return Singleton<NodeManager>::get();
-    }
-
-    int start(const base::EndPoint& listen_addr,
-             baidu::rpc::Server* server, baidu::rpc::ServerOptions* options);
-    baidu::rpc::Server* stop(const base::EndPoint& listen_addr);
-
-    // add raft node
-    bool add(NodeImpl* node);
-
-    // remove raft node
-    bool remove(NodeImpl* node);
-
-    // get node by group_id and peer_id
-    scoped_refptr<NodeImpl> get(const GroupId& group_id, const PeerId& peer_id);
-
-    // get all the nodes of |group_id|
-    void get_nodes_by_group_id(const GroupId& group_id, 
-                               std::vector<scoped_refptr<NodeImpl> >* nodes);
-
-    void get_all_nodes(std::vector<scoped_refptr<NodeImpl> >* nodes);
-
-private:
-    NodeManager();
-    ~NodeManager();
-    DISALLOW_COPY_AND_ASSIGN(NodeManager);
-    friend struct DefaultSingletonTraits<NodeManager>;
-    
-    // TODO(chenzhangyi01): replace std::map with FlatMap
-    // To make implementation simplicity, we use two maps here, although
-    // it works practically with only one GroupMap
-    typedef std::map<NodeId, NodeImpl*> NodeMap;
-    typedef std::multimap<GroupId, NodeImpl*> GroupMap;
-    struct Maps {
-        NodeMap node_map;
-        GroupMap group_map;
-    };
-    // Functor to modify DBD
-    static size_t _add_node(Maps&, const NodeImpl* node);
-    static size_t _remove_node(Maps&, const NodeImpl* node);
-
-    base::DoublyBufferedData<Maps> _nodes;
-
-    baidu::rpc::Server* get_server(const base::EndPoint& ip_and_port);
-    void add_server(const base::EndPoint& ip_and_port, baidu::rpc::Server* server);
-    baidu::rpc::Server* remove_server(const base::EndPoint& ip_and_port);
-
-    typedef std::map<base::EndPoint, baidu::rpc::Server*> ServerMap;
-    raft_mutex_t _mutex;
-    ServerMap _servers;
-    std::set<base::EndPoint> _own_servers;
-    RaftServiceImpl _service_impl;
+    bthread_timer_t _election_timer; // follower -> candidate timer
+    bthread_timer_t _vote_timer; // candidate retry timer
+    bthread_timer_t _stepdown_timer; // leader check quorum node ok
+    bthread_timer_t _snapshot_timer; // snapshot timer
 };
 
 }

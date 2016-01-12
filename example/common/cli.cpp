@@ -25,39 +25,6 @@
 
 namespace example {
 
-int CommonCli::stats(const base::EndPoint addr) {
-    baidu::rpc::ChannelOptions channel_opt;
-    channel_opt.timeout_ms = -1;
-    baidu::rpc::Channel channel;
-
-    if (channel.Init(addr, &channel_opt) != 0) {
-        LOG(ERROR) << "channel init failed, " << addr;
-        return -1;
-    }
-
-    while (true) {
-        baidu::rpc::Controller cntl;
-        CliService_Stub stub(&channel);
-        StatsRequest request;
-        StatsResponse response;
-        stub.stats(&cntl, &request, &response, NULL);
-
-        if (!cntl.Failed()) {
-            Pb2JsonOptions options;
-            options.pretty_json = true;
-            std::string json_str;
-            ProtoMessageToJson(response, &json_str, options, NULL);
-            LOG(NOTICE) << "stats: \n" << json_str;
-            break;
-        } else {
-            LOG(ERROR) << "stats failed, error: " << cntl.ErrorText();
-            sleep(1);
-            continue;
-        }
-    }
-    return 0;
-}
-
 int CommonCli::snapshot(const base::EndPoint addr) {
     baidu::rpc::ChannelOptions channel_opt;
     channel_opt.timeout_ms = -1;

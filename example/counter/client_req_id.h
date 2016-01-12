@@ -20,6 +20,7 @@
 
 #include <stdint.h>
 #include <base/containers/mru_cache.h>
+#include <murmurhash3.h>
 
 namespace counter {
 
@@ -42,6 +43,9 @@ struct ClientRequestId {
             return false;
         }
     }
+    bool operator == (const ClientRequestId& other) const {
+        return ip == other.ip && pid == other.pid && req_id == other.req_id;
+    }
 };
 
 struct FetchAndAddResult {
@@ -52,7 +56,21 @@ struct FetchAndAddResult {
 };
 
 // done map
-typedef base::OwningMRUCache<ClientRequestId, FetchAndAddResult*> CounterDuplicatedRequestCache;
+typedef base::HashingMRUCache<ClientRequestId, FetchAndAddResult> CounterDuplicatedRequestCache;
+
+}
+
+namespace BASE_HASH_NAMESPACE {
+template <>
+struct hash<counter::ClientRequestId> {
+    std::size_t operator()(const counter::ClientRequestId& id) const {
+        int64_t v1 = ((int64_t)id.ip << 32) | id.pid;
+        v1 = fmix64(v1);
+        int64_t v2 = id.req_id;
+        v2 = fmix64(v2);
+        return base::HashInts64(v1, v2);
+    }
+};
 
 }
 

@@ -30,7 +30,6 @@ static const int64_t GB = 1024*1024*1024;
 DEFINE_string(peers, "", "current cluster peer set");
 DEFINE_string(shutdown, "", "shutdown peer");
 DEFINE_string(snapshot, "", "snapshot peer");
-DEFINE_string(stats, "", "stats peer");
 DEFINE_string(setpeer, "", "setpeer peer");
 DEFINE_string(new_peers, "", "new cluster peer set");
 
@@ -290,18 +289,6 @@ int main(int argc, char* argv[]) {
         return -1;
     }
     logging::SetLogSink(logging::ComlogSink::GetInstance());
-
-    // stats
-    if (!FLAGS_stats.empty()) {
-        base::EndPoint addr;
-        if (0 == base::hostname2endpoint(FLAGS_stats.c_str(), &addr) ||
-            0 == base::str2endpoint(FLAGS_stats.c_str(), &addr)) {
-            return BlockClient::stats(addr);
-        } else {
-            LOG(ERROR) << "stats flags bad format: " << FLAGS_stats;
-            return -1;
-        }
-    }
 
     // snapshot
     if (!FLAGS_snapshot.empty()) {

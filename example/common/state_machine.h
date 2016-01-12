@@ -30,7 +30,6 @@ public:
     int init(const raft::NodeOptions& options);
     void set_peer(const std::vector<raft::PeerId>& old_peers,
                   const std::vector<raft::PeerId>& new_peers, bool is_force, raft::Closure* done);
-    raft::NodeStats stats();
     void snapshot(raft::Closure* done);
     void shutdown(raft::Closure* done);
 

@@ -31,7 +31,7 @@ CounterServiceImpl::~CounterServiceImpl() {
 
 void FetchAndAddDone::Run() {
     if (_err_code == 0) {
-        LOG(NOTICE) << "counter: " << _counter << " fetch_and_add success";
+        VLOG(9) << "counter: " << _counter << " fetch_and_add success";
         _response->set_success(true);
     } else {
         LOG(WARNING) << "counter: " << _counter << " fetch_and_add failed: "
@@ -55,7 +55,7 @@ void CounterServiceImpl::fetch_and_add(google::protobuf::RpcController* controll
     baidu::rpc::Controller* cntl =
         static_cast<baidu::rpc::Controller*>(controller);
 
-    LOG(TRACE) << "received fetch_and_add " << request->value() << " from " << cntl->remote_side();
+    VLOG(9) << "received fetch_and_add " << request->value() << " from " << cntl->remote_side();
 
     // check counter
     if (!_counter) {
@@ -80,7 +80,7 @@ void CounterServiceImpl::get(google::protobuf::RpcController* controller,
     baidu::rpc::Controller* cntl =
         static_cast<baidu::rpc::Controller*>(controller);
 
-    LOG(TRACE) << "received get from " << cntl->remote_side();
+    VLOG(9) << "received get from " << cntl->remote_side();
 
     // check counter
     if (!_counter) {

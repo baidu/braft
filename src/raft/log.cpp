@@ -456,13 +456,13 @@ int Segment::close() {
 }
 
 static void* run_unlink(void* arg) {
-    char* file_path = (char*) arg;
+    std::string* file_path = (std::string*) arg;
     base::Timer timer;
     timer.start();
-    int ret = ::unlink(file_path);
+    int ret = ::unlink(file_path->c_str());
     timer.stop();
     RAFT_VLOG << "unlink " << file_path << " ret " << ret << " time: " << timer.u_elapsed();
-    free(file_path);
+    delete file_path;
 
     return NULL;
 }
@@ -489,9 +489,9 @@ int Segment::unlink() {
 
         // start bthread to unlink
         // TODO unlink follow control
-        char* file_path = strndup(path.c_str(), path.length());
+        std::string* file_path = new std::string(tmp_path);
         bthread_t tid;
-        if (bthread_start_background(&tid, &BTHREAD_ATTR_NORMAL, run_unlink, file_path) != 0) {
+        if (bthread_start_urgent(&tid, &BTHREAD_ATTR_NORMAL, run_unlink, file_path) != 0) {
             run_unlink(file_path);
         }
 
@@ -664,7 +664,7 @@ void SegmentLogStorage::pop_segments(
             popped->push_back(_open_segment);
             _open_segment.reset();
             // _log_storage is empty
-            _last_log_index.store(first_index_kept -1);
+            _last_log_index.store(first_index_kept - 1);
         } else {
             CHECK(_open_segment->first_index() <= first_index_kept);
         }
@@ -683,13 +683,21 @@ int SegmentLogStorage::truncate_prefix(const int64_t first_index_kept) {
                      << first_index_kept;
         return 0;
     }
+    // NOTE: truncate_prefix is not important, as it has nothing to do with 
+    // consensus. We try to save meta on the disk first to make sure even if
+    // the deleting fails or the process crashes (which is unlikely to happen).
+    // The new process would see the latest `first_log_index'
+    if (save_meta(first_index_kept) != 0) { // NOTE
+        PLOG(ERROR) << "Fail to save meta";
+        return -1;
+    }
     std::vector<boost::shared_ptr<Segment> > popped;
     pop_segments(first_index_kept, &popped);
     for (size_t i = 0; i < popped.size(); ++i) {
         popped[i]->unlink();
         popped[i].reset();
     }
-    return save_meta(first_index_kept);
+    return 0;
 }
 
 void SegmentLogStorage::pop_segments_from_back(
@@ -750,6 +758,38 @@ int SegmentLogStorage::truncate_suffix(const int64_t last_index_kept) {
                 _open_segment.reset();
             }
         }
+    }
+    for (size_t i = 0; i < popped.size(); ++i) {
+        popped[i]->unlink();
+        popped[i].reset();
+    }
+    return 0;
+}
+
+int SegmentLogStorage::reset(const int64_t next_log_index) {
+    if (next_log_index <= 0) {
+        LOG(ERROR) << "Invalid next_log_index=" << next_log_index;
+        return EINVAL;
+    }
+    std::vector<boost::shared_ptr<Segment> > popped;
+    std::unique_lock<raft_mutex_t> lck(_mutex);
+    popped.reserve(_segments.size());
+    for (SegmentMap::const_iterator 
+            it = _segments.begin(); it != _segments.end(); ++it) {
+        popped.push_back(it->second);
+    }
+    _segments.clear();
+    if (_open_segment) {
+        popped.push_back(_open_segment);
+        _open_segment.reset();
+    }
+    _first_log_index.store(next_log_index, boost::memory_order_relaxed);
+    _last_log_index.store(next_log_index - 1, boost::memory_order_relaxed);
+    lck.unlock();
+    // NOTE: see the comments in truncate_prefix
+    if (!save_meta(next_log_index)) {
+        PLOG(ERROR) << "Fail to save meta";
+        return -1;
     }
     for (size_t i = 0; i < popped.size(); ++i) {
         popped[i]->unlink();

@@ -36,31 +36,27 @@ int CommonStateMachine::init(const raft::NodeOptions& options) {
     return _node.init(options);
 }
 
-raft::NodeStats CommonStateMachine::stats() {
-    return _node.stats();
-}
-
 int CommonStateMachine::diff_peers(const std::vector<raft::PeerId>& old_peers,
                   const std::vector<raft::PeerId>& new_peers, raft::PeerId* peer) {
     raft::Configuration old_conf(old_peers);
     raft::Configuration new_conf(new_peers);
-    if (old_peers.size() == new_peers.size() - 1 && new_conf.contain(old_peers)) {
+    if (old_peers.size() == new_peers.size() - 1 && new_conf.contains(old_peers)) {
         // add peer
         for (size_t i = 0; i < old_peers.size(); i++) {
             new_conf.remove_peer(old_peers[i]);
         }
         std::vector<raft::PeerId> peers;
-        new_conf.peer_vector(&peers);
+        new_conf.list_peers(&peers);
         CHECK(1 == peers.size());
         *peer = peers[0];
         return 0;
-    } else if (old_peers.size() == new_peers.size() + 1 && old_conf.contain(new_peers)) {
+    } else if (old_peers.size() == new_peers.size() + 1 && old_conf.contains(new_peers)) {
         // remove peer
         for (size_t i = 0; i < new_peers.size(); i++) {
             old_conf.remove_peer(new_peers[i]);
         }
         std::vector<raft::PeerId> peers;
-        old_conf.peer_vector(&peers);
+        old_conf.list_peers(&peers);
         CHECK(1 == peers.size());
         *peer = peers[0];
         return 0;

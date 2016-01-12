@@ -30,7 +30,6 @@
 DEFINE_string(peers, "", "current cluster peer set");
 DEFINE_string(shutdown, "", "shutdown peer");
 DEFINE_string(snapshot, "", "snapshot peer");
-DEFINE_string(stats, "", "stats peer");
 DEFINE_string(setpeer, "", "setpeer peer");
 DEFINE_string(new_peers, "", "new cluster peer set");
 DEFINE_int32(threads, 1, "work threads");
@@ -76,18 +75,19 @@ public:
             stub.fetch_and_add(&cntl, &request, &response, NULL);
             if (cntl.Failed()) {
                 LOG(WARNING) << "fetch_and_add error: " << cntl.ErrorText();
+                set_leader_addr(base::EndPoint());
                 leader_addr = get_leader_addr();
                 sleep(1);
                 continue;
             }
 
             if (!response.success()) {
-                LOG(WARNING) << "fetch_and_add failed, redirect to " << response.leader();
+                LOG(WARNING) << "fetch_and_add to " << leader_addr << " failed, redirect to " << response.leader();
                 base::str2endpoint(response.leader().c_str(), &leader_addr);
                 continue;
             } else {
-                LOG(NOTICE) << "fetch_and_add success to " << leader_addr
-                    << " index: " << response.index() << " ret: " << response.value();
+                //LOG(NOTICE) << "fetch_and_add success to " << leader_addr
+                //    << " index: " << response.index() << " ret: " << response.value();
                 set_leader_addr(leader_addr);
                 break;
             }
@@ -158,18 +158,6 @@ private:
 
 int main(int argc, char* argv[]) {
     google::ParseCommandLineFlags(&argc, &argv, true);
-
-    // stats
-    if (!FLAGS_stats.empty()) {
-        base::EndPoint addr;
-        if (0 == base::hostname2endpoint(FLAGS_stats.c_str(), &addr) ||
-            0 == base::str2endpoint(FLAGS_stats.c_str(), &addr)) {
-            return CounterClient::stats(addr);
-        } else {
-            LOG(ERROR) << "stats flags bad format: " << FLAGS_stats;
-            return -1;
-        }
-    }
 
     // snapshot
     if (!FLAGS_snapshot.empty()) {

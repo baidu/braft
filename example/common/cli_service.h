@@ -40,11 +40,6 @@ public:
                      SetPeerResponse* response,
                      google::protobuf::Closure* done);
 
-    virtual void stats(google::protobuf::RpcController* controller,
-                     const StatsRequest* request,
-                     StatsResponse* response,
-                     google::protobuf::Closure* done);
-
     virtual void shutdown(google::protobuf::RpcController* controller,
                      const ShutdownRequest* request,
                      ShutdownResponse* response,

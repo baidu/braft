@@ -21,18 +21,14 @@ static void* run_closure(void* arg) {
     return NULL;
 }
 
-int run_closure_in_bthread(Closure* closure) {
-    if (NULL == closure) {
-        return 0;
-    }
-
+void run_closure_in_bthread(Closure* closure) {
+    DCHECK(closure);
     bthread_t tid;
     int ret = bthread_start_urgent(&tid, NULL, run_closure, closure);
     if (0 != ret) {
         PLOG(ERROR) << "Fail to start bthread";
-        closure->Run();
+        return closure->Run();
     }
-    return ret;
 }
 
 std::string fileuri2path(const std::string& uri) {

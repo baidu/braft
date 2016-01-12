@@ -20,6 +20,7 @@
 
 #include <string>
 #include <bthread.h>
+#include <boost/atomic.hpp>
 #include <baidu/rpc/controller.h>
 #include "raft/util.h"
 #include "raft/raft.h"
@@ -73,10 +74,9 @@ public:
 private:
     virtual ~Counter();
 
-    bthread_mutex_t _mutex;
-    int64_t _value;
-    int64_t _applied_index;
-    bool _is_leader;
+    boost::atomic<int64_t> _value;
+    boost::atomic<int64_t> _applied_index;
+    boost::atomic<bool> _is_leader;
 
     CounterDuplicatedRequestCache _duplicated_request_cache;
 };

@@ -179,6 +179,8 @@ public:
     // delete uncommitted logs from storage's tail, (first_index_kept, infinity) will be discarded
     virtual int truncate_suffix(const int64_t last_index_kept);
 
+    virtual int reset(const int64_t next_log_index);
+
     SegmentMap& segments() {
         return _segments;
     }

@@ -23,7 +23,7 @@ IP=`hostname -i`
 #HAS_VALGRIND="-has_valgrind"
 #MAX_SEGMENT_SIZE="-raft_max_segment_size=524288"
 CRASH_ON_FATAL="-crash_on_fatal_log=true"
-VLOG_LEVEL="-verbose=90"
+#VLOG_LEVEL="-verbose=90"
 BTHREAD_CONCURRENCY="-bthread_concurrency=50"
 RPCZ="-enable_rpcz=true"
 SYNC="-raft_sync=false"

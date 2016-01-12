@@ -114,22 +114,6 @@ inline bool is_active_state(State s) {
     }
 }
 
-struct NodeStats {
-    State state;
-    int64_t term;
-    int64_t last_log_index;
-    int64_t last_log_term;
-    int64_t committed_index;
-    int64_t applied_index;
-    int64_t last_snapshot_index;
-    int64_t last_snapshot_term;
-    Configuration configuration;
-
-    NodeStats() : state(SHUTDOWN), term(0), last_log_index(0), last_log_term(0),
-            committed_index(0), applied_index(0), last_snapshot_index(0), last_snapshot_term(0) {
-    }
-};
-
 struct NodeOptions {
     int election_timeout; //ms, follower to candidate timeout
     int snapshot_interval; // s, snapshot interval. 0 is disable internal snapshot timer
@@ -161,11 +145,11 @@ public:
     // get leader PeerId, for redirect
     PeerId leader_id();
 
+    // Return true if this is the leader of the belonging group
+    bool is_leader();
+
     // init node
     int init(const NodeOptions& options);
-
-    // get stats
-    NodeStats stats();
 
     // shutdown local replica
     // done is user defined function, maybe response to client or clean some resource

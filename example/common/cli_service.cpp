@@ -22,39 +22,6 @@
 
 namespace example {
 
-void CliServiceImpl::stats(google::protobuf::RpcController* controller,
-                             const StatsRequest* request,
-                             StatsResponse* response,
-                             google::protobuf::Closure* done) {
-    request = request; // no used
-    baidu::rpc::ClosureGuard done_guard(done);
-    baidu::rpc::Controller* cntl =
-        static_cast<baidu::rpc::Controller*>(controller);
-
-    LOG(TRACE) << "received stats from " << cntl->remote_side();
-
-    // check state_machine
-    if (!_state_machine) {
-        cntl->SetFailed(baidu::rpc::SYS_EINVAL, "state_machine not set");
-        return;
-    }
-
-    raft::NodeStats stats = _state_machine->stats();
-    response->set_state(raft::state2str(stats.state));
-    response->set_term(stats.term);
-    response->set_last_log_index(stats.last_log_index);
-    response->set_last_log_term(stats.last_log_term);
-    response->set_committed_index(stats.committed_index);
-    response->set_applied_index(stats.applied_index);
-    response->set_last_snapshot_index(stats.last_snapshot_index);
-    response->set_last_snapshot_term(stats.last_snapshot_term);
-    std::vector<raft::PeerId> peers;
-    stats.configuration.peer_vector(&peers);
-    for (size_t i = 0; i < peers.size(); i++) {
-        response->add_peers(peers[i].to_string());
-    }
-}
-
 class SetPeerDone : public raft::Closure {
 public:
     SetPeerDone(CommonStateMachine* state_machine, baidu::rpc::Controller* controller,

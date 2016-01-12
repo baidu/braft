@@ -54,11 +54,6 @@ public:
     // Append a log entry and call closure when it's stable
     void append_entry(LogEntry* log_entry, StableClosure* done);
 
-    // delete logs from storage's head, [1, first_index_kept) will be discarded
-    // Returns:
-    //  success return 0, failed return -1
-    int truncate_prefix(const int64_t first_index_kept);
-
     // delete uncommitted logs from storage's tail, (first_index_kept, infinity) will be discarded
     // Returns:
     //  success return 0, failed return -1
@@ -91,6 +86,7 @@ public:
     // Check if |current| should be updated to the latest configuration
     // Returns true and |current| is assigned to the lastest configuration, returns
     // false otherweise
+    // FIXME: It's not ABA free
     bool check_and_set_configuration(std::pair<int64_t, Configuration>* current);
 
     // Wait until there are more logs since |last_log_index| or error occurs
@@ -117,6 +113,15 @@ private:
     static int leader_disk_run(void* meta,
                                StableClosure** const tasks[], size_t tasks_size);
     
+    // delete logs from storage's head, [1, first_index_kept) will be discarded
+    // Returns:
+    //  success return 0, failed return -1
+    int truncate_prefix(const int64_t first_index_kept,
+                        std::unique_lock<raft_mutex_t>& lck);
+    
+    int reset(const int64_t next_log_index,
+              std::unique_lock<raft_mutex_t>& lck);
+
     // Must be called in the disk thread, otherwise the
     // behavior is undefined
     void set_disk_index(int64_t index);
@@ -140,6 +145,7 @@ private:
     boost::atomic<int64_t> _applied_index;
     // TODO(chenzhangyi01): replace deque with a thread-safe data structrue
     std::deque<LogEntry* /*FIXME*/> _logs_in_memory;
+    int64_t _first_log_index;
     int64_t _last_log_index;
     int64_t _last_snapshot_index;
     int64_t _last_snapshot_term;
@@ -147,6 +153,7 @@ private:
     bthread::ExecutionQueueId<StableClosure*> _leader_disk_queue;
     bool _leader_disk_thread_running;
     bool _stopped;
+    raft_mutex_t _modify_storage_mutex;
 };
 
 }  // namespace raft

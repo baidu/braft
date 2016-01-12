@@ -21,6 +21,7 @@
 #include "raft/raft_service.h"
 #include "raft/raft.h"
 #include "raft/node.h"
+#include "raft/node_manager.h"
 
 namespace raft {
 
@@ -142,15 +143,7 @@ void RaftServiceImpl::install_snapshot(google::protobuf::RpcController* cntl_bas
         return;
     }
 
-    int rc = node->handle_install_snapshot_request(cntl, request, response, done);
-    if (BAIDU_UNLIKELY(rc != 0)) {
-        char err_buf[128];
-        strerror_r(rc, err_buf, sizeof(err_buf));
-        cntl->SetFailed(rc, err_buf);
-
-        done->Run();
-        return;
-    }
+    node->handle_install_snapshot_request(cntl, request, response, done);
 }
 
 }

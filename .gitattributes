@@ -70,6 +70,8 @@ src/raft/log_manager.h -text
 src/raft/macros.h -text
 src/raft/node.cpp -text
 src/raft/node.h -text
+src/raft/node_manager.cpp -text
+src/raft/node_manager.h -text
 src/raft/protobuf_file.cpp -text
 src/raft/protobuf_file.h -text
 src/raft/raft.cpp -text
@@ -84,6 +86,8 @@ src/raft/replicator.cpp -text
 src/raft/replicator.h -text
 src/raft/snapshot.cpp -text
 src/raft/snapshot.h -text
+src/raft/snapshot_executor.cpp -text
+src/raft/snapshot_executor.h -text
 src/raft/stable.cpp -text
 src/raft/stable.h -text
 src/raft/storage.cpp -text

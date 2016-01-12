@@ -38,15 +38,16 @@ public:
         LOG(TRACE) << "cond(" << this << ") signal";
         raft_mutex_lock(&_mutex);
         _value--;
+        raft_cond_signal(&_cond);
         raft_mutex_unlock(&_mutex);
-        return bthread_cond_signal(&_cond);
+        return 0;
     }
 
     int Wait() {
         int ret = 0;
         raft_mutex_lock(&_mutex);
         while (_value > 0) {
-            ret = bthread_cond_wait(&_cond, &_mutex);
+            ret = raft_cond_wait(&_cond, &_mutex);
         }
         raft_mutex_unlock(&_mutex);
         LOG(TRACE) << "cond(" << this << ") wait";

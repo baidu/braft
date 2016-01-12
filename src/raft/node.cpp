@@ -24,6 +24,8 @@
 #include "raft/snapshot.h"
 #include "raft/file_service.h"
 #include "raft/builtin_service_impl.h"
+#include "raft/node_manager.h"
+#include "raft/snapshot_executor.h"
 #include <bthread_unstable.h>
 
 #include "baidu/rpc/errno.pb.h"
@@ -74,15 +76,17 @@ friend class NodeImpl;
 };
 
 NodeImpl::NodeImpl(const GroupId& group_id, const PeerId& peer_id)
-    : _group_id(group_id),
-    _state(SHUTDOWN), _current_term(0),
-    _last_snapshot_term(0), _last_snapshot_index(0),
-    _last_leader_timestamp(base::monotonic_time_ms()),
-    _snapshot_saving(false), _loading_snapshot_meta(NULL),
-    _log_storage(NULL), _stable_storage(NULL), _snapshot_storage(NULL),
-    _config_manager(NULL), _log_manager(NULL),
-    _fsm_caller(NULL), _commit_manager(NULL) {
-    
+    : _state(SHUTDOWN) 
+    , _current_term(0)
+    , _last_leader_timestamp(base::monotonic_time_ms())
+    , _group_id(group_id)
+    , _log_storage(NULL) 
+    , _stable_storage(NULL)
+    , _config_manager(NULL)
+    , _log_manager(NULL)
+    , _fsm_caller(NULL) 
+    , _commit_manager(NULL) 
+    , _snapshot_executor(NULL) {
         _server_id = peer_id;
         AddRef();
         raft_mutex_init(&_mutex, NULL);
@@ -116,185 +120,23 @@ NodeImpl::~NodeImpl() {
         delete _stable_storage;
         _stable_storage = NULL;
     }
-    if (_snapshot_storage) {
-        delete _snapshot_storage;
-        _snapshot_storage = NULL;
+    if (_snapshot_executor) {
+        delete _snapshot_executor;
+        _snapshot_executor = NULL;
     }
-}
-
-NodeStats NodeImpl::stats() {
-    BAIDU_SCOPED_LOCK(_mutex);
-
-    NodeStats stats;
-    stats.state = _state;
-    stats.term = _current_term;
-    stats.last_log_index = _log_manager->last_log_index();
-    stats.last_log_term = last_log_term();
-    stats.committed_index = _commit_manager->last_committed_index();
-    stats.applied_index = _fsm_caller->last_applied_index();
-    stats.last_snapshot_index = _last_snapshot_index;
-    stats.last_snapshot_term = _last_snapshot_term;
-    stats.configuration = _conf.second;
-
-    return stats;
-}
-
-void NodeImpl::on_snapshot_load_done() {
-    BAIDU_SCOPED_LOCK(_mutex);
-
-    CHECK(_loading_snapshot_meta);
-
-    _last_snapshot_index = _loading_snapshot_meta->last_included_index;
-    _last_snapshot_term = _loading_snapshot_meta->last_included_term;
-    // Check discard entire log
-    // 1. Discard log if it is shorter than the snapshot.
-    // 2. Discard log if its lastSnapshotIndex entry disagrees with the
-    //    lastSnapshotTerm.
-    if (_log_manager->last_log_index() < _last_snapshot_index ||
-        (_log_manager->first_log_index() <= _last_snapshot_index &&
-         _log_manager->get_term(_last_snapshot_index) != _last_snapshot_term)) {
-        if (_log_manager->first_log_index() <= _log_manager->last_log_index()) {
-            LOG(WARNING) << "node " << _group_id << ":" << _server_id
-                << " discard the entire log, it is consistent with installed snapshot";
-        }
-        // discard entire log
-        _log_manager->truncate_prefix(_last_snapshot_index + 1);
-        _log_manager->truncate_suffix(_last_snapshot_index);
-    }
-
-    // discard unneed entries before _last_snapshot_index
-    if (_log_manager->first_log_index() <= _last_snapshot_index) {
-        _log_manager->truncate_prefix(_last_snapshot_index + 1);
-    }
-
-    // update configuration
-    _log_manager->set_snapshot(_loading_snapshot_meta);
-    _log_manager->check_and_set_configuration(&_conf);
-
-    // reset commit manager
-    if (_commit_manager && _state == LEADER) {
-        // init_snapshot_storage will call it, but _commit_manager is NULL
-        _commit_manager->reset_pending_index(_loading_snapshot_meta->last_included_index + 1);
-    }
-
-    LOG(INFO) << "node " << _group_id << ":" << _server_id << " snapshot_load_done,"
-        << " last_included_index " << _loading_snapshot_meta->last_included_index
-        << " last_included_term " << _loading_snapshot_meta->last_included_term
-        << " last_configuration " << _loading_snapshot_meta->last_configuration;
-
-    delete _loading_snapshot_meta;
-    _loading_snapshot_meta = NULL;
-}
-
-int NodeImpl::on_snapshot_save_done(const SnapshotMeta& meta, SnapshotWriter* writer) {
-    std::unique_lock<raft_mutex_t> lck(_mutex);
-    int ret = 0;
-
-    do {
-        // InstallSnapshot can break SaveSnapshot, check InstallSnapshot when SaveSnapshot
-        // because upstream Snapshot mybe newer than local Snapshot.
-        if (meta.last_included_index <= _last_snapshot_index) {
-            ret = ESTALE;
-            LOG(WARNING) << "node " << _group_id << ":" << _server_id
-                << " discard saved snapshot, because has a newer snapshot."
-                << " last_included_index " << meta.last_included_index
-                << " last_snapshot_index " << _last_snapshot_index;
-            writer->set_error(ESTALE, "snapshot is staled, maybe InstallSnapshot when snapshot");
-            break;
-        }
-
-        CHECK_GE(meta.last_included_index, _log_manager->first_log_index());
-        CHECK_LE(meta.last_included_index, _log_manager->last_log_index());
-
-        _last_snapshot_index = meta.last_included_index;
-        _last_snapshot_term = meta.last_included_term;
-
-        _log_manager->set_snapshot(&meta);
-
-        // update configuration
-        _log_manager->check_and_set_configuration(&_conf);
-
-        lck.unlock();
-
-        // discard unneed entries before _last_snapshot_index
-        // OPTIMIZE: should be defer discard entries when some followers are catching up.
-        if (_log_manager->first_log_index() <= meta.last_included_index) {
-            _log_manager->truncate_prefix(meta.last_included_index + 1);
-        }
-
-        //TODO: discard unneed snapshot
-
-        ret = writer->save_meta(meta);
-
-        LOG(INFO) << "node " << _group_id << ":" << _server_id << " finish snapshot_save,"
-            << " ret " << ret
-            << " last_snapshot_index " << meta.last_included_index
-            << " last_snapshot_term " << meta.last_included_term
-            << " last_configuration " << meta.last_configuration;
-    } while (0);
-
-    if (!lck.owns_lock()) {
-        lck.lock();
-    }
-    _snapshot_saving = false;
-    return ret;
 }
 
 int NodeImpl::init_snapshot_storage() {
-    int ret = 0;
-    SnapshotReader* snapshot_reader = NULL;
-
-    do {
-        if (_options.snapshot_uri.empty()) {
-            break;
-        }
-
-        Storage* storage = find_storage(_options.snapshot_uri);
-        if (storage) {
-            _snapshot_storage = storage->create_snapshot_storage(
-                    _options.snapshot_uri);
-        } else {
-            LOG(WARNING) << "node " << _group_id << ":" << _server_id
-                << " find snapshot storage failed, uri " << _options.snapshot_uri;
-            ret = ENOENT;
-            break;
-        }
-
-        // read snapshot
-        snapshot_reader = _snapshot_storage->open();
-        if (snapshot_reader) {
-            LOG(INFO) << "node " << _group_id << ":" << _server_id
-                << " loading snapshot, uri " << _options.snapshot_uri;
-            // fsm load snapshot in current bthread
-            ret = _options.fsm->on_snapshot_load(snapshot_reader);
-            if (ret != 0) {
-                LOG(WARNING) << "node " << _group_id << ":" << _server_id
-                    << " fsm load snapshot failed, uri " << _options.snapshot_uri;
-                break;
-            }
-
-            // load meta
-            _loading_snapshot_meta = new SnapshotMeta();
-            ret = snapshot_reader->load_meta(_loading_snapshot_meta);
-            if (ret == 0) {
-                on_snapshot_load_done();
-            } else {
-                LOG(WARNING) << "node " << _group_id << ":" << _server_id
-                    << " load snapshot meta failed, uri " << _options.snapshot_uri;
-                delete _loading_snapshot_meta;
-                _loading_snapshot_meta = NULL;
-                break;
-            }
-        } else {
-            LOG(INFO) << "node " << _group_id << ":" << _server_id
-                << " snapshot storage empty, uri " << _options.snapshot_uri;
-        }
-    } while (0);
-
-    if (_snapshot_storage && snapshot_reader) {
-        _snapshot_storage->close(snapshot_reader);
+    if (_options.snapshot_uri.empty()) {
+        return 0;
     }
-    return ret;
+    _snapshot_executor = new SnapshotExecutor;
+    SnapshotExecutorOptions opt;
+    opt.uri = _options.snapshot_uri;
+    opt.fsm_caller = _fsm_caller;
+    opt.node = this;
+    opt.log_manager = _log_manager;
+    return _snapshot_executor->init(opt);
 }
 
 int NodeImpl::init_log_storage() {
@@ -411,6 +253,22 @@ int NodeImpl::init(const NodeOptions& options) {
             break;
         }
 
+        // fsm caller init, node AddRef in init
+        _fsm_caller = new FSMCaller();
+        FSMCallerOptions fsm_caller_options;
+        this->AddRef();
+        fsm_caller_options.after_shutdown = 
+                google::protobuf::NewCallback<NodeImpl*>(after_shutdown, this);
+        //fsm_caller_options.applied_index = _last_snapshot_index;
+        fsm_caller_options.log_manager = _log_manager;
+        fsm_caller_options.fsm = _options.fsm;
+        ret = _fsm_caller->init(fsm_caller_options);
+        if (ret != 0) {
+            delete fsm_caller_options.after_shutdown;
+            this->Release();
+            break;
+        }
+
         // snapshot storage init and load
         // NOTE: snapshot maybe discard entries when snapshot saved but not discard entries.
         //      init log storage before snapshot storage, snapshot storage will update configration
@@ -421,6 +279,7 @@ int NodeImpl::init(const NodeOptions& options) {
             break;
         }
 
+        _conf.first = 0;
         // if have log using conf in log, else using conf in options
         if (_log_manager->last_log_index() > 0) {
             _log_manager->check_and_set_configuration(&_conf);
@@ -430,27 +289,11 @@ int NodeImpl::init(const NodeOptions& options) {
 
         //TODO: call fsm on_apply (_last_snapshot_index + 1, last_committed_index]
 
-        // fsm caller init, node AddRef in init
-        _fsm_caller = new FSMCaller();
-        FSMCallerOptions fsm_caller_options;
-        this->AddRef();
-        fsm_caller_options.after_shutdown = 
-                google::protobuf::NewCallback<NodeImpl*>(after_shutdown, this);
-        fsm_caller_options.applied_index = _last_snapshot_index;
-        fsm_caller_options.log_manager = _log_manager;
-        fsm_caller_options.fsm = _options.fsm;
-        ret = _fsm_caller->init(fsm_caller_options);
-        if (ret != 0) {
-            delete fsm_caller_options.after_shutdown;
-            this->Release();
-            break;
-        }
-
         // commitment manager init
         _commit_manager = new CommitmentManager();
         CommitmentManagerOptions commit_manager_options;
         commit_manager_options.waiter = _fsm_caller;
-        commit_manager_options.last_committed_index = _last_snapshot_index;
+        //commit_manager_options.last_committed_index = _last_snapshot_index;
         ret = _commit_manager->init(commit_manager_options);
         if (ret != 0) {
             // fsm caller init AddRef, here Release
@@ -476,7 +319,7 @@ int NodeImpl::init(const NodeOptions& options) {
         }
 
         // start snapshot timer
-        if (_snapshot_storage && _options.snapshot_interval > 0) {
+        if (_snapshot_executor && _options.snapshot_interval > 0) {
             AddRef();
             bthread_timer_add(&_snapshot_timer,
                               base::milliseconds_from_now(_options.snapshot_interval * 1000),
@@ -837,94 +680,19 @@ int NodeImpl::set_peer(const std::vector<PeerId>& old_peers, const std::vector<P
     return 0;
 }
 
-SaveSnapshotDone::SaveSnapshotDone(NodeImpl* node, SnapshotStorage* snapshot_storage, Closure* done)
-    : _node(node), _snapshot_storage(snapshot_storage), _writer(NULL),
-    _done(done) {
-    // here AddRef, SaveSnapshot maybe async
-    _node->AddRef();
-}
-
-SaveSnapshotDone::~SaveSnapshotDone() {
-    _node->Release();
-}
-
-SnapshotWriter* SaveSnapshotDone::start(const SnapshotMeta& meta) {
-    if (_writer != NULL) {
-        CHECK(false) << __FUNCTION__ << " is supposed to called once at most";
-    }
-    _meta = meta;
-    _writer = _snapshot_storage->create();
-    return _writer;
-}
-
-void SaveSnapshotDone::Run() {
-    if (_err_code == 0) {
-        int ret = _node->on_snapshot_save_done(_meta, _writer);
-        if (ret != 0) {
-            set_error(ret, "node call on_snapshot_save_done failed");
-        }
-    }
-
-    // close writer
-    if (_writer) {
-        _snapshot_storage->close(_writer);
-    }
-
-    //user done, need set error
-    if (_err_code != 0 && _done) {
-        _done->set_error(_err_code, _err_text);
-    }
-    if (_done) {
-        _done->Run();
-    }
-    delete this;
-}
-
 void NodeImpl::snapshot(Closure* done) {
-    BAIDU_SCOPED_LOCK(_mutex);
-
     do_snapshot(done);
 }
 
 void NodeImpl::do_snapshot(Closure* done) {
-    // check state
-    CHECK(is_active_state(_state))
-        << "node " << _group_id << ":" << _server_id << " shutdown, can't do_snapshot";
-
-    // check support snapshot?
-    if (NULL == _snapshot_storage) {
-        LOG(WARNING) << "node " << _group_id << ":" << _server_id
-            << " unsupport snapshot, maybe snapshot_uri not set";
+    if (_snapshot_executor) {
+        _snapshot_executor->do_snapshot(done);
+    } else {
         if (done) {
-            _fsm_caller->on_cleared(0, done, EINVAL);
+            done->set_error(EINVAL, "Snapshot is not supported");
+            run_closure_in_bthread(done);
         }
-        return;
     }
-
-    // check snapshot install/load
-    if (_loading_snapshot_meta) {
-        LOG(WARNING) << "node " << _group_id << ":" << _server_id
-            << " doing snapshot load/install";
-        if (done) {
-            _fsm_caller->on_cleared(0, done, EAGAIN);
-        }
-        return;
-    }
-
-    // check snapshot saving?
-    if (_snapshot_saving) {
-        LOG(WARNING) << "node " << _group_id << ":" << _server_id
-            << " doing snapshot save";
-        if (done) {
-            _fsm_caller->on_cleared(0, done, EAGAIN);
-        }
-        return;
-    }
-
-    _snapshot_saving = true;
-    //TODO:
-    SaveSnapshotDone* snapshot_save_done = new SaveSnapshotDone(this, _snapshot_storage, done);
-    _fsm_caller->on_snapshot_save(snapshot_save_done);
 }
 
 void NodeImpl::shutdown(Closure* done) {
@@ -1176,23 +944,15 @@ struct OnPreVoteRPCDone : public google::protobuf::Closure {
     NodeImpl* node;
 };
 
-// in lock
-int64_t NodeImpl::last_log_term() {
-    int64_t term = 0;
-    int64_t last_log_index = _log_manager->last_log_index();
-    if (last_log_index >= _log_manager->first_log_index()) {
-        term = _log_manager->get_term(last_log_index);
-    } else {
-        term = _last_snapshot_term;
-    }
-    return term;
-}
-
 void NodeImpl::pre_vote() {
     LOG(INFO) << "node " << _group_id << ":" << _server_id
         << " term " << _current_term
         << " start pre_vote";
-
+    if (_snapshot_executor && _snapshot_executor->is_installing_snapshot()) {
+        LOG(WARNING) << "We don't do pre_vote when installing snapshot as the "
+                     " configuration is possibly out of date";
+        return;
+    }
     _pre_vote_ctx.reset();
     std::vector<PeerId> peers;
     _conf.second.list_peers(&peers);
@@ -1216,8 +976,9 @@ void NodeImpl::pre_vote() {
         request.set_server_id(_server_id.to_string());
         request.set_peer_id(peers[i].to_string());
         request.set_term(_current_term + 1); // next term
-        request.set_last_log_term(last_log_term());
-        request.set_last_log_index(_log_manager->last_log_index());
+        const int64_t last_log_index = _log_manager->last_log_index();
+        request.set_last_log_index(last_log_index);
+        request.set_last_log_term(_log_manager->get_term(last_log_index));
 
         OnPreVoteRPCDone* done = new OnPreVoteRPCDone(peers[i], _current_term, this);
         RaftService_Stub stub(&channel);
@@ -1246,6 +1007,7 @@ void NodeImpl::elect_self() {
             CHECK(ret == 1);
         }
     }
+
     _state = CANDIDATE;
     _current_term++;
     _voted_id = _server_id;
@@ -1279,8 +1041,9 @@ void NodeImpl::elect_self() {
         request.set_server_id(_server_id.to_string());
         request.set_peer_id(peers[i].to_string());
         request.set_term(_current_term);
-        request.set_last_log_term(last_log_term());
-        request.set_last_log_index(_log_manager->last_log_index());
+        const int64_t last_log_index = _log_manager->last_log_index();
+        request.set_last_log_index(last_log_index);
+        request.set_last_log_term(_log_manager->get_term(last_log_index));
 
         OnRequestVoteRPCDone* done = new OnRequestVoteRPCDone(peers[i], _current_term, this);
         RaftService_Stub stub(&channel);
@@ -1327,6 +1090,10 @@ void NodeImpl::step_down(const int64_t term) {
 
         // signal fsm leader stop immediately
         _fsm_caller->on_leader_stop();
+    }
+
+    if (_snapshot_executor) {
+        _snapshot_executor->interrupt_downloading_snapshot(term);
     }
 
     _state = FOLLOWER;
@@ -1377,7 +1144,9 @@ void NodeImpl::become_leader() {
     options.commit_manager = _commit_manager;
     options.node = this;
     options.term = _current_term;
-    options.snapshot_storage = _snapshot_storage;
+    options.snapshot_storage = _snapshot_executor ? 
+                                    _snapshot_executor->snapshot_storage()
+                                    : NULL;
     _replicator_group.init(NodeId(_group_id, _server_id), options);
 
     std::vector<PeerId> peers;
@@ -1444,7 +1213,6 @@ void NodeImpl::append(LogEntry* entry, Closure* done) {
         _commit_manager->append_pending_application(Configuration(*(entry->peers)), done);
     }
 
-    //entry->AddRef();
     _log_manager->append_entry(entry, 
                                new LeaderStableClosure(
                                         NodeId(_group_id, _server_id), 
@@ -1508,7 +1276,7 @@ int NodeImpl::handle_pre_vote_request(const RequestVoteRequest* request,
         }
 
         int64_t last_log_index = _log_manager->last_log_index();
-        int64_t last_log_term = this->last_log_term();
+        int64_t last_log_term = _log_manager->get_term(last_log_index);
         granted = (request->last_log_term() > last_log_term ||
                           (request->last_log_term() == last_log_term &&
                            request->last_log_index() >= last_log_index));
@@ -1531,7 +1299,7 @@ int NodeImpl::handle_request_vote_request(const RequestVoteRequest* request,
     BAIDU_SCOPED_LOCK(_mutex);
 
     int64_t last_log_index = _log_manager->last_log_index();
-    int64_t last_log_term = this->last_log_term();
+    int64_t last_log_term = _log_manager->get_term(last_log_index);
     bool log_is_ok = (request->last_log_term() > last_log_term ||
                       (request->last_log_term() == last_log_term &&
                        request->last_log_index() >= last_log_index));
@@ -1627,6 +1395,20 @@ int NodeImpl::handle_append_entries_request(const base::IOBuf& data,
             _leader_id = server_id;
         }
 
+        // FIXME: is it conflicted with set_peer?
+        CHECK_EQ(server_id, _leader_id) 
+                << "Another peer=" << server_id 
+                << " declares that it is the leader at term="
+                << _current_term << " which is occupied by leader="
+                << _leader_id;
+
+        if (request->entries_size() > 0 && 
+                (_snapshot_executor 
+                    && _snapshot_executor->is_installing_snapshot())) {
+            LOG(WARNING) << "Received append entries while installing snapshot";
+            return EBUSY;
+        }
+
         // check prev log gap
         if (request->prev_log_index() > _log_manager->last_log_index()) {
             LOG(WARNING) << "node " << _group_id << ":" << _server_id
@@ -1650,9 +1432,6 @@ int NodeImpl::handle_append_entries_request(const base::IOBuf& data,
                 break;
             }
         }
-
-        // not append entries when install snapshot, just heartbeat
-        CHECK(NULL == _loading_snapshot_meta || 0 == request->entries_size());
 
         success = true;
 
@@ -1753,184 +1532,6 @@ int NodeImpl::handle_append_entries_request(const base::IOBuf& data,
     return 0;
 }
 
-InstallSnapshotDone::InstallSnapshotDone(NodeImpl* node, SnapshotStorage* snapshot_storage,
-                                         baidu::rpc::Controller* controller,
-                                         const InstallSnapshotRequest* request,
-                                         InstallSnapshotResponse* response,
-                                         google::protobuf::Closure* done)
-    : _node(node), _snapshot_storage(snapshot_storage), _reader(NULL),
-    _controller(controller), _request(request), _response(response), _done(done) {
-    // node not need AddRef, FSMCaller::shutdown will flush running InstallSnapshot task
-}
-
-InstallSnapshotDone::~InstallSnapshotDone() {
-}
-
-SnapshotReader* InstallSnapshotDone::start() {
-    _reader = _snapshot_storage->open();
-    return _reader;
-}
-
-void InstallSnapshotDone::Run() {
-    if (_err_code == 0) {
-        _node->on_snapshot_load_done();
-        _response->set_success(true);
-    } else {
-        _response->set_success(false);
-    }
-
-    if (_reader) {
-        _snapshot_storage->close(_reader);
-    }
-    // RPC done, just transfer response
-    _done->Run();
-    delete this;
-}
-
-int NodeImpl::handle_install_snapshot_request(baidu::rpc::Controller* controller,
-                                              const InstallSnapshotRequest* request,
-                                              InstallSnapshotResponse* response,
-                                              google::protobuf::Closure* done) {
-    int ret = 0;
-
-    // some check
-    {
-        BAIDU_SCOPED_LOCK(_mutex);
-
-        PeerId server_id;
-        if (0 != server_id.parse(request->server_id())) {
-            LOG(WARNING) << "node " << _group_id << ":" << _server_id
-                << " received InstallSnapshotRequest from " << request->server_id()
-                << " server_id bad format";
-            return EINVAL;
-        }
-
-        response->set_success(false);
-        response->set_term(_current_term);
-
-        // check loading snapshot?
-        if (_loading_snapshot_meta) {
-            LOG(WARNING) << "node " << _group_id << ":" << _server_id
-                << " received InstallSnapshotRequest from " << request->server_id()
-                << " install snapshot running";
-            return EAGAIN;
-        }
-
-        // check staled term
-        if (request->term() < _current_term) {
-            LOG(WARNING) << "node " << _group_id << ":" << _server_id << " term " << _current_term
-                << " received staled InstallSnapshotRequest term " << request->term();
-            // TODO: don run here
-            done->Run();
-            return 0;
-        }
-
-        // check term and state
-        if (request->term() > _current_term || _state != FOLLOWER) {
-            response->set_term(_current_term);
-            step_down(_current_term);
-        }
-
-        // save current leader
-        if (_leader_id.is_empty()) {
-            _leader_id = server_id;
-        }
-
-        // retry InstallSnapshot or staled InstallSnapshot
-        // When follower is slow, leader send InstallSnapshot.
-        // leader and follower do snapshot in the meantime.
-        // leader will send older snapshot, after follower finish snapshot
-        if (request->last_included_log_index() < _last_snapshot_index ||
-            (request->last_included_log_index() == _last_snapshot_index &&
-             request->last_included_log_term() == _last_snapshot_term)) {
-            LOG(WARNING) << "node " << _group_id << ":" << _server_id << " term " << _current_term
-                << " received staled InstallSnapshotRequest from " << request->server_id()
-                << " last_included_index " << request->last_included_log_index()
-                << " last_included_term " << request->last_included_log_term()
-                << " local_snapshot_index " << _last_snapshot_index
-                << " local_snapshot_term " << _last_snapshot_term;
-            response->set_success(true);
-            done->Run();
-            return 0;
-        }
-        LOG(INFO) << "node " << _group_id << ":" << _server_id << " term " << _current_term
-            << " received InstallSnapshotRequest from " << request->server_id()
-            << " last_included_index " << request->last_included_log_index()
-            << " last_included_term " << request->last_included_log_term();
-
-        // some check, imposible case
-        CHECK(request->last_included_log_index() > _last_snapshot_index)
-            << " last_snapshot_index " << _last_snapshot_index;
-        CHECK(request->last_included_log_index() > _log_manager->last_log_index())
-            << " last_log_index " << _log_manager->last_log_index();
-
-        // start thread do fetch and load snapshot
-        SnapshotMeta* meta = new SnapshotMeta();
-        meta->last_included_index = request->last_included_log_index();
-        meta->last_included_term = request->last_included_log_term();
-        for (int i = 0; i < request->peers_size(); i++) {
-            PeerId peer;
-            if (0 != peer.parse(request->peers(i))) {
-                LOG(WARNING) << "node " << _group_id << ":" << _server_id
-                    << " received InstallSnapshotRequest from " << request->server_id()
-                    << " peers bad format";
-                delete meta;
-                return EINVAL;
-            }
-            meta->last_configuration.add_peer(peer);
-        }
-
-        _loading_snapshot_meta = meta;
-    }
-
-    // copy snapshot
-    SnapshotWriter* writer = NULL;
-    do {
-        CHECK(_snapshot_storage);
-
-        writer = _snapshot_storage->create();
-        if (NULL == writer) {
-            ret = EINVAL;
-            break;
-        }
-
-        ret = writer->copy(request->uri());
-        if (0 != ret) {
-            break;
-        }
-
-        ret = writer->save_meta(*_loading_snapshot_meta);
-        if (0 != ret) {
-            break;
-        }
-    } while (0);
-    if (NULL != writer) {
-        _snapshot_storage->close(writer);
-    }
-    if (0 != ret) {
-        LOG(WARNING) << "node " << _group_id << ":" << _server_id
-            << " term " << _current_term << " snapshot save failed, uri " << request->uri();
-
-        // clear _loading_snapshot_meta when copy snapshot failed
-        delete _loading_snapshot_meta;
-        _loading_snapshot_meta = NULL;
-        return ret;
-    }
-
-    // fsm load snapshot
-    {
-        BAIDU_SCOPED_LOCK(_mutex);
-
-        //TODO:
-        // call fsm_caller on_install_snapshot, when finished run on_snapshot_load_done
-        InstallSnapshotDone* install_snapshot_done =
-            new InstallSnapshotDone(this, _snapshot_storage, controller, request, response, done);
-        _fsm_caller->on_snapshot_load(install_snapshot_done);
-    }
-
-    return 0;
-}
-
 int NodeImpl::increase_term_to(int64_t new_term) {
     BAIDU_SCOPED_LOCK(_mutex);
     if (new_term <= _current_term) {
@@ -1961,199 +1562,109 @@ void NodeImpl::after_shutdown() {
     }
 }
 
-NodeManager::NodeManager() {
-    raft_mutex_init(&_mutex, NULL);
-}
-
-NodeManager::~NodeManager() {
-    raft_mutex_destroy(&_mutex);
-}
-
-baidu::rpc::Server* NodeManager::get_server(const base::EndPoint& ip_and_port) {
-    BAIDU_SCOPED_LOCK(_mutex);
-    ServerMap::iterator it = _servers.find(ip_and_port);
-    if (it != _servers.end()) {
-        return it->second;
-    } else {
-        for (it = _servers.begin(); it != _servers.end(); ++it) {
-            base::EndPoint address = it->first;
-            if (address.port == ip_and_port.port &&
-                (address.ip == base::IP_ANY || address.ip == ip_and_port.ip)) {
-                return it->second;
-            }
-        }
-        return NULL;
-    }
-}
-
-void NodeManager::add_server(const base::EndPoint& ip_and_port, baidu::rpc::Server* server) {
-    BAIDU_SCOPED_LOCK(_mutex);
-    _servers.insert(std::pair<base::EndPoint, baidu::rpc::Server*>(ip_and_port, server));
-}
-
-baidu::rpc::Server* NodeManager::remove_server(const base::EndPoint& ip_and_port) {
-    BAIDU_SCOPED_LOCK(_mutex);
-    ServerMap::iterator it = _servers.find(ip_and_port);
-    if (it == _servers.end()) {
-        for (it = _servers.begin(); it != _servers.end(); ++it) {
-            base::EndPoint address = it->first;
-            if (address.port == ip_and_port.port &&
-                (address.ip == base::IP_ANY || address.ip == ip_and_port.ip)) {
-                break;
-            }
-        }
-    }
-    baidu::rpc::Server* server = NULL;
-    if (it != _servers.end()) {
-        server = it->second;
-        _servers.erase(it);
-    }
-    return server;
-}
-
-int NodeManager::start(const base::EndPoint& ip_and_port,
-                      baidu::rpc::Server* server, baidu::rpc::ServerOptions* options) {
-    bool own = false;
-    if (!server) {
-        own = true;
-        server = new baidu::rpc::Server;
-    } else if (0 != server->listen_address().port ||
-               NULL != get_server(ip_and_port)){
-        LOG(ERROR) << "Add Raft Server has inited.";
-        return EINVAL;
-    }
-
-    baidu::rpc::ServerOptions server_options;
-    if (options) {
-        server_options = *options;
-    }
-    if (0 != server->AddService(new FileServiceImpl, baidu::rpc::SERVER_OWNS_SERVICE)) {
-        LOG(ERROR) << "Add File Service Failed.";
-        return EINVAL;
-    }
-    if (0 != server->AddService(&_service_impl, baidu::rpc::SERVER_DOESNT_OWN_SERVICE)) {
-        LOG(ERROR) << "Add Raft Service Failed.";
-        return EINVAL;
-    }
-    if (0 != server->AddService(new RaftStatImpl, baidu::rpc::SERVER_OWNS_SERVICE)) {
-        LOG(ERROR) << "Add Raft Service Failed.";
-        return EINVAL;
-    }
-    if (0 != server->Start(ip_and_port, &server_options)) {
-        LOG(ERROR) << "Start Raft Server Failed.";
-        return EINVAL;
-    }
-
-    base::EndPoint address = server->listen_address();
-    LOG(WARNING) << "start raft server " << address;
-    add_server(ip_and_port, server);
-    if (own) {
-        BAIDU_SCOPED_LOCK(_mutex);
-        _own_servers.insert(ip_and_port);
-    }
-    return 0;
-}
-
-baidu::rpc::Server* NodeManager::stop(const base::EndPoint& ip_and_port) {
-    baidu::rpc::Server* server = remove_server(ip_and_port);
-    if (server) {
-        bool own = false;
-        {
-            BAIDU_SCOPED_LOCK(_mutex);
-            if (_own_servers.end() != _own_servers.find(server->listen_address())) {
-                _own_servers.erase(server->listen_address());
-                own = true;
-            }
-        }
-        if (own) {
-            delete server; // ~Server() call Stop(0) and Join()
-            server = NULL;
-        }
-    }
-
-    return server;
-}
-
-size_t NodeManager::_add_node(Maps& m, const NodeImpl* node) {
-    NodeId node_id = node->node_id();
-    std::pair<NodeMap::iterator, bool> ret = m.node_map.insert(
-            NodeMap::value_type(node_id, const_cast<NodeImpl*>(node)));
-    if (ret.second) {
-        m.group_map.insert(GroupMap::value_type(
-                    node_id.group_id, const_cast<NodeImpl*>(node)));
-        return 1;
-    }
-    return 0;
-}
-
-size_t NodeManager::_remove_node(Maps& m, const NodeImpl* node) {
-    if (m.node_map.erase(node->node_id()) != 0) {
-        std::pair<GroupMap::iterator, GroupMap::iterator> 
-                range = m.group_map.equal_range(node->node_id().group_id);
-        for (GroupMap::iterator it = range.first; it != range.second; ++it) {
-            if (it->second == node) {
-                m.group_map.erase(it);
-                return 1;
-            }
-        }
-        CHECK(false) << "Can't reach here";
-        return 0;
-    }
-    return 0;
-}
-
-bool NodeManager::add(NodeImpl* node) {
-    // check address ok?
-    if (NULL == get_server(node->node_id().peer_id.addr)) {
-        return false;
-    }
-
-    return _nodes.Modify(_add_node, node) != 0;
-}
-
-bool NodeManager::remove(NodeImpl* node) {
-    return _nodes.Modify(_remove_node, node) != 0;
-}
-
-scoped_refptr<NodeImpl> NodeManager::get(const GroupId& group_id, const PeerId& peer_id) {
-    base::DoublyBufferedData<Maps>::ScopedPtr ptr;
-    if (_nodes.Read(&ptr) != 0) {
-        return NULL;
-    }
-    NodeMap::const_iterator it = ptr->node_map.find(NodeId(group_id, peer_id));
-    if (it != ptr->node_map.end()) {
-        return it->second;
-    }
-    return NULL;
-}
-
-void NodeManager::get_nodes_by_group_id(
-        const GroupId& group_id, std::vector<scoped_refptr<NodeImpl> >* nodes) {
-
-    nodes->clear();
-    base::DoublyBufferedData<Maps>::ScopedPtr ptr;
-    if (_nodes.Read(&ptr) != 0) {
+void NodeImpl::handle_install_snapshot_request(baidu::rpc::Controller* controller,
+                                    const InstallSnapshotRequest* request,
+                                    InstallSnapshotResponse* response,
+                                    google::protobuf::Closure* done) {
+    baidu::rpc::ClosureGuard done_guard(done);
+    baidu::rpc::Controller* cntl = (baidu::rpc::Controller*)controller;
+    if (_snapshot_executor == NULL) {
+        cntl->SetFailed(EINVAL, "Not support snapshot");
         return;
     }
-    std::pair<GroupMap::const_iterator, GroupMap::const_iterator> 
-            range = ptr->group_map.equal_range(group_id);
-    for (GroupMap::const_iterator it = range.first; it != range.second; ++it) {
-        nodes->push_back(it->second);
-    }
-}
-
-void NodeManager::get_all_nodes(std::vector<scoped_refptr<NodeImpl> >* nodes) {
-    nodes->clear();
-    base::DoublyBufferedData<Maps>::ScopedPtr ptr;
-    if (_nodes.Read(&ptr) != 0) {
+    PeerId server_id;
+    if (0 != server_id.parse(request->server_id())) {
+        cntl->SetFailed(baidu::rpc::EREQUEST, "Fail to parse server_id=`%s'",
+                        request->server_id().c_str());
         return;
     }
-    nodes->reserve(ptr->group_map.size());
-    for (GroupMap::const_iterator 
-            it = ptr->group_map.begin(); it != ptr->group_map.end(); ++it) {
-        nodes->push_back(it->second);
+    std::unique_lock<raft_mutex_t> lck(_mutex);
+    // check stale term
+    if (request->term() < _current_term) {
+        LOG(WARNING) << "node " << _group_id << ":" << _server_id
+            << " ignore stale AppendEntries from " << request->server_id()
+            << " in term " << request->term()
+            << " current_term " << _current_term;
+        response->set_term(_current_term);
+        response->set_success(false);
+        return;
+    }
+    if (request->term() > _current_term || _state != FOLLOWER) {
+        step_down(request->term());
+        response->set_term(request->term());
+    }
+
+    // save current leader
+    if (_leader_id.is_empty()) {
+        _leader_id = server_id;
+    }
+
+    // FIXME: is it conflicted with set_peer?
+    CHECK_EQ(server_id, _leader_id) 
+            << "Another peer=" << server_id 
+            << " declares that it is the leader at term="
+            << _current_term << " which is occupied by leader="
+            << _leader_id;
+    lck.unlock();
+    return _snapshot_executor->install_snapshot(
+            cntl, request, response, done_guard.release());
+}
+
+void NodeImpl::update_configuration_after_installing_snapshot() {
+    BAIDU_SCOPED_LOCK(_mutex);
+    _log_manager->check_and_set_configuration(&_conf);
+}
+
+void NodeImpl::describe(std::ostream& os, bool use_html) {
+    PeerId leader;
+    std::unique_lock<raft_mutex_t> lck(_mutex);
+    const State st = _state;
+    if (st == FOLLOWER) {
+        leader = _leader_id;
+    }
+    const int64_t term = _current_term;
+    const int64_t conf_index = _conf.first;
+    //const int ref_count = ref_count_;
+    std::vector<PeerId> peers;
+    _conf.second.list_peers(&peers);
+    lck.unlock();
+    const char *newline = use_html ? "<br>" : "\r\n";
+    os << "state: " << state2str(st) << newline;
+    os << "term: " << term << newline;
+    os << "conf_index: " << conf_index << newline;
+    os << "peers:";
+    for (size_t j = 0; j < peers.size(); ++j) {
+        if (peers[j] != _server_id) {  // Not list self
+            os << ' ';
+            if (use_html) {
+                os << "<a href=\"http://" << peers[j].addr 
+                   << "/raft_stat/" << _group_id << "\">";
+            }
+            os << peers[j];
+            if (use_html) {
+                os << "</a>";
+            }
+        }
+    }
+    os << newline;  // newline for peers
+
+    if (st == FOLLOWER) {
+        os << "leader: ";
+        if (use_html) {
+            os << "<a href=\"http://" << leader.addr
+                << "/raft_stat/" << _group_id << "\">"
+                << leader << "</a>";
+        } else {
+            os << leader;
+        }
+        os << newline;
+    }
+    _log_manager->describe(os, use_html);
+    _fsm_caller->describe(os, use_html);
+    _commit_manager->describe(os, use_html);
+    if (_snapshot_executor) {
+        _snapshot_executor->describe(os, use_html);
     }
 }
 
 }
-

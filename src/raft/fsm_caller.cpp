@@ -54,11 +54,9 @@ int FSMCaller::init(const FSMCallerOptions &options) {
     if (options.log_manager == NULL || options.fsm == NULL) {
         return EINVAL;
     }
-    _last_applied_index.store(options.applied_index, boost::memory_order_release);
     _log_manager = options.log_manager;
     _fsm = options.fsm;
     _after_shutdown = options.after_shutdown;
-
     bthread::execution_queue_start(&_queue,
                                    NULL, /*queue_options*/
                                    FSMCaller::run,
@@ -145,6 +143,9 @@ void FSMCaller::do_committed(int64_t committed_index, Closure* done) {
 }
 
 int FSMCaller::on_cleared(int64_t log_index, void* context, int error_code) {
+    if (context == NULL) {
+        return 0;
+    }
     google::protobuf::Closure* done =
         google::protobuf::NewCallback(this, &FSMCaller::do_cleared,
                                       log_index, static_cast<Closure*>(context), error_code);
@@ -154,7 +155,7 @@ int FSMCaller::on_cleared(int64_t log_index, void* context, int error_code) {
         FSM_CALLER_REGISTER_POSITION;
         Closure* closure = static_cast<Closure*>(context);
         closure->set_error(error_code, "%s", berror(error_code));
-        ret = run_closure_in_bthread(closure);
+        run_closure_in_bthread(closure);
     }
     FSM_CALLER_CLEAR_POSITION;
     return ret;
@@ -215,7 +216,6 @@ void FSMCaller::do_snapshot_save(SaveSnapshotClosure* done) {
         return;
     }
     FSM_CALLER_CLEAR_POSITION
-
     return;
 }
 
@@ -292,7 +292,12 @@ void FSMCaller::do_leader_stop() {
 void FSMCaller::describe(std::ostream &os, bool use_html) {
     const char *p = _position.load(boost::memory_order_relaxed);
     const char *new_line = use_html ? "<br>" : "\n";
-    os << "fsm_caller_state: " << (p == NULL ? "idle" : p) << new_line;
+    if (p == NULL) {
+        os << "fsm_caller_state: IDLE" << new_line;
+    } else {
+        os << "fsm_caller_state: RUNNING" << new_line;
+        os << "fsm_caller_position: " << p << new_line;
+    }
 }
 
 }  // namespace raft

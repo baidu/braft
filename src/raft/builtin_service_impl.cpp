@@ -11,6 +11,7 @@
 #include <baidu/rpc/builtin/common.h>
 #include "raft/node.h"
 #include "raft/replicator.h"
+#include "raft/node_manager.h"
 
 namespace raft {
 
@@ -65,51 +66,8 @@ void RaftStatImpl::default_method(::google::protobuf::RpcController* controller,
             }
             prev_group_id = group_id;
         }
-        NodeStats stat = nodes[i]->stats();
-        os << "state: " << state2str(stat.state) << newline;
-        os << "term: " << stat.term << newline;
-        os << "last_log_index: " << stat.last_log_index << newline;
-        os << "last_log_term: " << stat.last_log_term << newline;
-        os << "committed_index: " << stat.committed_index << newline;
-        os << "applied_index: " << stat.applied_index << newline;
-        os << "last_snapshot_index: " << stat.last_snapshot_index << newline;
-        os << "last_snapshot_term: " << stat.last_snapshot_term << newline;
-        std::vector<PeerId> peers;
-        stat.configuration.list_peers(&peers);
-        os << "peers:";
-        for (size_t j = 0; j < peers.size(); ++j) {
-            if (peers[j] != node_id.peer_id) {  // Not list self
-                os << ' ';
-                if (html) {
-                    os << "<a href=\"http://" << peers[j].addr 
-                       << "/raft_stat/" << group_id << "\">";
-                }
-                os << peers[j];
-                if (html) {
-                    os << "</a>";
-                }
-            }
-        }
-        os << newline;  // newline for peers
-
-        if (stat.state == FOLLOWER) {
-            PeerId leader = nodes[i]->leader_id();
-            os << "leader: ";
-            if (html) {
-                os << "<a href=\"http://" << leader.addr
-                    << "/raft_stat/" << group_id << "\">"
-                    << leader << "</a>";
-            } else {
-                os << leader;
-            }
-            os << newline;
-        }
-        nodes[i]->_log_manager->describe(os, html);
-        nodes[i]->_fsm_caller->describe(os, html);
-        // TODO: list state of replicators for leader
-        // 
+        nodes[i]->describe(os, html);
         os << newline;
-
     }
     if (html) {
         os << "</body></html>";
