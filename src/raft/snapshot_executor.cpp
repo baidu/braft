@@ -45,11 +45,9 @@ public:
         : _se(se)
         , _reader(reader)
         , _has_run(false) {
-        CHECK_EQ(0, raft_mutex_init(&_mutex, NULL));
         CHECK_EQ(0, raft_cond_init(&_cond, NULL));
     }
     ~FirstSnapshotLoadDone() {
-        CHECK_EQ(0, raft_mutex_destroy(&_mutex));
         CHECK_EQ(0, raft_cond_destroy(&_cond));
     }
 
@@ -63,7 +61,7 @@ public:
     void wait_for_run() {
         BAIDU_SCOPED_LOCK(_mutex);
         while (!_has_run) {
-            raft_cond_wait(&_cond, &_mutex);
+            raft_cond_wait(&_cond, &_mutex.mutex());
         }
     }
     bool failed() const {
@@ -90,11 +88,9 @@ SnapshotExecutor::SnapshotExecutor()
     , _log_manager(NULL)
     , _downloading_snapshot(NULL)
 {
-    CHECK_EQ(0, raft_mutex_init(&_mutex, NULL));
 }
 
 SnapshotExecutor::~SnapshotExecutor() {
-    CHECK_EQ(0, raft_mutex_destroy(&_mutex));
 }
 
 void SnapshotExecutor::do_snapshot(Closure* done) {
@@ -433,7 +429,9 @@ int SnapshotExecutor::register_downloading_snapshot(DownloadingSnapshot* ds,
         ds->cntl->SetFailed(EBUSY, "Is saving snapshot");
         return -1;
     }
-    if (_downloading_snapshot.load(boost::memory_order_relaxed) == NULL) {
+    DownloadingSnapshot* m = _downloading_snapshot.load(
+            boost::memory_order_relaxed);
+    if (!m) {
         *saved_version = _version;
         _downloading_snapshot.store(ds, boost::memory_order_relaxed);
         return 0;
@@ -441,7 +439,6 @@ int SnapshotExecutor::register_downloading_snapshot(DownloadingSnapshot* ds,
     int rc = 0;
     DownloadingSnapshot saved;
     bool has_saved = false;
-    DownloadingSnapshot* m = _downloading_snapshot.load(boost::memory_order_relaxed);
     // A previouse snapshot is under installing, check if this is the same
     // snapshot and resume it, otherwise drop previous snapshot as this is a
     // new one

@@ -44,7 +44,6 @@ void* run_lock_guard(void *arg) {
 
 TEST_F(TestUsageSuits, lock) {
     raft_mutex_t mutex;
-    raft_mutex_init(&mutex, NULL);
 
     // bthread lock guard
     LockMeta meta;
@@ -61,7 +60,6 @@ TEST_F(TestUsageSuits, lock) {
     }
 
     ASSERT_EQ(meta.value, 10*10000);
-    raft_mutex_destroy(&mutex);
 }
 
 TEST_F(TestUsageSuits, get_host_ip) {

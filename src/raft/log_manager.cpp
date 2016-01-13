@@ -16,6 +16,21 @@
 
 namespace raft {
 
+static bvar::LatencyRecorder g_log_manager_contention_recorder
+            ("raft_log_manager_contention");
+static bvar::LatencyRecorder g_log_manager_modify_storage_contention_recorder
+            ("raft_log_manager_modify_storage_contention");
+static bvar::Adder<int64_t> g_read_entry_from_storage
+            ("raft_read_entry_from_storage_count");
+static bvar::PerSecond<bvar::Adder<int64_t> > g_read_entry_from_storage_second
+            ("raft_read_entry_from_storage_second", &g_read_entry_from_storage);
+
+static bvar::Adder<int64_t> g_read_term_from_storage
+            ("raft_read_term_from_storage_count");
+static bvar::PerSecond<bvar::Adder<int64_t> > g_read_term_from_storage_second
+            ("raft_read_term_from_storage_second", &g_read_term_from_storage);
+
+
 DEFINE_int32(raft_leader_batch, 50, "max leader io batch");
 
 LogManagerOptions::LogManagerOptions()
@@ -35,8 +50,9 @@ LogManager::LogManager()
     , _stopped(false)
 {
     CHECK_EQ(0, bthread_id_list_init(&_wait_list, 16/*FIXME*/, 16));
-    CHECK_EQ(0, raft_mutex_init(&_mutex, NULL));
-    CHECK_EQ(0, raft_mutex_init(&_modify_storage_mutex, NULL));
+    _mutex.set_recorder(g_log_manager_contention_recorder);
+    _modify_storage_mutex.set_recorder(
+            g_log_manager_modify_storage_contention_recorder);
 }
 
 int LogManager::init(const LogManagerOptions &options) {
@@ -58,8 +74,6 @@ int LogManager::init(const LogManagerOptions &options) {
 
 LogManager::~LogManager() {
     bthread_id_list_destroy(&_wait_list);
-    raft_mutex_destroy(&_mutex);
-    raft_mutex_destroy(&_modify_storage_mutex);
 }
 
 int LogManager::start_disk_thread() {
@@ -489,6 +503,7 @@ int64_t LogManager::get_term(const int64_t index) {
         return entry->term;
     }
     lck.unlock();
+    g_read_term_from_storage << 1;
     return _log_storage->get_term(index);
 }
 
@@ -506,6 +521,7 @@ LogEntry* LogManager::get_entry(const int64_t index) {
         return entry;
     }
     lck.unlock();
+    g_read_entry_from_storage << 1;
     return _log_storage->get_entry(index);
 }
 

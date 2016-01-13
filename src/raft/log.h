@@ -30,26 +30,28 @@
 
 namespace raft {
 
+extern ::bvar::LatencyRecorder g_segment_contention_recorder;
+extern ::bvar::LatencyRecorder g_segment_storage_contention_recorder;
+
 class BAIDU_CACHELINE_ALIGNMENT Segment {
 public:
     Segment(const std::string& path, const int64_t first_index)
         : _path(path), _bytes(0),
         _fd(-1), _is_open(true),
         _first_index(first_index), _last_index(first_index - 1) {
-            CHECK_EQ(0, raft_mutex_init(&_mutex, NULL));
+            _mutex.set_recorder(g_segment_contention_recorder);
     }
     Segment(const std::string& path, const int64_t first_index, const int64_t last_index)
         : _path(path), _bytes(0),
         _fd(-1), _is_open(false),
         _first_index(first_index), _last_index(last_index) {
-            CHECK_EQ(0, raft_mutex_init(&_mutex, NULL));
+            _mutex.set_recorder(g_segment_contention_recorder);
     }
     ~Segment() {
         if (_fd >= 0) {
             ::close(_fd);
             _fd = -1;
         }
-        raft_mutex_destroy(&_mutex);
     }
 
     struct EntryHeader;
@@ -137,7 +139,7 @@ public:
     SegmentLogStorage(const std::string& path)
         : LogStorage(path), _path(path),
         _first_log_index(1) {
-            CHECK_EQ(0, raft_mutex_init(&_mutex, NULL));
+            _mutex.set_recorder(g_segment_storage_contention_recorder);
     }
 
     virtual ~SegmentLogStorage() {
@@ -146,8 +148,6 @@ public:
         if (_open_segment) {
             _open_segment.reset();
         }
-
-        raft_mutex_destroy(&_mutex);
     }
 
     // init logstorage, check consistency and integrity

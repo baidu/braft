@@ -30,10 +30,8 @@ class MockFSM : public raft::StateMachine {
 public:
     MockFSM(const base::EndPoint& address_)
         : address(address_), applied_index(0), snapshot_index(0) {
-        raft_mutex_init(&mutex, NULL);
     }
     virtual ~MockFSM() {
-        raft_mutex_destroy(&mutex);
     }
 
     base::EndPoint address;
@@ -43,11 +41,11 @@ public:
     int64_t snapshot_index;
 
     void lock() {
-        raft_mutex_lock(&mutex);
+        raft_mutex_lock(&mutex.mutex());
     }
 
     void unlock() {
-        raft_mutex_unlock(&mutex);
+        raft_mutex_unlock(&mutex.mutex());
     }
 
     virtual void on_apply(const base::IOBuf& buf, const int64_t index, raft::Closure* done) {
@@ -152,11 +150,9 @@ class Cluster {
 public:
     Cluster(const std::string& name, const std::vector<raft::PeerId>& peers)
         : _name(name), _peers(peers) {
-        raft_mutex_init(&_mutex, NULL);
     }
     ~Cluster() {
         stop_all();
-        raft_mutex_destroy(&_mutex);
     }
 
     int start(const base::EndPoint& listen_addr, bool empty_peers = false) {

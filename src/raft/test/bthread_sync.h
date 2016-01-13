@@ -25,38 +25,38 @@ public:
     }
     ~BthreadCond() {
         bthread_cond_destroy(&_cond);
-        raft_mutex_destroy(&_mutex);
+        bthread_mutex_destroy(&_mutex);
     }
 
     void Init(int count = 1) {
         LOG(TRACE) << "cond(" << this << ") init " << count;
         _value = count;
-        raft_mutex_init(&_mutex, NULL);
+        bthread_mutex_init(&_mutex, NULL);
         bthread_cond_init(&_cond, NULL);
     }
     int Signal() {
         LOG(TRACE) << "cond(" << this << ") signal";
-        raft_mutex_lock(&_mutex);
+        bthread_mutex_lock(&_mutex);
         _value--;
         raft_cond_signal(&_cond);
-        raft_mutex_unlock(&_mutex);
+        bthread_mutex_unlock(&_mutex);
         return 0;
     }
 
     int Wait() {
         int ret = 0;
-        raft_mutex_lock(&_mutex);
+        bthread_mutex_lock(&_mutex);
         while (_value > 0) {
             ret = raft_cond_wait(&_cond, &_mutex);
         }
-        raft_mutex_unlock(&_mutex);
+        bthread_mutex_unlock(&_mutex);
         LOG(TRACE) << "cond(" << this << ") wait";
         return ret;
     }
 private:
     int _value;
     bthread_cond_t _cond;
-    raft_mutex_t _mutex;
+    bthread_mutex_t _mutex;
 };
 
 #endif //~BTHREAD_SYNC_H

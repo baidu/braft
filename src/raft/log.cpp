@@ -37,6 +37,11 @@
 
 namespace raft {
 
+::bvar::LatencyRecorder 
+        g_segment_contention_recorder("raft_segment_contention");
+::bvar::LatencyRecorder 
+        g_segment_storage_contention_recorder("raft_segment_storage_contention");
+
 using ::base::RawPacker;
 using ::base::RawUnpacker;
 
@@ -1027,12 +1032,15 @@ int SegmentLogStorage::get_segment(int64_t index, boost::shared_ptr<Segment>* pt
     BAIDU_SCOPED_LOCK(_mutex);
     int64_t first_index = first_log_index();
     int64_t last_index = last_log_index();
+    if (first_index == last_index + 1) {
+        return -1;
+    }
     if (index < first_index || index > last_index + 1) {
         LOG_IF(WARNING, index > last_index) << "Attempted to access entry " << index << " outside of log, "
             << " first_log_index: " << first_index
             << " last_log_index: " << last_index;
         return -1;
-    } else if (BAIDU_UNLIKELY(index == last_index + 1)) {
+    } else if (index == last_index + 1) {
         return -1;
     }
 

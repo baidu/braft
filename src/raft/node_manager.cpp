@@ -11,11 +11,9 @@
 namespace raft {
 
 NodeManager::NodeManager() {
-    raft_mutex_init(&_mutex, NULL);
 }
 
 NodeManager::~NodeManager() {
-    raft_mutex_destroy(&_mutex);
 }
 
 baidu::rpc::Server* NodeManager::get_server(const base::EndPoint& ip_and_port) {

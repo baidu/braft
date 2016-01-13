@@ -89,11 +89,9 @@ NodeImpl::NodeImpl(const GroupId& group_id, const PeerId& peer_id)
     , _snapshot_executor(NULL) {
         _server_id = peer_id;
         AddRef();
-        raft_mutex_init(&_mutex, NULL);
 }
 
 NodeImpl::~NodeImpl() {
-    raft_mutex_destroy(&_mutex);
 
     if (_config_manager) {
         delete _config_manager;
@@ -1406,6 +1404,7 @@ int NodeImpl::handle_append_entries_request(const base::IOBuf& data,
                 (_snapshot_executor 
                     && _snapshot_executor->is_installing_snapshot())) {
             LOG(WARNING) << "Received append entries while installing snapshot";
+            _last_leader_timestamp = base::monotonic_time_ms();
             return EBUSY;
         }
 
@@ -1521,12 +1520,12 @@ int NodeImpl::handle_append_entries_request(const base::IOBuf& data,
     response->set_last_log_index(_log_manager->last_log_index());
     if (success) {
         // commit manager call fsmcaller
-        if (request->committed_index() <= _log_manager->last_log_index()) {
-            // 3 nodes cluster, old leader's committed_index may greater than some node.
-            // committed_index not the key of elect, the lesser committed_index node can be leader.
-            // new leader's committed_index may lesser than local committed_index
-            _commit_manager->set_last_committed_index(request->committed_index());
-        }
+        const int64_t last_index = _log_manager->last_log_index();
+        // 3 nodes cluster, old leader's committed_index may greater than some node.
+        // committed_index not the key of elect, the lesser committed_index node can be leader.
+        // new leader's committed_index may lesser than local committed_index
+        _commit_manager->set_last_committed_index(
+                std::min(request->committed_index(), last_index));
         _last_leader_timestamp = base::monotonic_time_ms();
     }
     return 0;

@@ -8,6 +8,7 @@
 
 #include <base/macros.h>
 #include <base/logging.h>
+#include <bvar/utils/lock_timer.h>
 
 #define RAFT_VLOG_IS_ON     VLOG_IS_ON(89)
 #define RAFT_VLOG           VLOG(89)
@@ -20,7 +21,8 @@
 #ifdef USE_BTHREAD_MUTEX
 
 #include <bthread/mutex.h>
-#define raft_mutex_t bthread_mutex_t
+
+typedef ::bvar::MutexWithLatencyRecorder<bthread_mutex_t> raft_mutex_t;
 #define raft_mutex_init bthread_mutex_init
 #define raft_mutex_destroy bthread_mutex_destroy
 #define raft_mutex_lock bthread_mutex_lock
@@ -34,7 +36,9 @@
 #define raft_cond_wait bthread_cond_wait
 
 #else   // USE_BTHREAD_MUTEX
-#define raft_mutex_t pthread_mutex_t
+
+typedef ::bvar::MutexWithLatencyRecorder<pthread_mutex_t> raft_mutex_t;
+
 #define raft_mutex_init pthread_mutex_init
 #define raft_mutex_destroy  pthread_mutex_destroy
 #define raft_mutex_lock pthread_mutex_lock
