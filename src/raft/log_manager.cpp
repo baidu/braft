@@ -432,6 +432,9 @@ int LogManager::leader_disk_run(void* meta,
 }
 
 void LogManager::set_snapshot(const SnapshotMeta* meta) {
+    LOG(INFO) << "Set snapshot last_included_index="
+              << meta->last_included_index
+              << " last_included_term=" <<  meta->last_included_term;
     std::unique_lock<raft_mutex_t> lck(_mutex);
     if (meta->last_included_index <= _last_snapshot_index) {
         return;

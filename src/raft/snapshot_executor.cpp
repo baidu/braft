@@ -102,22 +102,31 @@ void SnapshotExecutor::do_snapshot(Closure* done) {
     // check snapshot install/load
     if (_downloading_snapshot.load(boost::memory_order_relaxed)) {
         lck.unlock();
-        done->set_error(EBUSY, "Is loading another snapshot");
-        return run_closure_in_bthread(done);
+        if (done) {
+            done->set_error(EBUSY, "Is loading another snapshot");
+            run_closure_in_bthread(done);
+        }
+        return;
     }
 
     // check snapshot saving?
     if (_saving_snapshot) {
         lck.unlock();
-        done->set_error(EBUSY, "Is saving anther snapshot");
-        return run_closure_in_bthread(done);
+        if (done) {
+            done->set_error(EBUSY, "Is saving anther snapshot");
+            run_closure_in_bthread(done);
+        }
+        return;
     }
     _saving_snapshot = true;
     SaveSnapshotDone* snapshot_save_done = new SaveSnapshotDone(this, _snapshot_storage, done);
     if (_fsm_caller->on_snapshot_save(snapshot_save_done) != 0) {
         lck.unlock();
-        done->set_error(EHOSTDOWN, "The raft node is down");
-        return run_closure_in_bthread(done);
+        if (done) {
+            done->set_error(EHOSTDOWN, "The raft node is down");
+            run_closure_in_bthread(done);
+        }
+        return;
     }
 }
 
@@ -125,35 +134,33 @@ int SnapshotExecutor::on_snapshot_save_done(const SnapshotMeta& meta, SnapshotWr
     std::unique_lock<raft_mutex_t> lck(_mutex);
     int ret = 0;
 
-    do {
-        // InstallSnapshot can break SaveSnapshot, check InstallSnapshot when SaveSnapshot
-        // because upstream Snapshot maybe newer than local Snapshot.
-        if (meta.last_included_index <= _last_snapshot_index) {
-            ret = ESTALE;
-            LOG_IF(WARNING, _node != NULL) << "node " << _node->node_id()
-                << " discard saved snapshot, because has a newer snapshot."
-                << " last_included_index " << meta.last_included_index
-                << " last_snapshot_index " << _last_snapshot_index;
-            writer->set_error(ESTALE, "snapshot is staled, maybe InstallSnapshot when snapshot");
-            break;
-        }
+    // InstallSnapshot can break SaveSnapshot, check InstallSnapshot when SaveSnapshot
+    // because upstream Snapshot maybe newer than local Snapshot.
+    if (meta.last_included_index <= _last_snapshot_index) {
+        ret = ESTALE;
+        LOG_IF(WARNING, _node != NULL) << "node " << _node->node_id()
+            << " discard saved snapshot, because has a newer snapshot."
+            << " last_included_index " << meta.last_included_index
+            << " last_snapshot_index " << _last_snapshot_index;
+        writer->set_error(ESTALE, "snapshot is staled, maybe InstallSnapshot when snapshot");
+    }
 
+    if (ret == 0) {
         if (writer->save_meta(meta)) {
             LOG(WARNING) << "Fail to save snapshot";    
             return -1;
         }
-
+    }
+    if (_snapshot_storage->close(writer) != 0) {
+        ret = EIO;
+        LOG(WARNING) << "Fail to close writer";
+    }
+    if (ret == 0) {
         _last_snapshot_index = meta.last_included_index;
         _last_snapshot_term = meta.last_included_term;
-
         _log_manager->set_snapshot(&meta);
-
-        lck.unlock();
-    } while (0);
-
-    if (!lck.owns_lock()) {
-        lck.lock();
     }
+
     _saving_snapshot = false;
     return ret;
 }
@@ -227,11 +234,6 @@ void SaveSnapshotDone::Run() {
         if (ret != 0) {
             set_error(ret, "node call on_snapshot_save_done failed");
         }
-    }
-
-    // close writer
-    if (_writer) {
-        _snapshot_storage->close(_writer);
     }
 
     //user done, need set error

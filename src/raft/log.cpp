@@ -944,7 +944,9 @@ int SegmentLogStorage::load_segments(ConfigurationManager* configuration_manager
                                  boost::memory_order_release);
         }
     }
-
+    if (_last_log_index == 0) {
+        _last_log_index = _first_log_index - 1;
+    }
     return 0;
 }
 

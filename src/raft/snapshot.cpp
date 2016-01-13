@@ -199,6 +199,7 @@ int LocalSnapshotStorage::init() {
     std::string temp_snapshot_path(_path);
     temp_snapshot_path.append("/");
     temp_snapshot_path.append(_s_temp_path);
+    LOG(INFO) << "Deleting " << temp_snapshot_path;
     if (!base::DeleteFile(base::FilePath(temp_snapshot_path), true)) {
         LOG(WARNING) << "delete temp snapshot path failed, path " << temp_snapshot_path;
         return EIO;
@@ -228,6 +229,7 @@ int LocalSnapshotStorage::init() {
 
             std::string snapshot_path(_path);
             base::string_appendf(&snapshot_path, "/" RAFT_SNAPSHOT_PATTERN, index);
+            LOG(INFO) << "Deleting snapshot `" << snapshot_path << "'";
             if (!base::DeleteFile(base::FilePath(snapshot_path), true)) {
                 LOG(WARNING) << "delete old snapshot path failed, path " << snapshot_path;
                 return EIO;
@@ -235,7 +237,9 @@ int LocalSnapshotStorage::init() {
         }
 
         _last_snapshot_index = *snapshots.begin();
+        ref(_last_snapshot_index);
     }
+    
     return 0;
 }
 
@@ -251,6 +255,7 @@ void LocalSnapshotStorage::unref(const int64_t index) {
         if (it->second == 0) {
             std::string old_path(_path);
             base::string_appendf(&old_path, "/" RAFT_SNAPSHOT_PATTERN, index);
+            LOG(INFO) << "Deleting snapshot `" << old_path << "'";
             bool ok = base::DeleteFile(base::FilePath(old_path), true);
             CHECK(ok) << "delete old snapshot path failed, path " << old_path;
         }
@@ -267,6 +272,7 @@ SnapshotWriter* LocalSnapshotStorage::create() {
 
         // delete temp
         base::FilePath temp_snapshot_path(snapshot_path);
+        LOG(INFO) << "Deleting " << snapshot_path;
         if (!base::DeleteFile(base::FilePath(snapshot_path), true)) {
             LOG(WARNING) << "delete temp snapshot path failed, path " << snapshot_path;
             break;
@@ -306,12 +312,13 @@ int LocalSnapshotStorage::close(SnapshotWriter* writer_) {
         temp_path.append(_s_temp_path);
         std::string new_path(_path);
         base::string_appendf(&new_path, "/" RAFT_SNAPSHOT_PATTERN, new_index);
-
+        LOG(INFO) << "Deleting " << new_path;
         if (!base::DeleteFile(base::FilePath(new_path), true)) {
             LOG(WARNING) << "delete new snapshot path failed, path " << new_path;
             ret = EIO;
             break;
         }
+        LOG(INFO) << "Renaming " << temp_path << " to " << new_path;
         if (0 != ::rename(temp_path.c_str(), new_path.c_str())) {
             LOG(WARNING) << "rename temp snapshot failed, from_path " << temp_path
                 << " to_path " << new_path;
@@ -329,6 +336,7 @@ int LocalSnapshotStorage::close(SnapshotWriter* writer_) {
         std::string temp_path(_path);
         temp_path.append("/");
         temp_path.append(_s_temp_path);
+        LOG(INFO) << "Deleting " << temp_path;
         base::DeleteFile(base::FilePath(temp_path), true);
     }
     delete writer;
