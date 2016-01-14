@@ -35,6 +35,7 @@ Block::~Block() {
     bthread_mutex_destroy(&_mutex);
 }
 
+// FIXME: race with reset_fd
 int Block::get_fd() {
     //TODO: optimize
     std::lock_guard<bthread_mutex_t> guard(_mutex);
@@ -52,9 +53,15 @@ void Block::put_fd(int fd) {
     }
 }
 
+// FIXME: race with get_fd
 void Block::reset_fd(int fd) {
-    std::lock_guard<bthread_mutex_t> guard(_mutex);
+    std::unique_lock<bthread_mutex_t> lck(_mutex);
+    int saved_fd = _fd;
     _fd = fd;
+    lck.unlock();
+    if (saved_fd >= 0) {
+        ::close(saved_fd);
+    }
 }
 
 int Block::init(const raft::NodeOptions& options) {
