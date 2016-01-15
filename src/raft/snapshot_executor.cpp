@@ -17,6 +17,9 @@ public:
 
     SnapshotWriter* start(const SnapshotMeta& meta);
     virtual void Run();
+ 
+private:
+    static void* continue_run(void* arg);
 
     SnapshotExecutor* _se;
     SnapshotStorage* _snapshot_storage;
@@ -33,7 +36,7 @@ public:
 
     SnapshotReader* start();
     virtual void Run();
-
+private:
     SnapshotExecutor* _se;
     SnapshotReader* _reader;
 };
@@ -224,22 +227,40 @@ SnapshotWriter* SaveSnapshotDone::start(const SnapshotMeta& meta) {
     return _writer;
 }
 
-void SaveSnapshotDone::Run() {
-    if (_err_code == 0) {
-        int ret = _se->on_snapshot_save_done(_meta, _writer);
+void* SaveSnapshotDone::continue_run(void* arg) {
+    SaveSnapshotDone* self = (SaveSnapshotDone*)arg;
+    std::unique_ptr<SaveSnapshotDone> self_guard(self);
+    if (self->_err_code == 0) {
+        int ret = self->_se->on_snapshot_save_done(self->_meta, self->_writer);
         if (ret != 0) {
-            set_error(ret, "node call on_snapshot_save_done failed");
+            self->set_error(ret, "node call on_snapshot_save_done failed");
         }
+    } else {
+        self->_writer->set_error(self->_err_code, "%s", self->_err_text.c_str());
+        self->_se->snapshot_storage()->close(self->_writer);
     }
 
     //user done, need set error
-    if (_err_code != 0 && _done) {
-        _done->set_error(_err_code, _err_text);
+    if (self->_err_code != 0 && self->_done) {
+        self->_done->set_error(self->_err_code, self->_err_text);
     }
-    if (_done) {
-        _done->Run();
+    if (self->_done) {
+        self->_done->Run();
     }
-    delete this;
+    return NULL;
+}
+
+void SaveSnapshotDone::Run() {
+    bthread_t tid;
+    // Avoid blocking FSMCaller
+    // This continuation of snapshot saving is likely running inplace where the
+    // on_snapshot_save is called (in the FSMCaller thread) and blocks all the
+    // following on_apply. As blocking is not neccessary and the continuation is
+    // not important, so we start a bthread to do this.
+    if (bthread_start_urgent(&tid, NULL, continue_run, this) != 0) {
+        PLOG(ERROR) << "Fail to start bthread";
+        continue_run(this);
+    }
 }
 
 int SnapshotExecutor::init(const SnapshotExecutorOptions& options) {
