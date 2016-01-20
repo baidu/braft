@@ -2,6 +2,13 @@
 /BCLOUD -text
 /COMAKE -text
 /OWNER -text
+example/atomic/COMAKE -text
+example/atomic/atomic.proto -text
+example/atomic/client.cpp -text
+example/atomic/run_client.sh -text
+example/atomic/run_server.sh -text
+example/atomic/server.cpp -text
+example/atomic/start.sh -text
 example/block/COMAKE -text
 example/block/block.cpp -text
 example/block/block.h -text
@@ -107,5 +114,9 @@ src/raft/test/test_stable.cpp -text
 src/raft/test/test_util.cpp -text
 src/raft/util.cpp -text
 src/raft/util.h -text
+sys_test/COMAKE -text
+sys_test/run_sys_test.sh -text
+sys_test/shflags -text
+sys_test/test_cases.sh -text
 /version -text
 /version.sh -text

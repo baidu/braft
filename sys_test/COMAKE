@@ -1,0 +1,29 @@
+#edit-mode: -*- python -*-
+#coding:gbk
+
+WORKROOT('../../../')
+
+CPPFLAGS('-g -DNDEBUG -O2 -pipe -W -Wall -Werror -fPIC -Wno-deprecated -Wno-unused-parameter')
+
+#CXXFLAGS('-fsanitize=address  -fno-omit-frame-pointer')
+CPPFLAGS('-D__const__= ')
+
+INCPATHS('../example/atomic ../example/common')
+INCPATHS('../src')
+
+ImportConfigsFrom('..')
+
+CPPFLAGS('-DBAIDU_RPC_ENABLE_CPU_PROFILER -DBAIDU_RPC_ENABLE_HEAP_PROFILER')
+CONFIGS('third-64/tcmalloc@1.7.0.200',Libraries('lib/libtcmalloc_and_profiler.a'))
+
+LDFLAGS('-lpthread -lrt -ldl -lz -lssl -lcrypto')
+#LDFLAGS('-lasan')
+
+PROTOC('../../../third-64/protobuf/bin/protoc')
+LIBS('../libraft.a')
+
+common_sources = (GLOB('../example/common/*.proto ../example/common/*.cpp'))
+
+Application('sys_atomic_server',Sources('../example/atomic/server.cpp ../example/atomic/atomic.proto', common_sources))
+Application('sys_atomic_client',Sources('../example/atomic/client.cpp ../example/atomic/atomic.proto', common_sources)) 
+

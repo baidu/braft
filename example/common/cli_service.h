@@ -31,7 +31,7 @@ public:
     virtual ~CliServiceImpl() {}
 
     void set_state_machine(CommonStateMachine* state_machine) {
-        _state_machine = state_machine;
+        _state_machine.store(state_machine);
     }
 
     // rpc method
@@ -49,9 +49,13 @@ public:
                      const SnapshotRequest* request,
                      SnapshotResponse* response,
                      google::protobuf::Closure* done);
+    virtual void leader(::google::protobuf::RpcController* controller,
+                       const ::example::GetLeaderRequest* request,
+                       ::example::GetLeaderResponse* response,
+                       ::google::protobuf::Closure* done);
 
 private:
-    CommonStateMachine* _state_machine;
+    boost::atomic<CommonStateMachine*> _state_machine;
 };
 
 }

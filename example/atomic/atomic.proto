@@ -1,0 +1,19 @@
+package example;
+option cc_generic_services = true;
+
+message CompareExchangeRequest {
+    required int64 id = 1;
+    required int64 expected_value = 2;
+    required int64 new_value = 3;
+};
+
+message CompareExchangeResponse {
+    required int64 old_value = 1;
+    required bool success = 2;
+}
+
+service AtomicService {
+    rpc compare_exchange(CompareExchangeRequest)
+            returns (CompareExchangeResponse);
+};
+

@@ -28,9 +28,18 @@ message SnapshotResponse {
     required bool success = 1;
 };
 
+message GetLeaderRequest {
+};
+
+message GetLeaderResponse {
+    required bool success = 1;
+    optional string leader_addr = 2;
+};
+
 // service
 service CliService {
     rpc set_peer(SetPeerRequest) returns (SetPeerResponse);
     rpc shutdown(ShutdownRequest) returns (ShutdownResponse);
     rpc snapshot(SnapshotRequest) returns (SnapshotResponse);
+    rpc leader(GetLeaderRequest) returns (GetLeaderResponse);
 };
