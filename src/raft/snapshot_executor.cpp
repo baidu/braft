@@ -12,7 +12,7 @@ namespace raft {
 
 class SaveSnapshotDone : public SaveSnapshotClosure {
 public:
-    SaveSnapshotDone(SnapshotExecutor* node, SnapshotStorage* snapshot_storage, Closure* done);
+    SaveSnapshotDone(SnapshotExecutor* node, SnapshotWriter* writer, Closure* done);
     virtual ~SaveSnapshotDone();
 
     SnapshotWriter* start(const SnapshotMeta& meta);
@@ -22,7 +22,6 @@ private:
     static void* continue_run(void* arg);
 
     SnapshotExecutor* _se;
-    SnapshotStorage* _snapshot_storage;
     SnapshotWriter* _writer;
     Closure* _done; // user done
     SnapshotMeta _meta;
@@ -117,37 +116,48 @@ void SnapshotExecutor::do_snapshot(Closure* done) {
         }
         return;
     }
+    SnapshotWriter* writer = _snapshot_storage->create();
+    if (!writer) {
+        lck.unlock();
+        if (done) {
+            done->set_error(EIO, "Fail to create writer");
+            run_closure_in_bthread(done);
+        }
+        return;
+    }
     _saving_snapshot = true;
-    SaveSnapshotDone* snapshot_save_done = new SaveSnapshotDone(this, _snapshot_storage, done);
+    SaveSnapshotDone* snapshot_save_done = new SaveSnapshotDone(this, writer, done);
     if (_fsm_caller->on_snapshot_save(snapshot_save_done) != 0) {
         lck.unlock();
         if (done) {
-            done->set_error(EHOSTDOWN, "The raft node is down");
-            run_closure_in_bthread(done);
+            snapshot_save_done->set_error(EHOSTDOWN, "The raft node is down");
+            run_closure_in_bthread(snapshot_save_done);
         }
         return;
     }
 }
 
-int SnapshotExecutor::on_snapshot_save_done(const SnapshotMeta& meta, SnapshotWriter* writer) {
+int SnapshotExecutor::on_snapshot_save_done(
+            int error_code, const SnapshotMeta& meta, SnapshotWriter* writer) {
     std::unique_lock<raft_mutex_t> lck(_mutex);
-    int ret = 0;
-
+    int ret = error_code;
     // InstallSnapshot can break SaveSnapshot, check InstallSnapshot when SaveSnapshot
     // because upstream Snapshot maybe newer than local Snapshot.
-    if (meta.last_included_index <= _last_snapshot_index) {
-        ret = ESTALE;
-        LOG_IF(WARNING, _node != NULL) << "node " << _node->node_id()
-            << " discard saved snapshot, because has a newer snapshot."
-            << " last_included_index " << meta.last_included_index
-            << " last_snapshot_index " << _last_snapshot_index;
-        writer->set_error(ESTALE, "snapshot is staled, maybe InstallSnapshot when snapshot");
+    if (ret == 0) {
+        if (meta.last_included_index <= _last_snapshot_index) {
+            ret = ESTALE;
+            LOG_IF(WARNING, _node != NULL) << "node " << _node->node_id()
+                << " discard saved snapshot, because has a newer snapshot."
+                << " last_included_index " << meta.last_included_index
+                << " last_snapshot_index " << _last_snapshot_index;
+            writer->set_error(ESTALE, "snapshot is staled, maybe InstallSnapshot when snapshot");
+        }
     }
 
     if (ret == 0) {
         if (writer->save_meta(meta)) {
             LOG(WARNING) << "Fail to save snapshot";    
-            return -1;
+            ret = EIO;
         }
     }
     if (_snapshot_storage->close(writer) != 0) {
@@ -202,10 +212,9 @@ void SnapshotExecutor::on_snapshot_load_done(int error_code,
 }
 
 SaveSnapshotDone::SaveSnapshotDone(SnapshotExecutor* se, 
-                                   SnapshotStorage* snapshot_storage, 
+                                   SnapshotWriter* writer, 
                                    Closure* done)
-    : _se(se), _snapshot_storage(snapshot_storage), _writer(NULL),
-    _done(done) {
+    : _se(se), _writer(writer), _done(done) {
     // here AddRef, SaveSnapshot maybe async
     if (se->node()) {
         se->node()->AddRef();
@@ -219,27 +228,19 @@ SaveSnapshotDone::~SaveSnapshotDone() {
 }
 
 SnapshotWriter* SaveSnapshotDone::start(const SnapshotMeta& meta) {
-    if (_writer != NULL) {
-        CHECK(false) << __FUNCTION__ << " is supposed to be called once at most";
-    }
     _meta = meta;
-    _writer = _snapshot_storage->create();
     return _writer;
 }
 
 void* SaveSnapshotDone::continue_run(void* arg) {
     SaveSnapshotDone* self = (SaveSnapshotDone*)arg;
     std::unique_ptr<SaveSnapshotDone> self_guard(self);
-    if (self->_err_code == 0) {
-        int ret = self->_se->on_snapshot_save_done(self->_meta, self->_writer);
-        if (ret != 0) {
-            self->set_error(ret, "node call on_snapshot_save_done failed");
-        }
-    } else {
-        self->_writer->set_error(self->_err_code, "%s", self->_err_text.c_str());
-        self->_se->snapshot_storage()->close(self->_writer);
+    // Must call on_snapshot_load_done to clear _saving_snapshot
+    int ret = self->_se->on_snapshot_save_done(
+                self->_err_code, self->_meta, self->_writer);
+    if (ret != 0 && self->_err_code == 0) {
+        self->set_error(ret, "node call on_snapshot_save_done failed");
     }
-
     //user done, need set error
     if (self->_err_code != 0 && self->_done) {
         self->_done->set_error(self->_err_code, self->_err_text);
@@ -251,12 +252,12 @@ void* SaveSnapshotDone::continue_run(void* arg) {
 }
 
 void SaveSnapshotDone::Run() {
-    bthread_t tid;
     // Avoid blocking FSMCaller
     // This continuation of snapshot saving is likely running inplace where the
     // on_snapshot_save is called (in the FSMCaller thread) and blocks all the
     // following on_apply. As blocking is not neccessary and the continuation is
     // not important, so we start a bthread to do this.
+    bthread_t tid;
     if (bthread_start_urgent(&tid, NULL, continue_run, this) != 0) {
         PLOG(ERROR) << "Fail to start bthread";
         continue_run(this);
