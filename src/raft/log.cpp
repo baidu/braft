@@ -1,20 +1,8 @@
-/*
- * =====================================================================================
- *
- *       Filename:  log.cpp
- *
- *    Description:  
- *
- *        Version:  1.0
- *        Created:  2015/09/18 14:56:29
- *       Revision:  none
- *       Compiler:  gcc
- *
- *         Author:  WangYao (fisherman), wangyao02@baidu.com
- *        Company:  Baidu, Inc
- *
- * =====================================================================================
- */
+// libraft - Quorum-based replication of states accross machines.
+// Copyright (c) 2015 Baidu.com, Inc. All Rights Reserved
+
+// Author: WangYao (fisherman), wangyao02@baidu.com
+// Date: 2015/09/18 16:56:30
 
 #include "raft/log.h"
 
@@ -1048,6 +1036,7 @@ int SegmentLogStorage::get_segment(int64_t index, boost::shared_ptr<Segment>* pt
         *ptr = _open_segment;
         CHECK(ptr->get() != NULL);
     } else {
+        CHECK(!_segments.empty());
         SegmentMap::iterator it = _segments.upper_bound(index);
         SegmentMap::iterator saved_it = it;
         --it;

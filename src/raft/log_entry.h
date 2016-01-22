@@ -1,3 +1,4 @@
+// libraft - Quorum-based replication of states accross machines.
 // Copyright (c) 2015 Baidu.com, Inc. All Rights Reserved
 
 // Author: Zhangyi Chen (chenzhangyi01@baidu.com)

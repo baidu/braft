@@ -1,20 +1,9 @@
-/*
- * =====================================================================================
- *
- *       Filename:  raft_service.h
- *
- *    Description:  
- *
- *        Version:  1.0
- *        Created:  2015/09/28 13:34:09
- *       Revision:  none
- *       Compiler:  gcc
- *
- *         Author:  WangYao (fisherman), wangyao02@baidu.com
- *        Company:  Baidu, Inc
- *
- * =====================================================================================
- */
+// libraft - Quorum-based replication of states accross machines.
+// Copyright (c) 2015 Baidu.com, Inc. All Rights Reserved
+
+// Author: WangYao (fisherman), wangyao02@baidu.com
+// Date: 2015/09/28 13:34:09
+
 #ifndef PUBLIC_RAFT_RAFT_SERVICE_H
 #define PUBLIC_RAFT_RAFT_SERVICE_H
 

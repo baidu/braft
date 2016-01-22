@@ -1,26 +1,16 @@
-/*
- * =====================================================================================
- *
- *       Filename:  raft.h
- *
- *    Description:  raft consensus replicate library
- *
- *        Version:  1.0
- *        Created:  2015/09/16 16:54:30
- *       Revision:  none
- *       Compiler:  gcc
- *
- *         Author:  WangYao (fisherman), wangyao02@baidu.com
- *        Company:  Baidu, Inc
- *
- * =====================================================================================
- */
+// libraft - Quorum-based replication of states accross machines.
+// Copyright (c) 2015 Baidu.com, Inc. All Rights Reserved
+
+// Author: WangYao (fisherman), wangyao02@baidu.com
+// Date: 2015/09/16 16:54:30
+ 
 #ifndef PUBLIC_RAFT_RAFT_H
 #define PUBLIC_RAFT_RAFT_H
 
 #include <string>
 #include <gflags/gflags.h>
 
+#include <base/logging.h>
 #include <base/iobuf.h>
 #include "raft/configuration.h"
 
@@ -51,37 +41,100 @@ protected:
     std::string _err_text;
 };
 
+// Basic message structure of libraft
+struct Task {
+    Task() : data(NULL), done(NULL) {}
+
+    // The data applied to StateMachine
+    base::IOBuf* data;
+
+    // Continuation when the data is applied to StateMachine or error occurs.
+    // Only valid when the belonging node is the leader of this group.
+    Closure* done;
+};
+
+// |StateMachine| is the sink of all the events of a very raft node.
+// Implement a specific StateMachine for your own bussiness logic.
+//
+// NOTE: All the interfaces are called sequentially, saying that every single
+// operation will block all the following 
+//
 class StateMachine {
 public:
-    // user defined logentry proc function
-    // [NOTE] index: realize follower read strong consistency
-    // [NOTE] done: on_apply return some result to done, user call it when finish
-    virtual void on_apply(const base::IOBuf& buf, const int64_t index, Closure* done) = 0;
 
-    // user define shutdown function
-    virtual void on_shutdown() = 0;
+    // Update the StateMachine with |task|
+    //
+    // Called when the task passed to Node::apply has been committed to the raft
+    // group (quorum of the cluster have received this task and stored it in the
+    // storage). If the belonging node is the leader of the group, |task->done| 
+    // is excactly what was passed to Node::apply which may stand for some
+    // continuation after updating the StateMachine, otherwise |task->done| 
+    // must be NULL and you have nothing to do besides updating the StateMachine
+    // 
+    // 1: |index| stands for the universally unique and monotonically increasing 
+    //    identifier of |task|.
+    //  - Uniqueness guarantees that committed tasks in different peers with 
+    //    the same index are always the same and unchanged.
+    //  - Monotonicity guarantees that for any index pair i, j (i < j), task at
+    //    index |i| must be applied before task at index |j| in all the peers 
+    //    from the group.
+    //
+    // 2: About the ownership:
+    //  - |task.buf| is readonly, users should not modify the content
+    //  - |task.done| belongs to users.
+    //
+    virtual void on_apply(const int64_t index/*1*/, const Task& task/*2*/) = 0;
+
+    // Like on_apply, except for that we call this function with a sequence of
+    // tasks. |first_index| is the index of the first task.
+    //
+    // We guarantee that |size| is always a positive number.
+    //
+    // NOTE: This interface has default implementation. If you want to imporve
+    // the perfromance, you can override it.
+    //
+    virtual void on_apply_in_batch(const int64_t first_index, 
+                                   const Task tasks[],
+                                   size_t size) {
+        for (size_t i = 0; i < size; ++i) {
+            on_apply(first_index + i, tasks[i]);
+        }
+    }
+
+    // Called once when the raft node shut down.
+    virtual void on_shutdown() {}
 
     // user defined snapshot generate function, this method will block on_apply.
     // user can make snapshot async when fsm can be cow(copy-on-write).
     // call done->Run() when snapshot finised.
     // success return 0, fail return errno
-    virtual int on_snapshot_save(SnapshotWriter* writer, Closure* done);
+    virtual void on_snapshot_save(SnapshotWriter* writer, Closure* done) {
+        (void)writer;
+        CHECK(done);
+        done->set_error(-1, "Not implemented");
+    }
 
     // user defined snapshot load function
     // get and load snapshot
     // success return 0, fail return errno
-    virtual int on_snapshot_load(SnapshotReader* reader);
+    virtual int on_snapshot_load(SnapshotReader* reader) {
+        (void)reader;
+        LOG(ERROR) << "Not implemented";
+        return -1;
+    }
 
     // user defined leader start function
     // [NOTE] user can direct append to node ignore this callback.
     //        this callback can sure read consistency, after leader's first NO_OP committed
-    virtual void on_leader_start();
+    virtual void on_leader_start() {}
 
     // user defined leader start function
     // [NOTE] this method called immediately when leader stepdown,
     //        maybe before some method: apply success on_apply or fail done.
     //        user sure resource available.
-    virtual void on_leader_stop();
+    virtual void on_leader_stop() {}
+
+    ~StateMachine() {}
 };
 
 enum State {
@@ -156,10 +209,18 @@ public:
     // [NOTE] code after apply can't access resource in done
     void shutdown(Closure* done);
 
-    // apply data to replicated-state-machine [thread-safe]
-    // done is user defined function, maybe response to client, transform to on_applied
-    // [NOTE] code after apply can't access resource in done
-    void apply(const base::IOBuf& data, Closure* done);
+    // [Thread-safe]
+    // apply task to the replicated-state-machine
+    //
+    // About the ownership:
+    // |task.data|: for the performance consideration, we will take way the 
+    //              content. If you want keep the content, copy it before call
+    //              this function
+    // |task.done|: If the data is successfully committed to the raft group. We
+    //              will pass the ownership to StateMachine::on_apply.
+    //              Otherwise we will specifit the error and call it.
+    //
+    void apply(const Task& task);
 
     // add peer to replicated-state-machine [thread-safe]
     // done is user defined function, maybe response to client

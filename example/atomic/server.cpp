@@ -49,10 +49,11 @@ public:
     virtual ~Atomic() {}
 
     // FSM method
-    void on_apply(const base::IOBuf& buf,
-                  const int64_t /*index*/, raft::Closure* done) {
+    void on_apply(const int64_t /*index*/,
+                  const raft::Task& task) {
+        raft::Closure* done = task.done;
         baidu::rpc::ClosureGuard done_guard(done);
-        base::IOBufAsZeroCopyInputStream wrapper(buf);
+        base::IOBufAsZeroCopyInputStream wrapper(*task.data);
         CompareExchangeRequest req;
         if (!req.ParseFromZeroCopyStream(&wrapper)) {
             if (done) {
@@ -87,7 +88,7 @@ public:
         exit(0);
     }
 
-    int on_snapshot_save(raft::SnapshotWriter* writer, raft::Closure* done) {
+    void on_snapshot_save(raft::SnapshotWriter* writer, raft::Closure* done) {
         SnapshotClosure* sc = new SnapshotClosure;
         sc->values.reserve(_value_map.size());
         sc->writer = writer;
@@ -101,7 +102,6 @@ public:
             PLOG(ERROR) << "Fail to start bthread";
             save_snaphsot(sc);
         }
-        return 0;
     }
 
     int on_snapshot_load(raft::SnapshotReader* reader) {
@@ -123,8 +123,11 @@ public:
     void on_leader_start() {}
     void on_leader_stop() {}
 
-    void apply(const base::IOBuf& iobuf, raft::Closure* done) {
-        return _node.apply(iobuf, done);
+    void apply(base::IOBuf *iobuf, raft::Closure* done) {
+        raft::Task task;
+        task.data = iobuf;
+        task.done = done;
+        return _node.apply(task);
     }
 
 private:
@@ -182,7 +185,7 @@ public:
         c->cntl = cntl;
         c->response = response;
         c->done = done_guard.release();
-        return atomic->apply(data, c);
+        return atomic->apply(&data, c);
     }
 
     void set_atomic(Atomic* atomic) {

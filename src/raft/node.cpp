@@ -1,20 +1,8 @@
-/*
- * =====================================================================================
- *
- *       Filename:  node.cpp
- *
- *    Description:  
- *
- *        Version:  1.0
- *        Created:  2015/10/08 17:00:15
- *       Revision:  none
- *       Compiler:  gcc
- *
- *         Author:  WangYao (fisherman), wangyao02@baidu.com
- *        Company:  Baidu, Inc
- *
- * =====================================================================================
- */
+// libraft - Quorum-based replication of states accross machines.
+// Copyright (c) 2015 Baidu.com, Inc. All Rights Reserved
+
+// Author: WangYao (fisherman), wangyao02@baidu.com
+// Date: 2015/10/08 17:00:05
 
 #include "raft/util.h"
 #include "raft/raft.h"
@@ -330,7 +318,7 @@ int NodeImpl::init(const NodeOptions& options) {
     return ret;
 }
 
-void NodeImpl::apply(const base::IOBuf& data, Closure* done) {
+void NodeImpl::apply(const Task& task) {
     BAIDU_SCOPED_LOCK(_mutex);
 
     // check state
@@ -338,15 +326,15 @@ void NodeImpl::apply(const base::IOBuf& data, Closure* done) {
         << "node " << _group_id << ":" << _server_id << " shutdown, can't apply";
     if (_state != LEADER) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id << " can't apply not in LEADER";
-        _fsm_caller->on_cleared(0, done, EPERM);
+        _fsm_caller->on_cleared(0, task.done, EPERM);
         return;
     }
 
     LogEntry* entry = new LogEntry;
     entry->term = _current_term;
     entry->type = ENTRY_TYPE_DATA;
-    entry->data.append(data);
-    append(entry, done);
+    entry->data.swap(*task.data);
+    append(entry, task.done);
 }
 
 void NodeImpl::on_configuration_change_done(const EntryType type,
@@ -364,7 +352,9 @@ void NodeImpl::on_configuration_change_done(const EntryType type,
         // remove_peer will stop peer replicator or shutdown
         if (!_conf.second.contains(_server_id)) {
             //TODO: shutdown?
-            _conf.second.reset();
+            LOG(INFO) << "node " << _group_id << ":" << _server_id 
+                      << " steps down because it was removed from group, "
+                      << " new configurations is " << _conf.second;
             step_down(_current_term);
         } else {
             Configuration old_conf(_conf_ctx.peers);
@@ -949,6 +939,11 @@ void NodeImpl::pre_vote() {
     if (_snapshot_executor && _snapshot_executor->is_installing_snapshot()) {
         LOG(WARNING) << "We don't do pre_vote when installing snapshot as the "
                      " configuration is possibly out of date";
+        return;
+    }
+    if (!_conf.second.contains(_server_id)) {
+        LOG(WARNING) << "node " << _group_id << ':' << _server_id
+                     << " can't do pre_vote as it is not in " << _conf.second;
         return;
     }
     _pre_vote_ctx.reset();

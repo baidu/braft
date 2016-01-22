@@ -1,20 +1,9 @@
-/*
- * =====================================================================================
- *
- *       Filename:  node.h
- *
- *    Description:  
- *
- *        Version:  1.0
- *        Created:  2015/10/08 16:57:44
- *       Revision:  none
- *       Compiler:  gcc
- *
- *         Author:  WangYao (fisherman), wangyao02@baidu.com
- *        Company:  Baidu, Inc
- *
- * =====================================================================================
- */
+// libraft - Quorum-based replication of states accross machines.
+// Copyright (c) 2015 Baidu.com, Inc. All Rights Reserved
+
+// Author: WangYao (fisherman), wangyao02@baidu.com
+// Date: 2015/10/08 16:57:44
+
 #ifndef PUBLIC_RAFT_RAFT_NODE_H
 #define PUBLIC_RAFT_RAFT_NODE_H
 
@@ -81,9 +70,17 @@ public:
     // done is user defined function, maybe response to client or clean some resource
     void shutdown(Closure* done);
 
-    // apply data to replicated-state-machine
-    // done is user defined function, maybe response to client, transform to on_applied
-    void apply(const base::IOBuf& data, Closure* done);
+    // apply task to the replicated-state-machine
+    //
+    // About the ownership:
+    // |task.data|: for the performance consideration, we will take way the 
+    //              content. If you want keep the content, copy it before call
+    //              this function
+    // |task.done|: If the data is successfully committed to the raft group. We
+    //              will pass the ownership to StateMachine::on_apply.
+    //              Otherwise we will specifit the error and call it.
+    //
+    void apply(const Task& task);
 
     // add peer to replicated-state-machine
     // done is user defined function, maybe response to client

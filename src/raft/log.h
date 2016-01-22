@@ -1,20 +1,9 @@
-/*
- * =====================================================================================
- *
- *       Filename:  log.h
- *
- *    Description:  
- *
- *        Version:  1.0
- *        Created:  09/17/2015 02:47:02 PM
- *       Revision:  none
- *       Compiler:  gcc
- *
- *         Author:  WangYao (fisherman), wangyao02@baidu.com
- *        Company:  Baidu, Inc
- *
- * =====================================================================================
- */
+// libraft - Quorum-based replication of states accross machines.
+// Copyright (c) 2015 Baidu.com, Inc. All Rights Reserved
+
+// Author: WangYao (fisherman), wangyao02@baidu.com
+// Date: 09/17/2015 02:47:02 PM
+
 #ifndef PUBLIC_RAFT_LOG_H
 #define PUBLIC_RAFT_LOG_H
 
@@ -138,7 +127,8 @@ public:
 
     SegmentLogStorage(const std::string& path)
         : LogStorage(path), _path(path),
-        _first_log_index(1) {
+        _first_log_index(1),
+        _last_log_index(0) {
             _mutex.set_recorder(g_segment_storage_contention_recorder);
     }
 

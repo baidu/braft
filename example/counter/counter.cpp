@@ -47,8 +47,10 @@ void Counter::fetch_and_add(int32_t ip, int32_t pid, int64_t req_id,
     base::IOBuf data;
     base::IOBufAsZeroCopyOutputStream wrapper(&data);
     request.SerializeToZeroCopyStream(&wrapper);
-
-    _node.apply(data, done);
+    raft::Task task;
+    task.data = &data;
+    task.done = done;
+    _node.apply(task);
 }
 
 int Counter::get(int64_t* value_ptr, const int64_t index) {
@@ -63,11 +65,12 @@ int Counter::get(int64_t* value_ptr, const int64_t index) {
     }
 }
 
-void Counter::on_apply(const base::IOBuf &data, const int64_t index, raft::Closure* done) {
+void Counter::on_apply(const int64_t index, const raft::Task& task) {
+    raft::Closure* done = task.done;
     baidu::rpc::ClosureGuard done_guard(done);
 
     FetchAndAddRequest request;
-    base::IOBufAsZeroCopyInputStream wrapper(data);
+    base::IOBufAsZeroCopyInputStream wrapper(*task.data);
     request.ParseFromZeroCopyStream(&wrapper);
     if (FLAGS_reject_duplicated_request) {
         ClientRequestId client_req_id(request.ip(), request.pid(), request.req_id());
@@ -109,7 +112,7 @@ void Counter::on_shutdown() {
     //delete this;
 }
 
-int Counter::on_snapshot_save(raft::SnapshotWriter* writer, raft::Closure* done) {
+void Counter::on_snapshot_save(raft::SnapshotWriter* writer, raft::Closure* done) {
     baidu::rpc::ClosureGuard done_guard(done);
     std::string snapshot_path = raft::fileuri2path(writer->get_uri(base::EndPoint()));
     snapshot_path.append("/data");
@@ -117,7 +120,9 @@ int Counter::on_snapshot_save(raft::SnapshotWriter* writer, raft::Closure* done)
     SnapshotInfo info;
     info.set_value(_value.load());
     raft::ProtoBufFile pb_file(snapshot_path);
-    return pb_file.save(&info, true);
+    if (pb_file.save(&info, true) != 0)  {
+        done->set_error(EIO, "Fail to save pb_file");
+    }
 }
 
 int Counter::on_snapshot_load(raft::SnapshotReader* reader) {

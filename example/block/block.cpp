@@ -92,8 +92,10 @@ void Block::write(int64_t offset, int32_t size, const base::IOBuf& data,
     log_data.append(&header, sizeof(header));
     log_data.append(log_meta);
     log_data.append(data);
-
-    _node.apply(log_data, done);
+    raft::Task task;
+    task.data = &log_data;
+    task.done = done;
+    _node.apply(task);
 }
 
 int Block::read(int64_t offset, int32_t size, base::IOBuf* data, int64_t index) {
@@ -116,12 +118,13 @@ int Block::read(int64_t offset, int32_t size, base::IOBuf* data, int64_t index) 
     return 0;
 }
 
-void Block::on_apply(const base::IOBuf &data, const int64_t index, raft::Closure* done) {
+void Block::on_apply(const int64_t index, const raft::Task& task) {
     base::Timer timer;
     timer.start();
+    raft::Closure* done = task.done;
     baidu::rpc::ClosureGuard done_guard(done);
 
-    base::IOBuf log_data(data);
+    base::IOBuf log_data(*task.data);
     LogHeader header;
     log_data.cutn(&header, sizeof(header));
 
@@ -159,7 +162,7 @@ void Block::on_shutdown() {
     //delete this;
 }
 
-int Block::on_snapshot_save(raft::SnapshotWriter* writer, raft::Closure* done) {
+void Block::on_snapshot_save(raft::SnapshotWriter* writer, raft::Closure* done) {
     base::Timer timer;
     timer.start();
 
@@ -180,7 +183,6 @@ int Block::on_snapshot_save(raft::SnapshotWriter* writer, raft::Closure* done) {
     LOG(NOTICE) << "on_snapshot_save, time: " << timer.u_elapsed()
         << " link " << snapshot_path << " to " << data_path;
     // snapshot save do nothing
-    return 0;
 }
 
 int Block::on_snapshot_load(raft::SnapshotReader* reader) {

@@ -60,10 +60,9 @@ public:
     int read(int64_t offset, int32_t size, base::IOBuf* data, int64_t index);
 
     // FSM method
-    virtual void on_apply(const base::IOBuf& buf,
-                          const int64_t index, raft::Closure* done);
+    virtual void on_apply(const int64_t index, const raft::Task& task);
     virtual void on_shutdown();
-    virtual int on_snapshot_save(raft::SnapshotWriter* writer, raft::Closure* done);
+    virtual void on_snapshot_save(raft::SnapshotWriter* writer, raft::Closure* done);
     virtual int on_snapshot_load(raft::SnapshotReader* reader);
     virtual void on_leader_start();
     virtual void on_leader_stop();

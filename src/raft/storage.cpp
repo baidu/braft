@@ -1,20 +1,9 @@
-/*
- * =====================================================================================
- *
- *       Filename:  storage.cpp
- *
- *    Description:  
- *
- *        Version:  1.0
- *        Created:  2015年11月05日 11时40分00秒
- *       Revision:  none
- *       Compiler:  gcc
- *
- *         Author:  WangYao (fisherman), wangyao02@baidu.com
- *        Company:  Baidu, Inc
- *
- * =====================================================================================
- */
+// libraft - Quorum-based replication of states accross machines.
+// Copyright (c) 2015 Baidu.com, Inc. All Rights Reserved
+
+// Author: WangYao (fisherman), wangyao02@baidu.com
+// Date: 2015/11/05 11:34:03
+
 #include <errno.h>
 #include <base/string_printf.h>
 #include <base/string_splitter.h>

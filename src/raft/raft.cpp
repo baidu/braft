@@ -1,20 +1,8 @@
-/*
- * =====================================================================================
- *
- *       Filename:  raft.cpp
- *
- *    Description:  
- *
- *        Version:  1.0
- *        Created:  2015/10/23 15:23:00
- *       Revision:  none
- *       Compiler:  gcc
- *
- *         Author:  WangYao (fisherman), wangyao02@baidu.com
- *        Company:  Baidu, Inc
- *
- * =====================================================================================
- */
+// libraft - Quorum-based replication of states accross machines.
+// Copyright (c) 2015 Baidu.com, Inc. All Rights Reserved
+
+// Author: WangYao (fisherman), wangyao02@baidu.com
+// Date: 2015/10/23 15:23:00
 
 #include <pthread.h>
 #include <unistd.h>
@@ -99,24 +87,6 @@ int stop_raft(const char* server_desc, baidu::rpc::Server** server_ptr) {
     }
 }
 
-int StateMachine::on_snapshot_save(SnapshotWriter* writer, Closure* done) {
-    LOG(WARNING) << "StateMachine: " << this << " on_snapshot_save not implement";
-    return ENOSYS;
-}
-
-int StateMachine::on_snapshot_load(SnapshotReader* reader) {
-    LOG(WARNING) << "StateMachine: " << this << " on_snapshot_load not implement";
-    return ENOSYS;
-}
-
-void StateMachine::on_leader_start() {
-    LOG(WARNING) << "StateMachine: " << this << " on_leader_start not implement";
-}
-
-void StateMachine::on_leader_stop() {
-    LOG(WARNING) << "StateMachine: " << this << " on_leader_stop not implement";
-}
-
 Node::Node(const GroupId& group_id, const PeerId& peer_id) {
     _impl = new NodeImpl(group_id, peer_id);
 }
@@ -148,8 +118,8 @@ void Node::shutdown(Closure* done) {
     _impl->shutdown(done);
 }
 
-void Node::apply(const base::IOBuf& data, Closure* done) {
-    _impl->apply(data, done);
+void Node::apply(const Task& task) {
+    _impl->apply(task);
 }
 
 void Node::add_peer(const std::vector<PeerId>& old_peers, const PeerId& peer, Closure* done) {

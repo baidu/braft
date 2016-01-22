@@ -1,20 +1,9 @@
-/*
- * =====================================================================================
- *
- *       Filename:  stable.h
- *
- *    Description:  
- *
- *        Version:  1.0
- *        Created:  09/17/2015 14:49:51
- *       Revision:  none
- *       Compiler:  gcc
- *
- *         Author:  WangYao (fisherman), wangyao02@baidu.com
- *        Company:  Baidu, Inc
- *
- * =====================================================================================
- */
+// libraft - Quorum-based replication of states accross machines.
+// Copyright (c) 2015 Baidu.com, Inc. All Rights Reserved
+
+// Author: WangYao (fisherman), wangyao02@baidu.com
+// Date: 09/17/2015 14:49:51
+
 #ifndef PUBLIC_RAFT_STABLE_H
 #define PUBLIC_RAFT_STABLE_H
 

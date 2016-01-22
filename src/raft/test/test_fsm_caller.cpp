@@ -28,21 +28,21 @@ public:
         , _on_snapshot_save_times(0)
         , _on_snapshot_load_times(0)
     {}
-    void on_apply(const base::IOBuf& buf, const int64_t index, raft::Closure* done) {
+    void on_apply(const int64_t index, const raft::Task& task) {
         std::string expected;
         base::string_printf(&expected, "hello_%lu", _expected_next++);
-        ASSERT_EQ(expected, buf.to_string());
-        if (done) {
-            ASSERT_EQ(0, done->_err_code) << "index=" << index;
+        ASSERT_EQ(expected, task.data->to_string());
+        if (task.done) {
+            ASSERT_EQ(0, task.done->_err_code) << "index=" << index;
+            task.done->Run();
         }
     }
     void on_shutdown() {
         _stopped = true;
     }
-    int on_snapshot_save(raft::SnapshotWriter* /*writer*/, raft::Closure* done) {
+    void on_snapshot_save(raft::SnapshotWriter* /*writer*/, raft::Closure* done) {
         done->Run();
         ++_on_snapshot_save_times;
-        return 0;
     }
     int on_snapshot_load(raft::SnapshotReader* /*reader*/) {
         ++_on_snapshot_load_times;

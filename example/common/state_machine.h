@@ -36,15 +36,6 @@ public:
     // geter
     base::EndPoint leader();
 
-    // FSM method
-    virtual void on_apply(const base::IOBuf& buf,
-                          const int64_t index, raft::Closure* done) = 0;
-    virtual void on_shutdown() = 0;
-    virtual int on_snapshot_save(raft::SnapshotWriter* writer, raft::Closure* done) = 0;
-    virtual int on_snapshot_load(raft::SnapshotReader* reader) = 0;
-    virtual void on_leader_start() = 0;
-    virtual void on_leader_stop() = 0;
-
 protected:
     virtual ~CommonStateMachine();
     raft::Node _node;

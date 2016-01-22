@@ -3,7 +3,7 @@
 
 WORKROOT('../../../../')
 
-CPPFLAGS('-D__const__=  -D_GNU_SOURCE -D__STDC_LIMIT_MACROS -DNDEBUG')
+CPPFLAGS('-D__const__=  -D_GNU_SOURCE -D__STDC_LIMIT_MACROS -DNDEBUG -Wno-unused-parameter -Werror')
 CFLAGS('-g -O2 -pipe -W -Wall -fPIC')
 
 CXXFLAGS('-g -O2 -pipe -W -Wall -fPIC')

@@ -1,3 +1,4 @@
+// libraft - Quorum-based replication of states accross machines.
 // Copyright (c) 2015 Baidu.com, Inc. All Rights Reserved
 
 // Author: Zhangyi Chen (chenzhangyi01@baidu.com)
@@ -112,10 +113,15 @@ void FSMCaller::do_committed(int64_t committed_index, Closure* done) {
             //TODO: use result instead of done
             if (index == committed_index) {
                 FSM_CALLER_REGISTER_POSITION;
-                _fsm->on_apply(entry->data, index, done);
+                Task t;
+                t.data = &entry->data;
+                t.done = done;
+                _fsm->on_apply(index, t);
             } else {
                 FSM_CALLER_REGISTER_POSITION;
-                _fsm->on_apply(entry->data, index, NULL);
+                Task t;
+                t.data = &entry->data;
+                _fsm->on_apply(index, t);
             }
             break;
         case ENTRY_TYPE_ADD_PEER:
@@ -207,14 +213,7 @@ void FSMCaller::do_snapshot_save(SaveSnapshotClosure* done) {
     }
 
     FSM_CALLER_REGISTER_POSITION;
-    int ret = _fsm->on_snapshot_save(writer, done);
-    if (ret != 0) {
-        done->set_error(ret, "StateMachine on_snapshot_save failed");
-        FSM_CALLER_REGISTER_POSITION;
-        done->Run();
-        FSM_CALLER_CLEAR_POSITION
-        return;
-    }
+    _fsm->on_snapshot_save(writer, done);
     FSM_CALLER_CLEAR_POSITION
     return;
 }

@@ -48,12 +48,12 @@ public:
         raft_mutex_unlock(&mutex.mutex());
     }
 
-    virtual void on_apply(const base::IOBuf& buf, const int64_t index, raft::Closure* done) {
+    virtual void on_apply(const int64_t index, const raft::Task& task) {
         LOG(TRACE) << "addr " << address << " apply " << index;
-        ::baidu::rpc::ClosureGuard guard(done);
+        ::baidu::rpc::ClosureGuard guard(task.done);
 
         lock();
-        logs.push_back(buf);
+        logs.push_back(*task.data);
         unlock();
 
         applied_index = index;
@@ -64,16 +64,18 @@ public:
         delete this;
     }
 
-    virtual int on_snapshot_save(raft::SnapshotWriter* writer, raft::Closure* done) {
+    virtual void on_snapshot_save(raft::SnapshotWriter* writer, raft::Closure* done) {
         std::string file_path = raft::fileuri2path(writer->get_uri(base::EndPoint()));
         file_path.append("/data");
+        baidu::rpc::ClosureGuard done_guard(done);
 
         LOG(NOTICE) << "on_snapshot_save to " << file_path;
 
         int fd = ::creat(file_path.c_str(), 0644);
         if (fd < 0) {
-            LOG(ERROR) << "creat file failed, path: " << file_path << " err: " << berror();
-            return EIO;
+            LOG(ERROR) << "create file failed, path: " << file_path << " err: " << berror();
+            done->set_error(EIO, "Fail to create file");
+            return;
         }
 
         // write snapshot and log to file
@@ -85,10 +87,7 @@ public:
             data.cut_into_file_descriptor(fd, len);
         }
         ::close(fd);
-        done->Run();
-
         snapshot_index = applied_index;
-        return 0;
     }
 
     int on_snapshot_load(raft::SnapshotReader* reader) {
@@ -389,7 +388,10 @@ TEST_F(RaftTestSuits, InitShutdown) {
     cond.Init(1);
     base::IOBuf data;
     data.append("hello");
-    node.apply(data, new ApplyClosure(&cond));
+    raft::Task task;
+    task.data = &data;
+    task.done = new ApplyClosure(&cond);
+    node.apply(task);
     cond.Wait();
 
     raft::stop_raft("0.0.0.0:60006", NULL);
@@ -450,8 +452,10 @@ TEST_F(RaftTestSuits, SingleNode) {
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
         data.append(data_buf);
-
-        node.apply(data, new ApplyClosure(&cond, 0));
+        raft::Task task;
+        task.data = &data;
+        task.done = new ApplyClosure(&cond, 0);
+        node.apply(task);
     }
     cond.Wait();
 
@@ -493,8 +497,10 @@ TEST_F(RaftTestSuits, NoLeader) {
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
         data.append(data_buf);
-
-        follower->apply(data, new ApplyClosure(&cond, EPERM));
+        raft::Task task;
+        task.data = &data;
+        task.done = new ApplyClosure(&cond, EPERM);
+        follower->apply(task);
     }
     cond.Wait();
 
@@ -553,7 +559,10 @@ TEST_F(RaftTestSuits, TripleNode) {
         snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
         data.append(data_buf);
 
-        leader->apply(data, new ApplyClosure(&cond, 0));
+        raft::Task task;
+        task.data = &data;
+        task.done = new ApplyClosure(&cond, 0);
+        leader->apply(task);
     }
     cond.Wait();
 
@@ -562,7 +571,9 @@ TEST_F(RaftTestSuits, TripleNode) {
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "no closure");
         data.append(data_buf);
-        leader->apply(data, NULL);
+        raft::Task task;
+        task.data = &data;
+        leader->apply(task);
     }
 
     cluster.ensure_same();
@@ -638,7 +649,10 @@ TEST_F(RaftTestSuits, LeaderFail) {
         snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
         data.append(data_buf);
 
-        leader->apply(data, new ApplyClosure(&cond, 0));
+        raft::Task task;
+        task.data = &data;
+        task.done = new ApplyClosure(&cond, 0);
+        leader->apply(task);
     }
     cond.Wait();
 
@@ -657,8 +671,10 @@ TEST_F(RaftTestSuits, LeaderFail) {
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "follower apply: %d", i + 1);
         data.append(data_buf);
-
-        nodes[0]->apply(data, new ApplyClosure(&cond, -1));
+        raft::Task task;
+        task.data = &data;
+        task.done = new ApplyClosure(&cond, -1);
+        nodes[0]->apply(task);
     }
     cond.Wait();
 
@@ -675,8 +691,10 @@ TEST_F(RaftTestSuits, LeaderFail) {
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
         data.append(data_buf);
-
-        leader->apply(data, new ApplyClosure(&cond, 0));
+        raft::Task task;
+        task.data = &data;
+        task.done = new ApplyClosure(&cond, 0);
+        leader->apply(task);
     }
     cond.Wait();
 
@@ -691,8 +709,10 @@ TEST_F(RaftTestSuits, LeaderFail) {
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
         data.append(data_buf);
-
-        leader->apply(data, new ApplyClosure(&cond, 0));
+        raft::Task task;
+        task.data = &data;
+        task.done = new ApplyClosure(&cond, 0);
+        leader->apply(task);
     }
     cond.Wait();
 
@@ -742,7 +762,10 @@ TEST_F(RaftTestSuits, JoinNode) {
         snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
         data.append(data_buf);
 
-        leader->apply(data, new ApplyClosure(&cond, 0));
+        raft::Task task;
+        task.data = &data;
+        task.done = new ApplyClosure(&cond, 0);
+        leader->apply(task);
     }
     cond.Wait();
 
@@ -753,6 +776,8 @@ TEST_F(RaftTestSuits, JoinNode) {
     peer1.idx = 0;
     ASSERT_EQ(0, cluster.start(peer1.addr, true));
     LOG(NOTICE) << "start peer " << peer1;
+    // Wait until started successfully
+    usleep(10000);
 
     // add peer1
     cond.Init(1);
@@ -777,6 +802,8 @@ TEST_F(RaftTestSuits, JoinNode) {
     sleep(2);
     ASSERT_EQ(0, cluster.start(peer2.addr, true));
     LOG(NOTICE) << "start peer " << peer2;
+
+    usleep(10000);
 
     // re add peer2
     cond.Init(3);
@@ -831,7 +858,10 @@ TEST_F(RaftTestSuits, RemoveFollower) {
         snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
         data.append(data_buf);
 
-        leader->apply(data, new ApplyClosure(&cond, 0));
+        raft::Task task;
+        task.data = &data;
+        task.done = new ApplyClosure(&cond, 0);
+        leader->apply(task);
     }
     cond.Wait();
 
@@ -868,7 +898,10 @@ TEST_F(RaftTestSuits, RemoveFollower) {
         snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
         data.append(data_buf);
 
-        leader->apply(data, new ApplyClosure(&cond, 0));
+        raft::Task task;
+        task.data = &data;
+        task.done = new ApplyClosure(&cond, 0);
+        leader->apply(task);
     }
     cond.Wait();
 
@@ -934,7 +967,10 @@ TEST_F(RaftTestSuits, RemoveLeader) {
         snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
         data.append(data_buf);
 
-        leader->apply(data, new ApplyClosure(&cond, 0));
+        raft::Task task;
+        task.data = &data;
+        task.done = new ApplyClosure(&cond, 0);
+        leader->apply(task);
     }
     cond.Wait();
 
@@ -957,8 +993,12 @@ TEST_F(RaftTestSuits, RemoveLeader) {
         snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
         data.append(data_buf);
 
-        leader->apply(data, new ApplyClosure(&cond, 0));
+        raft::Task task;
+        task.data = &data;
+        task.done = new ApplyClosure(&cond, 0);
+        leader->apply(task);
     }
+    LOG(INFO) << "here";
     cond.Wait();
 
     LOG(WARNING) << "stop and clear leader " << old_leader_addr;
@@ -1022,7 +1062,10 @@ TEST_F(RaftTestSuits, PreVote) {
         snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
         data.append(data_buf);
 
-        leader->apply(data, new ApplyClosure(&cond, 0));
+        raft::Task task;
+        task.data = &data;
+        task.done = new ApplyClosure(&cond, 0);
+        leader->apply(task);
     }
     cond.Wait();
 
@@ -1049,7 +1092,10 @@ TEST_F(RaftTestSuits, PreVote) {
         snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
         data.append(data_buf);
 
-        leader->apply(data, new ApplyClosure(&cond, 0));
+        raft::Task task;
+        task.data = &data;
+        task.done = new ApplyClosure(&cond, 0);
+        leader->apply(task);
     }
     cond.Wait();
 
@@ -1133,7 +1179,10 @@ TEST_F(RaftTestSuits, SetPeer2) {
         snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
         data.append(data_buf);
 
-        leader->apply(data, new ApplyClosure(&cond, 0));
+        raft::Task task;
+        task.data = &data;
+        task.done = new ApplyClosure(&cond, 0);
+        leader->apply(task);
     }
     cond.Wait();
     std::cout << "Here" << std::endl;
@@ -1158,7 +1207,10 @@ TEST_F(RaftTestSuits, SetPeer2) {
         snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
         data.append(data_buf);
 
-        leader->apply(data, new ApplyClosure(&cond, 0));
+        raft::Task task;
+        task.data = &data;
+        task.done = new ApplyClosure(&cond, 0);
+        leader->apply(task);
     }
     cond.Wait();
     
@@ -1267,7 +1319,10 @@ TEST_F(RaftTestSuits, RestoreSnapshot) {
         snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
         data.append(data_buf);
 
-        leader->apply(data, new ApplyClosure(&cond, 0));
+        raft::Task task;
+        task.data = &data;
+        task.done = new ApplyClosure(&cond, 0);
+        leader->apply(task);
     }
     cond.Wait();
 
@@ -1326,7 +1381,10 @@ TEST_F(RaftTestSuits, InstallSnapshot) {
         snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
         data.append(data_buf);
 
-        leader->apply(data, new ApplyClosure(&cond, 0));
+        raft::Task task;
+        task.data = &data;
+        task.done = new ApplyClosure(&cond, 0);
+        leader->apply(task);
     }
     cond.Wait();
 
@@ -1349,7 +1407,10 @@ TEST_F(RaftTestSuits, InstallSnapshot) {
         snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
         data.append(data_buf);
 
-        leader->apply(data, new ApplyClosure(&cond, 0));
+        raft::Task task;
+        task.data = &data;
+        task.done = new ApplyClosure(&cond, 0);
+        leader->apply(task);
     }
     cond.Wait();
 
@@ -1367,7 +1428,10 @@ TEST_F(RaftTestSuits, InstallSnapshot) {
         snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
         data.append(data_buf);
 
-        leader->apply(data, new ApplyClosure(&cond, 0));
+        raft::Task task;
+        task.data = &data;
+        task.done = new ApplyClosure(&cond, 0);
+        leader->apply(task);
     }
     cond.Wait();
 
@@ -1417,7 +1481,10 @@ TEST_F(RaftTestSuits, NoSnapshot) {
         snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
         data.append(data_buf);
 
-        node.apply(data, new ApplyClosure(&cond, 0));
+        raft::Task task;
+        task.data = &data;
+        task.done = new ApplyClosure(&cond, 0);
+        node.apply(task);
     }
     cond.Wait();
 
@@ -1474,7 +1541,10 @@ TEST_F(RaftTestSuits, AutoSnapshot) {
         snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
         data.append(data_buf);
 
-        node.apply(data, new ApplyClosure(&cond, 0));
+        raft::Task task;
+        task.data = &data;
+        task.done = new ApplyClosure(&cond, 0);
+        node.apply(task);
     }
     cond.Wait();
 
