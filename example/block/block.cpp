@@ -153,6 +153,9 @@ void Block::on_apply(const int64_t index, const raft::Task& task) {
         << " offset: " << offset << " size: " << size << " time: " << timer.u_elapsed();
 
     _applied_index = index;
+    if (done) {
+        return raft::run_closure_in_bthread(done_guard.release());
+    }
 }
 
 void Block::on_shutdown() {

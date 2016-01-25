@@ -291,9 +291,10 @@ void Replicator::_on_rpc_returned(ReplicatorId id, baidu::rpc::Controller* cntl,
                                    << r->_next_index << ", " 
                                    << r->_next_index + entries_size - 1
                                    << "] to peer " << r->_options.peer_id;
-    for (int i = 0; i < entries_size; ++i) {
+    if (entries_size > 0) {
         r->_options.commit_manager->set_stable_at_peer_reentrant(
-                r->_next_index + i, r->_options.peer_id);
+                r->_next_index, r->_next_index + entries_size - 1,
+                r->_options.peer_id);
     }
     r->_next_index += entries_size;
     r->_notify_on_caught_up(0, false);
@@ -446,6 +447,7 @@ void Replicator::_wait_more_entries(long start_time_us) {
 
 void Replicator::_install_snapshot() {
     SnapshotReader* reader = _options.snapshot_storage->open();
+    CHECK(reader);
     std::string uri = reader->get_uri(_options.server_id.addr);
     SnapshotMeta meta;
     // TODO: shutdown on failure
@@ -470,7 +472,7 @@ void Replicator::_install_snapshot() {
     }
     request->set_uri(uri);
 
-    RAFT_VLOG << "node " << _options.group_id << ":" << _options.server_id
+    LOG(INFO) << "node " << _options.group_id << ":" << _options.server_id
         << " send InstallSnapshotRequest to " << _options.peer_id
         << " term " << _options.term << " last_included_term " << meta.last_included_index
         << " last_included_index " << meta.last_included_term << " uri " << uri;

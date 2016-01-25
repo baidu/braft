@@ -13,6 +13,7 @@
 #include "raft/log_entry.h"
 
 #include "raft/fsm_caller.h"
+#include <bthread_unstable.h>
 
 namespace raft {
 
@@ -58,12 +59,13 @@ int FSMCaller::init(const FSMCallerOptions &options) {
     _log_manager = options.log_manager;
     _fsm = options.fsm;
     _after_shutdown = options.after_shutdown;
+    bthread::ExecutionQueueOptions execq_opt;
+    execq_opt.max_tasks_size = 256;
+
     bthread::execution_queue_start(&_queue,
-                                   NULL, /*queue_options*/
+                                   &execq_opt,
                                    FSMCaller::run,
                                    this);
-    // bind lifecycle with node, need AddRef, shutdown is async
-    //_node->AddRef();
     return 0;
 }
 
@@ -118,10 +120,11 @@ void FSMCaller::do_committed(int64_t committed_index, Closure* done) {
                 t.done = done;
                 _fsm->on_apply(index, t);
             } else {
+                Task task;
+                task.data = &entry->data; 
+                task.done = NULL;
                 FSM_CALLER_REGISTER_POSITION;
-                Task t;
-                t.data = &entry->data;
-                _fsm->on_apply(index, t);
+                _fsm->on_apply(index, task);
             }
             break;
         case ENTRY_TYPE_ADD_PEER:
@@ -145,7 +148,7 @@ void FSMCaller::do_committed(int64_t committed_index, Closure* done) {
         _log_manager->set_applied_index(index);
         entry->Release();
     }
-    FSM_CALLER_CLEAR_POSITION
+    FSM_CALLER_CLEAR_POSITION;
 }
 
 int FSMCaller::on_cleared(int64_t log_index, void* context, int error_code) {

@@ -9,6 +9,7 @@
 #include <base/logging.h>
 #include <bthread.h>
 #include <bthread_unstable.h>
+#include <baidu/rpc/reloadable_flags.h>
 #include "raft/log_entry.h"
 #include "raft/util.h"
 #include "raft/storage.h"
@@ -16,6 +17,9 @@
 #include "raft/util.h"
 
 namespace raft {
+
+DEFINE_int32(raft_leader_batch, 50, "max leader io batch");
+BAIDU_RPC_VALIDATE_GFLAG(raft_leader_batch, ::baidu::rpc::PositiveInteger);
 
 static bvar::LatencyRecorder g_log_manager_contention_recorder
             ("raft_log_manager_contention");
@@ -30,9 +34,6 @@ static bvar::Adder<int64_t> g_read_term_from_storage
             ("raft_read_term_from_storage_count");
 static bvar::PerSecond<bvar::Adder<int64_t> > g_read_term_from_storage_second
             ("raft_read_term_from_storage_second", &g_read_term_from_storage);
-
-
-DEFINE_int32(raft_leader_batch, 50, "max leader io batch");
 
 LogManagerOptions::LogManagerOptions()
     : log_storage(NULL), configuration_manager(NULL)
@@ -341,10 +342,10 @@ void LogManager::append_entry(
             LogEntry* log_entry, StableClosure* done) {
     BAIDU_SCOPED_LOCK(_mutex);
     log_entry->index = ++_last_log_index;
-    done->_log_index = log_entry->index;
+    done->_first_log_index = log_entry->index;
     // Add ref for disk thread, release in 
     log_entry->AddRef();
-    done->_entry = log_entry;
+    done->_entries.push_back(log_entry);
     _logs_in_memory.push_back(log_entry);
     if (log_entry->type == ENTRY_TYPE_ADD_PEER || log_entry->type == ENTRY_TYPE_REMOVE_PEER) {
         _config_manager->add(log_entry->index, Configuration(*(log_entry->peers)));
@@ -362,6 +363,34 @@ void LogManager::append_entry(
     bthread_id_list_reset(&_wait_list, 0);
 }
 
+void LogManager::append_entries(
+            std::vector<LogEntry*> *entries, StableClosure* done) {
+    CHECK(!entries->empty());
+    BAIDU_SCOPED_LOCK(_mutex);
+    for (size_t i = 0; i < entries->size(); ++i) {
+        (*entries)[i]->index = ++_last_log_index;
+        // Add ref for disk thread, release in leader_disk_run
+        (*entries)[i]->AddRef();
+        if ((*entries)[i]->type == ENTRY_TYPE_ADD_PEER ||
+                (*entries)[i]->type == ENTRY_TYPE_REMOVE_PEER) {
+            _config_manager->add((*entries)[i]->index, 
+                                 Configuration(*((*entries)[i]->peers)));
+        }
+    }
+    done->_first_log_index = (*entries)[0]->index;
+    _logs_in_memory.insert(_logs_in_memory.end(), entries->begin(), entries->end());
+    done->_entries.swap(*entries);
+    //RAFT_VLOG << "leader append " << log_entry->index;
+    CHECK(_leader_disk_thread_running);
+    // signal leader disk
+    int ret = bthread::execution_queue_execute(_leader_disk_queue, done);
+    CHECK_EQ(0, ret) << "execq execute failed, ret: " << ret << " err: " << berror();
+
+    // signal replicator
+    //int64_t last_log_index = log_entry->index;
+    bthread_id_list_reset(&_wait_list, 0);
+}
+
 int LogManager::leader_disk_run(void* meta,
                                 StableClosure** const tasks[], size_t tasks_size) {
     if (tasks_size == 0) {
@@ -369,78 +398,78 @@ int LogManager::leader_disk_run(void* meta,
     }
 
     LogManager* log_manager = static_cast<LogManager*>(meta);
-    std::vector<LogEntry*> entries;
-    entries.reserve(tasks_size);
+    int64_t last_index = 0;
+    std::vector<LogEntry*> to_append;
+    to_append.reserve(1024);
     for (size_t i = 0; i < tasks_size; i++) {
         StableClosure* done = *tasks[i];
         // Skip TruncatePrefixClosure
         // FIXME: Currrently only the leader starts disk thread so that there's
         // no gap around the TruncatePrefixClosure. If followers also start disk
         // thread, it's buggy after install snapshot.
-        if (done->_entry) {
-            entries.push_back(done->_entry);
+        if (!done->_entries.empty()) {
+            to_append.insert(to_append.end(), 
+                             done->_entries.begin(), done->_entries.end());
         }
     }
-
+    
     int ret = 0;
-    if (entries.size() > 0) {
+    if (to_append.size() > 0) {
         base::Timer timer;
         timer.start();
-        RAFT_VLOG << "leader_disk_thread append " << entries[0]->index
-            << "-" << entries[0]->index + entries.size() - 1 << noflush;
+        RAFT_VLOG << "leader_disk_thread append " << to_append.front()->index
+            << "-" << to_append.back()->index << noflush;
 
-        ret = log_manager->_log_storage->append_entries(entries);
-        if (entries.size() == static_cast<size_t>(ret)) {
+        ret = log_manager->_log_storage->append_entries(to_append);
+        if (to_append.size() == static_cast<size_t>(ret)) {
             ret = 0;
+            last_index = to_append.back()->index;
         } else {
             // TDOO: make sure the actions on EIO are supposed to be.
-            CHECK(false) << entries.size() << "!=" << ret;
+            CHECK(false) << to_append.size() << "!=" << ret;
             ret = EIO;
         }
-
         timer.stop();
         RAFT_VLOG << " time: " << timer.u_elapsed();
+        for (size_t i = 0; i < to_append.size(); ++i) {
+            to_append[i]->Release();
+        }
+        to_append.clear();
     }
 
-
-    int64_t last_log_index = 0;
     for (size_t i = 0; i < tasks_size; i++) {
         StableClosure* done = *tasks[i];
-        if (ret != 0) {
-            done->set_error(EIO, "append entry failed");
-        } else if (done->_entry) {
-            // skip barrier
-            last_log_index = done->_log_index;
-        }
         // skip barrier
-        if (done->_entry) {
-            done->_entry->Release();
-            done->_entry = NULL;
-        } else {
-            do {
-                TruncatePrefixClosure* tpc = dynamic_cast<TruncatePrefixClosure*>(done);
-                if (tpc) {
-                    LOG(INFO) << "Truncating storage to first_index_kept="
-                        << tpc->first_index_kept();
-                    log_manager->_log_storage->truncate_prefix(
-                                    tpc->first_index_kept());
-                    break;
-                }
-                ResetClosure* rc = dynamic_cast<ResetClosure*>(done);
-                if (rc) {
-                    LOG(INFO) << "Reseting storage to next_log_index="
-                              << rc->next_log_index();
-                    log_manager->_log_storage->reset(rc->next_log_index());
-                    break;
-                }
-
-                CHECK(false) << "Cannot reach here";
-            } while (0);
+        baidu::rpc::ClosureGuard done_guard(done);
+        if (!done->_entries.empty()) {
+            //done->_entry->Release();
+            if (ret != 0) {
+                done->set_error(EIO, "append entry failed");
+            }
+            done->_entries.clear();
+            continue;
         }
-        done->Run();
+        TruncatePrefixClosure* tpc = dynamic_cast<TruncatePrefixClosure*>(done);
+        if (tpc) {
+            LOG(INFO) << "Truncating storage to first_index_kept="
+                << tpc->first_index_kept();
+            log_manager->_log_storage->truncate_prefix(
+                            tpc->first_index_kept());
+            continue;
+        }
+        ResetClosure* rc = dynamic_cast<ResetClosure*>(done);
+        if (rc) {
+            LOG(INFO) << "Reseting storage to next_log_index="
+                      << rc->next_log_index();
+            log_manager->_log_storage->reset(rc->next_log_index());
+            continue;
+        }
+
+        CHECK(false) << "Cannot reach here";
     }
-    if (last_log_index != 0) {
-        log_manager->set_disk_index(last_log_index);
+
+    if (last_index != 0) {
+        log_manager->set_disk_index(last_index);
     }
 
     return 0;
@@ -463,6 +492,7 @@ void LogManager::set_snapshot(const SnapshotMeta* meta) {
         term = entry->term;
     } else {
         term = _log_storage->get_term(meta->last_included_index);
+        g_read_term_from_storage << 1;
     }
     if (term == 0 || term == meta->last_included_term) {
         truncate_prefix(meta->last_included_index + 1, lck);

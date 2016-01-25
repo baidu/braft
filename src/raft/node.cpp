@@ -63,6 +63,8 @@ friend class NodeImpl;
     Closure* _user_done;
 };
 
+static ::bvar::LatencyRecorder g_node_contention("raft_node_contention");
+
 NodeImpl::NodeImpl(const GroupId& group_id, const PeerId& peer_id)
     : _state(SHUTDOWN) 
     , _current_term(0)
@@ -77,9 +79,17 @@ NodeImpl::NodeImpl(const GroupId& group_id, const PeerId& peer_id)
     , _snapshot_executor(NULL) {
         _server_id = peer_id;
         AddRef();
+        _mutex.set_recorder(g_node_contention);
 }
 
 NodeImpl::~NodeImpl() {
+    
+    if (_apply_queue) {
+        // Wait until no flying task
+        _apply_queue->stop();
+        _apply_queue.reset();
+        bthread::execution_queue_join(_apply_queue_id);
+    }
 
     if (_config_manager) {
         delete _config_manager;
@@ -221,6 +231,20 @@ int NodeImpl::init(const NodeOptions& options) {
     _options = options;
 
     _config_manager = new ConfigurationManager();
+    
+    bthread::ExecutionQueueOptions opt;
+    opt.max_tasks_size = 256;
+    if (bthread::execution_queue_start(&_apply_queue_id, &opt, 
+                                       execute_applying_tasks, this) != 0) {
+        LOG(ERROR) << "Fail to start execution_queue";
+        return -1;
+    }
+
+    _apply_queue = execution_queue_address(_apply_queue_id);
+    if (!_apply_queue) {
+        LOG(ERROR) << "Fail to address execution_queue";
+        return -1;
+    }
 
     do {
         // log storage and log manager init
@@ -318,23 +342,26 @@ int NodeImpl::init(const NodeOptions& options) {
     return ret;
 }
 
-void NodeImpl::apply(const Task& task) {
-    BAIDU_SCOPED_LOCK(_mutex);
-
-    // check state
-    CHECK(is_active_state(_state))
-        << "node " << _group_id << ":" << _server_id << " shutdown, can't apply";
-    if (_state != LEADER) {
-        LOG(WARNING) << "node " << _group_id << ":" << _server_id << " can't apply not in LEADER";
-        _fsm_caller->on_cleared(0, task.done, EPERM);
-        return;
+int NodeImpl::execute_applying_tasks(
+        void* meta, LogEntryAndClosure* const tasks[], size_t size) {
+    if (size == 0) {
+        return 0;
     }
+    ((NodeImpl*)meta)->apply(tasks, size);
+    return 0;
+}
 
+void NodeImpl::apply(const Task& task) {
     LogEntry* entry = new LogEntry;
-    entry->term = _current_term;
-    entry->type = ENTRY_TYPE_DATA;
     entry->data.swap(*task.data);
-    append(entry, task.done);
+    LogEntryAndClosure m;
+    m.entry = entry;
+    m.done = task.done;
+    if (_apply_queue->execute(m) != 0) {
+        task.done->set_error(EINVAL, "Node is down");
+        entry->Release();
+        return run_closure_in_bthread(task.done);
+    }
 }
 
 void NodeImpl::on_configuration_change_done(const EntryType type,
@@ -1179,20 +1206,66 @@ void NodeImpl::become_leader() {
         << " term " << _current_term << " start stepdown_timer";
 }
 
+class LeaderStableClosure : public LogManager::StableClosure {
+public:
+    void Run();
+private:
+    LeaderStableClosure(const NodeId& node_id, 
+                        size_t nentries,
+                        CommitmentManager* commit_manager);
+    ~LeaderStableClosure() {}
+friend class NodeImpl;
+    NodeId _node_id;
+    size_t _nentries;
+    CommitmentManager* _commit_manager;
+};
+
 LeaderStableClosure::LeaderStableClosure(const NodeId& node_id, 
+                                         size_t nentries,
                                          CommitmentManager* commit_manager)
-    : _node_id(node_id), _commit_manager(commit_manager)
+    : _node_id(node_id), _nentries(nentries), _commit_manager(commit_manager)
 {
 }
 
 void LeaderStableClosure::Run() {
     if (_err_code == 0) {
         // commit_manager check quorum ok, will call fsm_caller
-        _commit_manager->set_stable_at_peer_reentrant(_log_index, _node_id.peer_id);
+        _commit_manager->set_stable_at_peer_reentrant(
+                _first_log_index, _first_log_index + _nentries - 1, _node_id.peer_id);
     } else {
-        LOG(ERROR) << "node " << _node_id << " append " << _log_index << " failed";
+        LOG(ERROR) << "node " << _node_id << " append [" << _first_log_index << ", "
+                   << _first_log_index + _nentries - 1 << "] failed";
     }
     delete this;
+}
+
+void NodeImpl::apply(LogEntryAndClosure* const tasks[], size_t size) {
+    std::vector<LogEntry*> entries;
+    entries.reserve(size);
+    for (size_t i = 0; i < size; ++i) {
+        entries.push_back(tasks[i]->entry);
+    }
+    std::unique_lock<raft_mutex_t> lck(_mutex);
+    if (_state != LEADER) {
+        lck.unlock();
+        LOG(WARNING) << "node " << _group_id << ":" << _server_id << " can't apply not in LEADER";
+        for (size_t i = 0; i < entries.size(); ++i) {
+            entries[i]->Release();
+            _fsm_caller->on_cleared(0, tasks[i]->done, EPERM);
+        }
+        return;
+    }
+    for (size_t i = 0; i < size; ++i) {
+        entries[i]->term = _current_term;
+        entries[i]->type = ENTRY_TYPE_DATA;
+        _commit_manager->append_pending_application(_conf.second, tasks[i]->done);
+    }
+    _log_manager->append_entries(&entries, 
+                               new LeaderStableClosure(
+                                        NodeId(_group_id, _server_id), 
+                                        entries.size(),
+                                        _commit_manager));
+    _log_manager->check_and_set_configuration(&_conf);
 }
 
 void NodeImpl::append(LogEntry* entry, Closure* done) {
@@ -1209,6 +1282,7 @@ void NodeImpl::append(LogEntry* entry, Closure* done) {
     _log_manager->append_entry(entry, 
                                new LeaderStableClosure(
                                         NodeId(_group_id, _server_id), 
+                                        1u,
                                         _commit_manager));
     if (_log_manager->check_and_set_configuration(&_conf)) {
         _conf_ctx.set(old_peers);

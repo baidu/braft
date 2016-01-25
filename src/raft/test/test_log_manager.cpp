@@ -77,7 +77,7 @@ public:
         }
         ASSERT_EQ(0, _err_code) << _err_text;
         if (_expected_next_log_index) {
-            ASSERT_EQ((*_expected_next_log_index)++, _log_index);
+            ASSERT_EQ((*_expected_next_log_index)++, _first_log_index);
         }
     }
 private:

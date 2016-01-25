@@ -134,7 +134,8 @@ public:
     //        user sure resource available.
     virtual void on_leader_stop() {}
 
-    ~StateMachine() {}
+    virtual ~StateMachine() {}
+
 };
 
 enum State {
@@ -209,7 +210,7 @@ public:
     // [NOTE] code after apply can't access resource in done
     void shutdown(Closure* done);
 
-    // [Thread-safe]
+    // [Thread-safe and wait-free]
     // apply task to the replicated-state-machine
     //
     // About the ownership:

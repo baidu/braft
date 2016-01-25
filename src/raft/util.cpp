@@ -15,17 +15,33 @@
 namespace raft {
 
 static void* run_closure(void* arg) {
-    Closure *c = (Closure*)arg;
+    ::google::protobuf::Closure *c = (google::protobuf::Closure*)arg;
     if (c) {
         c->Run();
     }
     return NULL;
 }
 
-void run_closure_in_bthread(Closure* closure) {
+void run_closure_in_bthread(google::protobuf::Closure* closure) {
     DCHECK(closure);
     bthread_t tid;
     int ret = bthread_start_urgent(&tid, NULL, run_closure, closure);
+    if (0 != ret) {
+        PLOG(ERROR) << "Fail to start bthread";
+        return closure->Run();
+    }
+}
+
+void run_closure_in_bthread_nosig(google::protobuf::Closure* closure) {
+    DCHECK(closure);
+    bthread_t tid;
+    bthread_attr_t attr;
+    if (bthread_attr_init(&attr) != 0) {
+        PLOG(ERROR) << "Fail to init bthread_attr";
+        return closure->Run();
+    }
+    attr.flags = BTHREAD_NOSIGNAL;
+    int ret = bthread_start_background(&tid, &attr, run_closure, closure);
     if (0 != ret) {
         PLOG(ERROR) << "Fail to start bthread";
         return closure->Run();

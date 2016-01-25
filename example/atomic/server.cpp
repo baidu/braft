@@ -32,7 +32,8 @@ struct AtomicClosure : public raft::Closure {
         if (_err_code) {
             cntl->SetFailed(_err_code, "%s", _err_text.c_str());
         }
-        return done->Run();
+        done->Run();
+        delete this;
     }
     baidu::rpc::Controller* cntl;
     google::protobuf::Message* response;
@@ -78,8 +79,7 @@ public:
             if (res) { res->set_success(false); }
         }
         if (done) {
-            return raft::run_closure_in_bthread(
-                    (raft::Closure*)done_guard.release());
+            return raft::run_closure_in_bthread(done_guard.release());
         }
     }
 

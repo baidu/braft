@@ -5,16 +5,20 @@
 // Date: 2015/10/16 10:44:05
 
 #include <base/scoped_lock.h>
+#include <bvar/latency_recorder.h>
 #include "raft/commitment_manager.h"
 #include "raft/util.h"
 #include "raft/fsm_caller.h"
 
 namespace raft {
 
+static bvar::LatencyRecorder g_commit_mutex_latency("raft_commit_manager_contention");
+
 CommitmentManager::CommitmentManager()
     : _waiter(NULL)
     , _last_committed_index(0)
 {
+    _mutex.set_recorder(g_commit_mutex_latency);
 }
 
 CommitmentManager::~CommitmentManager() {
@@ -32,26 +36,33 @@ int CommitmentManager::init(const CommitmentManagerOptions &options) {
 }
 
 int CommitmentManager::set_stable_at_peer_reentrant(
-        int64_t log_index, const PeerId& peer) {
+        int64_t first_log_index, int64_t last_log_index, const PeerId& peer) {
     // FIXME(chenzhangyi01): The cricital section is unacceptable because it 
     // blocks all the other Replicators and LogManagers
     BAIDU_SCOPED_LOCK(_mutex);
-    RAFT_VLOG << "_pending_index=" << _pending_index << " log_index=" << log_index
-        << " peer=" << peer;
+    // RAFT_VLOG << "_pending_index=" << _pending_index << " log_index=" << log_index
+    //    << " peer=" << peer;
     if (_pending_index == 0) {
         return EINVAL;
     }
-    if (log_index < _pending_index) {
+    if (last_log_index < _pending_index) {
         return 0;
     }
-    if (log_index >= _pending_index + (int64_t)_pending_apps.size()) {
+    if (last_log_index >= _pending_index + (int64_t)_pending_apps.size()) {
         return ERANGE;
     }
-    PendingMeta *pm = _pending_apps.at(log_index - _pending_index);
-    if (pm->peers.erase(peer) == 0) {
-        return 0;
+    int64_t last_committed_index = 0;
+    const int64_t start_at = std::max(_pending_index, first_log_index);
+    for (int64_t log_index = start_at; log_index <= last_log_index; ++log_index) {
+        PendingMeta *pm = _pending_apps[log_index - _pending_index];
+        if (pm->peers.erase(peer) == 0) {
+            continue;
+        }
+        if (--pm->quorum == 0) {
+            last_committed_index = log_index;
+        }
     }
-    if (--pm->quorum > 0) {
+    if (last_committed_index == 0) {
         return 0;
     }
     // When removing a peer off the raft group which contains even number of
@@ -61,18 +72,17 @@ int CommitmentManager::set_stable_at_peer_reentrant(
     // removal request, we think it's safe to commit all the uncommitted 
     // previous logs, which is not well proved right now
     // TODO: add vlog when committing previous logs
-    for (int64_t index = _pending_index; index <= log_index; ++index) {
+    for (int64_t index = _pending_index; index <= last_committed_index; ++index) {
         PendingMeta *tmp = _pending_apps.front();
         _pending_apps.pop_front();
         void *saved_context = tmp->context;
         delete tmp;
-
         // FIXME: remove this off the critical section
         _waiter->on_committed(index, saved_context);
     }
    
-    _pending_index = log_index + 1;
-    _last_committed_index.store(log_index, boost::memory_order_release);
+    _pending_index = last_committed_index + 1;
+    _last_committed_index.store(last_committed_index, boost::memory_order_release);
 
     return 0;
 }

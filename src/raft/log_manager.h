@@ -31,12 +31,13 @@ public:
 
     class StableClosure : public Closure {
     public:
-        StableClosure() : _log_index(0), _entry(NULL) {}
+        StableClosure() : _first_log_index(0) {}
     protected:
-        int64_t _log_index;
+        int64_t _first_log_index;
     private:
     friend class LogManager;
-        LogEntry* _entry;
+        std::vector<LogEntry*> _entries;
+        //LogEntry* _entry;
     };
 
     LogManager();
@@ -52,8 +53,10 @@ public:
     // Append log entry vector and wait until it's stable (NOT COMMITTED!)
     // success return 0, fail return errno
     int append_entries(const std::vector<LogEntry *>& entries);
+
     // Append a log entry and call closure when it's stable
     void append_entry(LogEntry* log_entry, StableClosure* done);
+    void append_entries(std::vector<LogEntry*> *entries, StableClosure* done);
 
     // delete uncommitted logs from storage's tail, (first_index_kept, infinity) will be discarded
     // Returns:

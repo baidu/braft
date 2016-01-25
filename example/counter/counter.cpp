@@ -103,6 +103,9 @@ void Counter::on_apply(const int64_t index, const raft::Task& task) {
         _duplicated_request_cache.Put(client_req_id, 
                 FetchAndAddResult(prev_value + request.value(),index));
     }
+    if (done) {
+        return raft::run_closure_in_bthread(done_guard.release());
+    }
 }
 
 void Counter::on_shutdown() {

@@ -9,6 +9,8 @@ CRASH_ON_FATAL="-crash_on_fatal_log=true"
 BTHREAD_CONCURRENCY="-bthread_concurrency=18 -stack_size_normal=10485760"
 SYNC_EVERY_LOG="-raft_sync=true"
 
+export TCMALLOC_SAMPLE_PARAMETER=524288
+
 cd runtime/0
 ${VALGRIND} ./atomic_server ${HAS_VALGRIND} ${BTHREAD_CONCURRENCY} ${CRASH_ON_FATAL} ${VLOG_LEVEL} ${MAX_SEGMENT_SIZE} ${SYNC_EVERY_LOG} -ip_and_port="0.0.0.0:8300" -peers="${IP}:8300,${IP}:8301,${IP}:8302" > std.log 2>&1 &
 cd -

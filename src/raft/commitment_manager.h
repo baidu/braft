@@ -31,8 +31,9 @@ public:
     int init(const CommitmentManagerOptions& options);
 
     // Called by leader, otherwise the behavior is undefined
-    // Set log at |index| is stable at |peer|.
-    int set_stable_at_peer_reentrant(int64_t log_index, const PeerId& peer);
+    // Set logs in [first_log_index, last_log_index] are stable at |peer|.
+    int set_stable_at_peer_reentrant(
+            int64_t first_log_index, int64_t last_log_index, const PeerId& peer);
 
     // Called when the leader steps down, otherwise the behavior is undefined
     // When a leader steps down, the uncommitted user applications should 

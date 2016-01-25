@@ -91,7 +91,9 @@ inline uint32_t murmurhash32(const base::IOBuf& buf) {
     return hash;
 }
 
-void run_closure_in_bthread(Closure* closure);
+void run_closure_in_bthread(::google::protobuf::Closure* closure);
+
+void run_closure_in_bthread_nosig(::google::protobuf::Closure* closure);
 
 std::string fileuri2path(const std::string& uri);
 

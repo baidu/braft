@@ -31,16 +31,6 @@ class StableStorage;
 class SnapshotStorage;
 class SnapshotExecutor;
 
-class LeaderStableClosure : public LogManager::StableClosure {
-public:
-    void Run();
-private:
-    LeaderStableClosure(const NodeId& node_id, CommitmentManager* commit_manager);
-friend class NodeImpl;
-    NodeId _node_id;
-    CommitmentManager* _commit_manager;
-};
-
 class BAIDU_CACHELINE_ALIGNMENT NodeImpl : public base::RefCountedThreadSafe<NodeImpl> {
 friend class RaftServiceImpl;
 friend class RaftStatImpl;
@@ -181,6 +171,13 @@ private:
     void after_shutdown();
     static void after_shutdown(NodeImpl* node);
 
+    void do_apply(base::IOBuf& data, Closure* done);
+
+    struct LogEntryAndClosure;
+    static int execute_applying_tasks(
+                void* meta, LogEntryAndClosure* const tasks[], size_t);
+    void apply(LogEntryAndClosure* const tasks[], size_t size);
+
 private:
     struct VoteCtx {
         size_t needed;
@@ -218,6 +215,11 @@ private:
         }
     };
 
+    struct LogEntryAndClosure {
+        LogEntry* entry;
+        Closure* done;
+    };
+
     State _state;
     int64_t _current_term;
     int64_t _last_leader_timestamp;
@@ -225,8 +227,6 @@ private:
     PeerId _voted_id;
     VoteCtx _vote_ctx; // candidate vote ctx
     VoteCtx _pre_vote_ctx; // prevote ctx
-    // Access of the fields before this line should in the critical section of
-    // _state_mutex
     std::pair<int64_t, Configuration> _conf;
 
     GroupId _group_id;
@@ -249,6 +249,8 @@ private:
     bthread_timer_t _vote_timer; // candidate retry timer
     bthread_timer_t _stepdown_timer; // leader check quorum node ok
     bthread_timer_t _snapshot_timer; // snapshot timer
+    bthread::ExecutionQueueId<LogEntryAndClosure> _apply_queue_id;
+    bthread::ExecutionQueue<LogEntryAndClosure>::scoped_ptr_t _apply_queue;
 };
 
 }
