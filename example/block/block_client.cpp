@@ -43,10 +43,10 @@ public:
     BlockClient(const std::vector<raft::PeerId>& peers)
         : example::CommonCli(peers),
         _write_percent(100), _rw_limit(-1), _fd(-1) {
-            pthread_mutex_init(&_mutex, NULL);
+            bthread_mutex_init(&_mutex, NULL);
     }
     virtual ~BlockClient() {
-        pthread_mutex_destroy(&_mutex);
+        bthread_mutex_destroy(&_mutex);
     }
 
     int write(int64_t start, int64_t end) {
@@ -84,7 +84,7 @@ public:
             if (controller.Failed()) {
                 LOG(ERROR) << "write failed, error: " << controller.ErrorText();
                 leader_addr = get_leader_addr();
-                sleep(1);
+                //sleep(1);
                 continue;
             }
 
@@ -93,7 +93,7 @@ public:
                 base::str2endpoint(response.leader().c_str(), &leader_addr);
                 continue;
             } else {
-                LOG(NOTICE) << "write success, offset: " << offset << ", size: " << size;
+                //LOG(NOTICE) << "write success, offset: " << offset << ", size: " << size;
                 set_leader_addr(leader_addr);
                 break;
             }
@@ -233,14 +233,14 @@ public:
         threads = 1 << (int)log2(double(threads));
         CHECK(threads >= 1);
         for (int i = 0; i < threads; i++) {
-            pthread_t tid;
+            bthread_t tid;
             int64_t unit_size = GB / threads;
             BlockThreadArgument* arg = new BlockThreadArgument;
             arg->client = this;
             arg->start = i * unit_size;
             arg->end = (i + 1) * unit_size;
             LOG(NOTICE) << "thread " << i << " start: " << arg->start << " end: " << arg->end;
-            pthread_create(&tid, NULL, run_block_thread, arg);
+            bthread_start_background(&tid, NULL, run_block_thread, arg);
 
             _threads.push_back(tid);
         }
@@ -249,7 +249,7 @@ public:
 
     int join() {
         for (size_t i = 0; i < _threads.size(); i++) {
-            pthread_join(_threads[i], NULL);
+            bthread_join(_threads[i], NULL);
         }
         return 0;
     }
@@ -269,10 +269,10 @@ private:
         *tls_addr = addr;
     }
 
-    pthread_mutex_t _mutex;
+    bthread_mutex_t _mutex;
     int _write_percent;
     int64_t _rw_limit;
-    std::vector<pthread_t> _threads;
+    std::vector<bthread_t> _threads;
     int _fd;
 };
 

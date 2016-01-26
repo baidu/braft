@@ -73,7 +73,7 @@ int main(int argc, char* argv[]) {
     // init peers
     std::vector<raft::PeerId> peers;
     const char* the_string_to_split = FLAGS_peers.c_str();
-    for (baidu::StringSplitter s(the_string_to_split, ','); s; ++s) {
+    for (base::StringSplitter s(the_string_to_split, ','); s; ++s) {
         raft::PeerId peer(std::string(s.field(), s.length()));
         peers.push_back(peer);
     }

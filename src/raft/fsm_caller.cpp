@@ -188,15 +188,6 @@ int FSMCaller::on_snapshot_save(SaveSnapshotClosure* done) {
 void FSMCaller::do_snapshot_save(SaveSnapshotClosure* done) {
     CHECK(done);
 
-#if 0
-    // no data change between snapshot
-    if (_last_applied_index == _log_manager->last_snapshot_index()) {
-        LOG(INFO) << "no data change between snapshot, skip snapshot_save";
-        done->Run();
-        return;
-    }
-#endif
-
     int64_t last_applied_index = _last_applied_index.load(boost::memory_order_relaxed);
 
     SnapshotMeta meta;

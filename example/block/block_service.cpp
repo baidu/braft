@@ -24,7 +24,7 @@ namespace block {
 void WriteDone::Run() {
     _timer.stop();
     if (_err_code == 0) {
-        LOG(NOTICE) << "block: " << _block << " write success,"
+        VLOG(9) << "block: " << _block << " write success,"
             << " offset: " << _request->offset()
             << " size: " << _request->size()
             << " time: " << _timer.u_elapsed();
@@ -59,7 +59,7 @@ void BlockServiceImpl::write(google::protobuf::RpcController* controller,
                              google::protobuf::Closure* done) {
     baidu::rpc::Controller* cntl =
         static_cast<baidu::rpc::Controller*>(controller);
-    LOG(TRACE) << "received write offset: " << request->offset() << " size: " << request->size()
+    VLOG(9) << "received write offset: " << request->offset() << " size: " << request->size()
         << " from " << cntl->remote_side();
 
     // check block
@@ -83,7 +83,7 @@ void BlockServiceImpl::read(google::protobuf::RpcController* controller,
     baidu::rpc::Controller* cntl =
         static_cast<baidu::rpc::Controller*>(controller);
 
-    LOG(TRACE) << "received read offset: " << request->offset() << " size: " << request->size()
+    VLOG(9) << "received read offset: " << request->offset() << " size: " << request->size()
         << " from " << cntl->remote_side(); 
 
     // check block

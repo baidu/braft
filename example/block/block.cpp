@@ -114,7 +114,7 @@ int Block::read(int64_t offset, int32_t size, base::IOBuf* data, int64_t index) 
         data->append(portal);
     }
 
-    LOG(NOTICE) << "read success, offset: " << offset << " size: " << size << " ret: " << nread;
+    VLOG(9) << "read success, offset: " << offset << " size: " << size << " ret: " << nread;
     return 0;
 }
 
@@ -149,8 +149,8 @@ void Block::on_apply(const int64_t index, const raft::Task& task) {
     put_fd(fd);
 
     timer.stop();
-    LOG(NOTICE) << "write success, index: " << index
-        << " offset: " << offset << " size: " << size << " time: " << timer.u_elapsed();
+    VLOG(9) << "write success, index: " << index
+            << " offset: " << offset << " size: " << size << " time: " << timer.u_elapsed();
 
     _applied_index = index;
     if (done) {
