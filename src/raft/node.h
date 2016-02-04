@@ -23,6 +23,7 @@
 #include "raft/fsm_caller.h"
 #include "raft/replicator.h"
 #include "raft/util.h"
+#include "raft/closure_queue.h"
 
 namespace raft {
 
@@ -238,6 +239,7 @@ private:
     ConfigurationCtx _conf_ctx;
     LogStorage* _log_storage;
     StableStorage* _stable_storage;
+    ClosureQueue* _closure_queue;
     ConfigurationManager* _config_manager;
     LogManager* _log_manager;
     FSMCaller* _fsm_caller;

@@ -4,6 +4,7 @@
 // Date: 2016/01/14 13:45:46
 
 #include <fstream>
+#include <bthread_unstable.h>
 #include <gflags/gflags.h>
 #include <base/containers/flat_map.h>
 #include <base/logging.h>
@@ -81,6 +82,15 @@ public:
         if (done) {
             return raft::run_closure_in_bthread(done_guard.release());
         }
+    }
+
+    void on_apply_in_batch(const int64_t first_index, 
+                           const raft::Task tasks[],
+                           size_t size) {
+        for (size_t i = 0; i < size; ++i) {
+            on_apply(first_index + i, tasks[i]);
+        }
+        bthread_flush();
     }
 
     void on_shutdown() {

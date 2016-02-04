@@ -11,6 +11,8 @@
 #include <bthread.h>
 #include <bthread/execution_queue.h>
 #include "raft/commitment_manager.h"
+#include "raft/closure_queue.h"
+#include "raft/macros.h"
 
 namespace raft {
 
@@ -24,10 +26,12 @@ struct FSMCallerOptions {
         : log_manager(NULL)
         , fsm(NULL)
         , after_shutdown(NULL)
+        , closure_queue(NULL)
     {}
     LogManager *log_manager;
     StateMachine *fsm;
     google::protobuf::Closure* after_shutdown;
+    ClosureQueue* closure_queue;
 };
 
 class SaveSnapshotClosure : public Closure {
@@ -45,35 +49,54 @@ public:
 class BAIDU_CACHELINE_ALIGNMENT FSMCaller {
 public:
     FSMCaller();
-    ~FSMCaller();
+    RAFT_MOCK ~FSMCaller();
     int init(const FSMCallerOptions& options);
-    int shutdown();//Closure* done);
-    int on_committed(int64_t committed_index, void* context);
-    int on_cleared(int64_t log_index, void* context, int error_code);
+    int shutdown();
+    RAFT_MOCK int on_committed(int64_t committed_index);
     int on_snapshot_load(LoadSnapshotClosure* done);
     int on_snapshot_save(SaveSnapshotClosure* done);
-    Closure* on_leader_start();
+    //Closure* on_leader_start();
     int on_leader_stop();
     int64_t last_applied_index() const {
         return _last_applied_index.load(boost::memory_order_relaxed);
     }
     void describe(std::ostream& os, bool use_html);
 private:
-    static int run(void* meta, google::protobuf::Closure** const tasks[], size_t tasks_size);
+
+    enum TaskType {
+        COMMITTED,
+        SNAPSHOT_SAVE,
+        SNAPSHOT_LOAD,
+        LEADER_STOP,
+    };
+
+    struct ApplyTask {
+        TaskType type;
+        union {
+            // For applying log entry (including configuartion change)
+            int64_t committed_index;
+            
+            // For other operation
+            raft::Closure* done;
+        };
+    };
+
+    static double get_cumulated_cpu_time(void* arg);
+    static int run(void* meta, ApplyTask* const tasks[], size_t tasks_size);
     void do_shutdown(); //Closure* done);
-    void do_committed(int64_t committed_index, Closure* done);
+    void do_committed(int64_t committed_index);
     void do_cleared(int64_t log_index, Closure* done, int error_code);
     void do_snapshot_save(SaveSnapshotClosure* done);
     void do_snapshot_load(LoadSnapshotClosure* done);
     void do_leader_stop();
 
-    bthread::ExecutionQueueId<google::protobuf::Closure*> _queue;
+    bthread::ExecutionQueueId<ApplyTask> _queue_id;
     LogManager *_log_manager;
     StateMachine *_fsm;
+    ClosureQueue* _closure_queue;
     boost::atomic<int64_t> _last_applied_index;
     int64_t _last_applied_term;
     google::protobuf::Closure* _after_shutdown;
-    boost::atomic<const char*> _position;
 };
 
 };

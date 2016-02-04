@@ -808,10 +808,13 @@ TEST_F(RaftTestSuits, JoinNode) {
     // re add peer2
     cond.Init(3);
     // {peer0,peer1} add peer2
+    LOG(INFO) << "here";
     leader->add_peer(peers, peer2, new AddPeerClosure(&cond, 0));
     // concurrent configration change
+    LOG(INFO) << "here";
     leader->add_peer(peers, peer2, new AddPeerClosure(&cond, EINVAL));
     // new peer equal old configuration
+    LOG(INFO) << "here";
     leader->add_peer(peers, peer1, new AddPeerClosure(&cond, 0));
     cond.Wait();
 

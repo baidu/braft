@@ -18,7 +18,7 @@
 
 namespace raft {
 
-DEFINE_int32(raft_leader_batch, 50, "max leader io batch");
+DEFINE_int32(raft_leader_batch, 256, "max leader io batch");
 BAIDU_RPC_VALIDATE_GFLAG(raft_leader_batch, ::baidu::rpc::PositiveInteger);
 
 static bvar::LatencyRecorder g_log_manager_contention_recorder

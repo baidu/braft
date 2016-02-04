@@ -423,10 +423,10 @@ void SnapshotExecutor::load_downloading_snapshot(DownloadingSnapshot* ds,
     _loading_snapshot = true;
     //                ^ After this point, this installing cannot be interrupted
     _loading_snapshot_meta = meta;
+    lck.unlock();
     InstallSnapshotDone* install_snapshot_done =
             new InstallSnapshotDone(this, reader);
     ret = _fsm_caller->on_snapshot_load(install_snapshot_done);
-    lck.unlock();
     if (ret != 0) {
         LOG(WARNING) << "Fail to call on_snapshot_load";
         install_snapshot_done->set_error(EHOSTDOWN, "This raft node is down");

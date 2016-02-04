@@ -80,6 +80,8 @@ TEST_F(FSMCallerTest, sanity) {
     log_opt.configuration_manager = cm.get();
     ASSERT_EQ(0, lm->init(log_opt));
 
+    raft::ClosureQueue cq;
+
     OrderedStateMachine fsm;
     fsm._expected_next = 0;
 
@@ -87,6 +89,7 @@ TEST_F(FSMCallerTest, sanity) {
     opt.log_manager = lm.get();
     opt.after_shutdown = NULL;
     opt.fsm = &fsm;
+    opt.closure_queue = &cq;
 
     raft::FSMCaller caller;
     ASSERT_EQ(0, caller.init(opt));
@@ -104,7 +107,7 @@ TEST_F(FSMCallerTest, sanity) {
         entries.push_back(entry);
         ASSERT_EQ(0, lm->append_entries(entries));
     }
-    ASSERT_EQ(0, caller.on_committed(N, NULL));
+    ASSERT_EQ(0, caller.on_committed(N));
     ASSERT_EQ(0, caller.shutdown());
     fsm.join();
     ASSERT_EQ(fsm._expected_next, N);
@@ -114,18 +117,18 @@ TEST_F(FSMCallerTest, on_leader_start_and_stop) {
     scoped_ptr<raft::LogManager> lm(new raft::LogManager());
     OrderedStateMachine fsm;
     fsm._expected_next = 0;
-
+    raft::ClosureQueue cq;
     raft::FSMCallerOptions opt;
     opt.log_manager = lm.get();
     opt.after_shutdown = NULL;
     opt.fsm = &fsm;
+    opt.closure_queue = &cq;
     raft::FSMCaller caller;
     ASSERT_EQ(0, caller.init(opt));
-    caller.on_leader_start()->Run();
     caller.on_leader_stop();
     caller.shutdown();
     fsm.join();
-    ASSERT_EQ(1, fsm._on_leader_start_times);
+    ASSERT_EQ(0, fsm._on_leader_start_times);
     ASSERT_EQ(1, fsm._on_leader_stop_times);
 }
 
@@ -228,11 +231,12 @@ TEST_F(FSMCallerTest, snapshot) {
 
     OrderedStateMachine fsm;
     fsm._expected_next = 0;
-
+    raft::ClosureQueue cq;
     raft::FSMCallerOptions opt;
     opt.log_manager = lm.get();
     opt.after_shutdown = NULL;
     opt.fsm = &fsm;
+    opt.closure_queue = &cq;
     raft::FSMCaller caller;
     ASSERT_EQ(0, caller.init(opt));
     ASSERT_EQ(0, caller.on_snapshot_save(&save_snapshot_done));

@@ -22,6 +22,7 @@
 #include "counter.h"
 #include "raft/protobuf_file.h"
 #include "raft/storage.h"
+#include "bthread_unstable.h"
 
 namespace counter {
 
@@ -104,8 +105,17 @@ void Counter::on_apply(const int64_t index, const raft::Task& task) {
                 FetchAndAddResult(prev_value + request.value(),index));
     }
     if (done) {
-        return raft::run_closure_in_bthread(done_guard.release());
+        return raft::run_closure_in_bthread_nosig(done_guard.release());
     }
+}
+
+void Counter::on_apply_in_batch(const int64_t first_index, 
+                               const raft::Task tasks[],
+                               size_t size) {
+    for (size_t i = 0; i < size; ++i) {
+        on_apply(first_index + i, tasks[i]);
+    }
+    bthread_flush();
 }
 
 void Counter::on_shutdown() {

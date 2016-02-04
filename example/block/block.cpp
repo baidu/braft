@@ -15,6 +15,7 @@
  *
  * =====================================================================================
  */
+#include <bthread_unstable.h>
 #include "block.h"
 #include "raft/util.h"
 #include "raft/snapshot.h"
@@ -154,9 +155,19 @@ void Block::on_apply(const int64_t index, const raft::Task& task) {
 
     _applied_index = index;
     if (done) {
-        return raft::run_closure_in_bthread(done_guard.release());
+        return raft::run_closure_in_bthread_nosig(done_guard.release());
     }
 }
+
+void Block::on_apply_in_batch(const int64_t first_index, 
+                               const raft::Task tasks[],
+                               size_t size) {
+    for (size_t i = 0; i < size; ++i) {
+        on_apply(first_index + i, tasks[i]);
+    }
+    bthread_flush();
+}
+
 
 void Block::on_shutdown() {
     //TODO:

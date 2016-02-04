@@ -23,8 +23,8 @@ void RaftStatImpl::GetTabInfo(baidu::rpc::TabInfoList* info_list) const {
 }
 
 void RaftStatImpl::default_method(::google::protobuf::RpcController* controller,
-                              const ::raft::IndexRequest* request,
-                              ::raft::IndexResponse* response,
+                              const ::raft::IndexRequest* /*request*/,
+                              ::raft::IndexResponse* /*response*/,
                               ::google::protobuf::Closure* done) {
     baidu::rpc::ClosureGuard done_guard(done);
     baidu::rpc::Controller* cntl = (baidu::rpc::Controller*)controller;

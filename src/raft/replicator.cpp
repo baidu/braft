@@ -292,7 +292,7 @@ void Replicator::_on_rpc_returned(ReplicatorId id, baidu::rpc::Controller* cntl,
                                    << r->_next_index + entries_size - 1
                                    << "] to peer " << r->_options.peer_id;
     if (entries_size > 0) {
-        r->_options.commit_manager->set_stable_at_peer_reentrant(
+        r->_options.commit_manager->set_stable_at_peer(
                 r->_next_index, r->_next_index + entries_size - 1,
                 r->_options.peer_id);
     }

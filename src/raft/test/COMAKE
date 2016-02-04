@@ -1,49 +1,242 @@
-#edit-mode: -*- python -*-
+#edimode: -*- python -*-
 #coding:gbk
 
 WORKROOT('../../../../../')
 
-CopyUsingHardLink(True)
+ImportConfigsFrom('../../../')
+CONFIGS('third-64/tcmalloc@1.7.0.200',Libraries('lib/libprofiler.a'))
+CPPFLAGS('-D_GNU_SOURCE -D__const__=')
+CPPFLAGS('-DUNIT_TEST')
 
-CPPFLAGS('-D_GNU_SOURCE -D__STDC_LIMIT_MACROS -D__RAFT_VERSION_ID__=\\\"1.9.8.7\\\"')
-#XXX: remove NDEBUG for assert
-CPPFLAGS(' -D__const__=')
-CPPFLAGS('-Dprivate=public -Dprotected=public')
+CXXFLAGS('-pipe -Wall -W -g -fPIC -Wno-invalid-offsetof -D__STDC_CONSTANT_MACROS -Dprivate=public -Dprotected=public -include baidu/rpc/config.h')
 
-CFLAGS('-g -pipe -Wall -W -fPIC -Wno-unused-parameter -Wno-unused-variable -Wno-strict-aliasing')
 
-CXXFLAGS('-g -pipe -Wall -W -fPIC -Wno-unused-parameter -Wno-unused-variable -Wno-strict-aliasing')
-#CXXFLAGS('-fsanitize=address -fno-omit-frame-pointer')
+import os
+gcc_version_str = os.popen("gcc -dumpversion").readline().strip().split('.')
+gcc_version_size = len(gcc_version_str);
+gcc_version = 0
+# doing this way because debian/ubuntu may return "4.8"
+if gcc_version_size >= 1:
+    gcc_version += int(gcc_version_str[0]) * 10000
+if gcc_version_size >= 2:
+    gcc_version += int(gcc_version_str[1]) * 100
+if gcc_version_size >= 3:
+    gcc_version += int(gcc_version_str[2])
 
-IDLFLAGS('--compack')
+if gcc_version >= 40000:
+    CXXFLAGS('-Wno-unused-local-typedefs -Wno-missing-field-initializers')
 
-UBRPCFLAGS('--compack')
+INCPATHS('../../')
+LDFLAGS('-lpthread -lrt -ldl -lz -lssl -lcrypto')
 
-INCPATHS('. ../../../src')
+class AppGen:
+    def __init__(self, autoTargetName):
+        # Hack: this fills ENV.DependIncludePaths()
+        ENV.SetDependIncludePaths()
 
-LDFLAGS('-lpthread -lz -ldl -lrt -lssl -lcrypto')
-#LDFLAGS('-lasan')
+        self._cppArgs = self._GetCppArgs()
+        self._autoTargetName = autoTargetName
+        self._objDict = dict()
+        self._optFiles = set()
+        
+    # Get args (to cpp) defined in this COMAKE
+    def _GetCppArgs(self):
+        args = ""
+        for flag in ENV.CxxFlags().V():
+            args += " " + flag
+        for path in ENV.IncludePaths().V():
+            args += " -I" + path
+        for path in ENV.DependIncludePaths():
+            args += " -I" + path 
+        args += " "
+        return args
+    
+    # Get depending files of sourceFile, call `cpp' internally
+    def _GetDepSet(self, sourceFile):
+        cmd = "cpp -MM" + self._cppArgs + sourceFile
+        process = os.popen(cmd)
+        outputs = process.readlines()
+        noutput = len(outputs)
+        process.close()
+        s = set()
+        
+        if noutput >= 1: 
+            for elem in outputs[0].strip("\\\n ").split()[2:]:
+                if elem.find("third-64/boost/") == -1:
+                    s.add(elem)
+        if noutput >= 2:
+            for out in outputs[1:]:
+                for elem in out.strip("\\\n ").split():
+                    if elem.find("third-64/boost/") == -1:
+                        s.add(elem)
+        return s
 
-CONFIGS('lib2-64/ullib@base')
-CONFIGS('public/baidu-rpc@ci-base')
+    # Convert path/foo.ext to path/prefix_foo.o which is the naming convention of comake2
+    def _ObjName(self, path):
+        d, b = os.path.split(path)
+        f, _ = os.path.splitext(b)
+        return os.path.join(d, self._autoTargetName + "_" + f + ".o")
 
-#CONFIGS_32('lib2/ullib')
-#CONFIGS_64('lib2-64/ullib')
+    def _ExtendedObjNames(self, path):
+        d, b = os.path.split(path)
+        f, _ = os.path.splitext(b)
+        pathBase = os.path.join(d, f)
+        objs = []
+        for src in glob.glob(pathBase + "*.cpp") + glob.glob(pathBase + "*.cc") + glob.glob(pathBase + "*.c"):
+            _, b2 = os.path.split(src)
+            f2, _ = os.path.splitext(b2)
+            objs.append(os.path.join(d, self._autoTargetName + "_" + f2 + ".o"))
+        return objs
+
+    # Generate a target containing all source files
+    def AutoTargetForSourceFiles(self, exclude="NeverMatch"):
+        cmd = "find ../../ -name 'test_*.cpp' -prune -o -name '*.cpp' -print -o -name '*.cc' -print -o -name '*.c' -print | grep -v -E '" + "|".join(exclude.split()) + "'"
+        process = os.popen(cmd)
+        outputs = process.readlines();
+        process.close();
+        args = ()
+
+        print "* TARGET('" + self._autoTargetName + "',"
+        for out in outputs:
+            fileName = out.rstrip("\n")
+            objName = self._ObjName(fileName)
+            prefixStr = ""
+            prefixCount = 0
+            localDeps = []
+            for dep in self._GetDepSet(fileName):
+                prefixStr += " " + dep
+                prefixCount += 1
+                if dep.startswith("../") and not dep.startswith("../../../../"):
+                    localDeps.append(dep)
+            sourcePostfix = ""
+            if fileName in self._optFiles:
+                args += (Sources(fileName, Prefixes(prefixStr), ENV.CxxFlags()+CxxFlags('-O2')), )
+                sourcePostfix = "_O2"
+            else:
+                args += (Sources(fileName, Prefixes(prefixStr)), )
+            self._objDict[objName] = (localDeps, fileName)
+            print "         Sources" + sourcePostfix + "('" + fileName + "', Prefixes(" + str(len(localDeps)) + "+" + str(prefixCount-len(localDeps)) + ")),"
+        TARGET(self._autoTargetName, *args)
+        print ")"
+
+    # Generate testing apps for each test_*.cpp
+    # NOTICE: extraArgs are appended to each application
+    def _GenerateApps(self, fileListStr, sepSource, *extraArgs):        
+        fileSet = set()
+        for path in fileListStr.split():
+            fileSet.add(os.path.normpath(path))
+
+        for fileName in fileSet:
+            # found closure of linkage
+            objSet = set()
+            srcStr = ""
+            extraSources = ()
+            prefixStr = ""
+            depSet = self._GetDepSet(fileName)
+            curDepSet = set(depSet)
+            extraDepSet = set()
+            firstIteration = True
+            while curDepSet:
+                for dep in curDepSet:
+                    if dep.startswith("../../../../") or not dep.startswith("../"):
+                        continue
+                    headerName = dep.rstrip("\n")
+                    _, ext = os.path.splitext(headerName)
+                    if ext != ".h" and ext != ".hpp":
+                        print "Unknown: extension name '" + headerName + "'"
+                        continue
+                    objNames = self._ExtendedObjNames(headerName)
+                    existingObjNames = []
+                    for objName in objNames:
+                        if objName in self._objDict:
+                            existingObjNames.append(objName)
+                    for objName in existingObjNames:
+                        depList, srcName = self._objDict[objName]
+                        newDepList = []
+                        for dep2 in depList:
+                            if dep2 not in depSet:
+                                depSet.add(dep2)
+                                newDepList.append(dep2);
+                                extraDepSet.add(dep2)
+                        if sepSource:
+                            depStr = ""
+                            for dep2 in newDepList:
+                                depStr += " " + dep2.rstrip("\n")
+                            if srcName in self._optFiles:
+                                extraSources += (Sources(srcName, Prefixes(depStr), ENV.CxxFlags()+CxxFlags('-O2')), )
+                                srcStr += ",\n     Sources_O2('" + srcName + "', Prefixes('" + depStr + "'))"
+                            else:
+                                extraSources += (Sources(srcName, Prefixes(depStr)), )
+                                srcStr += ",\n     Sources('" + srcName + "', Prefixes('" + depStr + "'))"
+                        else:
+                            objSet.add(objName)
+                    if firstIteration:  # ignore headers after first iteration
+                        prefixStr += " " + headerName
+                curDepSet = extraDepSet
+                extraDepSet = set()
+                firstIteration = False
+            prefixStr = prefixStr.lstrip()
+
+            appName, _ = os.path.splitext(fileName)
+            extraArgsStr = ""
+            if extraArgs:
+                extraArgsStr = ",\n     " + str(extraArgs)
+
+            if sepSource:
+                srcStr = srcStr.lstrip()
+                print "* Application('" + appName + "',"
+                if fileName in self._optFiles:
+                    Application(appName, Sources(fileName, Prefixes(prefixStr), ENV.CxxFlags()+CxxFlags('-O2')), *(extraSources + extraArgs))
+                    print "     Sources_O2('" + fileName + "', Prefixes('" + prefixStr + "'))" + srcStr + extraArgsStr + ")\n"
+                else:
+                    Application(appName, Sources(fileName, Prefixes(prefixStr)), *(extraSources + extraArgs))
+                    print "     Sources('" + fileName + "', Prefixes('" + prefixStr + "'))" + srcStr + extraArgsStr + ")\n"
+            else:
+                objStr = ""  # FIXME
+                for obj in objSet:
+                    objStr += " " + obj;
+                objStr = objStr.lstrip()
+                if fileName in self._optFiles:
+                    Application(appName, Sources(fileName, Prefixes(prefixStr), ENV.CxxFlags()+CxxFlags('-O2')), Libraries(objStr), *extraArgs)
+                    print "* Application('" + appName + "', Sources_O2('" + fileName + "',"
+                else:
+                    Application(appName, Sources(fileName, Prefixes(prefixStr)), Libraries(objStr), *extraArgs)
+                    print "* Application('" + appName + "', Sources('" + fileName + "',"
+                print "     Prefixes('" + prefixStr + "')),"
+                print "     Libraries('" + objStr + "')" + extraArgsStr + ")\n"
+            
+    def GenerateSeparateApps(self, fileListStr, *extraArgs):
+        self._GenerateApps(fileListStr, True, *extraArgs)
+
+    def GenerateApps(self, fileListStr, *extraArgs):
+        self._GenerateApps(fileListStr, False, *extraArgs)
+
+    def AddOptFile(self, filename):
+        if not os.path.isfile(filename):
+            print filename + " does not exist"
+            sys.exit(0)
+        self._optFiles.add(filename)
+
+ag = AppGen("auto")
+
+def PathDiff(pathStr1, pathStr2):
+    return string.join(set(map(os.path.normpath, pathStr1.split())) - set(map(os.path.normpath, pathStr2.split())))
+
+
+## Generally you call two methods of ag (declared upper) to generate applications
+## 1. ag.GenerateApps(fileListStr, *extraArgs)          # The application links to shared .o
+## 2. ag.GenerateSeparateApps(fileListStr, *extraArgs)  # The application compiles sources separately
+
+#def GenProtoCpp(file):
+#    name = "../../../baidu/rpc/test/" + file.partition('.')[0] + '.pb.cc'
+#    TARGET(name, 
+#        Prefixes(file), 
+#        ShellCommands('../../../../../../third-64/protobuf/bin/protoc' + 
+#                      ' --proto_path=./ --cpp_out=./ ' + file),
+#        CleanFiles(''))
 #
-PROTOC('../../../../../third-64/protobuf/bin/protoc')
+#GenProtoCpp('echo.proto')
 
-user_headers = GLOB('src/raft/*.h')
-
-StaticLibrary('raft',Sources(GLOB('../../raft/*.cpp ../../raft/*.cc')),HeaderFiles(user_headers))
-
-Application('test_log_entry',Sources('test_log_entry.cpp'), Libraries('libraft.a'))
-Application('test_protobuf_file',Sources('test_protobuf_file.cpp'), Libraries('libraft.a'))
-Application('test_log',Sources('test_log.cpp'), Libraries('libraft.a'))
-Application('test_stable',Sources('test_stable.cpp'), Libraries('libraft.a'))
-Application('test_snapshot',Sources('test_snapshot.cpp'), Libraries('libraft.a'))
-Application('test_configuration',Sources('test_configuration.cpp'), Libraries('libraft.a'))
-Application('test_file_service',Sources('test_file_service.cpp'), Libraries('libraft.a'))
-Application('test_util',Sources('test_util.cpp'), Libraries('libraft.a'))
-Application('test_log_manager',Sources('test_log_manager.cpp'), Libraries('libraft.a'))
-Application('test_fsm_caller',Sources('test_fsm_caller.cpp'), Libraries('libraft.a'))
-Application('test_node',Sources('test_node.cpp'), Libraries('libraft.a'))
+ag.AddOptFile('test_commitment_manager.cpp')
+ag.AutoTargetForSourceFiles()
+ag.GenerateApps(GLOB('test_*.cpp'))

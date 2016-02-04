@@ -54,4 +54,10 @@ typedef ::bvar::MutexWithLatencyRecorder<pthread_mutex_t> raft_mutex_t;
 
 #endif  // USE_BTHREAD_MUTEX
 
+#ifdef UNIT_TEST
+#define RAFT_MOCK virtual
+#else
+#define RAFT_MOCK
+#endif
+
 #endif  //PUBLIC_RAFT_MACROS_H

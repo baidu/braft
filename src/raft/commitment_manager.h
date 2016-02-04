@@ -18,9 +18,15 @@
 namespace raft {
 
 class FSMCaller;
+class ClosureQueue;
+
 struct CommitmentManagerOptions {
-    CommitmentManagerOptions() {}
+    CommitmentManagerOptions() 
+        : waiter(NULL)
+        , closure_queue(NULL)
+    {}
     FSMCaller* waiter;
+    ClosureQueue* closure_queue;
 };
 
 class CommitmentManager {
@@ -32,15 +38,15 @@ public:
 
     // Called by leader, otherwise the behavior is undefined
     // Set logs in [first_log_index, last_log_index] are stable at |peer|.
-    int set_stable_at_peer_reentrant(
+    int set_stable_at_peer(
             int64_t first_log_index, int64_t last_log_index, const PeerId& peer);
 
     // Called when the leader steps down, otherwise the behavior is undefined
     // When a leader steps down, the uncommitted user applications should 
     // fail immediately, which the new leader will deal whether to commit or
     // truncate.
-    int clear_pending_applications();
-
+    int clear_pending_tasks();
+    
     // Called when a candidate becomes the new leader, otherwise the behavior is
     // undefined.
     // According the the raft algorithm, the logs from pervious terms can't be 
@@ -50,7 +56,7 @@ public:
 
     // Called by leader, otherwise the behavior is undefined
     // Store application context before replication.
-    int append_pending_application(const Configuration& conf, void *context);
+    int append_pending_task(const Configuration& conf, Closure* closure);
 
     // Called by follower, otherwise the behavior is undefined.
     // Set commited index received from leader
@@ -62,17 +68,33 @@ public:
     void describe(std::ostream& os, bool use_html);
 
 private:
-    struct PendingMeta {
-        std::set<PeerId> peers;
-        void *context;
-        int quorum;
+
+    struct UnfoundPeerId {
+        PeerId peer_id;
+        bool found;
+        bool operator==(const PeerId& id) const {
+            return peer_id == id;
+        }
     };
 
-    raft_mutex_t                                     _mutex;
-    FSMCaller*                                          _waiter;
-    boost::atomic<int64_t>                              _last_committed_index;
-    int64_t                                             _pending_index;
-    std::deque<PendingMeta*>                            _pending_apps;
+    struct PendingMeta {
+        // TODO(chenzhangyi01): Use SSO if the performance of vector matter
+        // (which is likely as the overhead of malloc/free is noticable)
+        std::vector<UnfoundPeerId> peers;
+        int quorum;
+        void swap(PendingMeta& pm) {
+            peers.swap(pm.peers);
+            std::swap(quorum, pm.quorum);
+        }
+    };
+
+    FSMCaller*                                      _waiter;
+    ClosureQueue*                                   _closure_queue;                            
+    raft_mutex_t                                    _mutex;
+    boost::atomic<int64_t>                          _last_committed_index;
+    int64_t                                         _pending_index;
+    std::deque<PendingMeta>                         _pending_meta_queue;
+
 };
 
 }  // namespace raft

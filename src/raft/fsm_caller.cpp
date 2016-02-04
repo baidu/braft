@@ -17,18 +17,13 @@
 
 namespace raft {
 
-#define FSM_CALLER_REGISTER_POSITION _position.store( __FILE__ ":" BAIDU_SYMBOLSTR(__LINE__), \
-                                                    boost::memory_order_relaxed);
-
-#define FSM_CALLER_CLEAR_POSITION _position.store(NULL, boost::memory_order_relaxed);
-
 FSMCaller::FSMCaller()
     : _log_manager(NULL)
     , _fsm(NULL)
+    , _closure_queue(NULL)
     , _last_applied_index(0)
     , _last_applied_term(0)
     , _after_shutdown(NULL)
-    , _position(NULL)
 {
 }
 
@@ -36,33 +31,60 @@ FSMCaller::~FSMCaller() {
     CHECK(_after_shutdown == NULL);
 }
 
-int FSMCaller::run(void* meta, google::protobuf::Closure** const tasks[], size_t tasks_size) {
+int FSMCaller::run(void* meta, ApplyTask* const tasks[], size_t tasks_size) {
     FSMCaller* caller = (FSMCaller*)meta;
     if (tasks_size == 0) {
         caller->do_shutdown();
         return 0;
     }
-    // run closure
-    for (size_t i = 0; i < tasks_size; i++) {
-        google::protobuf::Closure* done = *tasks[i];
-        if (done) {
-            done->Run();
+    int64_t max_committed_index = -1;
+    for (size_t i = 0; i < tasks_size; ++i) {
+        if (tasks[i]->type == COMMITTED) {
+            if (tasks[i]->committed_index > max_committed_index) {
+                max_committed_index = tasks[i]->committed_index;
+            }
+        } else {
+            if (max_committed_index >= 0) {
+                caller->do_committed(max_committed_index);
+                max_committed_index = -1;
+            }
+            switch (tasks[i]->type) {
+            case COMMITTED:
+                CHECK(false) << "Impossible";
+                break;
+            case SNAPSHOT_SAVE:
+                caller->do_snapshot_save((SaveSnapshotClosure*)tasks[i]->done);
+                break;
+            case SNAPSHOT_LOAD:
+                caller->do_snapshot_load((LoadSnapshotClosure*)tasks[i]->done);
+                break;
+            case LEADER_STOP:
+                CHECK(!tasks[i]->done);
+                caller->do_leader_stop();
+                break;
+            };
         }
+    }
+    if (max_committed_index >= 0) {
+        caller->do_committed(max_committed_index);
     }
     return 0;
 }
 
 int FSMCaller::init(const FSMCallerOptions &options) {
-    if (options.log_manager == NULL || options.fsm == NULL) {
+    if (options.log_manager == NULL || options.fsm == NULL 
+            || options.closure_queue == NULL) {
         return EINVAL;
     }
     _log_manager = options.log_manager;
     _fsm = options.fsm;
+    _closure_queue = options.closure_queue;
     _after_shutdown = options.after_shutdown;
     bthread::ExecutionQueueOptions execq_opt;
+    // TODO: It should be a options 
     execq_opt.max_tasks_size = 256;
 
-    bthread::execution_queue_start(&_queue,
+    bthread::execution_queue_start(&_queue_id,
                                    &execq_opt,
                                    FSMCaller::run,
                                    this);
@@ -70,7 +92,7 @@ int FSMCaller::init(const FSMCallerOptions &options) {
 }
 
 int FSMCaller::shutdown() {
-    return bthread::execution_queue_stop(_queue);
+    return bthread::execution_queue_stop(_queue_id);
 }
 
 void FSMCaller::do_shutdown() {
@@ -84,105 +106,112 @@ void FSMCaller::do_shutdown() {
     }
 }
 
-int FSMCaller::on_committed(int64_t committed_index, void *context) {
-    google::protobuf::Closure* done =
-        google::protobuf::NewCallback(this, &FSMCaller::do_committed,
-                                      committed_index, static_cast<Closure*>(context));
-    return bthread::execution_queue_execute(_queue, done);
+int FSMCaller::on_committed(int64_t committed_index) {
+    ApplyTask t;
+    t.type = COMMITTED;
+    t.committed_index = committed_index;
+    return bthread::execution_queue_execute(_queue_id, t);
 }
 
-void FSMCaller::do_committed(int64_t committed_index, Closure* done) {
-    int64_t last_applied_index = _last_applied_index.load(boost::memory_order_relaxed);
 
-    // some uncommitted logs will be committed when follower become leader
-    // and append a new log success. done only call when index equal committed_index
-    // committed_index maybe equal with last_applied_index, first heartbeat after InstallSnapshot
-    RAFT_VLOG << "do_committed " << committed_index;
-    FSM_CALLER_REGISTER_POSITION;
-    CHECK(committed_index > last_applied_index ||
-          (committed_index == last_applied_index && done == NULL));
+// Hole a batch of tasks to apply in temporary storage and apply them when
+// the storage is full
+class TaskBatcher {
+public:
+    TaskBatcher(StateMachine* sm, Task* data, LogEntry** entry_store,
+                       size_t max_size, int64_t first_index)
+        : _sm(sm)
+        , _data(data)
+        , _entry_store(entry_store)
+        , _max_size(max_size)
+        , _first_index(first_index)
+        , _num_task(0) {}
 
-    for (int64_t index = last_applied_index + 1; index <= committed_index; ++index) {
-        LogEntry *entry = _log_manager->get_entry(index);
-        if (entry == NULL) {
-            CHECK(done == NULL);
-            break;
-        }
-        CHECK(index == entry->index);
+    ~TaskBatcher() {
+        apply_task();
+    }
 
-        switch (entry->type) {
-        case ENTRY_TYPE_DATA:
-            //TODO: use result instead of done
-            if (index == committed_index) {
-                FSM_CALLER_REGISTER_POSITION;
-                Task t;
-                t.data = &entry->data;
-                t.done = done;
-                _fsm->on_apply(index, t);
-            } else {
-                Task task;
-                task.data = &entry->data; 
-                task.done = NULL;
-                FSM_CALLER_REGISTER_POSITION;
-                _fsm->on_apply(index, task);
+    void append(LogEntry* entry, Closure* done) {
+        if (entry->type == ENTRY_TYPE_DATA) {  // fast path
+            if (full()) {
+                apply_task();
             }
-            break;
-        case ENTRY_TYPE_ADD_PEER:
-        case ENTRY_TYPE_REMOVE_PEER:
-            // Notify that configuration change is successfully executed
-            //_node->on_configuration_change_done(entry->type, *(entry->peers));
-            if (done && index == committed_index) {
-                FSM_CALLER_REGISTER_POSITION;
+            _entry_store[_num_task] = entry;
+            _data[_num_task].data = &entry->data;
+            _data[_num_task].done = done;
+            ++_num_task;
+        } else {
+            apply_task();
+            entry->Release();
+            if (done) {
                 done->Run();
             }
-            break;
-        case ENTRY_TYPE_NO_OP:
-            break;
-        default:
-            CHECK(false) << "Unknown entry type" << entry->type;
+            _first_index = entry->index + 1;
         }
-
-        FSM_CALLER_REGISTER_POSITION;
-        _last_applied_index.store(index, boost::memory_order_release);
-        _last_applied_term = entry->term;
-        _log_manager->set_applied_index(index);
-        entry->Release();
     }
-    FSM_CALLER_CLEAR_POSITION;
-}
 
-int FSMCaller::on_cleared(int64_t log_index, void* context, int error_code) {
-    if (context == NULL) {
-        return 0;
+    void apply_task() {
+        if (_num_task > 0) {
+            _sm->on_apply_in_batch(_first_index, _data, _num_task);
+            for (size_t i = 0; i < _num_task; ++i) {
+                _entry_store[i]->Release();
+            }
+            _first_index += _num_task;
+            _num_task = 0;
+        }
     }
-    google::protobuf::Closure* done =
-        google::protobuf::NewCallback(this, &FSMCaller::do_cleared,
-                                      log_index, static_cast<Closure*>(context), error_code);
-    int ret = bthread::execution_queue_execute(_queue, done);
-    if (0 != ret) {
-        delete done;
-        FSM_CALLER_REGISTER_POSITION;
-        Closure* closure = static_cast<Closure*>(context);
-        closure->set_error(error_code, "%s", berror(error_code));
-        run_closure_in_bthread(closure);
-    }
-    FSM_CALLER_CLEAR_POSITION;
-    return ret;
-}
 
-void FSMCaller::do_cleared(int64_t log_index, Closure* done, int error_code) {
-    RAFT_VLOG << "do_cleared" << log_index << " err: " << error_code;
-    CHECK(done);
-    done->set_error(error_code, "%s", berror(error_code));
-    FSM_CALLER_REGISTER_POSITION;
-    done->Run();
-    FSM_CALLER_CLEAR_POSITION
+private:
+    bool full() const { return _num_task == _max_size; }
+
+    StateMachine* _sm;
+    Task* _data;
+    LogEntry** _entry_store;
+    size_t _max_size;
+    int64_t _first_index;
+    size_t _num_task;
+};
+
+void FSMCaller::do_committed(int64_t committed_index) {
+    int64_t last_applied_index = _last_applied_index.load(boost::memory_order_relaxed);
+
+    // We can tolerate the disorder of committed_index
+    if (last_applied_index >= committed_index) {
+        return;
+    }
+    std::vector<Closure*> closure;
+    int64_t first_closure_index = 0;
+    CHECK_EQ(0, _closure_queue->pop_closure_until(committed_index, &closure,
+                                                  &first_closure_index));
+    Task tasks_store[64];
+    LogEntry* entry_store[64];
+    int64_t last_applied_term = 0;
+    TaskBatcher tb(_fsm, tasks_store, entry_store, ARRAY_SIZE(tasks_store),
+                  last_applied_index + 1);
+    for (int64_t index = last_applied_index + 1; index <= committed_index; ++index) {
+        LogEntry *entry = _log_manager->get_entry(index);
+        CHECK(entry);
+        CHECK(index == entry->index);
+        Closure* done = NULL;
+        if (index >= first_closure_index) {
+            done = closure[index - first_closure_index];
+        }
+        tb.append(entry, done);
+        last_applied_term = entry->term;
+    }
+    tb.apply_task();
+    if (last_applied_term > 0) {
+        _last_applied_term = last_applied_term;
+    }
+    _last_applied_index.store(committed_index, boost::memory_order_release);
+    _log_manager->set_applied_index(committed_index);
 }
 
 int FSMCaller::on_snapshot_save(SaveSnapshotClosure* done) {
-    google::protobuf::Closure* new_done =
-        google::protobuf::NewCallback(this, &FSMCaller::do_snapshot_save, done);
-    return bthread::execution_queue_execute(_queue, new_done);
+    ApplyTask task;
+    task.type = SNAPSHOT_SAVE;
+    task.done = done;
+    return bthread::execution_queue_execute(_queue_id, task);
 }
 
 void FSMCaller::do_snapshot_save(SaveSnapshotClosure* done) {
@@ -196,26 +225,22 @@ void FSMCaller::do_snapshot_save(SaveSnapshotClosure* done) {
     ConfigurationPair pair = _log_manager->get_configuration(last_applied_index);
     meta.last_configuration = pair.second;
 
-    FSM_CALLER_REGISTER_POSITION;
     SnapshotWriter* writer = done->start(meta);
     if (!writer) {
         done->set_error(EINVAL, "snapshot_storage create SnapshotWriter failed");
-        FSM_CALLER_REGISTER_POSITION;
         done->Run();
-        FSM_CALLER_CLEAR_POSITION
         return;
     }
 
-    FSM_CALLER_REGISTER_POSITION;
     _fsm->on_snapshot_save(writer, done);
-    FSM_CALLER_CLEAR_POSITION
     return;
 }
 
 int FSMCaller::on_snapshot_load(LoadSnapshotClosure* done) {
-    google::protobuf::Closure* new_done =
-        google::protobuf::NewCallback(this, &FSMCaller::do_snapshot_load, done);
-    return bthread::execution_queue_execute(_queue, new_done);
+    ApplyTask task;
+    task.type = SNAPSHOT_LOAD;
+    task.done = done;
+    return bthread::execution_queue_execute(_queue_id, task);
 }
 
 void FSMCaller::do_snapshot_load(LoadSnapshotClosure* done) {
@@ -223,9 +248,7 @@ void FSMCaller::do_snapshot_load(LoadSnapshotClosure* done) {
     SnapshotReader* reader = done->start();
     if (!reader) {
         done->set_error(EINVAL, "open SnapshotReader failed");
-        FSM_CALLER_REGISTER_POSITION;
         done->Run();
-        FSM_CALLER_CLEAR_POSITION
         return;
     }
 
@@ -233,64 +256,34 @@ void FSMCaller::do_snapshot_load(LoadSnapshotClosure* done) {
     int ret = reader->load_meta(&meta);
     if (0 != ret) {
         done->set_error(ret, "SnapshotReader load_meta failed.");
-        FSM_CALLER_REGISTER_POSITION;
         done->Run();
-        FSM_CALLER_CLEAR_POSITION
         return;
     }
 
     ret = _fsm->on_snapshot_load(reader);
     if (ret != 0) {
         done->set_error(ret, "StateMachine on_snapshot_load failed");
-        FSM_CALLER_REGISTER_POSITION;
         done->Run();
         return;
     }
 
     _last_applied_index.store(meta.last_included_index, boost::memory_order_release);
-    FSM_CALLER_REGISTER_POSITION;
+    _last_applied_term = meta.last_included_term;
     done->Run();
-    FSM_CALLER_CLEAR_POSITION
-}
-
-class LeaderStartClosure : public Closure {
-public:
-    LeaderStartClosure(StateMachine* fsm) : _fsm(fsm) {}
-    void Run() {
-        if (_err_code == 0) {
-            _fsm->on_leader_start();
-        }
-        delete this;
-    }
-private:
-    StateMachine* _fsm;
-};
-
-Closure* FSMCaller::on_leader_start() {
-    return new LeaderStartClosure(_fsm);
 }
 
 int FSMCaller::on_leader_stop() {
-    google::protobuf::Closure* done =
-        google::protobuf::NewCallback(this, &FSMCaller::do_leader_stop);
-    return bthread::execution_queue_execute(_queue, done);
+    ApplyTask task;
+    task.type = LEADER_STOP;
+    task.done = NULL;
+    return bthread::execution_queue_execute(_queue_id, task);
 }
 
 void FSMCaller::do_leader_stop() {
-    FSM_CALLER_REGISTER_POSITION;
     _fsm->on_leader_stop();
-    FSM_CALLER_CLEAR_POSITION
 }
 
-void FSMCaller::describe(std::ostream &os, bool use_html) {
-    const char *p = _position.load(boost::memory_order_relaxed);
-    const char *new_line = use_html ? "<br>" : "\n";
-    if (p == NULL) {
-        os << "fsm_caller_state: IDLE" << new_line;
-    } else {
-        os << "fsm_caller_state: RUNNING" << new_line;
-        os << "fsm_caller_position: " << p << new_line;
-    }
+void FSMCaller::describe(std::ostream &/*os*/, bool /*use_html*/) {
 }
 
 }  // namespace raft

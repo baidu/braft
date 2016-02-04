@@ -72,6 +72,7 @@ NodeImpl::NodeImpl(const GroupId& group_id, const PeerId& peer_id)
     , _group_id(group_id)
     , _log_storage(NULL) 
     , _stable_storage(NULL)
+    , _closure_queue(NULL)
     , _config_manager(NULL)
     , _log_manager(NULL)
     , _fsm_caller(NULL) 
@@ -111,6 +112,10 @@ NodeImpl::~NodeImpl() {
     if (_log_storage) {
         delete _log_storage;
         _log_storage = NULL;
+    }
+    if (_closure_queue) {
+        delete _closure_queue;
+        _closure_queue = NULL;
     }
     if (_stable_storage) {
         delete _stable_storage;
@@ -263,19 +268,34 @@ int NodeImpl::init(const NodeOptions& options) {
             break;
         }
 
+        _closure_queue = new ClosureQueue();
+
         // fsm caller init, node AddRef in init
         _fsm_caller = new FSMCaller();
         FSMCallerOptions fsm_caller_options;
         this->AddRef();
         fsm_caller_options.after_shutdown = 
                 google::protobuf::NewCallback<NodeImpl*>(after_shutdown, this);
-        //fsm_caller_options.applied_index = _last_snapshot_index;
         fsm_caller_options.log_manager = _log_manager;
         fsm_caller_options.fsm = _options.fsm;
+        fsm_caller_options.closure_queue = _closure_queue;
         ret = _fsm_caller->init(fsm_caller_options);
         if (ret != 0) {
             delete fsm_caller_options.after_shutdown;
             this->Release();
+            break;
+        }
+
+        // commitment manager init
+        _commit_manager = new CommitmentManager();
+        CommitmentManagerOptions commit_manager_options;
+        commit_manager_options.waiter = _fsm_caller;
+        commit_manager_options.closure_queue = _closure_queue;
+        //commit_manager_options.last_committed_index = _last_snapshot_index;
+        ret = _commit_manager->init(commit_manager_options);
+        if (ret != 0) {
+            // fsm caller init AddRef, here Release
+            Release();
             break;
         }
 
@@ -298,18 +318,6 @@ int NodeImpl::init(const NodeOptions& options) {
         }
 
         //TODO: call fsm on_apply (_last_snapshot_index + 1, last_committed_index]
-
-        // commitment manager init
-        _commit_manager = new CommitmentManager();
-        CommitmentManagerOptions commit_manager_options;
-        commit_manager_options.waiter = _fsm_caller;
-        //commit_manager_options.last_committed_index = _last_snapshot_index;
-        ret = _commit_manager->init(commit_manager_options);
-        if (ret != 0) {
-            // fsm caller init AddRef, here Release
-            Release();
-            break;
-        }
 
         // add node to NodeManager
         if (!NodeManager::GetInstance()->add(this)) {
@@ -519,14 +527,20 @@ void NodeImpl::add_peer(const std::vector<PeerId>& old_peers, const PeerId& peer
     if (_state != LEADER) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
             << " can't add_peer not in LEADER";
-        _fsm_caller->on_cleared(0, done, EPERM);
+        if (done) {
+            done->set_error(EPERM, "non-leader cannot add peer");
+            run_closure_in_bthread(done);
+        }
         return;
     }
     // check concurrent conf change
     if (!_conf_ctx.empty()) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id << " add_peer need wait "
             "current conf change";
-        _fsm_caller->on_cleared(0, done, EINVAL);
+        if (done) {
+            done->set_error(EINVAL, "Doing another configuration changing");
+            run_closure_in_bthread(done);
+        }
         return;
     }
     // check equal, maybe retry direct return
@@ -535,20 +549,26 @@ void NodeImpl::add_peer(const std::vector<PeerId>& old_peers, const PeerId& peer
     if (_conf.second.equals(new_peers)) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
             << " add_peer equal cureent conf " << _conf.second;
-        _fsm_caller->on_cleared(0, done, 0);
+        run_closure_in_bthread(done);
         return;
     }
     // check not equal
     if (!_conf.second.equals(old_peers)) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id << " add_peer dismatch old_peers";
-        _fsm_caller->on_cleared(0, done, EINVAL);
+        if (done) {
+            done->set_error(EINVAL, "old_peers dismatch");
+            run_closure_in_bthread(done);
+        }
         return;
     }
     // check contain
     if (_conf.second.contains(peer)) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id << " add_peer current peers "
             "contains new_peer";
-        _fsm_caller->on_cleared(0, done, EINVAL);
+        if (done) {
+            done->set_error(EINVAL, "peer already in group");
+            run_closure_in_bthread(done);
+        }
         return;
     }
 
@@ -558,7 +578,11 @@ void NodeImpl::add_peer(const std::vector<PeerId>& old_peers, const PeerId& peer
     if (0 != _replicator_group.add_replicator(peer)) {
         LOG(ERROR) << "node " << _group_id << ":" << _server_id
             << " start replicator failed, peer " << peer;
-        _fsm_caller->on_cleared(0, done, EINVAL);
+        if (done) {
+            done->set_error(EINVAL, "Fail to start replicator");
+            run_closure_in_bthread(done);
+            return;
+        }
         return;
     }
 
@@ -575,7 +599,10 @@ void NodeImpl::add_peer(const std::vector<PeerId>& old_peers, const PeerId& peer
         LOG(ERROR) << "node " << _group_id << ":" << _server_id
             << " wait_caughtup failed, peer " << peer;
         Release();
-        _fsm_caller->on_cleared(0, done, EINVAL);
+        if (done) {
+            done->set_error(EINVAL, "Fail to wait for caughtup");
+            run_closure_in_bthread(done);
+        }
         return;
     }
 }
@@ -589,14 +616,20 @@ void NodeImpl::remove_peer(const std::vector<PeerId>& old_peers, const PeerId& p
         << "node " << _group_id << ":" << _server_id << " shutdown, can't remove_peer";
     if (_state != LEADER) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id << " can't remove_peer not in LEADER";
-        _fsm_caller->on_cleared(0, done, EPERM);
+        if (done) {
+            done->set_error(EPERM, "Not leader");
+            run_closure_in_bthread(done);
+        }
         return;
     }
     // check concurrent conf change
     if (!_conf_ctx.empty()) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id << " remove_peer need wait "
             "current conf change";
-        _fsm_caller->on_cleared(0, done, EAGAIN);
+        if (done) {
+            done->set_error(EAGAIN, "Doing another configuration change");
+            run_closure_in_bthread(done);
+        }
         return;
     }
     // check equal, maybe retry direct return
@@ -605,21 +638,27 @@ void NodeImpl::remove_peer(const std::vector<PeerId>& old_peers, const PeerId& p
     std::vector<PeerId> new_peers;
     new_conf.list_peers(&new_peers);
     if (_conf.second.equals(new_peers)) {
-        _fsm_caller->on_cleared(0, done, 0);
+        run_closure_in_bthread(done);
         return;
     }
     // check not equal
     if (!_conf.second.equals(old_peers)) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
             << " remove_peer dismatch old_peers";
-        _fsm_caller->on_cleared(0, done, EINVAL);
+        if (done) {
+            done->set_error(EINVAL, "old_peers dismatch");
+            run_closure_in_bthread(done);
+        }
         return;
     }
     // check contain
     if (!_conf.second.contains(peer)) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id << " remove_peer old_peers not "
             "contains new_peer";
-        _fsm_caller->on_cleared(0, done, EINVAL);
+        if (done) {
+            done->set_error(EINVAL, "peer is not in group");
+            run_closure_in_bthread(done);
+        }
         return;
     }
 
@@ -1103,7 +1142,7 @@ void NodeImpl::step_down(const int64_t term) {
             CHECK(ret == 1);
         }
 
-        _commit_manager->clear_pending_applications();
+        _commit_manager->clear_pending_tasks();
 
         // stop disk thread, not need Release, stop is sync
         _log_manager->stop_disk_thread();
@@ -1137,6 +1176,20 @@ void NodeImpl::step_down(const int64_t term) {
     // stop stagging new node
     _replicator_group.stop_all();
 }
+
+class LeaderStartClosure : public Closure {
+public:
+    LeaderStartClosure(StateMachine* fsm) : _fsm(fsm) {}
+    ~LeaderStartClosure() {}
+    void Run() {
+        if (_err_code == 0) {
+            _fsm->on_leader_start();
+        }
+        delete this;
+    }
+private:
+    StateMachine* _fsm;
+};
 
 // in lock
 void NodeImpl::become_leader() {
@@ -1196,7 +1249,7 @@ void NodeImpl::become_leader() {
 
     append(entry, 
            new ConfigurationChangeDone(entry->type, *entry->peers,
-                                       this, _fsm_caller->on_leader_start()));
+                                       this, new LeaderStartClosure(_options.fsm)));
 
     AddRef();
     int64_t stepdown_timeout = _options.election_timeout;
@@ -1230,7 +1283,7 @@ LeaderStableClosure::LeaderStableClosure(const NodeId& node_id,
 void LeaderStableClosure::Run() {
     if (_err_code == 0) {
         // commit_manager check quorum ok, will call fsm_caller
-        _commit_manager->set_stable_at_peer_reentrant(
+        _commit_manager->set_stable_at_peer(
                 _first_log_index, _first_log_index + _nentries - 1, _node_id.peer_id);
     } else {
         LOG(ERROR) << "node " << _node_id << " append [" << _first_log_index << ", "
@@ -1251,14 +1304,17 @@ void NodeImpl::apply(LogEntryAndClosure* const tasks[], size_t size) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id << " can't apply not in LEADER";
         for (size_t i = 0; i < entries.size(); ++i) {
             entries[i]->Release();
-            _fsm_caller->on_cleared(0, tasks[i]->done, EPERM);
+            if (tasks[i]->done) {
+                tasks[i]->done->set_error(EPERM, "Not leader");
+                run_closure_in_bthread(tasks[i]->done);
+            }
         }
         return;
     }
     for (size_t i = 0; i < size; ++i) {
         entries[i]->term = _current_term;
         entries[i]->type = ENTRY_TYPE_DATA;
-        _commit_manager->append_pending_application(_conf.second, tasks[i]->done);
+        _commit_manager->append_pending_task(_conf.second, tasks[i]->done);
     }
     _log_manager->append_entries(&entries, 
                                new LeaderStableClosure(
@@ -1273,10 +1329,10 @@ void NodeImpl::append(LogEntry* entry, Closure* done) {
     std::vector<PeerId> old_peers;
     //TODO: need check append_pending_application return code
     if (entry->type != ENTRY_TYPE_ADD_PEER && entry->type != ENTRY_TYPE_REMOVE_PEER) {
-        _commit_manager->append_pending_application(_conf.second, done);
+        _commit_manager->append_pending_task(_conf.second, done);
     } else  {
         _conf.second.list_peers(&old_peers);
-        _commit_manager->append_pending_application(Configuration(*(entry->peers)), done);
+        _commit_manager->append_pending_task(Configuration(*(entry->peers)), done);
     }
 
     _log_manager->append_entry(entry, 

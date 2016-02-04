@@ -6,9 +6,11 @@
 
 #include <base/scoped_lock.h>
 #include <bvar/latency_recorder.h>
+#include <bthread_unstable.h>
 #include "raft/commitment_manager.h"
 #include "raft/util.h"
 #include "raft/fsm_caller.h"
+#include "raft/closure_queue.h"
 
 namespace raft {
 
@@ -17,54 +19,66 @@ static bvar::LatencyRecorder g_commit_mutex_latency("raft_commit_manager_content
 CommitmentManager::CommitmentManager()
     : _waiter(NULL)
     , _last_committed_index(0)
+    , _pending_index(0)
 {
     _mutex.set_recorder(g_commit_mutex_latency);
 }
 
 CommitmentManager::~CommitmentManager() {
-    clear_pending_applications();
+    clear_pending_tasks();
 }
 
 int CommitmentManager::init(const CommitmentManagerOptions &options) {
-    if (options.waiter == NULL) {
+    if (options.waiter == NULL || options.closure_queue == NULL) {
         LOG(ERROR) << "waiter is NULL";
         return EINVAL;
     }
     _waiter = options.waiter;
-    _pending_index = 0;
+    _closure_queue = options.closure_queue;
     return 0;
 }
 
-int CommitmentManager::set_stable_at_peer_reentrant(
+int CommitmentManager::set_stable_at_peer(
         int64_t first_log_index, int64_t last_log_index, const PeerId& peer) {
     // FIXME(chenzhangyi01): The cricital section is unacceptable because it 
     // blocks all the other Replicators and LogManagers
-    BAIDU_SCOPED_LOCK(_mutex);
-    // RAFT_VLOG << "_pending_index=" << _pending_index << " log_index=" << log_index
-    //    << " peer=" << peer;
+    std::unique_lock<raft_mutex_t> lck(_mutex);
     if (_pending_index == 0) {
         return EINVAL;
     }
     if (last_log_index < _pending_index) {
         return 0;
     }
-    if (last_log_index >= _pending_index + (int64_t)_pending_apps.size()) {
+    if (last_log_index >= _pending_index + (int64_t)_pending_meta_queue.size()) {
         return ERANGE;
     }
+
     int64_t last_committed_index = 0;
     const int64_t start_at = std::max(_pending_index, first_log_index);
+    size_t pos_hint = 0;
     for (int64_t log_index = start_at; log_index <= last_log_index; ++log_index) {
-        PendingMeta *pm = _pending_apps[log_index - _pending_index];
-        if (pm->peers.erase(peer) == 0) {
+        PendingMeta &pm = _pending_meta_queue[log_index - _pending_index];
+        std::vector<UnfoundPeerId>::iterator iter;
+        if (pos_hint < pm.peers.size() && pm.peers[pos_hint] == peer) {
+            // For most time peers are all the same
+            iter = pm.peers.begin() + pos_hint;
+        } else {
+            iter = std::find(pm.peers.begin(), pm.peers.end(), peer);
+            pos_hint = iter - pm.peers.begin();
+        }
+        if (iter == pm.peers.end() || iter->found) {
             continue;
         }
-        if (--pm->quorum == 0) {
+        iter->found = true;
+        if (--pm.quorum == 0) {
             last_committed_index = log_index;
         }
     }
+
     if (last_committed_index == 0) {
         return 0;
     }
+
     // When removing a peer off the raft group which contains even number of
     // peers, the quorum would decrease by 1, e.g. 3 of 4 changes to 2 of 3. In
     // this case, the log after removal may be committed before some previous
@@ -73,68 +87,79 @@ int CommitmentManager::set_stable_at_peer_reentrant(
     // previous logs, which is not well proved right now
     // TODO: add vlog when committing previous logs
     for (int64_t index = _pending_index; index <= last_committed_index; ++index) {
-        PendingMeta *tmp = _pending_apps.front();
-        _pending_apps.pop_front();
-        void *saved_context = tmp->context;
-        delete tmp;
-        // FIXME: remove this off the critical section
-        _waiter->on_committed(index, saved_context);
+        _pending_meta_queue.pop_front();
     }
    
     _pending_index = last_committed_index + 1;
     _last_committed_index.store(last_committed_index, boost::memory_order_release);
-
+    lck.unlock();
+    // The order doesn't matter
+    _waiter->on_committed(last_committed_index);
     return 0;
 }
 
-int CommitmentManager::clear_pending_applications() {
-    BAIDU_SCOPED_LOCK(_mutex);
-    // FIXME: should on_cleared be called out of the critical section?
-    size_t pending_size = _pending_apps.size();
-    for (size_t i = 0; i < pending_size; ++i) {
-        PendingMeta *pm = _pending_apps.front();
-        _pending_apps.pop_front();
-
-        _waiter->on_cleared(_pending_index + i, pm->context, -1/*FIXME*/);
-        delete pm;
+int CommitmentManager::clear_pending_tasks() {
+    std::deque<PendingMeta> saved_meta;
+    {
+        BAIDU_SCOPED_LOCK(_mutex);
+        saved_meta.swap(_pending_meta_queue);
+        _pending_index = 0;
     }
-    _pending_index = 0;
+    _closure_queue->clear();
     return 0;
 }
 
 int CommitmentManager::reset_pending_index(int64_t new_pending_index) {
     BAIDU_SCOPED_LOCK(_mutex);
-    CHECK(_pending_index == 0 && _pending_apps.empty())
-        << "pending_index " << _pending_index << " pending_apps " << _pending_apps.size();
+    CHECK(_pending_index == 0 && _pending_meta_queue.empty())
+        << "pending_index " << _pending_index << " pending_meta_queue " 
+        << _pending_meta_queue.size();
     CHECK_GT(new_pending_index, _last_committed_index.load(
                                     boost::memory_order_relaxed));
     _pending_index = new_pending_index;
+    _closure_queue->reset_first_index(new_pending_index);
     return 0;
 }
 
-int CommitmentManager::append_pending_application(const Configuration& conf, void* context) {
-    CHECK(context);
-    PendingMeta* pm = new PendingMeta;
-    conf.list_peers(&pm->peers);
-    pm->quorum = pm->peers.size() / 2 + 1;
-    pm->context = context;
-
+int CommitmentManager::append_pending_task(const Configuration& conf, Closure* closure) {
+    if (conf.empty()) {
+        CHECK(false) << "Empty configuration";
+        return -1;
+    }
+    PendingMeta pm;
+    std::vector<PeerId> peers;
+    conf.list_peers(&peers);
+    pm.peers.reserve(peers.size());
+    for (size_t i = 0; i < peers.size(); ++i) {
+        UnfoundPeerId up;
+        up.peer_id = peers[i];
+        up.found = false;
+        pm.peers.push_back(up);
+    }
+    pm.quorum = pm.peers.size() / 2 + 1;
     BAIDU_SCOPED_LOCK(_mutex);
     CHECK(_pending_index > 0);
-    _pending_apps.push_back(pm);
+    _pending_meta_queue.push_back(PendingMeta());
+    _pending_meta_queue.back().swap(pm);
+    _closure_queue->append_pending_closure(closure);
     return 0;
 }
 
 int CommitmentManager::set_last_committed_index(int64_t last_committed_index) {
     // FIXME: it seems that lock is not necessary here
-    BAIDU_SCOPED_LOCK(_mutex);
-    CHECK(_pending_index == 0 && _pending_apps.empty()) << "Must be called by follower";
-    if (last_committed_index < _last_committed_index.load(boost::memory_order_relaxed)) {
+    std::unique_lock<raft_mutex_t> lck(_mutex);
+    if (_pending_index != 0 || !_pending_meta_queue.empty()) {
+        CHECK(false) << "Must be called by follower";
+        return -1;
+    }
+    if (last_committed_index < 
+            _last_committed_index.load(boost::memory_order_relaxed)) {
         return EINVAL;
     }
     if (last_committed_index > _last_committed_index.load(boost::memory_order_relaxed)) {
         _last_committed_index.store(last_committed_index, boost::memory_order_relaxed);
-        _waiter->on_committed(last_committed_index, NULL);
+        lck.unlock();
+        _waiter->on_committed(last_committed_index);
     }
     return 0;
 }
@@ -146,7 +171,7 @@ void CommitmentManager::describe(std::ostream& os, bool use_html) {
     size_t pending_queue_size = 0;
     if (_pending_index != 0) {
         pending_index = _pending_index;
-        pending_queue_size = _pending_apps.size();
+        pending_queue_size = _pending_meta_queue.size();
     }
     lck.unlock();
     const char *newline = use_html ? "<br>" : "\r\n";
