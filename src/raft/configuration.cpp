@@ -10,7 +10,6 @@
 namespace raft {
 
 std::ostream& operator<<(std::ostream& os, const Configuration& a) {
-    //std::copy(a.peers.begin(), a.peers.end(), std::ostream_iterator<PeerId>(os, ","));
     os << "Configuration{";
     std::vector<PeerId> peers;
     a.list_peers(&peers);
@@ -48,12 +47,10 @@ void ConfigurationManager::set_snapshot(const int64_t index,
 ConfigurationPair ConfigurationManager::get_configuration(
         const int64_t last_included_index) {
     if (_configurations.empty()) {
-        //return std::pair<int64_t, Configuration>(0, Configuration());
         return _snapshot;
     }
     ConfigurationMap::iterator it = _configurations.upper_bound(last_included_index);
     if (it == _configurations.begin()) {
-        //return std::pair<int64_t, Configuration>(0, Configuration());
         return _snapshot;
     }
     --it;
@@ -72,13 +69,11 @@ int64_t ConfigurationManager::last_configuration_index() {
 ConfigurationPair ConfigurationManager::last_configuration() {
     std::map<int64_t, Configuration>::reverse_iterator rit = _configurations.rbegin();
     if (rit != _configurations.rend()) {
-        //return std::pair<int64_t, Configuration>(rit->first, rit->second);
         return *rit;
     } else {
         return _snapshot;
     }
 }
-
 
 }
 

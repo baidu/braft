@@ -219,8 +219,7 @@ int Segment::load(ConfigurationManager* configuration_manager) {
             // The last log was not completely written which should be truncated
             break;
         }
-        if (header.type == ENTRY_TYPE_ADD_PEER 
-                || header.type == ENTRY_TYPE_REMOVE_PEER) {
+        if (header.type == ENTRY_TYPE_CONFIGURATION) {
             base::IOBuf data;
             // Header will be parsed again but it's fine as configuration
             // changing is rare
@@ -292,8 +291,7 @@ int Segment::append(const LogEntry* entry) {
         break;
     case ENTRY_TYPE_NO_OP:
         break;
-    case ENTRY_TYPE_ADD_PEER:
-    case ENTRY_TYPE_REMOVE_PEER: {
+    case ENTRY_TYPE_CONFIGURATION: {
             ConfigurationPBMeta meta;
             const std::vector<PeerId>& peers = *(entry->peers);
             for (size_t i = 0; i < peers.size(); i++) {
@@ -381,8 +379,7 @@ LogEntry* Segment::get(const int64_t index) const {
         case ENTRY_TYPE_NO_OP:
             CHECK(data.empty()) << "Data of NO_OP must be empty";
             break;
-        case ENTRY_TYPE_ADD_PEER:
-        case ENTRY_TYPE_REMOVE_PEER:
+        case ENTRY_TYPE_CONFIGURATION:
             {
                 base::IOBufAsZeroCopyInputStream wrapper(data);
                 if (!configuration_meta.ParseFromZeroCopyStream(&wrapper)) {

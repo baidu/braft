@@ -33,7 +33,7 @@ TEST_F(TestUsageSuits, LogEntry) {
     peers.push_back(raft::PeerId("1.2.3.4:1000"));
     peers.push_back(raft::PeerId("1.2.3.4:2000"));
     peers.push_back(raft::PeerId("1.2.3.4:3000"));
-    entry->type = raft::ENTRY_TYPE_ADD_PEER;
+    entry->type = raft::ENTRY_TYPE_CONFIGURATION;
     entry->add_peer(peers);
 
     entry->AddRef();

@@ -158,7 +158,7 @@ TEST_F(LogManagerTest, configuration_changes) {
         }
         std::vector<raft::LogEntry*> entries;
         raft::LogEntry* entry = new raft::LogEntry;
-        entry->type = raft::ENTRY_TYPE_ADD_PEER;
+        entry->type = raft::ENTRY_TYPE_CONFIGURATION;
         entry->add_peer(peers);
         entry->AddRef();
         entry->index = i + 1;
@@ -204,7 +204,7 @@ TEST_F(LogManagerTest, truncate_suffix_also_revert_configuration) {
         }
         std::vector<raft::LogEntry*> entries;
         raft::LogEntry* entry = new raft::LogEntry;
-        entry->type = raft::ENTRY_TYPE_ADD_PEER;
+        entry->type = raft::ENTRY_TYPE_CONFIGURATION;
         entry->add_peer(peers);
         entry->AddRef();
         entry->index = i + 1;

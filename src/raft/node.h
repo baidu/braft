@@ -87,7 +87,7 @@ public:
     // done is user defined function, maybe response to client
     // only used in major node is down, reduce peerset to make group available
     int set_peer(const std::vector<PeerId>& old_peers,
-                         const std::vector<PeerId>& new_peers);
+                 const std::vector<PeerId>& new_peers);
 
     // trigger snapshot
     void snapshot(Closure* done);
@@ -125,11 +125,12 @@ public:
                                       const RequestVoteResponse& response);
     void handle_request_vote_response(const PeerId& peer_id, const int64_t term,
                                       const RequestVoteResponse& response);
-    void on_caughtup(const PeerId& peer, int error_code, Closure* done);
+    void on_caughtup(const PeerId& peer, int64_t term, 
+                     int error_code, Closure* done);
     // other func
     //
     // called when leader change configuration done, ref with FSMCaller
-    void on_configuration_change_done(const EntryType type, const std::vector<PeerId>& peers);
+    void on_configuration_change_done(int64_t term);
 
     // called when leader recv greater term in AppendEntriesResponse, ref with Replicator
     int increase_term_to(int64_t new_term);
@@ -148,6 +149,9 @@ private:
     int init_snapshot_storage();
     int init_log_storage();
     int init_stable_storage();
+    bool unsafe_register_conf_change(const std::vector<PeerId>& old_peers,
+                                     const std::vector<PeerId>& new_peers,
+                                     Closure* done);
 
     // become leader
     void become_leader();
@@ -161,8 +165,9 @@ private:
     // elect self to candidate
     void elect_self();
 
-    // leader async append log entry
-    void append(LogEntry* entry, Closure* done);
+    // leader async apply configuration
+    void unsafe_apply_configuration(const Configuration& new_conf, 
+                                    Closure* done);
 
     // candidate/follower sync append log entry
     int append(const std::vector<LogEntry*>& entries);
@@ -234,7 +239,6 @@ private:
     PeerId _server_id;
     NodeOptions _options;
 
-    //int64_t _committed_index;
     raft_mutex_t _mutex;
     ConfigurationCtx _conf_ctx;
     LogStorage* _log_storage;

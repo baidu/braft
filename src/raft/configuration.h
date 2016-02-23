@@ -117,6 +117,7 @@ inline std::ostream& operator << (std::ostream& os, const NodeId& id) {
 // A set of peers.
 class Configuration {
 public:
+    typedef std::set<PeerId>::const_iterator const_iterator;
     // Construct an empty configuration.
     Configuration() {}
 
@@ -148,6 +149,9 @@ public:
 
     bool empty() const { return _peers.empty(); }
     size_t size() const { return _peers.size(); }
+
+    const_iterator begin() const { return _peers.begin(); }
+    const_iterator end() const { return _peers.end(); }
 
     // Clear the container and put peers in. 
     void list_peers(std::set<PeerId>* peers) const {
@@ -200,6 +204,24 @@ public:
             peer_set.insert(peers[i]);
         }
         return peer_set.size() == _peers.size();
+    }
+    
+    // Get the difference between |*this| and |rhs|
+    // |included| would be assigned to |*this| - |rhs|
+    // |excluded| would be assigned to |rhs| - |*this|
+    void diffs(const Configuration& rhs,
+               Configuration* included,
+               Configuration* excluded) const {
+        *included = *this;
+        *excluded = rhs;
+        for (std::set<PeerId>::const_iterator 
+                iter = _peers.begin(); iter != _peers.end(); ++iter) {
+            excluded->_peers.erase(*iter);
+        }
+        for (std::set<PeerId>::const_iterator 
+                iter = rhs._peers.begin(); iter != rhs._peers.end(); ++iter) {
+            included->_peers.erase(*iter);
+        }
     }
     
 private:

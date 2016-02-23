@@ -36,23 +36,9 @@ ReplicatorOptions::ReplicatorOptions()
 
 const int ERROR_CODE_UNSET_MAGIC = 0x1234;
 
-OnCaughtUp::OnCaughtUp()
-    : on_caught_up(NULL)
-    , arg(NULL)
-    , done(NULL)
-    , min_margin(0)
-    , pid()
-    , timer(0)
-    , error_code(ERROR_CODE_UNSET_MAGIC)
-{}
-
-void OnCaughtUp::_run() {
-    return on_caught_up(arg, pid, error_code, done);
-}
-
 Replicator::Replicator() 
     : _next_index(0)
-    , _on_caught_up(NULL)
+    , _catchup_closure(NULL)
     , _last_response_timestamp(0)
     , _installing_snapshot(false)
     , _consecutive_error_times(0)
@@ -103,7 +89,7 @@ int Replicator::start(const ReplicatorOptions& options, ReplicatorId *id) {
     if (id) {
         *id = r->_id.value;
     }
-    r->_on_caught_up = NULL;
+    r->_catchup_closure = NULL;
     r->_last_response_timestamp = base::monotonic_time_ms();
     LOG(INFO) << "Replicator=" << r->_id << " is started";
     r.release();
@@ -133,43 +119,43 @@ int64_t Replicator::last_response_timestamp(ReplicatorId id) {
 }
 
 void Replicator::wait_for_caught_up(ReplicatorId id, 
-                                    const OnCaughtUp& on_caught_up,
-                                    const timespec* due_time) {
+                                    int64_t max_margin,
+                                    const timespec* due_time,
+                                    CatchupClosure* done) {
     bthread_id_t dummy_id = { id };
-    OnCaughtUp *copied_on_caught_up = new OnCaughtUp(on_caught_up);
     Replicator* r = NULL;
-    do {
-        if (bthread_id_lock(dummy_id, (void**)&r) != 0) {
-            break;
-        }
-        if (r->_on_caught_up != 0) {
-            LOG(ERROR) << "Previous wait_for_caught_up is not over";
-            CHECK_EQ(0, bthread_id_unlock(dummy_id)) 
-                    << "Fail to unlock " << dummy_id;
-            break;
-        }
-        if (due_time != NULL) {
-            copied_on_caught_up->has_timer = true;
-            CHECK_EQ(0, bthread_timer_add(&copied_on_caught_up->timer,
-                                        *due_time,
-                                        _on_catch_up_timedout,
-                                        (void*)id));
-        }
-        r->_on_caught_up = copied_on_caught_up;
-        // success
+    if (bthread_id_lock(dummy_id, (void**)&r) != 0) {
+        done->set_error(EINVAL, "No such replicator");
+        run_closure_in_bthread(done);
+        return;
+    }
+    if (r->_catchup_closure != NULL) {
         CHECK_EQ(0, bthread_id_unlock(dummy_id)) 
                 << "Fail to unlock " << dummy_id;
+        LOG(ERROR) << "Previous wait_for_caught_up is not over";
+        done->set_error(EINVAL, "Duplicated call");
+        run_closure_in_bthread(done);
         return;
-    } while (0);
-    copied_on_caught_up->error_code = EINVAL;
-    // FAILED
-    bthread_t tid;
-    if (bthread_start_background(&tid, &BTHREAD_ATTR_NORMAL,
-                                 _run_on_caught_up, copied_on_caught_up) != 0) {
-        CHECK(false) << "Fail to start bthread, " << berror();
-        _run_on_caught_up(copied_on_caught_up);
     }
-    
+    done->_max_margin = max_margin;
+    if (due_time != NULL) {
+        done->_has_timer = true;
+        if (bthread_timer_add(&done->_timer,
+                              *due_time,
+                              _on_catch_up_timedout,
+                              (void*)id) != 0) {
+            CHECK_EQ(0, bthread_id_unlock(dummy_id));
+            LOG(ERROR) << "Fail to add timer";
+            done->set_error(EINVAL, "Duplicated call");
+            run_closure_in_bthread(done);
+            return;
+        }
+    }
+    r->_catchup_closure = done;
+    // success
+    CHECK_EQ(0, bthread_id_unlock(dummy_id)) 
+            << "Fail to unlock " << dummy_id;
+    return;
 }
 
 void Replicator::_on_block_timedout(void *arg) {
@@ -241,8 +227,7 @@ void Replicator::_on_rpc_returned(ReplicatorId id, baidu::rpc::Controller* cntl,
 
             NodeImpl *node_impl = r->_options.node;
             // Acquire a reference of Node here in case that Node is detroyed
-            // after _notify_on_caught_up. Not increase reference count in
-            // start() to avoid the circular reference issue
+            // after _notify_on_caught_up.
             node_impl->AddRef();
             r->_notify_on_caught_up(EPERM, true);
             LOG(INFO) << "Replicator=" << dummy_id << " is going to quit";
@@ -322,28 +307,31 @@ int Replicator::_fill_common_fields(AppendEntriesRequest* request,
 }
 
 void Replicator::_send_heartbeat() {
-    baidu::rpc::Controller* cntl = new baidu::rpc::Controller;
-    AppendEntriesRequest *request = new AppendEntriesRequest;
-    AppendEntriesResponse *response = new AppendEntriesResponse;
+    std::unique_ptr<baidu::rpc::Controller> cntl(new baidu::rpc::Controller);
+    std::unique_ptr<AppendEntriesRequest> request(new AppendEntriesRequest);
+    std::unique_ptr<AppendEntriesResponse> response(new AppendEntriesResponse);
     // When the peer is installing snapshot, the _next_index is invalid as the
     // logs were compacted, so we let the prev_log_index be 0 which will not be
     // rejected by the peer at the same term to maintain leadership
     if (_fill_common_fields(
-                request, _installing_snapshot ? 0 : _next_index - 1) != 0) {
+                request.get(), _installing_snapshot ? 0 : _next_index - 1) != 0) {
         return _install_snapshot();
     }
     _rpc_in_fly = cntl->call_id();
 
     RAFT_VLOG << "node " << _options.group_id << ":" << _options.server_id
-        << " send HeartbeatRequest to " << _options.peer_id << " term " << _options.term
+        << " send HeartbeatRequest to " << _options.peer_id 
+        << " term " << _options.term
         << " last_committed_index " << request->committed_index();
 
     google::protobuf::Closure* done = google::protobuf::NewCallback<
         ReplicatorId, baidu::rpc::Controller*, AppendEntriesRequest*,
         AppendEntriesResponse*>(
-                _on_rpc_returned, _id.value, cntl, request, response);
+                _on_rpc_returned, _id.value, cntl.get(), 
+                request.get(), response.get());
     RaftService_Stub stub(&_sending_channel);
-    stub.append_entries(cntl, request, response, done);
+    stub.append_entries(cntl.release(), request.release(), 
+                        response.release(), done);
     CHECK_EQ(0, bthread_id_unlock(_id)) << "Fail to unlock " << _id;
 }
 
@@ -362,7 +350,7 @@ int Replicator::_prepare_entry(int offset, EntryMeta* em, base::IOBuf *data) {
             em->add_peers((*entry->peers)[i].to_string());
         }
     } else {
-        CHECK(entry->type != ENTRY_TYPE_ADD_PEER) << "log_index=" << log_index;
+        CHECK(entry->type != ENTRY_TYPE_CONFIGURATION) << "log_index=" << log_index;
     }
     em->set_data_len(entry->data.length());
     data->append(entry->data);
@@ -532,47 +520,37 @@ void Replicator::_on_install_snapshot_returned(
             << "Fail to unlock" << dummy_id;
 }
 
-void* Replicator::_run_on_caught_up(void* arg) {
-    OnCaughtUp* on_caught_up = (OnCaughtUp*)arg;
-    on_caught_up->_run();
-    delete on_caught_up;
-    return NULL;
-}
-
 void Replicator::_notify_on_caught_up(int error_code, bool before_destory) {
-    if (_on_caught_up == NULL) {
+    if (_catchup_closure == NULL) {
         return;
     }
     if (error_code != ETIMEDOUT) {
-        if (_next_index - 1 + _on_caught_up->min_margin
+        if (_next_index - 1 + _catchup_closure->_max_margin
                 < _options.log_manager->last_log_index()) {
             return;
         }
-        if (_on_caught_up->error_code != ERROR_CODE_UNSET_MAGIC) {
+        if (_catchup_closure->_error_was_set) {
             return;
         }
-        _on_caught_up->pid = _options.peer_id;
-        _on_caught_up->error_code = error_code;
-        if (_on_caught_up->has_timer) {
-            if (!before_destory && bthread_timer_del(_on_caught_up->timer) == 1) {
+        _catchup_closure->_error_was_set = true;
+        if (error_code) {
+            _catchup_closure->set_error(error_code, "%s", berror(error_code));
+        }
+        if (_catchup_closure->_has_timer) {
+            if (!before_destory && bthread_timer_del(_catchup_closure->_timer) == 1) {
                 // There's running timer task, let timer task trigger
                 // on_caught_up to void ABA problem
                 return;
             }
         }
     } else { // Timed out
-        if (_on_caught_up->error_code == ERROR_CODE_UNSET_MAGIC) {
-            _on_caught_up->pid = _options.peer_id;
-            _on_caught_up->error_code = error_code;
+        if (!_catchup_closure->_error_was_set) {
+            _catchup_closure->set_error(error_code, "%s", berror(error_code));
         }
     }
-    bthread_t tid;
-    if (bthread_start_background(&tid, &BTHREAD_ATTR_NORMAL,
-                                 _run_on_caught_up, _on_caught_up) != 0) {
-        CHECK(false) << "Fail to start bthread, " << berror();
-        _run_on_caught_up(_on_caught_up);
-    }
-    _on_caught_up = NULL;
+    Closure* saved_catchup_closure = _catchup_closure;
+    _catchup_closure = NULL;
+    return run_closure_in_bthread(saved_catchup_closure);
 }
 
 int Replicator::_on_failed(bthread_id_t id, void* arg, int error_code) {
@@ -604,7 +582,6 @@ ReplicatorGroupOptions::ReplicatorGroupOptions()
     , log_manager(NULL)
     , commit_manager(NULL)
     , node(NULL)
-    , term(0)
     , snapshot_storage(NULL)
 {}
 
@@ -619,7 +596,7 @@ int ReplicatorGroup::init(const NodeId& node_id, const ReplicatorGroupOptions& o
     _common_options.log_manager = options.log_manager;
     _common_options.commit_manager = options.commit_manager;
     _common_options.node = options.node;
-    _common_options.term = options.term;
+    _common_options.term = 0;
     _common_options.group_id = node_id.group_id;
     _common_options.server_id = node_id.peer_id;
     _common_options.snapshot_storage = options.snapshot_storage;
@@ -627,6 +604,10 @@ int ReplicatorGroup::init(const NodeId& node_id, const ReplicatorGroupOptions& o
 }
 
 int ReplicatorGroup::add_replicator(const PeerId& peer) {
+    CHECK_NE(0, _common_options.term);
+    if (_rmap.find(peer) != _rmap.end()) {
+        return 0;
+    }
     ReplicatorOptions options = _common_options;
     options.peer_id = peer;
     ReplicatorId rid;
@@ -634,22 +615,19 @@ int ReplicatorGroup::add_replicator(const PeerId& peer) {
         LOG(ERROR) << "Fail to start replicator to peer=" << peer;
         return -1;
     }
-    if (!_rmap.insert(std::make_pair(peer, rid)).second) {
-        LOG(ERROR) << "Duplicate peer=" << peer;
-        Replicator::stop(rid);
-        return -1;
-    }
+    _rmap[peer] = rid;
     return 0;
 }
 
-int ReplicatorGroup::wait_caughtup(const PeerId& peer, const OnCaughtUp& on_caught_up,
-                                    const timespec* due_time) {
+int ReplicatorGroup::wait_caughtup(const PeerId& peer, 
+                                   int64_t max_margin, const timespec* due_time,
+                                   CatchupClosure* done) {
     std::map<PeerId, ReplicatorId>::iterator iter = _rmap.find(peer);
     if (iter == _rmap.end()) {
         return -1;
     }
     ReplicatorId rid = iter->second;
-    Replicator::wait_for_caught_up(rid, on_caught_up, due_time);
+    Replicator::wait_for_caught_up(rid, max_margin, due_time, done);
     return 0;
 }
 
@@ -685,6 +663,19 @@ int ReplicatorGroup::stop_all() {
     for (size_t i = 0; i < rids.size(); ++i) {
         Replicator::stop(rids[i]);
     }
+    return 0;
+}
+
+bool ReplicatorGroup::contains(const PeerId& peer) const {
+    return _rmap.find(peer) != _rmap.end();
+}
+
+int ReplicatorGroup::reset_term(int64_t new_term) {
+    if (new_term <= _common_options.term) {
+        CHECK_GT(new_term, _common_options.term) << "term cannot be decreased";
+        return -1;
+    }
+    _common_options.term = new_term;
     return 0;
 }
 

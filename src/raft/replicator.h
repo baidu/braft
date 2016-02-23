@@ -11,6 +11,7 @@
 #include <bthread.h>
 #include <baidu/rpc/channel.h>                  // baidu::rpc::Channel
 #include <baidu/rpc/controller.h>               // baidu::rpc::Controller
+#include "raft/raft.h"
 #include "raft/configuration.h"
 #include "raft/raft.pb.h"
 #include "raft/storage.h"
@@ -36,29 +37,21 @@ struct ReplicatorOptions {
 
 typedef uint64_t ReplicatorId;
 
-class Closure;
-struct OnCaughtUp {
-    OnCaughtUp();
-
-    void (*on_caught_up)(
-        void* arg, const PeerId &pid,
-        int error_code, Closure* done);
-    
-    // default: NULL
-    void* arg;
-
-    // default: NULL
-    Closure* done;
-
-    // The minimal margin between |last_log_index| from leader and the very peer.
-    // default: 0
-    uint32_t min_margin;
+class CatchupClosure : public Closure {
+public:
+    virtual void Run() = 0;
+protected:
+    CatchupClosure()
+        : _max_margin(0)
+        , _has_timer(false)
+        , _error_was_set(false)
+    {}
 private:
 friend class Replicator;
-    PeerId pid;
-    bthread_timer_t timer;
-    bool has_timer;
-    int error_code;
+    int64_t _max_margin;
+    bthread_timer_t _timer;
+    bool _has_timer;
+    bool _error_was_set;
     void _run();
 };
 
@@ -70,14 +63,6 @@ public:
     // Start to replicate the log to the given follower
     static int start(const ReplicatorOptions&, ReplicatorId* id);
 
-    // Called by leader, otherwise the behavior is undefined.
-    // Let the replicator stop replicating to the very follower, but send
-    // hearbeat message to avoid the follower becoming a candidate.
-    // This method should be called When the very follower is about to be
-    // removed (has not been committed), it's not necessary to replicate the 
-    // logs since the removing task. 
-    static int stop_appending_after(ReplicatorId, int64_t log_index);
-
     // Called when the leader steps down, otherwise the behavior is undefined
     // Stop replicating
     static int stop(ReplicatorId);
@@ -86,10 +71,12 @@ public:
 
     static int64_t last_response_timestamp(ReplicatorId id);
 
-    // Called on_caugth_up when the last_log_index of the very follower reaches
-    // |baseline| or error occurs (timedout or the replicator quits)
-    static void wait_for_caught_up(ReplicatorId, const OnCaughtUp& on_caugth_up,
-                                   const timespec* due_time);
+    // Wait until the margin between |last_log_index| from leader and the peer
+    // is less than |max_margin| or error occurs. 
+    // |done| can't be NULL and it is called after waiting fnishies.
+    static void wait_for_caught_up(ReplicatorId, int64_t max_margin,
+                                   const timespec* due_time,
+                                   CatchupClosure* done);
 
 private:
 
@@ -122,7 +109,7 @@ private:
     baidu::rpc::CallId _rpc_in_fly;
     bthread_id_t _id;
     ReplicatorOptions _options;
-    OnCaughtUp *_on_caught_up;
+    CatchupClosure *_catchup_closure;
     int64_t _last_response_timestamp;
     bool _installing_snapshot;
     int _consecutive_error_times;
@@ -134,13 +121,12 @@ struct ReplicatorGroupOptions {
     LogManager* log_manager;
     CommitmentManager* commit_manager;
     NodeImpl* node;
-    int64_t term;
     SnapshotStorage* snapshot_storage;
 };
 
 // Create a ReplicatorGroup when a candidate becomes leader and delete when it
 // steps down.
-// The methods of ReplicatorGroup are NOTthread-safe
+// The methods of ReplicatorGroup are NOT thread-safe
 class ReplicatorGroup {
 public:
     ReplicatorGroup();
@@ -156,8 +142,8 @@ public:
     int add_replicator(const PeerId &peer);
     
     // wait the very peer catchup
-    int wait_caughtup(const PeerId& peer, const OnCaughtUp& on_caught_up,
-                      const timespec* due_time);
+    int wait_caughtup(const PeerId& peer, int64_t max_margin,
+                      const timespec* due_time, CatchupClosure* done);
 
     int64_t last_response_timestamp(const PeerId& peer);
 
@@ -166,8 +152,16 @@ public:
 
     int stop_replicator(const PeerId &peer);
 
-    int stop_appending_after(const PeerId &peer, int64_t log_index);
+    // Reset the term of all to-add replicators.
+    // This method is supposed to be called when the very candidate becomes the
+    // leader, so we suppose that there are no running replicators.
+    // Return 0 on success, -1 otherwise
+    int reset_term(int64_t new_term);
+
+    // Returns true if the there's a replicator attached to the given |peer|
+    bool contains(const PeerId& peer) const;
 private:
+
 
     int _add_replicator(const PeerId& peer, ReplicatorId *rid);
 

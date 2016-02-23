@@ -611,7 +611,7 @@ TEST_F(TestUsageSuits, configuration) {
     // add peer
     {
         raft::LogEntry entry;
-        entry.type = raft::ENTRY_TYPE_ADD_PEER;
+        entry.type = raft::ENTRY_TYPE_CONFIGURATION;
         entry.term = 1;
         entry.index = 2;
         entry.peers = new std::vector<raft::PeerId>;
@@ -647,7 +647,7 @@ TEST_F(TestUsageSuits, configuration) {
     {
         int64_t index = 2 + 100000*5 + 1;
         raft::LogEntry entry;
-        entry.type = raft::ENTRY_TYPE_REMOVE_PEER;
+        entry.type = raft::ENTRY_TYPE_CONFIGURATION;
         entry.term = 1;
         entry.index = index;
         entry.peers = new std::vector<raft::PeerId>;

@@ -257,18 +257,18 @@ void protobuf_AddDesc_raft_2fraft_2eproto() {
     "\022\036\n\026last_included_log_term\030\005 \002(\003\022\037\n\027last"
     "_included_log_index\030\006 \002(\003\022\r\n\005peers\030\007 \003(\t"
     "\022\013\n\003uri\030\010 \002(\t\"8\n\027InstallSnapshotResponse"
-    "\022\014\n\004term\030\001 \002(\003\022\017\n\007success\030\002 \002(\010*\203\001\n\tEntr"
-    "yType\022\026\n\022ENTRY_TYPE_UNKNOWN\020\000\022\024\n\020ENTRY_T"
-    "YPE_NO_OP\020\001\022\023\n\017ENTRY_TYPE_DATA\020\002\022\027\n\023ENTR"
-    "Y_TYPE_ADD_PEER\020\003\022\032\n\026ENTRY_TYPE_REMOVE_P"
-    "EER\020\0042\257\002\n\013RaftService\022\?\n\010pre_vote\022\030.raft"
-    ".RequestVoteRequest\032\031.raft.RequestVoteRe"
-    "sponse\022C\n\014request_vote\022\030.raft.RequestVot"
-    "eRequest\032\031.raft.RequestVoteResponse\022I\n\016a"
-    "ppend_entries\022\032.raft.AppendEntriesReques"
-    "t\032\033.raft.AppendEntriesResponse\022O\n\020instal"
-    "l_snapshot\022\034.raft.InstallSnapshotRequest"
-    "\032\035.raft.InstallSnapshotResponseB\003\200\001\001", 1276);
+    "\022\014\n\004term\030\001 \002(\003\022\017\n\007success\030\002 \002(\010*l\n\tEntry"
+    "Type\022\026\n\022ENTRY_TYPE_UNKNOWN\020\000\022\024\n\020ENTRY_TY"
+    "PE_NO_OP\020\001\022\023\n\017ENTRY_TYPE_DATA\020\002\022\034\n\030ENTRY"
+    "_TYPE_CONFIGURATION\020\0032\257\002\n\013RaftService\022\?\n"
+    "\010pre_vote\022\030.raft.RequestVoteRequest\032\031.ra"
+    "ft.RequestVoteResponse\022C\n\014request_vote\022\030"
+    ".raft.RequestVoteRequest\032\031.raft.RequestV"
+    "oteResponse\022I\n\016append_entries\022\032.raft.App"
+    "endEntriesRequest\032\033.raft.AppendEntriesRe"
+    "sponse\022O\n\020install_snapshot\022\034.raft.Instal"
+    "lSnapshotRequest\032\035.raft.InstallSnapshotR"
+    "esponseB\003\200\001\001", 1252);
   ::google::protobuf::MessageFactory::InternalRegisterGeneratedFile(
     "raft/raft.proto", &protobuf_RegisterTypes);
   EntryMeta::default_instance_ = new EntryMeta();
@@ -305,7 +305,6 @@ bool EntryType_IsValid(int value) {
     case 1:
     case 2:
     case 3:
-    case 4:
       return true;
     default:
       return false;

@@ -27,11 +27,13 @@ public:
     void Run() {
         if (_err_code == 0) {
             if (_node != NULL) {
-                _node->on_configuration_change_done(_entry_type, _new_peers);
+                _node->on_configuration_change_done(_term);
             }
         }
         if (_user_done) {
-            _user_done->set_error(_err_code, _err_text);
+            if (_err_code) {
+                _user_done->set_error(_err_code, _err_text);
+            }
             _user_done->Run();
             _user_done = NULL;
         }
@@ -39,12 +41,9 @@ public:
     }
 private:
     ConfigurationChangeDone(
-            EntryType entry_type,
-            const std::vector<PeerId> new_peers,
-            NodeImpl* node, Closure* user_done)
-        : _entry_type(entry_type)
-        , _new_peers(new_peers)
-        , _node(node)
+            NodeImpl* node, int64_t term, Closure* user_done)
+        : _node(node)
+        , _term(term)
         , _user_done(user_done)
     {
         _node->AddRef();
@@ -57,9 +56,8 @@ private:
         }
     }
 friend class NodeImpl;
-    EntryType _entry_type;
-    std::vector<PeerId> _new_peers;
     NodeImpl* _node;
+    int64_t _term;
     Closure* _user_done;
 };
 
@@ -318,6 +316,19 @@ int NodeImpl::init(const NodeOptions& options) {
         }
 
         //TODO: call fsm on_apply (_last_snapshot_index + 1, last_committed_index]
+        // init replicator
+        ReplicatorGroupOptions options;
+        options.heartbeat_timeout_ms = std::max(_options.election_timeout / 10, 10);
+        options.log_manager = _log_manager;
+        options.commit_manager = _commit_manager;
+        options.node = this;
+        options.snapshot_storage = _snapshot_executor
+                                   ?  _snapshot_executor->snapshot_storage()
+                                   : NULL;
+        _replicator_group.init(NodeId(_group_id, _server_id), options);
+
+        // set state to follower
+        _state = FOLLOWER;
 
         // add node to NodeManager
         if (!NodeManager::GetInstance()->add(this)) {
@@ -325,9 +336,6 @@ int NodeImpl::init(const NodeOptions& options) {
             ret = EINVAL;
             break;
         }
-
-        // set state to follower
-        _state = FOLLOWER;
         LOG(INFO) << "node " << _group_id << ":" << _server_id << " init,"
             << " term: " << _current_term
             << " last_log_index: " << _log_manager->last_log_index()
@@ -372,101 +380,119 @@ void NodeImpl::apply(const Task& task) {
     }
 }
 
-void NodeImpl::on_configuration_change_done(const EntryType type,
-                                            const std::vector<PeerId>& new_peers) {
+void NodeImpl::on_configuration_change_done(int64_t term) {
+    Configuration removed;
+    Configuration added;
     BAIDU_SCOPED_LOCK(_mutex);
-
-    if (type == ENTRY_TYPE_ADD_PEER) {
-        LOG(INFO) << "node " << _group_id << ":" << _server_id << " add_peer from "
-            << Configuration(_conf_ctx.peers) << " to " << _conf.second << " success.";
-    } else if (type == ENTRY_TYPE_REMOVE_PEER) {
-        LOG(INFO) << "node " << _group_id << ":" << _server_id << " remove_peer from "
-            << Configuration(_conf_ctx.peers) << " to " << _conf.second << " success.";
-
-        ConfigurationCtx old_conf_ctx = _conf_ctx;
-        // remove_peer will stop peer replicator or shutdown
-        if (!_conf.second.contains(_server_id)) {
-            //TODO: shutdown?
-            LOG(INFO) << "node " << _group_id << ":" << _server_id 
-                      << " steps down because it was removed from group, "
-                      << " new configurations is " << _conf.second;
-            step_down(_current_term);
-        } else {
-            Configuration old_conf(_conf_ctx.peers);
-            for (size_t i = 0; i < new_peers.size(); i++) {
-                old_conf.remove_peer(new_peers[i]);
-            }
-            std::vector<PeerId> removed_peers;
-            old_conf.list_peers(&removed_peers);
-            for (size_t i = 0; i < removed_peers.size(); i++) {
-                _replicator_group.stop_replicator(removed_peers[i]);
-            }
+    if (_state != LEADER || term != _current_term) {
+        // Callback from older version
+        return;
+    }
+    Configuration old_conf(_conf_ctx.peers);
+    old_conf.diffs(_conf.second, &removed, &added);
+    CHECK_GE(1u, removed.size() + added.size());
+    
+    for (Configuration::const_iterator 
+            iter = added.begin(); iter != added.end(); ++iter) {
+        if (!_replicator_group.contains(*iter)) {
+            CHECK(false)
+                    << "Impossible! no replicator attached to added peer=" << *iter;
+            _replicator_group.add_replicator(*iter);
         }
+    }
+    
+    for (Configuration::const_iterator 
+            iter = removed.begin(); iter != removed.end(); ++iter) {
+        _replicator_group.stop_replicator(*iter);
+    }
+    if (removed.contains(_server_id)) {
+        step_down(_current_term);
     }
     _conf_ctx.reset();
 }
 
-static void on_peer_caught_up(void* arg, const PeerId& pid, const int error_code, Closure* done) {
-    NodeImpl* node = static_cast<NodeImpl*>(arg);
-    node->on_caughtup(pid, error_code, done);
-    node->Release();
-}
-
-void NodeImpl::on_caughtup(const PeerId& peer, int error_code, Closure* done) {
+class OnCaughtUp : public CatchupClosure {
+public:
+    OnCaughtUp(NodeImpl* node, int64_t term, const PeerId& peer, Closure* done) 
+        : _node(node)
+        , _term(term)
+        , _peer(peer)
+        , _done(done)
     {
-        BAIDU_SCOPED_LOCK(_mutex);
+        _node->AddRef();
+    }
+    ~OnCaughtUp() {
+        if (_node) {
+            _node->Release();
+            _node = NULL;
+        }
+    }
+    virtual void Run() {
+        _node->on_caughtup(_peer, _term, _err_code, _done);
+        delete this;
+    };
+private:
+    NodeImpl* _node;
+    int64_t _term;
+    PeerId _peer;
+    Closure* _done;
+};
 
-        if (error_code == 0) {
+void NodeImpl::on_caughtup(const PeerId& peer, int64_t term,
+                           int error_code, Closure* done) {
+    do {
+        BAIDU_SCOPED_LOCK(_mutex);
+        // CHECK term and status to avoid ABA problem
+        if (_state != LEADER || term != _current_term) {
+            // Reset error code if this was a successful callback.
+            if (error_code == 0) {
+                error_code = EINVAL;
+            }
+            // DON'T stop replicator here.
+            break;
+        }
+
+        if (error_code == 0) {  // Caught up succesfully
             LOG(INFO) << "node " << _group_id << ":" << _server_id << " add_peer " << peer
                 << " to " << _conf.second << ", caughtup "
                 << "success, then append add_peer entry.";
             // add peer to _conf after new peer catchup
             Configuration new_conf(_conf.second);
             new_conf.add_peer(peer);
-
-            LogEntry* entry = new LogEntry();
-            entry->term = _current_term;
-            entry->type = ENTRY_TYPE_ADD_PEER;
-            entry->peers = new std::vector<PeerId>;
-            new_conf.list_peers(entry->peers);
-            ConfigurationChangeDone* configration_change_done = 
-                    new ConfigurationChangeDone(entry->type, *entry->peers, this, done);
-            append(entry, configration_change_done);
+            unsafe_apply_configuration(new_conf, done);
             return;
         }
 
+        // Retry if the node doesn't step down
         if (error_code == ETIMEDOUT &&
             (base::monotonic_time_ms() -  _replicator_group.last_response_timestamp(peer)) <=
             _options.election_timeout) {
 
             LOG(INFO) << "node " << _group_id << ":" << _server_id << " catching up " << peer;
 
-            AddRef();
-            OnCaughtUp caught_up;
+            OnCaughtUp* caught_up = new OnCaughtUp(this, _current_term, peer, done);
             timespec due_time = base::milliseconds_from_now(_options.election_timeout);
-            caught_up.on_caught_up = on_peer_caught_up;
-            caught_up.done = done;
-            caught_up.arg = this;
-            caught_up.min_margin = _options.catchup_margin;
 
-            if (0 == _replicator_group.wait_caughtup(peer, caught_up, &due_time)) {
+            if (0 == _replicator_group.wait_caughtup(
+                        peer, _options.catchup_margin, &due_time, caught_up)) {
                 return;
             } else {
                 LOG(ERROR) << "node " << _group_id << ":" << _server_id
                     << " wait_caughtup failed, peer " << peer;
-                Release();
+                delete caught_up;
             }
         }
 
-        LOG(INFO) << "node " << _group_id << ":" << _server_id << " add_peer " << peer
+        LOG(WARNING) << "node " << _group_id << ":" << _server_id << " add_peer " << peer
             << " to " << _conf.second << ", caughtup "
             << "failed: " << error_code;
 
-        _conf_ctx.reset();
         _replicator_group.stop_replicator(peer);
-    }
+        _conf_ctx.reset();
+    } while (0);
 
     // call add_peer done when fail
+    CHECK(_conf_ctx.empty());
     done->set_error(error_code, "caughtup failed");
     done->Run();
 }
@@ -517,88 +543,83 @@ void NodeImpl::handle_stepdown_timeout() {
     }
 }
 
-void NodeImpl::add_peer(const std::vector<PeerId>& old_peers, const PeerId& peer,
-                       Closure* done) {
-    BAIDU_SCOPED_LOCK(_mutex);
-
-    // check state
-    CHECK(is_active_state(_state))
-        << "node " << _group_id << ":" << _server_id << " shutdown, can't add_peer";
+bool NodeImpl::unsafe_register_conf_change(const std::vector<PeerId>& old_peers,
+                                           const std::vector<PeerId>& new_peers,
+                                           Closure* done) {
     if (_state != LEADER) {
-        LOG(WARNING) << "node " << _group_id << ":" << _server_id
-            << " can't add_peer not in LEADER";
+        LOG(WARNING) << "[" << node_id()
+                     << "] Refusing configuration changing because the state is "
+                     << state2str(_state);
         if (done) {
-            done->set_error(EPERM, "non-leader cannot add peer");
+            done->set_error(EPERM, "Not leader");
             run_closure_in_bthread(done);
         }
-        return;
+        return false;
     }
+
     // check concurrent conf change
     if (!_conf_ctx.empty()) {
-        LOG(WARNING) << "node " << _group_id << ":" << _server_id << " add_peer need wait "
-            "current conf change";
+        LOG(WARNING) << "[" << node_id() 
+                     << " ] Refusing concurrent configuration changing";
         if (done) {
-            done->set_error(EINVAL, "Doing another configuration changing");
+            done->set_error(EINVAL, "Doing another configuration change");
             run_closure_in_bthread(done);
         }
-        return;
+        return false;
     }
-    // check equal, maybe retry direct return
-    std::vector<PeerId> new_peers(old_peers);
-    new_peers.push_back(peer);
+    // Return immediately when the new peers equals to current configuration
     if (_conf.second.equals(new_peers)) {
-        LOG(WARNING) << "node " << _group_id << ":" << _server_id
-            << " add_peer equal cureent conf " << _conf.second;
         run_closure_in_bthread(done);
-        return;
+        return false;
     }
     // check not equal
     if (!_conf.second.equals(old_peers)) {
-        LOG(WARNING) << "node " << _group_id << ":" << _server_id << " add_peer dismatch old_peers";
+        LOG(WARNING) << "[" << node_id() 
+                     << "] Refusing configuration changing based on"
+                        " wrong configuraiont";
         if (done) {
             done->set_error(EINVAL, "old_peers dismatch");
             run_closure_in_bthread(done);
         }
-        return;
+        return false;
     }
-    // check contain
-    if (_conf.second.contains(peer)) {
-        LOG(WARNING) << "node " << _group_id << ":" << _server_id << " add_peer current peers "
-            "contains new_peer";
-        if (done) {
-            done->set_error(EINVAL, "peer already in group");
-            run_closure_in_bthread(done);
-        }
-        return;
-    }
+    _conf_ctx.peers = old_peers;
+    return true;
+}
 
+void NodeImpl::add_peer(const std::vector<PeerId>& old_peers, const PeerId& peer,
+                        Closure* done) {
+    Configuration new_conf(old_peers);
+    new_conf.add_peer(peer);
+    std::vector<PeerId> new_peers;
+    new_conf.list_peers(&new_peers);
+    BAIDU_SCOPED_LOCK(_mutex);
+    if (!unsafe_register_conf_change(old_peers, new_peers, done)) {
+        return;
+    }
     LOG(INFO) << "node " << _group_id << ":" << _server_id << " add_peer " << peer
         << " to " << _conf.second << ", begin caughtup.";
-
     if (0 != _replicator_group.add_replicator(peer)) {
         LOG(ERROR) << "node " << _group_id << ":" << _server_id
             << " start replicator failed, peer " << peer;
         if (done) {
+            _conf_ctx.reset();
             done->set_error(EINVAL, "Fail to start replicator");
             run_closure_in_bthread(done);
-            return;
         }
         return;
     }
 
     // catch up new peer
-    AddRef();
-    OnCaughtUp caught_up;
+    OnCaughtUp* caught_up = new OnCaughtUp(this, _current_term, peer, done);
     timespec due_time = base::milliseconds_from_now(_options.election_timeout);
-    caught_up.on_caught_up = on_peer_caught_up;
-    caught_up.done = done;
-    caught_up.arg = this;
-    caught_up.min_margin = _options.catchup_margin;
 
-    if (0 != _replicator_group.wait_caughtup(peer, caught_up, &due_time)) {
+    if (0 != _replicator_group.wait_caughtup(
+                peer, _options.catchup_margin, &due_time, caught_up)) {
         LOG(ERROR) << "node " << _group_id << ":" << _server_id
             << " wait_caughtup failed, peer " << peer;
-        Release();
+        _conf_ctx.reset();
+        delete caught_up;
         if (done) {
             done->set_error(EINVAL, "Fail to wait for caughtup");
             run_closure_in_bthread(done);
@@ -608,72 +629,26 @@ void NodeImpl::add_peer(const std::vector<PeerId>& old_peers, const PeerId& peer
 }
 
 void NodeImpl::remove_peer(const std::vector<PeerId>& old_peers, const PeerId& peer,
-                          Closure* done) {
-    BAIDU_SCOPED_LOCK(_mutex);
-
-    // check state
-    CHECK(is_active_state(_state))
-        << "node " << _group_id << ":" << _server_id << " shutdown, can't remove_peer";
-    if (_state != LEADER) {
-        LOG(WARNING) << "node " << _group_id << ":" << _server_id << " can't remove_peer not in LEADER";
-        if (done) {
-            done->set_error(EPERM, "Not leader");
-            run_closure_in_bthread(done);
-        }
-        return;
-    }
-    // check concurrent conf change
-    if (!_conf_ctx.empty()) {
-        LOG(WARNING) << "node " << _group_id << ":" << _server_id << " remove_peer need wait "
-            "current conf change";
-        if (done) {
-            done->set_error(EAGAIN, "Doing another configuration change");
-            run_closure_in_bthread(done);
-        }
-        return;
-    }
-    // check equal, maybe retry direct return
+                           Closure* done) {
     Configuration new_conf(old_peers);
     new_conf.remove_peer(peer);
     std::vector<PeerId> new_peers;
     new_conf.list_peers(&new_peers);
-    if (_conf.second.equals(new_peers)) {
-        run_closure_in_bthread(done);
-        return;
-    }
-    // check not equal
-    if (!_conf.second.equals(old_peers)) {
-        LOG(WARNING) << "node " << _group_id << ":" << _server_id
-            << " remove_peer dismatch old_peers";
-        if (done) {
-            done->set_error(EINVAL, "old_peers dismatch");
-            run_closure_in_bthread(done);
-        }
-        return;
-    }
-    // check contain
-    if (!_conf.second.contains(peer)) {
-        LOG(WARNING) << "node " << _group_id << ":" << _server_id << " remove_peer old_peers not "
-            "contains new_peer";
-        if (done) {
-            done->set_error(EINVAL, "peer is not in group");
-            run_closure_in_bthread(done);
-        }
+    BAIDU_SCOPED_LOCK(_mutex);
+
+    // Register _conf_ctx to reject configuration changing request before this
+    // log was committed
+    if (!unsafe_register_conf_change(old_peers, new_peers, done)) {
+        // done->Run() was called in unsafe_register_conf_change on failure
         return;
     }
 
     LOG(INFO) << "node " << _group_id << ":" << _server_id << " remove_peer " << peer
         << " from " << _conf.second;
 
-    // remove peer from _conf when REMOVE_PEER committed, shutdown when remove leader self
-    LogEntry* entry = new LogEntry();
-    entry->term = _current_term;
-    entry->type = ENTRY_TYPE_REMOVE_PEER;
-    entry->peers = new std::vector<PeerId>;
-    new_conf.list_peers(entry->peers);
-    ConfigurationChangeDone* configration_change_done
-            = new ConfigurationChangeDone(entry->type, *entry->peers, this, done);
-    append(entry, configration_change_done);
+    // Remove peer from _conf immediately, the corresponding replicator will be
+    // stopped after the log is committed
+    return unsafe_apply_configuration(new_conf, done);
 }
 
 int NodeImpl::set_peer(const std::vector<PeerId>& old_peers, const std::vector<PeerId>& new_peers) {
@@ -1210,17 +1185,7 @@ void NodeImpl::become_leader() {
     // init disk thread, not need AddRef, stop_disk_thread is sync
     _log_manager->start_disk_thread();
 
-    // init replicator
-    ReplicatorGroupOptions options;
-    options.heartbeat_timeout_ms = std::max(_options.election_timeout / 10, 10);
-    options.log_manager = _log_manager;
-    options.commit_manager = _commit_manager;
-    options.node = this;
-    options.term = _current_term;
-    options.snapshot_storage = _snapshot_executor ? 
-                                    _snapshot_executor->snapshot_storage()
-                                    : NULL;
-    _replicator_group.init(NodeId(_group_id, _server_id), options);
+    _replicator_group.reset_term(_current_term);
 
     std::vector<PeerId> peers;
     _conf.second.list_peers(&peers);
@@ -1239,17 +1204,12 @@ void NodeImpl::become_leader() {
     // init commit manager
     _commit_manager->reset_pending_index(_log_manager->last_log_index() + 1);
 
-    // leader add peer first, as set_peer's configuration change log
-    LogEntry* entry = new LogEntry;
-    entry->term = _current_term;
-    entry->type = ENTRY_TYPE_ADD_PEER;
-    entry->peers = new std::vector<PeerId>;
-    _conf.second.list_peers(entry->peers);
-    CHECK(entry->peers->size() > 0);
-
-    append(entry, 
-           new ConfigurationChangeDone(entry->type, *entry->peers,
-                                       this, new LeaderStartClosure(_options.fsm)));
+    // Register _conf_ctx to reject configuration changing before the first log
+    // is committed.
+    CHECK(_conf_ctx.empty());
+    _conf.second.list_peers(&_conf_ctx.peers);
+    unsafe_apply_configuration(_conf.second, 
+                               new LeaderStartClosure(_options.fsm));
 
     AddRef();
     int64_t stepdown_timeout = _options.election_timeout;
@@ -1321,28 +1281,32 @@ void NodeImpl::apply(LogEntryAndClosure* const tasks[], size_t size) {
                                         NodeId(_group_id, _server_id), 
                                         entries.size(),
                                         _commit_manager));
+    // update _conf.first
     _log_manager->check_and_set_configuration(&_conf);
 }
 
-void NodeImpl::append(LogEntry* entry, Closure* done) {
-    // configuration change use new peer set
+void NodeImpl::unsafe_apply_configuration(const Configuration& new_conf, 
+                                          Closure* done) {
+    CHECK(!_conf_ctx.empty());
+    LogEntry* entry = new LogEntry();
+    entry->term = _current_term;
+    entry->type = ENTRY_TYPE_CONFIGURATION;
+    entry->peers = new std::vector<PeerId>;
+    new_conf.list_peers(entry->peers);
+    ConfigurationChangeDone* configuration_change_done = 
+            new ConfigurationChangeDone(this, _current_term, done);
+    // Use the new_conf to deal the quorum of this very log
     std::vector<PeerId> old_peers;
-    //TODO: need check append_pending_application return code
-    if (entry->type != ENTRY_TYPE_ADD_PEER && entry->type != ENTRY_TYPE_REMOVE_PEER) {
-        _commit_manager->append_pending_task(_conf.second, done);
-    } else  {
-        _conf.second.list_peers(&old_peers);
-        _commit_manager->append_pending_task(Configuration(*(entry->peers)), done);
-    }
+    _conf.second.list_peers(&old_peers);
+    _commit_manager->append_pending_task(new_conf, configuration_change_done);
 
     _log_manager->append_entry(entry, 
                                new LeaderStableClosure(
                                         NodeId(_group_id, _server_id), 
                                         1u,
                                         _commit_manager));
-    if (_log_manager->check_and_set_configuration(&_conf)) {
-        _conf_ctx.set(old_peers);
-    }
+    // update _conf.first
+    _log_manager->check_and_set_configuration(&_conf);
 }
 
 int NodeImpl::append(const std::vector<LogEntry*>& entries) {
@@ -1598,10 +1562,9 @@ int NodeImpl::handle_append_entries_request(const base::IOBuf& data,
                     for (int i = 0; i < entry.peers_size(); i++) {
                         log_entry->peers->push_back(entry.peers(i));
                     }
-                    CHECK((log_entry->type == ENTRY_TYPE_ADD_PEER
-                            || log_entry->type == ENTRY_TYPE_REMOVE_PEER));
+                    CHECK_EQ(log_entry->type, ENTRY_TYPE_CONFIGURATION);
                 } else {
-                    CHECK_NE(entry.type(), ENTRY_TYPE_ADD_PEER);
+                    CHECK_NE(entry.type(), ENTRY_TYPE_CONFIGURATION);
                 }
 
                 if (entry.has_data_len()) {
@@ -1758,7 +1721,7 @@ void NodeImpl::describe(std::ostream& os, bool use_html) {
     os << "conf_index: " << conf_index << newline;
     os << "peers:";
     for (size_t j = 0; j < peers.size(); ++j) {
-        if (peers[j] != _server_id) {  // Not list self
+        if (peers[j] != _server_id) {  // Excludes self 
             os << ' ';
             if (use_html) {
                 os << "<a href=\"http://" << peers[j].addr 

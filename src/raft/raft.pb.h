@@ -45,12 +45,11 @@ enum EntryType {
   ENTRY_TYPE_UNKNOWN = 0,
   ENTRY_TYPE_NO_OP = 1,
   ENTRY_TYPE_DATA = 2,
-  ENTRY_TYPE_ADD_PEER = 3,
-  ENTRY_TYPE_REMOVE_PEER = 4
+  ENTRY_TYPE_CONFIGURATION = 3
 };
 bool EntryType_IsValid(int value);
 const EntryType EntryType_MIN = ENTRY_TYPE_UNKNOWN;
-const EntryType EntryType_MAX = ENTRY_TYPE_REMOVE_PEER;
+const EntryType EntryType_MAX = ENTRY_TYPE_CONFIGURATION;
 const int EntryType_ARRAYSIZE = EntryType_MAX + 1;
 
 const ::google::protobuf::EnumDescriptor* EntryType_descriptor();

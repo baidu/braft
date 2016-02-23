@@ -122,21 +122,25 @@ public:
 
 class ExpectClosure : public raft::Closure {
 public:
-    ExpectClosure(BthreadCond* cond, int expect_err_code = -1)
-        : _cond(cond), _expect_err_code(expect_err_code) {}
-
     void Run() {
         if (_cond) {
             _cond->Signal();
         }
         if (_expect_err_code >= 0) {
-            ASSERT_EQ(_err_code, _expect_err_code);
+            ASSERT_EQ(_err_code, _expect_err_code) << _pos;
         }
         delete this;
     }
 private:
+    ExpectClosure(BthreadCond* cond, int expect_err_code, const char* pos)
+        : _cond(cond), _expect_err_code(expect_err_code), _pos(pos) {}
+
+    ExpectClosure(BthreadCond* cond, const char* pos)
+        : _cond(cond), _expect_err_code(-1), _pos(pos) {}
+
     BthreadCond* _cond;
     int _expect_err_code;
+    const char* _pos;
 };
 
 typedef ExpectClosure ShutdownClosure;
@@ -144,6 +148,17 @@ typedef ExpectClosure ApplyClosure;
 typedef ExpectClosure AddPeerClosure;
 typedef ExpectClosure RemovePeerClosure;
 typedef ExpectClosure SnapshotClosure;
+
+#define NEW_SHUTDOWNCLOSURE(arg...) \
+        (new ExpectClosure(arg, __FILE__ ":" BAIDU_SYMBOLSTR(__LINE__)))
+#define NEW_APPLYCLOSURE(arg...) \
+        (new ExpectClosure(arg, __FILE__ ":" BAIDU_SYMBOLSTR(__LINE__)))
+#define NEW_ADDPEERCLOSURE(arg...) \
+        (new ExpectClosure(arg, __FILE__ ":" BAIDU_SYMBOLSTR(__LINE__)))
+#define NEW_REMOVEPEERCLOSURE(arg...) \
+        (new ExpectClosure(arg, __FILE__ ":" BAIDU_SYMBOLSTR(__LINE__)))
+#define NEW_SNAPSHOTCLOSURE(arg...) \
+        (new ExpectClosure(arg, __FILE__ ":" BAIDU_SYMBOLSTR(__LINE__)))
 
 class Cluster {
 public:
@@ -197,7 +212,7 @@ public:
         BthreadCond cond;
         raft::Node* node = remove_node(listen_addr);
         cond.Init(1);
-        node->shutdown(new ShutdownClosure(&cond));
+        node->shutdown(NEW_SHUTDOWNCLOSURE(&cond));
         cond.Wait();
 
         delete node;
@@ -381,7 +396,7 @@ TEST_F(RaftTestSuits, InitShutdown) {
 
     node.shutdown(NULL);
 
-    node.shutdown(new ShutdownClosure(NULL));
+    node.shutdown(NEW_SHUTDOWNCLOSURE(NULL));
 
     //FIXME:
     BthreadCond cond;
@@ -390,7 +405,7 @@ TEST_F(RaftTestSuits, InitShutdown) {
     data.append("hello");
     raft::Task task;
     task.data = &data;
-    task.done = new ApplyClosure(&cond);
+    task.done = NEW_APPLYCLOSURE(&cond);
     node.apply(task);
     cond.Wait();
 
@@ -454,13 +469,13 @@ TEST_F(RaftTestSuits, SingleNode) {
         data.append(data_buf);
         raft::Task task;
         task.data = &data;
-        task.done = new ApplyClosure(&cond, 0);
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
         node.apply(task);
     }
     cond.Wait();
 
     cond.Init(1);
-    node.shutdown(new ShutdownClosure(&cond, 0));
+    node.shutdown(NEW_SHUTDOWNCLOSURE(&cond, 0));
     cond.Wait();
 
     raft::stop_raft("0.0.0.0:60006", NULL);
@@ -499,7 +514,7 @@ TEST_F(RaftTestSuits, NoLeader) {
         data.append(data_buf);
         raft::Task task;
         task.data = &data;
-        task.done = new ApplyClosure(&cond, EPERM);
+        task.done = NEW_APPLYCLOSURE(&cond, EPERM);
         follower->apply(task);
     }
     cond.Wait();
@@ -511,7 +526,7 @@ TEST_F(RaftTestSuits, NoLeader) {
     peer3.idx = 0;
 
     cond.Init(1);
-    follower->add_peer(peers, peer3, new AddPeerClosure(&cond, EPERM));
+    follower->add_peer(peers, peer3, NEW_ADDPEERCLOSURE(&cond, EPERM));
     cond.Wait();
     LOG(NOTICE) << "add peer " << peer3;
 
@@ -522,7 +537,7 @@ TEST_F(RaftTestSuits, NoLeader) {
     peer0.idx = 0;
 
     cond.Init(1);
-    follower->add_peer(peers, peer0, new RemovePeerClosure(&cond, EPERM));
+    follower->add_peer(peers, peer0, NEW_REMOVEPEERCLOSURE(&cond, EPERM));
     cond.Wait();
     LOG(NOTICE) << "remove peer " << peer0;
 }
@@ -561,7 +576,7 @@ TEST_F(RaftTestSuits, TripleNode) {
 
         raft::Task task;
         task.data = &data;
-        task.done = new ApplyClosure(&cond, 0);
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
         leader->apply(task);
     }
     cond.Wait();
@@ -651,7 +666,7 @@ TEST_F(RaftTestSuits, LeaderFail) {
 
         raft::Task task;
         task.data = &data;
-        task.done = new ApplyClosure(&cond, 0);
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
         leader->apply(task);
     }
     cond.Wait();
@@ -673,7 +688,7 @@ TEST_F(RaftTestSuits, LeaderFail) {
         data.append(data_buf);
         raft::Task task;
         task.data = &data;
-        task.done = new ApplyClosure(&cond, -1);
+        task.done = NEW_APPLYCLOSURE(&cond, -1);
         nodes[0]->apply(task);
     }
     cond.Wait();
@@ -693,7 +708,7 @@ TEST_F(RaftTestSuits, LeaderFail) {
         data.append(data_buf);
         raft::Task task;
         task.data = &data;
-        task.done = new ApplyClosure(&cond, 0);
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
         leader->apply(task);
     }
     cond.Wait();
@@ -711,7 +726,7 @@ TEST_F(RaftTestSuits, LeaderFail) {
         data.append(data_buf);
         raft::Task task;
         task.data = &data;
-        task.done = new ApplyClosure(&cond, 0);
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
         leader->apply(task);
     }
     cond.Wait();
@@ -764,7 +779,7 @@ TEST_F(RaftTestSuits, JoinNode) {
 
         raft::Task task;
         task.data = &data;
-        task.done = new ApplyClosure(&cond, 0);
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
         leader->apply(task);
     }
     cond.Wait();
@@ -777,11 +792,11 @@ TEST_F(RaftTestSuits, JoinNode) {
     ASSERT_EQ(0, cluster.start(peer1.addr, true));
     LOG(NOTICE) << "start peer " << peer1;
     // Wait until started successfully
-    usleep(10000);
+    usleep(1000* 1000);
 
     // add peer1
     cond.Init(1);
-    leader->add_peer(peers, peer1, new AddPeerClosure(&cond, 0));
+    leader->add_peer(peers, peer1, NEW_ADDPEERCLOSURE(&cond, 0));
     cond.Wait();
     LOG(NOTICE) << "add peer " << peer1;
 
@@ -795,7 +810,7 @@ TEST_F(RaftTestSuits, JoinNode) {
 
     cond.Init(1);
     peers.push_back(peer1);
-    leader->add_peer(peers, peer2, new AddPeerClosure(&cond, ETIMEDOUT));
+    leader->add_peer(peers, peer2, NEW_ADDPEERCLOSURE(&cond, ETIMEDOUT));
     cond.Wait();
 
     // start peer2 after some seconds wait 
@@ -803,26 +818,25 @@ TEST_F(RaftTestSuits, JoinNode) {
     ASSERT_EQ(0, cluster.start(peer2.addr, true));
     LOG(NOTICE) << "start peer " << peer2;
 
-    usleep(10000);
+    usleep(1000 * 1000L);
+
+    raft::PeerId peer4("192.168.1.1:1234");
 
     // re add peer2
     cond.Init(3);
     // {peer0,peer1} add peer2
-    LOG(INFO) << "here";
-    leader->add_peer(peers, peer2, new AddPeerClosure(&cond, 0));
+    leader->add_peer(peers, peer2, NEW_ADDPEERCLOSURE(&cond, 0));
     // concurrent configration change
-    LOG(INFO) << "here";
-    leader->add_peer(peers, peer2, new AddPeerClosure(&cond, EINVAL));
+    leader->add_peer(peers, peer4, NEW_ADDPEERCLOSURE(&cond, EINVAL));
     // new peer equal old configuration
-    LOG(INFO) << "here";
-    leader->add_peer(peers, peer1, new AddPeerClosure(&cond, 0));
+    leader->add_peer(peers, peer1, NEW_ADDPEERCLOSURE(&cond, EINVAL));
     cond.Wait();
 
     cond.Init(2);
     // retry add_peer direct ok
-    leader->add_peer(peers, peer2, new AddPeerClosure(&cond, 0));
+    leader->add_peer(peers, peer2, NEW_ADDPEERCLOSURE(&cond, 0));
     // {peer0, peer1, peer2} can't accept peers{peer0, peer1}, must skip same check
-    leader->add_peer(peers, peer1, new AddPeerClosure(&cond, EINVAL));
+    leader->add_peer(peers, peer1, NEW_ADDPEERCLOSURE(&cond, EINVAL));
     cond.Wait();
 
     cluster.ensure_same();
@@ -863,7 +877,7 @@ TEST_F(RaftTestSuits, RemoveFollower) {
 
         raft::Task task;
         task.data = &data;
-        task.done = new ApplyClosure(&cond, 0);
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
         leader->apply(task);
     }
     cond.Wait();
@@ -884,7 +898,7 @@ TEST_F(RaftTestSuits, RemoveFollower) {
     // remove follower
     LOG(WARNING) << "remove follower " << follower_addr;
     cond.Init(1);
-    leader->remove_peer(peers, follower_id, new RemovePeerClosure(&cond, 0));
+    leader->remove_peer(peers, follower_id, NEW_REMOVEPEERCLOSURE(&cond, 0));
     cond.Wait();
 
     // stop and clean one follower
@@ -903,7 +917,7 @@ TEST_F(RaftTestSuits, RemoveFollower) {
 
         raft::Task task;
         task.data = &data;
-        task.done = new ApplyClosure(&cond, 0);
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
         leader->apply(task);
     }
     cond.Wait();
@@ -930,7 +944,7 @@ TEST_F(RaftTestSuits, RemoveFollower) {
     // re add follower fail when leader step down
     LOG(WARNING) << "add follower " << follower_addr;
     cond.Init(1);
-    leader->add_peer(peers, follower_id, new AddPeerClosure(&cond, 0));
+    leader->add_peer(peers, follower_id, NEW_ADDPEERCLOSURE(&cond, 0));
     cond.Wait();
 
     cluster.followers(&nodes);
@@ -972,7 +986,7 @@ TEST_F(RaftTestSuits, RemoveLeader) {
 
         raft::Task task;
         task.data = &data;
-        task.done = new ApplyClosure(&cond, 0);
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
         leader->apply(task);
     }
     cond.Wait();
@@ -980,7 +994,7 @@ TEST_F(RaftTestSuits, RemoveLeader) {
     base::EndPoint old_leader_addr = leader->node_id().peer_id.addr;
     LOG(WARNING) << "remove leader " << old_leader_addr;
     cond.Init(1);
-    leader->remove_peer(peers, leader->node_id().peer_id, new RemovePeerClosure(&cond, 0));
+    leader->remove_peer(peers, leader->node_id().peer_id, NEW_REMOVEPEERCLOSURE(&cond, 0));
     cond.Wait();
 
     cluster.wait_leader();
@@ -998,7 +1012,7 @@ TEST_F(RaftTestSuits, RemoveLeader) {
 
         raft::Task task;
         task.data = &data;
-        task.done = new ApplyClosure(&cond, 0);
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
         leader->apply(task);
     }
     LOG(INFO) << "here";
@@ -1024,7 +1038,7 @@ TEST_F(RaftTestSuits, RemoveLeader) {
             peers.push_back(peer);
         }
     }
-    leader->add_peer(peers, raft::PeerId(old_leader_addr, 0), new AddPeerClosure(&cond, 0));
+    leader->add_peer(peers, raft::PeerId(old_leader_addr, 0), NEW_ADDPEERCLOSURE(&cond, 0));
     cond.Wait();
 
     std::vector<raft::Node*> nodes;
@@ -1067,7 +1081,7 @@ TEST_F(RaftTestSuits, PreVote) {
 
         raft::Task task;
         task.data = &data;
-        task.done = new ApplyClosure(&cond, 0);
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
         leader->apply(task);
     }
     cond.Wait();
@@ -1084,7 +1098,7 @@ TEST_F(RaftTestSuits, PreVote) {
     //remove follower
     LOG(WARNING) << "remove follower " << follower_addr;
     cond.Init(1);
-    leader->remove_peer(peers, follower_id, new RemovePeerClosure(&cond, 0));
+    leader->remove_peer(peers, follower_id, NEW_REMOVEPEERCLOSURE(&cond, 0));
     cond.Wait();
 
     // apply something
@@ -1097,7 +1111,7 @@ TEST_F(RaftTestSuits, PreVote) {
 
         raft::Task task;
         task.data = &data;
-        task.done = new ApplyClosure(&cond, 0);
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
         leader->apply(task);
     }
     cond.Wait();
@@ -1118,7 +1132,7 @@ TEST_F(RaftTestSuits, PreVote) {
         }
     }
     cond.Init(1);
-    leader->add_peer(peers, follower_id, new RemovePeerClosure(&cond, 0));
+    leader->add_peer(peers, follower_id, NEW_REMOVEPEERCLOSURE(&cond, 0));
     cond.Wait();
 
     leader = cluster.leader();
@@ -1184,7 +1198,7 @@ TEST_F(RaftTestSuits, SetPeer2) {
 
         raft::Task task;
         task.data = &data;
-        task.done = new ApplyClosure(&cond, 0);
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
         leader->apply(task);
     }
     cond.Wait();
@@ -1212,7 +1226,7 @@ TEST_F(RaftTestSuits, SetPeer2) {
 
         raft::Task task;
         task.data = &data;
-        task.done = new ApplyClosure(&cond, 0);
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
         leader->apply(task);
     }
     cond.Wait();
@@ -1274,13 +1288,13 @@ TEST_F(RaftTestSuits, SetPeer2) {
 
     LOG(WARNING) << "add old follower " << follower_peer1;
     cond.Init(1);
-    leader->add_peer(new_peers, follower_peer1, new AddPeerClosure(&cond, 0));
+    leader->add_peer(new_peers, follower_peer1, NEW_ADDPEERCLOSURE(&cond, 0));
     cond.Wait();
 
     LOG(WARNING) << "add old follower " << follower_peer2;
     cond.Init(1);
     new_peers.push_back(follower_peer1);
-    leader->add_peer(new_peers, follower_peer2, new AddPeerClosure(&cond, 0));
+    leader->add_peer(new_peers, follower_peer2, NEW_ADDPEERCLOSURE(&cond, 0));
     cond.Wait();
 
     cluster.followers(&nodes);
@@ -1324,7 +1338,7 @@ TEST_F(RaftTestSuits, RestoreSnapshot) {
 
         raft::Task task;
         task.data = &data;
-        task.done = new ApplyClosure(&cond, 0);
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
         leader->apply(task);
     }
     cond.Wait();
@@ -1334,7 +1348,7 @@ TEST_F(RaftTestSuits, RestoreSnapshot) {
     // trigger leader snapshot
     LOG(WARNING) << "trigger leader snapshot ";
     cond.Init(1);
-    leader->snapshot(new SnapshotClosure(&cond, 0));
+    leader->snapshot(NEW_SNAPSHOTCLOSURE(&cond, 0));
     cond.Wait();
 
     // stop leader
@@ -1386,7 +1400,7 @@ TEST_F(RaftTestSuits, InstallSnapshot) {
 
         raft::Task task;
         task.data = &data;
-        task.done = new ApplyClosure(&cond, 0);
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
         leader->apply(task);
     }
     cond.Wait();
@@ -1412,7 +1426,7 @@ TEST_F(RaftTestSuits, InstallSnapshot) {
 
         raft::Task task;
         task.data = &data;
-        task.done = new ApplyClosure(&cond, 0);
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
         leader->apply(task);
     }
     cond.Wait();
@@ -1420,7 +1434,7 @@ TEST_F(RaftTestSuits, InstallSnapshot) {
     // trigger leader snapshot
     LOG(WARNING) << "trigger leader snapshot ";
     cond.Init(1);
-    leader->snapshot(new SnapshotClosure(&cond, 0));
+    leader->snapshot(NEW_SNAPSHOTCLOSURE(&cond, 0));
     cond.Wait();
 
     // apply something
@@ -1433,7 +1447,7 @@ TEST_F(RaftTestSuits, InstallSnapshot) {
 
         raft::Task task;
         task.data = &data;
-        task.done = new ApplyClosure(&cond, 0);
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
         leader->apply(task);
     }
     cond.Wait();
@@ -1486,19 +1500,19 @@ TEST_F(RaftTestSuits, NoSnapshot) {
 
         raft::Task task;
         task.data = &data;
-        task.done = new ApplyClosure(&cond, 0);
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
         node.apply(task);
     }
     cond.Wait();
 
     // trigger snapshot, not expect ret
     cond.Init(1);
-    node.snapshot(new SnapshotClosure(&cond, -1));
+    node.snapshot(NEW_SNAPSHOTCLOSURE(&cond, -1));
     cond.Wait();
 
     // shutdown
     cond.Init(1);
-    node.shutdown(new ShutdownClosure(&cond, 0));
+    node.shutdown(NEW_SHUTDOWNCLOSURE(&cond, 0));
     cond.Wait();
 
     // stop
@@ -1546,7 +1560,7 @@ TEST_F(RaftTestSuits, AutoSnapshot) {
 
         raft::Task task;
         task.data = &data;
-        task.done = new ApplyClosure(&cond, 0);
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
         node.apply(task);
     }
     cond.Wait();
@@ -1556,7 +1570,7 @@ TEST_F(RaftTestSuits, AutoSnapshot) {
 
     // shutdown
     cond.Init(1);
-    node.shutdown(new ShutdownClosure(&cond, 0));
+    node.shutdown(NEW_SHUTDOWNCLOSURE(&cond, 0));
     cond.Wait();
 
     // stop

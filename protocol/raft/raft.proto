@@ -5,8 +5,7 @@ enum EntryType {
     ENTRY_TYPE_UNKNOWN = 0;
     ENTRY_TYPE_NO_OP = 1;
     ENTRY_TYPE_DATA = 2;
-    ENTRY_TYPE_ADD_PEER = 3;
-    ENTRY_TYPE_REMOVE_PEER = 4;
+    ENTRY_TYPE_CONFIGURATION= 3;
 };
 
 // data store in baidu-rpc's attachment

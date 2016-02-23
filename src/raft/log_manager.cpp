@@ -316,8 +316,7 @@ int LogManager::append_entries(const std::vector<LogEntry*>& entries) {
                 _logs_in_memory.push_back(entries[i]);
 
                 // update configuration
-                if (entries[i]->type == ENTRY_TYPE_ADD_PEER ||
-                    entries[i]->type == ENTRY_TYPE_REMOVE_PEER) {
+                if (entries[i]->type == ENTRY_TYPE_CONFIGURATION) {
                     _config_manager->add(entries[i]->index, Configuration(*(entries[i]->peers)));
                 }
             } else {
@@ -347,7 +346,7 @@ void LogManager::append_entry(
     log_entry->AddRef();
     done->_entries.push_back(log_entry);
     _logs_in_memory.push_back(log_entry);
-    if (log_entry->type == ENTRY_TYPE_ADD_PEER || log_entry->type == ENTRY_TYPE_REMOVE_PEER) {
+    if (log_entry->type == ENTRY_TYPE_CONFIGURATION) {
         _config_manager->add(log_entry->index, Configuration(*(log_entry->peers)));
     }
 
@@ -371,8 +370,7 @@ void LogManager::append_entries(
         (*entries)[i]->index = ++_last_log_index;
         // Add ref for disk thread, release in leader_disk_run
         (*entries)[i]->AddRef();
-        if ((*entries)[i]->type == ENTRY_TYPE_ADD_PEER ||
-                (*entries)[i]->type == ENTRY_TYPE_REMOVE_PEER) {
+        if ((*entries)[i]->type == ENTRY_TYPE_CONFIGURATION) {
             _config_manager->add((*entries)[i]->index, 
                                  Configuration(*((*entries)[i]->peers)));
         }
