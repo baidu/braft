@@ -46,6 +46,7 @@ example/counter/run_server.sh -text
 example/counter/run_stats.sh -text
 example/counter/start.sh -text
 example/counter/stop.sh -text
+protocol/raft/builtin_service.proto -text
 protocol/raft/errno.proto -text
 protocol/raft/file_service.proto -text
 protocol/raft/local_storage.proto -text
