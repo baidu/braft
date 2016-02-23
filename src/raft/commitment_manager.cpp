@@ -18,6 +18,7 @@ static bvar::LatencyRecorder g_commit_mutex_latency("raft_commit_manager_content
 
 CommitmentManager::CommitmentManager()
     : _waiter(NULL)
+    , _closure_queue(NULL)
     , _last_committed_index(0)
     , _pending_index(0)
 {

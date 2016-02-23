@@ -6,12 +6,13 @@
 #ifndef PUBLIC_RAFT_RAFT_CONFIGURATION_H
 #define PUBLIC_RAFT_RAFT_CONFIGURATION_H
 
-#include <base/endpoint.h>
 #include <string>
 #include <ostream>
 #include <vector>
 #include <set>
 #include <map>
+#include <base/endpoint.h>
+#include <base/logging.h>
 
 namespace raft {
 
@@ -26,7 +27,8 @@ struct PeerId {
     PeerId() : idx(0) {}
     explicit PeerId(base::EndPoint addr_) : addr(addr_), idx(0) {}
     PeerId(base::EndPoint addr_, int idx_) : addr(addr_), idx(idx_) {}
-    /*intended implicit*/PeerId(const std::string& str) { parse(str); }
+    /*intended implicit*/PeerId(const std::string& str) 
+    { CHECK_EQ(0, parse(str)); }
     PeerId(const PeerId& id) : addr(id.addr), idx(id.idx) {}
 
     void reset() {

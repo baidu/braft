@@ -359,10 +359,10 @@ int Replicator::_prepare_entry(int offset, EntryMeta* em, base::IOBuf *data) {
 }
 
 void Replicator::_send_entries(long start_time_us) {
-    baidu::rpc::Controller* cntl = new baidu::rpc::Controller;
-    AppendEntriesRequest *request = new AppendEntriesRequest;
-    AppendEntriesResponse *response = new AppendEntriesResponse;
-    if (_fill_common_fields(request, _next_index - 1) != 0) {
+    std::unique_ptr<baidu::rpc::Controller> cntl(new baidu::rpc::Controller);
+    std::unique_ptr<AppendEntriesRequest> request(new AppendEntriesRequest);
+    std::unique_ptr<AppendEntriesResponse> response(new AppendEntriesResponse);
+    if (_fill_common_fields(request.get(), _next_index - 1) != 0) {
         return _install_snapshot();
     }
     EntryMeta em;
@@ -374,9 +374,6 @@ void Replicator::_send_entries(long start_time_us) {
         request->add_entries()->Swap(&em);
     }
     if (request->entries_size() == 0) {
-        delete cntl;
-        delete request;
-        delete response;
         // _id is unlock in _wait_more
         if (_next_index < _options.log_manager->first_log_index()) {
             return _install_snapshot();
@@ -396,9 +393,11 @@ void Replicator::_send_entries(long start_time_us) {
     google::protobuf::Closure* done = google::protobuf::NewCallback<
         ReplicatorId, baidu::rpc::Controller*, AppendEntriesRequest*,
         AppendEntriesResponse*>(
-                _on_rpc_returned, _id.value, cntl, request, response);
+                _on_rpc_returned, _id.value, cntl.get(), 
+                request.get(), response.get());
     RaftService_Stub stub(&_sending_channel);
-    stub.append_entries(cntl, request, response, done);
+    stub.append_entries(cntl.release(), request.release(), 
+                        response.release(), done);
     CHECK_EQ(0, bthread_id_unlock(_id)) << "Fail to unlock " << _id;
 }
 

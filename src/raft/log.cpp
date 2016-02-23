@@ -830,9 +830,8 @@ int SegmentLogStorage::list_segments(bool is_empty) {
         if (match == 1) {
             LOG(INFO) << "restore open segment, path: " << _path
                 << " first_index: " << first_index;
-            Segment* segment = new Segment(_path, first_index);
             if (!_open_segment) {
-                _open_segment.reset(segment);
+                _open_segment.reset(new Segment(_path, first_index));
                 continue;
             } else {
                 LOG(WARNING) << "open segment conflict, path: " << _path

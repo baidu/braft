@@ -43,6 +43,7 @@ public:
 protected:
     CatchupClosure()
         : _max_margin(0)
+        , _timer(0)
         , _has_timer(false)
         , _error_was_set(false)
     {}
