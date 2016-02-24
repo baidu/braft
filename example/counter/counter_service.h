@@ -1,20 +1,9 @@
-/*
- * =====================================================================================
- *
- *       Filename:  counter_service.h
- *
- *    Description:  
- *
- *        Version:  1.0
- *        Created:  2015年10月23日 11时36分55秒
- *       Revision:  none
- *       Compiler:  gcc
- *
- *         Author:  WangYao (fisherman), wangyao02@baidu.com
- *        Company:  Baidu, Inc
- *
- * =====================================================================================
- */
+// libraft - Quorum-based replication of states accross machines.
+// Copyright (c) 2015 Baidu.com, Inc. All Rights Reserved
+
+// Author: WangYao (wangyao02@baidu.com)
+// Date: 2015/10/23 11:36:55
+
 #ifndef PUBLIC_RAFT_EXAMPLE_COUNTER_SERVICE_H
 #define PUBLIC_RAFT_EXAMPLE_COUNTER_SERVICE_H
 

@@ -1,3 +1,4 @@
+// libraft - Quorum-based replication of states accross machines.
 // Copyright (c) 2016 Baidu.com, Inc. All Rights Reserved
 
 // Author: Zhangyi Chen (chenzhangyi01@baidu.com)
@@ -30,8 +31,8 @@ namespace example {
 
 struct AtomicClosure : public raft::Closure {
     void Run() {
-        if (_err_code) {
-            cntl->SetFailed(_err_code, "%s", _err_text.c_str());
+        if (!status().ok()) {
+            cntl->SetFailed(status().error_code(), "%s", status().error_cstr());
         }
         done->Run();
         delete this;
@@ -59,7 +60,7 @@ public:
         CompareExchangeRequest req;
         if (!req.ParseFromZeroCopyStream(&wrapper)) {
             if (done) {
-                done->set_error(baidu::rpc::EREQUEST,
+                done->status().set_error(baidu::rpc::EREQUEST,
                                 "Fail to parse buffer");
             }
             LOG(INFO) << "Fail to parse CompareExchangeRequest";

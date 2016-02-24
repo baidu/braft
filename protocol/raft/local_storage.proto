@@ -1,3 +1,4 @@
+syntax="proto2";
 import "raft/raft.proto";
 
 package raft;

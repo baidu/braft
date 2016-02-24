@@ -71,7 +71,7 @@ void CommonStateMachine::set_peer(const std::vector<raft::PeerId>& old_peers,
     if (is_force) {
         int ret = _node.set_peer(old_peers, new_peers);
         if (ret != 0) {
-            done->set_error(ret, "set_peer failed");
+            done->status().set_error(ret, "set_peer failed");
         }
         done->Run();
     } else if (new_peers.size() == old_peers.size() + 1) {
@@ -79,7 +79,7 @@ void CommonStateMachine::set_peer(const std::vector<raft::PeerId>& old_peers,
             LOG(TRACE) << "add peer " << peer;
             _node.add_peer(old_peers, peer, done);
         } else {
-            done->set_error(EINVAL, "add_peer invalid peers");
+            done->status().set_error(EINVAL, "add_peer invalid peers");
             done->Run();
         }
     } else if (old_peers.size() == new_peers.size() + 1) {
@@ -87,12 +87,12 @@ void CommonStateMachine::set_peer(const std::vector<raft::PeerId>& old_peers,
             LOG(TRACE) << "remove peer " << peer;
             _node.remove_peer(old_peers, peer, done);
         } else {
-            done->set_error(EINVAL, "remove_peer invalid peers");
+            done->status().set_error(EINVAL, "remove_peer invalid peers");
             done->Run();
         }
     } else {
         LOG(ERROR) << "set_peer argument failed";
-        done->set_error(EINVAL, "set_peer bad argument");
+        done->status().set_error(EINVAL, "set_peer bad argument");
         done->Run();
     }
 }

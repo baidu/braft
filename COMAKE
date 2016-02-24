@@ -3,7 +3,7 @@
 
 WORKROOT('../../')
 
-CPPFLAGS('-D_GNU_SOURCE -D__const__= -DNDEBUG -D__RAFT_VERSION_ID__=\"\\\"`sh ./version.sh`\\\"\" ')
+CPPFLAGS('$(ENV_CXXFLAGS) -D_GNU_SOURCE -D__const__= -DNDEBUG -D__RAFT_VERSION_ID__=\"\\\"`sh ./version.sh`\\\"\" ')
 CFLAGS('-O2 -g -pipe -Werror -Wall -W -fPIC -Wno-unused-parameter -Wno-strict-aliasing')
 CXXFLAGS('-O2 -g -pipe -Werror -Wall -W -fPIC -Wno-unused-parameter -Wno-strict-aliasing -Wno-invalid-offsetof -D__STDC_CONSTANT_MACROS')
 CXXFLAGS(' -fPIC')
@@ -33,16 +33,16 @@ INCPATHS('./src')
 CONFIGS('public/baidu-rpc@ci-base')
 
 def GenProtoCpp(filelist):
+    import commands
     for path in filelist:
         part = path.partition('/');
         cpppath = "src/" + os.path.splitext(part[2])[0] + '.pb.cc'
-        TARGET(cpppath, 
-            Prefixes(path + " ../../third-64/protobuf/include/google/protobuf/message.h"), 
-            ShellCommands('../../third-64/protobuf/bin/protoc' + 
-                          ' --proto_path=./' + part[0] + 
-                          ' --proto_path=../../third-64/protobuf/include/' + 
-                          ' --cpp_out=./src ' + path),
-            CleanFiles(''))
+        cmd = ENV.WorkRoot() + '/third-64/protobuf/bin/protoc' +\
+              ' --proto_path=./' + part[0] + \
+              ' --proto_path=' + ENV.WorkRoot() + '/third-64/protobuf/include/' + \
+              ' --cpp_out=./src ' + path
+        commands.getoutput(cmd);
+        TARGET(cpppath, Prefixes(path), ShellCommands(cmd), CleanFiles(''))
 
 GenProtoCpp(GLOB('protocol/raft/*.proto').split(' '))
 

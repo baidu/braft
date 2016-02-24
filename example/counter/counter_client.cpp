@@ -1,28 +1,16 @@
-/*
- * =====================================================================================
- *
- *       Filename:  counter_client.cpp
- *
- *    Description:  
- *
- *        Version:  1.0
- *        Created:  2015年10月30日 15时14分10秒
- *       Revision:  none
- *       Compiler:  gcc
- *
- *         Author:  WangYao (fisherman), wangyao02@baidu.com
- *        Company:  Baidu, Inc
- *
- * =====================================================================================
- */
+// libraft - Quorum-based replication of states accross machines.
+// Copyright (c) 2015 Baidu.com, Inc. All Rights Reserved
+
+// Author: WangYao (wangyao02@baidu.com)
+// Date: 2015/10/23 14:07:17
 
 #include <stdint.h>
 #include <gflags/gflags.h>
 #include <base/string_splitter.h>
 #include <baidu/rpc/channel.h>
+#include <raft/raft.h>
+#include <raft/util.h>
 #include "counter.pb.h"
-#include "raft/raft.h"
-#include "raft/util.h"
 #include "cli.h"
 
 #include <pb_to_json.h>

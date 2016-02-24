@@ -21,11 +21,11 @@ CONFIGS('third-64/tcmalloc@1.7.0.200',Libraries('lib/libtcmalloc_and_profiler.a'
 LDFLAGS('-lpthread -lrt -ldl -lz -lssl -lcrypto')
 #LDFLAGS('-lasan')
 
-PROTOC('../../../../third-64/protobuf/bin/protoc')
+PROTOC(ENV.WorkRoot() + '/third-64/protobuf/bin/protoc')
 LIBS('../../libraft.a')
 
 common_sources = (GLOB('../common/*.proto ../common/*.cpp'))
 
-Application('atomic_server',Sources('server.cpp atomic.proto', common_sources))
-Application('atomic_client',Sources('client.cpp atomic.proto', common_sources)) 
+Application('atomic_server',Sources(common_sources, 'atomic.proto server.cpp'))
+Application('atomic_client',Sources(common_sources, 'atomic.proto client.cpp')) 
 

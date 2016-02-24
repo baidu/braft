@@ -1,29 +1,18 @@
-/*
- * =====================================================================================
- *
- *       Filename:  main.cpp
- *
- *    Description:  
- *
- *        Version:  1.0
- *        Created:  2015年10月23日 17时00分00秒
- *       Revision:  none
- *       Compiler:  gcc
- *
- *         Author:  WangYao (fisherman), wangyao02@baidu.com
- *        Company:  Baidu, Inc
- *
- * =====================================================================================
- */
+// libraft - Quorum-based replication of states accross machines.
+// Copyright (c) 2015 Baidu.com, Inc. All Rights Reserved
+
+// Author: WangYao (wangyao02@baidu.com)
+// Date: 2015/10/23 14:07:17
+
 #include <net/if.h>
 #include <sys/ioctl.h>
 #include <gflags/gflags.h>
 #include <base/logging.h>
 #include <base/comlog_sink.h>
+#include <raft/util.h>
 #include "counter_service.h"
 #include "cli_service.h"
 #include "counter.h"
-#include "raft/util.h"
 
 DEFINE_string(ip_and_port, "0.0.0.0:8000", "server listen address");
 DEFINE_string(name, "test", "Counter Name");

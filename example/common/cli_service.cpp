@@ -33,16 +33,12 @@ public:
     virtual ~SetPeerDone() {}
 
     virtual void Run() {
-        if (_err_code == 0) {
+        if (status().ok()) {
             LOG(NOTICE) << "state_machine: " << _state_machine << " set_peer success";
             _response->set_success(true);
         } else {
             LOG(WARNING) << "state_machine: " << _state_machine << " set_peer failed: "
-                << _err_code << noflush;
-            if (!_err_text.empty()) {
-                LOG(WARNING) << "(" << _err_text << ")" << noflush;
-            }
-            LOG(WARNING);
+                         << status();
 
             _response->set_success(false);
             _response->set_leader(base::endpoint2str(_state_machine->leader()).c_str());
@@ -105,16 +101,12 @@ public:
     virtual ~SnapshotDone() {}
 
     virtual void Run() {
-        if (_err_code == 0) {
+        if (status().ok()) {
             LOG(NOTICE) << "state_machine: " << _state_machine << " snapshot success";
             _response->set_success(true);
         } else {
             LOG(WARNING) << "state_machine: " << _state_machine << " snapshot failed: "
-                << _err_code << noflush;
-            if (!_err_text.empty()) {
-                LOG(WARNING) << "(" << _err_text << ")" << noflush;
-            }
-            LOG(WARNING);
+                         << status();
 
             _response->set_success(false);
         }
@@ -160,16 +152,12 @@ public:
     virtual ~ShutdownDone() {}
 
     virtual void Run() {
-        if (_err_code == 0) {
+        if (status().ok()) {
             LOG(NOTICE) << "state_machine: " << _state_machine << " shutdown success";
             _response->set_success(true);
         } else {
             LOG(WARNING) << "state_machine: " << _state_machine << " shutdown failed: "
-                << _err_code << noflush;
-            if (!_err_text.empty()) {
-                LOG(WARNING) << "(" << _err_text << ")" << noflush;
-            }
-            LOG(WARNING);
+                         << status();
 
             _response->set_success(false);
         }

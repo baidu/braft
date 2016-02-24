@@ -23,7 +23,7 @@ namespace block {
 
 void WriteDone::Run() {
     _timer.stop();
-    if (_err_code == 0) {
+    if (status().ok()) {
         VLOG(9) << "block: " << _block << " write success,"
             << " offset: " << _request->offset()
             << " size: " << _request->size()
@@ -34,11 +34,7 @@ void WriteDone::Run() {
             << " offset: " << _request->offset()
             << " size: " << _request->size()
             << " time: " << _timer.u_elapsed()
-            << " err: " << _err_code << noflush;
-        if (!_err_text.empty()) {
-            LOG(WARNING) << "(" << _err_text << ")" << noflush;
-        }
-        LOG(WARNING);
+            << " err: " << status();
 
         _response->set_success(false);
         _response->set_leader(base::endpoint2str(_block->leader()).c_str());

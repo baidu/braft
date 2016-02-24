@@ -1,20 +1,8 @@
-/*
- * =====================================================================================
- *
- *       Filename:  counter_service.cpp
- *
- *    Description:  
- *
- *        Version:  1.0
- *        Created:  2015年10月23日 14时07分17秒
- *       Revision:  none
- *       Compiler:  gcc
- *
- *         Author:  WangYao (fisherman), wangyao02@baidu.com
- *        Company:  Baidu, Inc
- *
- * =====================================================================================
- */
+// libraft - Quorum-based replication of states accross machines.
+// Copyright (c) 2015 Baidu.com, Inc. All Rights Reserved
+
+// Author: WangYao (wangyao02@baidu.com)
+// Date: 2015/10/23 14:07:17
 
 #include <base/logging.h>
 #include "counter_service.h"
@@ -30,16 +18,12 @@ CounterServiceImpl::~CounterServiceImpl() {
 }
 
 void FetchAndAddDone::Run() {
-    if (_err_code == 0) {
+    if (status().ok()) {
         VLOG(9) << "counter: " << _counter << " fetch_and_add success";
         _response->set_success(true);
     } else {
         LOG(WARNING) << "counter: " << _counter << " fetch_and_add failed: "
-            << _err_code << noflush;
-        if (!_err_text.empty()) {
-            LOG(WARNING) << "(" << _err_text << ")" << noflush;
-        }
-        LOG(WARNING);
+                     << status();
 
         _response->set_success(false);
         _response->set_leader(base::endpoint2str(_counter->leader()).c_str());

@@ -1,3 +1,4 @@
+syntax="proto2";
 package block;
 option cc_generic_services = true;
 

@@ -1,3 +1,4 @@
+syntax="proto2";
 package counter;
 option cc_generic_services = true;
 

@@ -1,28 +1,16 @@
-/*
- * =====================================================================================
- *
- *       Filename:  counter.cpp
- *
- *    Description:  
- *
- *        Version:  1.0
- *        Created:  201510月23日 16时40分11秒
- *       Revision:  none
- *       Compiler:  gcc
- *
- *         Author:  WangYao (fisherman), wangyao02@baidu.com
- *        Company:  Baidu, Inc
- *
- * =====================================================================================
- */
+// libraft - Quorum-based replication of states accross machines.
+// Copyright (c) 2015 Baidu.com, Inc. All Rights Reserved
+
+// Author: WangYao (wangyao02@baidu.com)
+// Date: 2015/10/23 14:07:17
 
 #include <gflags/gflags.h>
-#include "baidu/rpc/closure_guard.h"
+#include <baidu/rpc/closure_guard.h>
+#include <raft/protobuf_file.h>
+#include <raft/storage.h>
+#include <bthread_unstable.h>
 #include "counter.pb.h"
 #include "counter.h"
-#include "raft/protobuf_file.h"
-#include "raft/storage.h"
-#include "bthread_unstable.h"
 
 namespace counter {
 
@@ -134,7 +122,7 @@ void Counter::on_snapshot_save(raft::SnapshotWriter* writer, raft::Closure* done
     info.set_value(_value.load());
     raft::ProtoBufFile pb_file(snapshot_path);
     if (pb_file.save(&info, true) != 0)  {
-        done->set_error(EIO, "Fail to save pb_file");
+        done->status().set_error(EIO, "Fail to save pb_file");
     }
 }
 
