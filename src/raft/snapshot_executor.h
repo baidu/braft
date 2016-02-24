@@ -97,8 +97,8 @@ friend class SaveSnapshotDone;
 friend class FirstSnapshotLoadDone;
 friend class InstallSnapshotDone;
 
-    void on_snapshot_load_done(int error_code, const std::string& error_text);
-    int on_snapshot_save_done(int error_code, 
+    void on_snapshot_load_done(const base::Status& st);
+    int on_snapshot_save_done(const base::Status& st,
                               const SnapshotMeta& meta, 
                               SnapshotWriter* writer);
 

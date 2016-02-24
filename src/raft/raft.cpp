@@ -20,20 +20,6 @@ static const char* s_libraft_version = "libraft_version_" __RAFT_VERSION_ID__;
 static const char* s_libraft_version = "libraft_version_unknown";
 #endif  // __RAFT_VERSION_ID__
 
-void Closure::set_error(int err_code, const char* reason_fmt, ...) {
-    _err_code = err_code;
-
-    va_list ap;
-    va_start(ap, reason_fmt);
-    base::string_vprintf(&_err_text, reason_fmt, ap);
-    va_end(ap);
-}
-
-void Closure::set_error(int err_code, const std::string& error_text) {
-    _err_code = err_code;
-    _err_text = error_text;
-}
-
 static pthread_once_t global_init_once = PTHREAD_ONCE_INIT;
 static void global_init_or_die_impl() {
     if (init_storage() != 0) {

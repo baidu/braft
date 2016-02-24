@@ -56,7 +56,7 @@ public:
 
     SnapshotReader* start() { return _reader; }
     void Run() {
-        _se->on_snapshot_load_done(_err_code, _err_text);
+        _se->on_snapshot_load_done(status());
         BAIDU_SCOPED_LOCK(_mutex);
         _has_run = true;
         raft_cond_signal(&_cond);
@@ -66,9 +66,6 @@ public:
         while (!_has_run) {
             raft_cond_wait(&_cond, &_mutex.mutex());
         }
-    }
-    bool failed() const {
-        return _err_code != 0;
     }
 private:
     SnapshotExecutor* _se;
@@ -102,7 +99,7 @@ void SnapshotExecutor::do_snapshot(Closure* done) {
     if (_downloading_snapshot.load(boost::memory_order_relaxed)) {
         lck.unlock();
         if (done) {
-            done->set_error(EBUSY, "Is loading another snapshot");
+            done->status().set_error(EBUSY, "Is loading another snapshot");
             run_closure_in_bthread(done);
         }
         return;
@@ -112,7 +109,7 @@ void SnapshotExecutor::do_snapshot(Closure* done) {
     if (_saving_snapshot) {
         lck.unlock();
         if (done) {
-            done->set_error(EBUSY, "Is saving anther snapshot");
+            done->status().set_error(EBUSY, "Is saving anther snapshot");
             run_closure_in_bthread(done);
         }
         return;
@@ -121,7 +118,7 @@ void SnapshotExecutor::do_snapshot(Closure* done) {
     if (!writer) {
         lck.unlock();
         if (done) {
-            done->set_error(EIO, "Fail to create writer");
+            done->status().set_error(EIO, "Fail to create writer");
             run_closure_in_bthread(done);
         }
         return;
@@ -131,7 +128,7 @@ void SnapshotExecutor::do_snapshot(Closure* done) {
     if (_fsm_caller->on_snapshot_save(snapshot_save_done) != 0) {
         lck.unlock();
         if (done) {
-            snapshot_save_done->set_error(EHOSTDOWN, "The raft node is down");
+            snapshot_save_done->status().set_error(EHOSTDOWN, "The raft node is down");
             run_closure_in_bthread(snapshot_save_done);
         }
         return;
@@ -139,9 +136,9 @@ void SnapshotExecutor::do_snapshot(Closure* done) {
 }
 
 int SnapshotExecutor::on_snapshot_save_done(
-            int error_code, const SnapshotMeta& meta, SnapshotWriter* writer) {
+    const base::Status& st, const SnapshotMeta& meta, SnapshotWriter* writer) {
     std::unique_lock<raft_mutex_t> lck(_mutex);
-    int ret = error_code;
+    int ret = st.error_code();
     // InstallSnapshot can break SaveSnapshot, check InstallSnapshot when SaveSnapshot
     // because upstream Snapshot maybe newer than local Snapshot.
     if (ret == 0) {
@@ -175,14 +172,13 @@ int SnapshotExecutor::on_snapshot_save_done(
     return ret;
 }
 
-void SnapshotExecutor::on_snapshot_load_done(int error_code, 
-                                             const std::string& error_text) {
+void SnapshotExecutor::on_snapshot_load_done(const base::Status& st) {
     std::unique_lock<raft_mutex_t> lck(_mutex);
 
     CHECK(_loading_snapshot);
     DownloadingSnapshot* m = _downloading_snapshot.load(boost::memory_order_relaxed);
 
-    if (error_code == 0) {
+    if (st.ok()) {
         _last_snapshot_index = _loading_snapshot_meta.last_included_index;
         _last_snapshot_term = _loading_snapshot_meta.last_included_term;
         _log_manager->set_snapshot(&_loading_snapshot_meta);
@@ -202,8 +198,8 @@ void SnapshotExecutor::on_snapshot_load_done(int error_code,
     lck.unlock();
     if (m) {
         // Respond RPC
-        if (error_code) {
-            m->cntl->SetFailed(error_code, "%s", error_text.c_str());
+        if (!st.ok()) {
+            m->cntl->SetFailed(st.error_code(), "%s", st.error_cstr());
         } else {
             m->response->set_success(true);
         }
@@ -238,13 +234,13 @@ void* SaveSnapshotDone::continue_run(void* arg) {
     std::unique_ptr<SaveSnapshotDone> self_guard(self);
     // Must call on_snapshot_load_done to clear _saving_snapshot
     int ret = self->_se->on_snapshot_save_done(
-                self->_err_code, self->_meta, self->_writer);
-    if (ret != 0 && self->_err_code == 0) {
-        self->set_error(ret, "node call on_snapshot_save_done failed");
+        self->status(), self->_meta, self->_writer);
+    if (ret != 0 && self->status().ok()) {
+        self->status().set_error(ret, "node call on_snapshot_save_done failed");
     }
     //user done, need set error
-    if (self->_err_code != 0 && self->_done) {
-        self->_done->set_error(self->_err_code, self->_err_text);
+    if (self->_done) {
+        self->_done->status() = self->status();
     }
     if (self->_done) {
         self->_done->Run();
@@ -301,7 +297,7 @@ int SnapshotExecutor::init(const SnapshotExecutorOptions& options) {
     CHECK_EQ(0, _fsm_caller->on_snapshot_load(&done));
     done.wait_for_run();
     _snapshot_storage->close(reader);
-    if (done.failed()) {
+    if (!done.status().ok()) {
         LOG(ERROR) << "Fail to load snapshot from " << options.uri;
         return -1;
     }
@@ -429,7 +425,7 @@ void SnapshotExecutor::load_downloading_snapshot(DownloadingSnapshot* ds,
     ret = _fsm_caller->on_snapshot_load(install_snapshot_done);
     if (ret != 0) {
         LOG(WARNING) << "Fail to call on_snapshot_load";
-        install_snapshot_done->set_error(EHOSTDOWN, "This raft node is down");
+        install_snapshot_done->status().set_error(EHOSTDOWN, "This raft node is down");
         return install_snapshot_done->Run();
     }
 }
@@ -587,7 +583,7 @@ SnapshotReader* InstallSnapshotDone::start() {
 }
 
 void InstallSnapshotDone::Run() {
-    _se->on_snapshot_load_done(_err_code, _err_text);
+    _se->on_snapshot_load_done(status());
     delete this;
 }
 

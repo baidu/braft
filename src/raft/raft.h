@@ -12,6 +12,7 @@
 
 #include <base/logging.h>
 #include <base/iobuf.h>
+#include <base/status.h>
 #include "raft/configuration.h"
 
 namespace baidu {
@@ -27,18 +28,15 @@ class LogEntry;
 class SnapshotWriter;
 class SnapshotReader;
 
-class Closure: public google::protobuf::Closure {
+// Raft-specific closure which encloses a base::Status to report if the
+// operation was successful.
+class Closure : public google::protobuf::Closure {
 public:
-    Closure() : _err_code(0) {}
-    virtual ~Closure() {}
-
-    void set_error(int err_code, const char* reason_fmt, ...);
-    void set_error(int err_code, const std::string &error_text);
-
-    virtual void Run() = 0;
-protected:
-    int _err_code;
-    std::string _err_text;
+    base::Status& status() { return _st; }
+    const base::Status& status() const { return _st; }
+    
+private:
+    base::Status _st;
 };
 
 // Basic message structure of libraft
@@ -111,7 +109,7 @@ public:
     virtual void on_snapshot_save(SnapshotWriter* writer, Closure* done) {
         (void)writer;
         CHECK(done);
-        done->set_error(-1, "Not implemented");
+        done->status().set_error(-1, "Not implemented");
     }
 
     // user defined snapshot load function

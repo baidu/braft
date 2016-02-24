@@ -33,7 +33,7 @@ public:
         base::string_printf(&expected, "hello_%lu", _expected_next++);
         ASSERT_EQ(expected, task.data->to_string());
         if (task.done) {
-            ASSERT_EQ(0, task.done->_err_code) << "index=" << index;
+            ASSERT_TRUE(task.done->status().ok()) << "index=" << index;
             task.done->Run();
         }
     }
@@ -175,7 +175,7 @@ public:
     }
     ~MockSaveSnapshotClosure() {}
     void Run() {
-        ASSERT_EQ(0, _err_code);
+        ASSERT_TRUE(status().ok()) << status();
     }
     raft::SnapshotWriter* start(const raft::SnapshotMeta& meta) {
         EXPECT_EQ(meta.last_included_index, 
@@ -199,7 +199,7 @@ public:
     {}
     ~MockLoadSnapshotClosure() {}
     void Run() {
-        ASSERT_EQ(0, _err_code);
+        ASSERT_TRUE(status().ok()) << status();
     }
     raft::SnapshotReader* start() {
         ++_start_times;

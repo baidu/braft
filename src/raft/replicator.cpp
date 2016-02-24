@@ -125,7 +125,7 @@ void Replicator::wait_for_caught_up(ReplicatorId id,
     bthread_id_t dummy_id = { id };
     Replicator* r = NULL;
     if (bthread_id_lock(dummy_id, (void**)&r) != 0) {
-        done->set_error(EINVAL, "No such replicator");
+        done->status().set_error(EINVAL, "No such replicator");
         run_closure_in_bthread(done);
         return;
     }
@@ -133,7 +133,7 @@ void Replicator::wait_for_caught_up(ReplicatorId id,
         CHECK_EQ(0, bthread_id_unlock(dummy_id)) 
                 << "Fail to unlock " << dummy_id;
         LOG(ERROR) << "Previous wait_for_caught_up is not over";
-        done->set_error(EINVAL, "Duplicated call");
+        done->status().set_error(EINVAL, "Duplicated call");
         run_closure_in_bthread(done);
         return;
     }
@@ -146,7 +146,7 @@ void Replicator::wait_for_caught_up(ReplicatorId id,
                               (void*)id) != 0) {
             CHECK_EQ(0, bthread_id_unlock(dummy_id));
             LOG(ERROR) << "Fail to add timer";
-            done->set_error(EINVAL, "Duplicated call");
+            done->status().set_error(EINVAL, "Duplicated call");
             run_closure_in_bthread(done);
             return;
         }
@@ -324,7 +324,7 @@ void Replicator::_send_heartbeat() {
         << " term " << _options.term
         << " last_committed_index " << request->committed_index();
 
-    google::protobuf::Closure* done = google::protobuf::NewCallback<
+    google::protobuf::Closure* done = baidu::rpc::NewCallback<
         ReplicatorId, baidu::rpc::Controller*, AppendEntriesRequest*,
         AppendEntriesResponse*>(
                 _on_rpc_returned, _id.value, cntl.get(), 
@@ -390,7 +390,7 @@ void Replicator::_send_entries(long start_time_us) {
         << " prev_log_term " << request->prev_log_term()
         << " log_index " << _next_index << " count " << request->entries_size();
 
-    google::protobuf::Closure* done = google::protobuf::NewCallback<
+    google::protobuf::Closure* done = baidu::rpc::NewCallback<
         ReplicatorId, baidu::rpc::Controller*, AppendEntriesRequest*,
         AppendEntriesResponse*>(
                 _on_rpc_returned, _id.value, cntl.get(), 
@@ -464,7 +464,7 @@ void Replicator::_install_snapshot() {
         << " term " << _options.term << " last_included_term " << meta.last_included_index
         << " last_included_index " << meta.last_included_term << " uri " << uri;
 
-    google::protobuf::Closure* done = google::protobuf::NewCallback<
+    google::protobuf::Closure* done = baidu::rpc::NewCallback<
                 ReplicatorId, baidu::rpc::Controller*,
                 InstallSnapshotRequest*, InstallSnapshotResponse*>(
                     _on_install_snapshot_returned, _id.value,
@@ -533,7 +533,7 @@ void Replicator::_notify_on_caught_up(int error_code, bool before_destory) {
         }
         _catchup_closure->_error_was_set = true;
         if (error_code) {
-            _catchup_closure->set_error(error_code, "%s", berror(error_code));
+            _catchup_closure->status().set_error(error_code, "%s", berror(error_code));
         }
         if (_catchup_closure->_has_timer) {
             if (!before_destory && bthread_timer_del(_catchup_closure->_timer) == 1) {
@@ -544,7 +544,7 @@ void Replicator::_notify_on_caught_up(int error_code, bool before_destory) {
         }
     } else { // Timed out
         if (!_catchup_closure->_error_was_set) {
-            _catchup_closure->set_error(error_code, "%s", berror(error_code));
+            _catchup_closure->status().set_error(error_code, "%s", berror(error_code));
         }
     }
     Closure* saved_catchup_closure = _catchup_closure;

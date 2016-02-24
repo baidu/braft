@@ -126,7 +126,7 @@ public:
     void handle_request_vote_response(const PeerId& peer_id, const int64_t term,
                                       const RequestVoteResponse& response);
     void on_caughtup(const PeerId& peer, int64_t term, 
-                     int error_code, Closure* done);
+                     const base::Status& st, Closure* done);
     // other func
     //
     // called when leader change configuration done, ref with FSMCaller

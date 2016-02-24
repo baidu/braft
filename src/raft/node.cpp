@@ -4,6 +4,11 @@
 // Author: WangYao (fisherman), wangyao02@baidu.com
 // Date: 2015/10/08 17:00:05
 
+#include <bthread_unstable.h>
+#include <baidu/rpc/errno.pb.h>
+#include <baidu/rpc/controller.h>
+#include <baidu/rpc/channel.h>
+
 #include "raft/util.h"
 #include "raft/raft.h"
 #include "raft/node.h"
@@ -14,26 +19,19 @@
 #include "raft/builtin_service_impl.h"
 #include "raft/node_manager.h"
 #include "raft/snapshot_executor.h"
-#include <bthread_unstable.h>
-
-#include "baidu/rpc/errno.pb.h"
-#include "baidu/rpc/controller.h"
-#include "baidu/rpc/channel.h"
 
 namespace raft {
 
 class ConfigurationChangeDone : public Closure {
 public:
     void Run() {
-        if (_err_code == 0) {
+        if (status().ok()) {
             if (_node != NULL) {
                 _node->on_configuration_change_done(_term);
             }
         }
         if (_user_done) {
-            if (_err_code) {
-                _user_done->set_error(_err_code, _err_text);
-            }
+            _user_done->status() = status();
             _user_done->Run();
             _user_done = NULL;
         }
@@ -273,7 +271,7 @@ int NodeImpl::init(const NodeOptions& options) {
         FSMCallerOptions fsm_caller_options;
         this->AddRef();
         fsm_caller_options.after_shutdown = 
-                google::protobuf::NewCallback<NodeImpl*>(after_shutdown, this);
+            baidu::rpc::NewCallback<NodeImpl*>(after_shutdown, this);
         fsm_caller_options.log_manager = _log_manager;
         fsm_caller_options.fsm = _options.fsm;
         fsm_caller_options.closure_queue = _closure_queue;
@@ -374,7 +372,7 @@ void NodeImpl::apply(const Task& task) {
     m.entry = entry;
     m.done = task.done;
     if (_apply_queue->execute(m) != 0) {
-        task.done->set_error(EINVAL, "Node is down");
+        task.done->status().set_error(EINVAL, "Node is down");
         entry->Release();
         return run_closure_in_bthread(task.done);
     }
@@ -428,7 +426,7 @@ public:
         }
     }
     virtual void Run() {
-        _node->on_caughtup(_peer, _term, _err_code, _done);
+        _node->on_caughtup(_peer, _term, status(), _done);
         delete this;
     };
 private:
@@ -439,7 +437,10 @@ private:
 };
 
 void NodeImpl::on_caughtup(const PeerId& peer, int64_t term,
-                           int error_code, Closure* done) {
+                           const base::Status& st, Closure* done) {
+    int error_code = st.error_code();
+    const char* error_text = st.error_cstr();
+
     do {
         BAIDU_SCOPED_LOCK(_mutex);
         // CHECK term and status to avoid ABA problem
@@ -447,6 +448,7 @@ void NodeImpl::on_caughtup(const PeerId& peer, int64_t term,
             // Reset error code if this was a successful callback.
             if (error_code == 0) {
                 error_code = EINVAL;
+                error_text = "leader stepped down";
             }
             // DON'T stop replicator here.
             break;
@@ -493,7 +495,7 @@ void NodeImpl::on_caughtup(const PeerId& peer, int64_t term,
 
     // call add_peer done when fail
     CHECK(_conf_ctx.empty());
-    done->set_error(error_code, "caughtup failed");
+    done->status().set_error(error_code, "caughtup failed: %s", error_text);
     done->Run();
 }
 
@@ -551,7 +553,7 @@ bool NodeImpl::unsafe_register_conf_change(const std::vector<PeerId>& old_peers,
                      << "] Refusing configuration changing because the state is "
                      << state2str(_state);
         if (done) {
-            done->set_error(EPERM, "Not leader");
+            done->status().set_error(EPERM, "Not leader");
             run_closure_in_bthread(done);
         }
         return false;
@@ -562,7 +564,7 @@ bool NodeImpl::unsafe_register_conf_change(const std::vector<PeerId>& old_peers,
         LOG(WARNING) << "[" << node_id() 
                      << " ] Refusing concurrent configuration changing";
         if (done) {
-            done->set_error(EINVAL, "Doing another configuration change");
+            done->status().set_error(EINVAL, "Doing another configuration change");
             run_closure_in_bthread(done);
         }
         return false;
@@ -578,7 +580,7 @@ bool NodeImpl::unsafe_register_conf_change(const std::vector<PeerId>& old_peers,
                      << "] Refusing configuration changing based on"
                         " wrong configuraiont";
         if (done) {
-            done->set_error(EINVAL, "old_peers dismatch");
+            done->status().set_error(EINVAL, "old_peers dismatch");
             run_closure_in_bthread(done);
         }
         return false;
@@ -604,7 +606,7 @@ void NodeImpl::add_peer(const std::vector<PeerId>& old_peers, const PeerId& peer
             << " start replicator failed, peer " << peer;
         if (done) {
             _conf_ctx.reset();
-            done->set_error(EINVAL, "Fail to start replicator");
+            done->status().set_error(EINVAL, "Fail to start replicator");
             run_closure_in_bthread(done);
         }
         return;
@@ -621,7 +623,7 @@ void NodeImpl::add_peer(const std::vector<PeerId>& old_peers, const PeerId& peer
         _conf_ctx.reset();
         delete caught_up;
         if (done) {
-            done->set_error(EINVAL, "Fail to wait for caughtup");
+            done->status().set_error(EINVAL, "Fail to wait for caughtup");
             run_closure_in_bthread(done);
         }
         return;
@@ -718,7 +720,7 @@ void NodeImpl::do_snapshot(Closure* done) {
         _snapshot_executor->do_snapshot(done);
     } else {
         if (done) {
-            done->set_error(EINVAL, "Snapshot is not supported");
+            done->status().set_error(EINVAL, "Snapshot is not supported");
             run_closure_in_bthread(done);
         }
     }
@@ -1157,7 +1159,7 @@ public:
     LeaderStartClosure(StateMachine* fsm) : _fsm(fsm) {}
     ~LeaderStartClosure() {}
     void Run() {
-        if (_err_code == 0) {
+        if (status().ok()) {
             _fsm->on_leader_start();
         }
         delete this;
@@ -1241,7 +1243,7 @@ LeaderStableClosure::LeaderStableClosure(const NodeId& node_id,
 }
 
 void LeaderStableClosure::Run() {
-    if (_err_code == 0) {
+    if (status().ok()) {
         // commit_manager check quorum ok, will call fsm_caller
         _commit_manager->set_stable_at_peer(
                 _first_log_index, _first_log_index + _nentries - 1, _node_id.peer_id);
@@ -1265,7 +1267,7 @@ void NodeImpl::apply(LogEntryAndClosure* const tasks[], size_t size) {
         for (size_t i = 0; i < entries.size(); ++i) {
             entries[i]->Release();
             if (tasks[i]->done) {
-                tasks[i]->done->set_error(EPERM, "Not leader");
+                tasks[i]->done->status().set_error(EPERM, "Not leader");
                 run_closure_in_bthread(tasks[i]->done);
             }
         }
@@ -1613,7 +1615,7 @@ int NodeImpl::handle_append_entries_request(const base::IOBuf& data,
         // committed_index not the key of elect, the lesser committed_index node can be leader.
         // new leader's committed_index may lesser than local committed_index
         _commit_manager->set_last_committed_index(
-                std::min(request->committed_index(), last_index));
+            std::min((int64_t)request->committed_index(), last_index));
         _last_leader_timestamp = base::monotonic_time_ms();
     }
     return 0;

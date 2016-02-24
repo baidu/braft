@@ -74,7 +74,7 @@ public:
         int fd = ::creat(file_path.c_str(), 0644);
         if (fd < 0) {
             LOG(ERROR) << "create file failed, path: " << file_path << " err: " << berror();
-            done->set_error(EIO, "Fail to create file");
+            done->status().set_error(EIO, "Fail to create file");
             return;
         }
 
@@ -127,7 +127,7 @@ public:
             _cond->Signal();
         }
         if (_expect_err_code >= 0) {
-            ASSERT_EQ(_err_code, _expect_err_code) << _pos;
+            ASSERT_EQ(status().error_code(), _expect_err_code) << _pos;
         }
         delete this;
     }

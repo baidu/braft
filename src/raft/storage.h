@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 #include <gflags/gflags.h>
+#include <base/status.h>
 
 #include "raft/configuration.h"
 
@@ -87,39 +88,23 @@ struct SnapshotMeta {
     Configuration last_configuration;
 };
 
-class SnapshotWriter {
+class SnapshotWriter : public base::Status {
 public:
-    SnapshotWriter() : _err_code(0) {}
+    SnapshotWriter() {}
     virtual ~SnapshotWriter() {}
 
     virtual int copy(const std::string& uri) = 0;
     virtual int save_meta(const SnapshotMeta& meta) = 0;
     virtual std::string get_uri(const base::EndPoint& hint_addr) = 0;
-
-    // error func
-    int error_code();
-    const std::string& error_text();
-    void set_error(int err_code, const char* reason_fmt, ...);
-protected:
-    int _err_code;
-    std::string _err_text;
 };
 
-class SnapshotReader {
+class SnapshotReader : public base::Status {
 public:
     SnapshotReader() {}
     virtual ~SnapshotReader() {}
 
     virtual int load_meta(SnapshotMeta* meta) = 0;
     virtual std::string get_uri(const base::EndPoint& hint_addr) = 0;
-
-    // error func
-    int error_code();
-    const std::string& error_text();
-    void set_error(int err_code, const char* reason_fmt, ...);
-protected:
-    int _err_code;
-    std::string _err_text;
 };
 
 class SnapshotStorage {

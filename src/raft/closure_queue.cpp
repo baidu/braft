@@ -27,7 +27,7 @@ void ClosureQueue::clear() {
     for (std::deque<Closure*>::iterator 
             it = saved_queue.begin(); it != saved_queue.end(); ++it) {
         if (*it) {
-            (*it)->set_error(EPERM, "leader stepped down");
+            (*it)->status().set_error(EPERM, "leader stepped down");
             run_closure_in_bthread_nosig(*it);
             run_bthread = true;
         }

@@ -75,7 +75,7 @@ public:
         while (_stuck && *_stuck) {
             bthread_usleep(100);
         }
-        ASSERT_EQ(0, _err_code) << _err_text;
+        ASSERT_TRUE(status().ok()) << status();
         if (_expected_next_log_index) {
             ASSERT_EQ((*_expected_next_log_index)++, _first_log_index);
         }

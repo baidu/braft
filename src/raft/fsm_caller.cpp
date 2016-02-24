@@ -227,7 +227,7 @@ void FSMCaller::do_snapshot_save(SaveSnapshotClosure* done) {
 
     SnapshotWriter* writer = done->start(meta);
     if (!writer) {
-        done->set_error(EINVAL, "snapshot_storage create SnapshotWriter failed");
+        done->status().set_error(EINVAL, "snapshot_storage create SnapshotWriter failed");
         done->Run();
         return;
     }
@@ -247,7 +247,7 @@ void FSMCaller::do_snapshot_load(LoadSnapshotClosure* done) {
     //TODO done_guard
     SnapshotReader* reader = done->start();
     if (!reader) {
-        done->set_error(EINVAL, "open SnapshotReader failed");
+        done->status().set_error(EINVAL, "open SnapshotReader failed");
         done->Run();
         return;
     }
@@ -255,14 +255,14 @@ void FSMCaller::do_snapshot_load(LoadSnapshotClosure* done) {
     SnapshotMeta meta;
     int ret = reader->load_meta(&meta);
     if (0 != ret) {
-        done->set_error(ret, "SnapshotReader load_meta failed.");
+        done->status().set_error(ret, "SnapshotReader load_meta failed.");
         done->Run();
         return;
     }
 
     ret = _fsm->on_snapshot_load(reader);
     if (ret != 0) {
-        done->set_error(ret, "StateMachine on_snapshot_load failed");
+        done->status().set_error(ret, "StateMachine on_snapshot_load failed");
         done->Run();
         return;
     }

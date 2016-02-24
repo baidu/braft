@@ -442,7 +442,7 @@ int LogManager::leader_disk_run(void* meta,
         if (!done->_entries.empty()) {
             //done->_entry->Release();
             if (ret != 0) {
-                done->set_error(EIO, "append entry failed");
+                done->status().set_error(EIO, "append entry failed");
             }
             done->_entries.clear();
             continue;
