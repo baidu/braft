@@ -28,7 +28,7 @@ void RaftStatImpl::default_method(::google::protobuf::RpcController* controller,
                               ::google::protobuf::Closure* done) {
     baidu::rpc::ClosureGuard done_guard(done);
     baidu::rpc::Controller* cntl = (baidu::rpc::Controller*)controller;
-    std::string group_id = cntl->http_request().method_path();
+    std::string group_id = cntl->http_request().unresolved_path();
     std::vector<scoped_refptr<NodeImpl> > nodes;
     NodeManager* nm = NodeManager::GetInstance();
     if (group_id.empty()) {
