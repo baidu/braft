@@ -68,6 +68,8 @@ src/raft/file_service.pb.cc -text
 src/raft/file_service.pb.h -text
 src/raft/fsm_caller.cpp -text
 src/raft/fsm_caller.h -text
+src/raft/fsync.cpp -text
+src/raft/fsync.h -text
 src/raft/local_storage.pb.cc -text
 src/raft/local_storage.pb.h -text
 src/raft/log.cpp -text
@@ -107,6 +109,7 @@ src/raft/test/test_commitment_manager.cpp -text
 src/raft/test/test_configuration.cpp -text
 src/raft/test/test_file_service.cpp -text
 src/raft/test/test_fsm_caller.cpp -text
+src/raft/test/test_fsync.cpp -text
 src/raft/test/test_log.cpp -text
 src/raft/test/test_log_entry.cpp -text
 src/raft/test/test_log_manager.cpp -text

@@ -18,6 +18,7 @@
 #include "raft/log_entry.h"
 #include "raft/protobuf_file.h"
 #include "raft/util.h"
+#include "raft/fsync.h"
 
 #define RAFT_SEGMENT_OPEN_PATTERN "log_inprogress_%020ld"
 #define RAFT_SEGMENT_CLOSED_PATTERN "log_%020ld_%020ld"
@@ -343,7 +344,7 @@ int Segment::sync() {
     if (_last_index > _first_index) {
         CHECK(_is_open);
         if (FLAGS_raft_sync) {
-            return ::fsync(_fd);
+            return raft_fsync(_fd);
         } else {
             return 0;
         }
@@ -949,7 +950,7 @@ int SegmentLogStorage::save_meta(const int64_t log_index) {
     ProtoBufFile pb_file(meta_path);
     LogPBMeta meta;
     meta.set_first_log_index(log_index);
-    int ret = pb_file.save(&meta, FLAGS_raft_sync /*true*/);
+    int ret = pb_file.save(&meta, FLAGS_raft_sync);
 
     timer.stop();
     RAFT_VLOG << "log save_meta " << meta_path << " time: " << timer.u_elapsed();

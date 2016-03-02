@@ -10,6 +10,7 @@
 #include <base/sys_byteorder.h>
 
 #include "raft/protobuf_file.h"
+#include "raft/fsync.h"
 
 namespace raft {
 
@@ -54,7 +55,7 @@ int ProtoBufFile::save(google::protobuf::Message* message, bool sync) {
 
     // sync
     if (sync) {
-        if (0 != fsync(fd)) {
+        if (0 != raft_fsync(fd)) {
             PLOG(WARNING) << "fsync failed, path: " << tmp_path;
             return -1;
         }

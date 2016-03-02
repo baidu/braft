@@ -1,4 +1,4 @@
-// libraft - Quorum-based replication of states accross machines.
+// libraft - Quorum-based replication of states across machines.
 // Copyright (c) 2015 Baidu.com, Inc. All Rights Reserved
 
 // Author: WangYao (fisherman), wangyao02@baidu.com
