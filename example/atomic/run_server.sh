@@ -1,24 +1,53 @@
 #!/bin/bash
+# libraft - Quorum-based replication of states across machines.
+# Copyright (c) 2015 Baidu.com, Inc. All Rights Reserved 
+# Author: The libraft authors
+
+# source shflags from current directory
+mydir="${BASH_SOURCE%/*}"
+if [[ ! -d "$mydir" ]]; then mydir="$PWD"; fi
+. $mydir/../../../baidu-rpc/tools/shflags
+
+# define command-line flags
+DEFINE_string crash_on_fatal 'true' 'Crash on fatal log'
+DEFINE_integer bthread_concurrency '18' 'Number of worker pthreads'
+DEFINE_string sync 'true' 'fsync each time'
+DEFINE_string valgrind 'false' 'Run in valgrind'
+DEFINE_integer max_segment_size '524288' 'Max segment size'
+DEFINE_integer server_num '3' 'Number of servers'
+DEFINE_boolean clean 1 'Remove old "runtime" dir before running'
+
+# parse the command-line
+FLAGS "$@" || exit 1
+eval set -- "${FLAGS_ARGV}"
+
+# The alias for printing to stderr
+alias error=">&2 echo atomic: "
 
 IP=`hostname -i`
-#VALGRIND="/home/wangyao/opt/bin/valgrind --tool=memcheck --leak-check=full"
-#HAS_VALGRIND="-has_valgrind"
-#MAX_SEGMENT_SIZE="-raft_max_segment_size=524288"
-CRASH_ON_FATAL="-crash_on_fatal_log=true"
-#VLOG_LEVEL="-verbose=3"
-BTHREAD_CONCURRENCY="-bthread_concurrency=18 -stack_size_normal=10485760"
-SYNC_EVERY_LOG="-raft_sync=true"
+if [ "$FLAGS_valgrind" == "true" ] && [ $(which valgrind) ] ; then
+    VALGRIND="valgrind --tool=memcheck --leak-check=full"
+    HAS_VALGRIND="-has_valgrind"
+fi
 
-export TCMALLOC_SAMPLE_PARAMETER=524288
+raft_peers=""
+for ((i=0; i<$FLAGS_server_num; ++i)); do
+    raft_peers="${raft_peers}${IP}:$((8300+i)):0,"
+done
 
-cd runtime/0
-${VALGRIND} ./atomic_server ${HAS_VALGRIND} ${BTHREAD_CONCURRENCY} ${CRASH_ON_FATAL} ${VLOG_LEVEL} ${MAX_SEGMENT_SIZE} ${SYNC_EVERY_LOG} -ip_and_port="0.0.0.0:8300" -peers="${IP}:8300,${IP}:8301,${IP}:8302" > std.log 2>&1 &
-cd -
+if [ "$FLAGS_clean" == "0" ]; then
+    rm -rf runtime
+fi
 
-cd runtime/1
-${VALGRIND} ./atomic_server ${HAS_VALGRIND} ${BTHREAD_CONCURRENCY} ${CRASH_ON_FATAL} ${VLOG_LEVEL} ${MAX_SEGMENT_SIZE} ${SYNC_EVERY_LOG} -ip_and_port="0.0.0.0:8301" -peers="${IP}:8300,${IP}:8301,${IP}:8302" > std.log 2>&1 &
-cd -
-
-cd runtime/2
-${VALGRIND} ./atomic_server ${HAS_VALGRIND} ${BTHREAD_CONCURRENCY} ${CRASH_ON_FATAL} ${VLOG_LEVEL} ${MAX_SEGMENT_SIZE} ${SYNC_EVERY_LOG} -ip_and_port="0.0.0.0:8302" -peers="${IP}:8300,${IP}:8301,${IP}:8302" > std.log 2>&1 &
-cd -
+for ((i=0; i<$FLAGS_server_num; ++i)); do
+    mkdir -p runtime/$i
+    cp ./atomic_server runtime/$i
+    cd runtime/$i
+    ${VALGRIND} ./atomic_server ${HAS_VALGRIND} \
+        -bthread_concurrency=${FLAGS_bthread_concurrency}\
+        -crash_on_fatal_log=${FLAGS_crash_on_fatal} \
+        -raft_max_segment_size=${FLAGS_max_segment_size} \
+        -raft_sync=${FLAGS_sync} \
+        -ip_and_port="0.0.0.0:$((8300+i))" -peers="${raft_peers}" > std.log 2>&1 &
+    cd ../..
+done

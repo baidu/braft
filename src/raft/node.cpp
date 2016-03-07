@@ -226,7 +226,14 @@ int NodeImpl::init(const NodeOptions& options) {
 
     // check _server_id
     if (base::IP_ANY == _server_id.addr.ip) {
-        _server_id.addr.ip = base::get_host_ip();
+        LOG(ERROR) << "Node can't started from IP_ANY";
+        return -1;
+    }
+
+    if (!NodeManager::GetInstance()->server_exists(_server_id.addr)) {
+        LOG(ERROR) << "No RPC Server attached to " << _server_id.addr
+                   << ", did you forget to call raft::add_service()?";
+        return -1;
     }
 
     _options = options;
@@ -1342,7 +1349,7 @@ int NodeImpl::handle_pre_vote_request(const RequestVoteRequest* request,
 
     bool granted = false;
     do {
-        // check leader to tolerate network partitioning:
+        // check leader to tolerate network partitions:
         //     1. leader always reject RequstVote
         //     2. follower reject RequestVote before change to candidate
         if (!_leader_id.is_empty()) {

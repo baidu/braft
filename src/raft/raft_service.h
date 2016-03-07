@@ -13,28 +13,31 @@ namespace raft {
 
 class RaftServiceImpl : public RaftService {
 public:
-    RaftServiceImpl() {}
-    virtual ~RaftServiceImpl() {}
+    explicit RaftServiceImpl(base::EndPoint addr)
+        : _addr(addr) {}
+    ~RaftServiceImpl();
 
-    virtual void pre_vote(google::protobuf::RpcController* controller,
+    void pre_vote(google::protobuf::RpcController* controller,
                               const RequestVoteRequest* request,
                               RequestVoteResponse* response,
                               google::protobuf::Closure* done);
 
-    virtual void request_vote(google::protobuf::RpcController* controller,
+    void request_vote(google::protobuf::RpcController* controller,
                               const RequestVoteRequest* request,
                               RequestVoteResponse* response,
                               google::protobuf::Closure* done);
 
-    virtual void append_entries(google::protobuf::RpcController* controller,
+    void append_entries(google::protobuf::RpcController* controller,
                                 const AppendEntriesRequest* request,
                                 AppendEntriesResponse* response,
                                 google::protobuf::Closure* done);
 
-    virtual void install_snapshot(google::protobuf::RpcController* controller,
+    void install_snapshot(google::protobuf::RpcController* controller,
                                   const InstallSnapshotRequest* request,
                                   InstallSnapshotResponse* response,
                                   google::protobuf::Closure* done);
+private:
+    base::EndPoint _addr;
 };
 
 }

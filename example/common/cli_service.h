@@ -30,10 +30,6 @@ public:
     CliServiceImpl(CommonStateMachine* state_machine) : _state_machine(state_machine) {}
     virtual ~CliServiceImpl() {}
 
-    void set_state_machine(CommonStateMachine* state_machine) {
-        _state_machine.store(state_machine);
-    }
-
     // rpc method
     virtual void set_peer(google::protobuf::RpcController* controller,
                      const SetPeerRequest* request,
@@ -55,7 +51,7 @@ public:
                        ::google::protobuf::Closure* done);
 
 private:
-    boost::atomic<CommonStateMachine*> _state_machine;
+    CommonStateMachine* _state_machine;
 };
 
 }

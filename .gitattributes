@@ -8,7 +8,6 @@ example/atomic/client.cpp -text
 example/atomic/run_client.sh -text
 example/atomic/run_server.sh -text
 example/atomic/server.cpp -text
-example/atomic/start.sh -text
 example/block/COMAKE -text
 example/block/block.cpp -text
 example/block/block.h -text
@@ -21,7 +20,6 @@ example/block/comlog.conf -text
 example/block/run_client.sh -text
 example/block/run_server.sh -text
 example/block/run_stats.sh -text
-example/block/start.sh -text
 example/block/stop.sh -text
 example/common/COMAKE -text
 example/common/cli.cpp -text

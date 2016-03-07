@@ -8,7 +8,6 @@
 #define PUBLIC_RAFT_RAFT_H
 
 #include <string>
-#include <gflags/gflags.h>
 
 #include <base/logging.h>
 #include <base/iobuf.h>
@@ -18,13 +17,11 @@
 namespace baidu {
 namespace rpc {
 class Server;
-class ServerOptions;
-}
-}
+}  // namespae rpc
+}  // namespace baidu
 
 namespace raft {
 
-class LogEntry;
 class SnapshotWriter;
 class SnapshotReader;
 
@@ -244,16 +241,16 @@ private:
     NodeImpl* _impl;
 };
 
-// start raft server, MUST assign listen_addr or server_desc.
-// server and options can be NULL, create internal baidu::rpc::Server
-int start_raft(const base::EndPoint& listen_addr,
-              baidu::rpc::Server* server, baidu::rpc::ServerOptions* options);
-int start_raft(const char* server_desc,
-              baidu::rpc::Server* server, baidu::rpc::ServerOptions* options);
-// stop raft server
-int stop_raft(const base::EndPoint& listen_addr, baidu::rpc::Server** server);
-int stop_raft(const char* server_desc, baidu::rpc::Server** server_ptr);
+// Attach raft services to |server|, this makes the raft services and user services
+// share the same listen address.
+// NOTE: Now we only allow the backing Server to be started with a specific
+// listen address, if the Server is going to be started from a range of ports, 
+// the behavior is undefined.
+// Returns 0 on success, -1 otherwise.
+int add_service(baidu::rpc::Server* server, const base::EndPoint& listen_addr);
+int add_service(baidu::rpc::Server* server, int port);
+int add_service(baidu::rpc::Server* server, const char* listen_ip_and_port);
 
-};
+}  // namespace raft
 
 #endif //~PUBLIC_RAFT_RAFT_H

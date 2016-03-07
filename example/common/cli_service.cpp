@@ -88,7 +88,7 @@ void CliServiceImpl::set_peer(google::protobuf::RpcController* controller,
     }
 
     SetPeerDone* set_peer_done = new SetPeerDone(_state_machine, cntl, request, response, done);
-    _state_machine.load()->set_peer(old_peers, new_peers, is_force, set_peer_done);
+    _state_machine->set_peer(old_peers, new_peers, is_force, set_peer_done);
 }
 
 class SnapshotDone : public raft::Closure {
@@ -139,7 +139,7 @@ void CliServiceImpl::snapshot(google::protobuf::RpcController* controller,
     }
 
     SnapshotDone* snapshot_done = new SnapshotDone(_state_machine, cntl, request, response, done);
-    _state_machine.load()->snapshot(snapshot_done);
+    _state_machine->snapshot(snapshot_done);
 }
 
 class ShutdownDone : public raft::Closure {
@@ -189,7 +189,7 @@ void CliServiceImpl::shutdown(google::protobuf::RpcController* controller,
     }
 
     ShutdownDone* shutdown_done = new ShutdownDone(_state_machine, cntl, request, response, done);
-    _state_machine.load()->shutdown(shutdown_done);
+    _state_machine->shutdown(shutdown_done);
 }
 
 void CliServiceImpl::leader(::google::protobuf::RpcController* controller,
@@ -203,7 +203,7 @@ void CliServiceImpl::leader(::google::protobuf::RpcController* controller,
         cntl->SetFailed(EINVAL, "state_machine not set");
         return;
     }
-    base::EndPoint leader_addr = _state_machine.load()->leader();
+    base::EndPoint leader_addr = _state_machine->leader();
     if (leader_addr != base::EndPoint()) {
         response->set_success(true);
         response->set_leader_addr(base::endpoint2str(leader_addr).c_str());

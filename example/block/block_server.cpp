@@ -29,11 +29,6 @@ DEFINE_string(ip_and_port, "0.0.0.0:8000", "server listen address");
 DEFINE_string(name, "test", "Block Name");
 DEFINE_string(peers, "", "cluster peer set");
 
-bool g_signal_quit = false;
-static void sigint_handler(int) {
-    g_signal_quit = true;
-}
-
 int main(int argc, char* argv[]) {
     google::ParseCommandLineFlags(&argc, &argv, true);
 
@@ -51,20 +46,8 @@ int main(int argc, char* argv[]) {
 
     // add service
     baidu::rpc::Server server;
-    block::BlockServiceImpl block_service_impl(NULL);
-    if (0 != server.AddService(&block_service_impl, baidu::rpc::SERVER_DOESNT_OWN_SERVICE)) {
-        LOG(FATAL) << "Fail to AddService";
-        return -1;
-    }
-    example::CliServiceImpl cli_service_impl(NULL);
-    if (0 != server.AddService(&cli_service_impl, baidu::rpc::SERVER_DOESNT_OWN_SERVICE)) {
-        LOG(FATAL) << "Fail to AddService";
-        return -1;
-    }
-
     // init raft and server
-    baidu::rpc::ServerOptions server_options;
-    if (0 != raft::start_raft(FLAGS_ip_and_port.c_str(), &server, &server_options)) {
+    if (0 != raft::add_service(&server, FLAGS_ip_and_port.c_str())) {
         LOG(FATAL) << "Fail to init raft";
         return -1;
     }
@@ -99,19 +82,23 @@ int main(int argc, char* argv[]) {
     }
     LOG(NOTICE) << "init Node success";
 
-    block_service_impl.set_block(block);
-    cli_service_impl.set_state_machine(block);
-
-    signal(SIGINT, sigint_handler);
-    while (!g_signal_quit) {
-        sleep(1);
+    block::BlockServiceImpl block_service_impl(block);
+    if (0 != server.AddService(&block_service_impl, baidu::rpc::SERVER_DOESNT_OWN_SERVICE)) {
+        LOG(FATAL) << "Fail to AddService";
+        return -1;
+    }
+    example::CliServiceImpl cli_service_impl(block);
+    if (0 != server.AddService(&cli_service_impl, baidu::rpc::SERVER_DOESNT_OWN_SERVICE)) {
+        LOG(FATAL) << "Fail to AddService";
+        return -1;
     }
 
-    raft::stop_raft(FLAGS_ip_and_port.c_str(), NULL);
-    server.Stop(200);
-    server.Join();
+    if (server.Start(FLAGS_ip_and_port.c_str(), NULL) != 0) {
+        LOG(FATAL) << "Fail to start server";
+        return -1;
+    }
 
-    //TODO: block shutdown?
+    server.RunUntilAskedToQuit();
 
     return 0;
 }

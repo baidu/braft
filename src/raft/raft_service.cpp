@@ -13,6 +13,10 @@
 
 namespace raft {
 
+RaftServiceImpl::~RaftServiceImpl() {
+    NodeManager::GetInstance()->remove_address(_addr);
+}
+
 void RaftServiceImpl::pre_vote(google::protobuf::RpcController* cntl_base,
                           const RequestVoteRequest* request,
                           RequestVoteResponse* response,

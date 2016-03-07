@@ -19,10 +19,6 @@ public:
     CounterServiceImpl(Counter* counter);
     virtual ~CounterServiceImpl();
 
-    void set_counter(Counter* counter) {
-        _counter = counter;
-    }
-
     // rpc method
     virtual void fetch_and_add(google::protobuf::RpcController* controller,
                      const FetchAndAddRequest* request,

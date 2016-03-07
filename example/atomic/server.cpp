@@ -172,7 +172,7 @@ private:
 class AtomicServiceImpl : public AtomicService {
 public:
 
-    AtomicServiceImpl() : _atomic(NULL) {}
+    explicit AtomicServiceImpl(Atomic* atomic) : _atomic(atomic) {}
 
     // rpc method
     virtual void compare_exchange(::google::protobuf::RpcController* controller,
@@ -181,11 +181,6 @@ public:
                        ::google::protobuf::Closure* done) {
         baidu::rpc::ClosureGuard done_guard(done);
         baidu::rpc::Controller* cntl = (baidu::rpc::Controller*)controller;
-        Atomic* atomic = _atomic.load(boost::memory_order_consume);
-        if (atomic  == NULL) {
-            cntl->SetFailed(baidu::rpc::EINTERNAL, "Not already initialized");
-            return;
-        }
         base::IOBuf data;
         base::IOBufAsZeroCopyOutputStream wrapper(&data);
         if (!request->SerializeToZeroCopyStream(&wrapper)) {
@@ -196,15 +191,11 @@ public:
         c->cntl = cntl;
         c->response = response;
         c->done = done_guard.release();
-        return atomic->apply(&data, c);
-    }
-
-    void set_atomic(Atomic* atomic) {
-        _atomic.store(atomic, boost::memory_order_release);
+        return _atomic->apply(&data, c);
     }
 
 private:
-    boost::atomic<Atomic*> _atomic;
+    Atomic* _atomic;
 };
 
 }  // namespace example
@@ -226,22 +217,7 @@ int main(int argc, char* argv[]) {
 
     // add service
     baidu::rpc::Server server;
-    example::AtomicServiceImpl service;
-    if (0 != server.AddService(&service, 
-                baidu::rpc::SERVER_DOESNT_OWN_SERVICE)) {
-        LOG(FATAL) << "Fail to AddService";
-        return -1;
-    }
-    example::CliServiceImpl cli_service_impl(NULL);
-    if (0 != server.AddService(&cli_service_impl, 
-                baidu::rpc::SERVER_DOESNT_OWN_SERVICE)) {
-        LOG(FATAL) << "Fail to AddService";
-        return -1;
-    }
-
-    // init raft and server
-    baidu::rpc::ServerOptions server_options;
-    if (0 != raft::start_raft(FLAGS_ip_and_port.c_str(), &server, &server_options)) {
+    if (raft::add_service(&server, FLAGS_ip_and_port.c_str()) != 0) {
         LOG(FATAL) << "Fail to init raft";
         return -1;
     }
@@ -277,13 +253,26 @@ int main(int argc, char* argv[]) {
     }
     LOG(INFO) << "init Node success";
 
-    service.set_atomic(atomic);
-    cli_service_impl.set_state_machine(atomic);
+    example::AtomicServiceImpl service(atomic);
+    if (0 != server.AddService(&service, 
+                baidu::rpc::SERVER_DOESNT_OWN_SERVICE)) {
+        LOG(FATAL) << "Fail to AddService";
+        return -1;
+    }
+    example::CliServiceImpl cli_service_impl(atomic);
+    if (0 != server.AddService(&cli_service_impl, 
+                baidu::rpc::SERVER_DOESNT_OWN_SERVICE)) {
+        LOG(FATAL) << "Fail to AddService";
+        return -1;
+    }
+
+    if (server.Start(FLAGS_ip_and_port.c_str(), NULL) != 0) {
+        LOG(FATAL) << "Fail to start server";
+        return -1;
+    }
     LOG(INFO) << "Wait until server stopped";
-    server.Join();
+    server.RunUntilAskedToQuit();
     LOG(INFO) << "AtomicServer is going to quit";
-    raise(SIGKILL);
-    raft::stop_raft(FLAGS_ip_and_port.c_str(), NULL);
 
     return 0;
 }

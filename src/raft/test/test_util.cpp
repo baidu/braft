@@ -91,21 +91,20 @@ TEST_F(TestUsageSuits, random) {
 }
 
 TEST_F(TestUsageSuits, murmurhash) {
-    int32_t val1 = raft::murmurhash32("hello, world", strlen("hello, world"));
-
     char* data = (char*)malloc(1024*1024);
     for (int i = 0; i < 1024*1024; i++) {
-        data[i] = 'a' + rand() % 26;
+        data[i] = 'a' + i % 26;
     }
-    int32_t val2 = raft::murmurhash32(data, 1024*1024);
+    int32_t val1 = raft::murmurhash32(data, 1024*1024);
 
     base::IOBuf buf;
-    for (int i = 0; i < 1024; i++) {
-        buf.append("hello, world");
-        char c = 'a' + rand() % 26;
+    for (int i = 0; i < 1024 * 1024; i++) {
+        char c = 'a' + i % 26;
         buf.push_back(c);
     }
-    int32_t val3 = raft::murmurhash32(buf);
+    int32_t val2 = raft::murmurhash32(buf);
+    ASSERT_EQ(val1, val2);
+    free(data);
 }
 
 TEST_F(TestUsageSuits, fileuri) {

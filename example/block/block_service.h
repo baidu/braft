@@ -30,10 +30,6 @@ public:
     BlockServiceImpl(Block* block);
     virtual ~BlockServiceImpl();
 
-    void set_block(Block* block) {
-        _block = block;
-    }
-
     virtual void write(google::protobuf::RpcController* controller,
                      const WriteRequest* request,
                      WriteResponse* response,

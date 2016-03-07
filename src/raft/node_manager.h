@@ -22,10 +22,6 @@ public:
         return Singleton<NodeManager>::get();
     }
 
-    int start(const base::EndPoint& listen_addr,
-             baidu::rpc::Server* server, baidu::rpc::ServerOptions* options);
-    baidu::rpc::Server* stop(const base::EndPoint& listen_addr);
-
     // add raft node
     bool add(NodeImpl* node);
 
@@ -40,6 +36,16 @@ public:
                                std::vector<scoped_refptr<NodeImpl> >* nodes);
 
     void get_all_nodes(std::vector<scoped_refptr<NodeImpl> >* nodes);
+
+    // Add service to |server| at |listen_addr|
+    int add_service(baidu::rpc::Server* server, 
+                    const base::EndPoint& listen_addr);
+
+    // Return true if |addr| is reachable by a RPC Server
+    bool server_exists(base::EndPoint addr);
+
+    // Remove the addr from _addr_set when the backing service is destroyed
+    void remove_address(base::EndPoint addr);
 
 private:
     NodeManager();
@@ -62,15 +68,8 @@ private:
 
     base::DoublyBufferedData<Maps> _nodes;
 
-    baidu::rpc::Server* get_server(const base::EndPoint& ip_and_port);
-    void add_server(const base::EndPoint& ip_and_port, baidu::rpc::Server* server);
-    baidu::rpc::Server* remove_server(const base::EndPoint& ip_and_port);
-
-    typedef std::map<base::EndPoint, baidu::rpc::Server*> ServerMap;
     raft_mutex_t _mutex;
-    ServerMap _servers;
-    std::set<base::EndPoint> _own_servers;
-    RaftServiceImpl _service_impl;
+    std::set<base::EndPoint> _addr_set;
 };
 
 }   // namespace raft

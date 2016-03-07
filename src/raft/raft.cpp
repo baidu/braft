@@ -29,48 +29,25 @@ static void global_init_or_die_impl() {
     LOG(NOTICE) << "init libraft ver: " << s_libraft_version;
 }
 
-int start_raft(const base::EndPoint& listen_addr,
-              baidu::rpc::Server* server, baidu::rpc::ServerOptions* options) {
+int add_service(baidu::rpc::Server* server, const base::EndPoint& listen_addr) {
     if (pthread_once(&global_init_once, global_init_or_die_impl) != 0) {
         PLOG(FATAL) << "Fail to pthread_once";
-        exit(1);
+        return -1;
     }
-
-    if (NodeManager::GetInstance()->start(listen_addr, server, options) != 0) {
-        return EINVAL;
-    }
-    return 0;
+    return NodeManager::GetInstance()->add_service(server, listen_addr);
 }
 
-int stop_raft(const base::EndPoint& listen_addr, baidu::rpc::Server** server_ptr) {
-    baidu::rpc::Server* server = NodeManager::GetInstance()->stop(listen_addr);
-    if (server_ptr) {
-        *server_ptr = server;
-    }
-    return 0;
+int add_service(baidu::rpc::Server* server, int port) {
+    base::EndPoint addr(base::IP_ANY, port);
+    return add_service(server, addr);
 }
-
-int start_raft(const char* server_desc,
-              baidu::rpc::Server* server, baidu::rpc::ServerOptions* options) {
-    base::EndPoint listen_addr;
-    if (0 == base::hostname2endpoint(server_desc, &listen_addr) ||
-        0 == base::str2endpoint(server_desc, &listen_addr)) {
-        return start_raft(listen_addr, server, options);
-    } else {
-        LOG(ERROR) << "bad server desc format: " << server_desc;
-        return EINVAL;
+int add_service(baidu::rpc::Server* server, const char* listen_ip_and_port) {
+    base::EndPoint addr;
+    if (base::str2endpoint(listen_ip_and_port, &addr) != 0) {
+        LOG(ERROR) << "Fail to parse `" << listen_ip_and_port << "'";
+        return -1;
     }
-}
-
-int stop_raft(const char* server_desc, baidu::rpc::Server** server_ptr) {
-    base::EndPoint listen_addr;
-    if (0 == base::hostname2endpoint(server_desc, &listen_addr) ||
-        0 == base::str2endpoint(server_desc, &listen_addr)) {
-        return stop_raft(listen_addr, server_ptr);
-    } else {
-        LOG(ERROR) << "bad server desc format: " << server_desc;
-        return EINVAL;
-    }
+    return add_service(server, addr);
 }
 
 Node::Node(const GroupId& group_id, const PeerId& peer_id) {

@@ -1,20 +1,8 @@
-/*
- * =====================================================================================
- *
- *       Filename:  test_node.cpp
- *
- *    Description:  
- *
- *        Version:  1.0
- *        Created:  2015/12/07 11:27:46
- *       Revision:  none
- *       Compiler:  gcc
- *
- *         Author:  WangYao (fisherman), wangyao02@baidu.com
- *        Company:  Baidu, Inc
- *
- * =====================================================================================
- */
+// libraft - Quorum-based replication of states accross machines.
+// Copyright (c) 2015 Baidu.com, Inc. All Rights Reserved
+
+// Author: WangYao (fisherman), wangyao02@baidu.com
+// Date: 2015/10/08 17:00:05
 
 #include <gflags/gflags.h>
 #include <gtest/gtest.h>
@@ -170,10 +158,15 @@ public:
     }
 
     int start(const base::EndPoint& listen_addr, bool empty_peers = false) {
-        int ret = raft::start_raft(listen_addr, NULL, NULL);
-        if (ret != 0) {
-            LOG(WARNING) << "start_raft failed, server: " << listen_addr;
-            return ret;
+        if (_server_map[listen_addr] == NULL) {
+            baidu::rpc::Server* server = new baidu::rpc::Server();
+            if (raft::add_service(server, listen_addr) != 0 
+                    || server->Start(listen_addr, NULL) != 0) {
+                LOG(ERROR) << "Fail to start raft service";
+                delete server;
+                return -1;
+            }
+            _server_map[listen_addr] = server;
         }
 
         raft::NodeOptions options;
@@ -190,10 +183,9 @@ public:
                             base::endpoint2str(listen_addr).c_str());
 
         raft::Node* node = new raft::Node(_name, raft::PeerId(listen_addr, 0));
-        ret = node->init(options);
+        int ret = node->init(options);
         if (ret != 0) {
             LOG(WARNING) << "init_node failed, server: " << listen_addr;
-            raft::stop_raft(listen_addr, NULL);
             return ret;
         } else {
             LOG(NOTICE) << "init node " << listen_addr;
@@ -207,15 +199,19 @@ public:
     }
 
     int stop(const base::EndPoint& listen_addr) {
-        raft::stop_raft(listen_addr, NULL);
-
+        
         BthreadCond cond;
         raft::Node* node = remove_node(listen_addr);
         cond.Init(1);
         node->shutdown(NEW_SHUTDOWNCLOSURE(&cond));
         cond.Wait();
-
         delete node;
+
+        if (_server_map[listen_addr] != NULL) {
+            delete _server_map[listen_addr];
+        }
+        _server_map.erase(listen_addr);
+
         return 0;
     }
 
@@ -367,6 +363,7 @@ private:
     std::vector<raft::PeerId> _peers;
     std::vector<raft::Node*> _nodes;
     std::vector<MockFSM*> _fsms;
+    std::map<base::EndPoint, baidu::rpc::Server*> _server_map;
     raft_mutex_t _mutex;
 };
 
@@ -382,8 +379,10 @@ protected:
 };
 
 TEST_F(RaftTestSuits, InitShutdown) {
-    int ret = raft::start_raft("0.0.0.0:60006", NULL, NULL);
+    baidu::rpc::Server server;
+    int ret = raft::add_service(&server, "0.0.0.0:60006");
     ASSERT_EQ(0, ret);
+    ASSERT_EQ(0, server.Start("0.0.0.0:60006", NULL));
 
     raft::NodeOptions options;
     options.fsm = new MockFSM(base::EndPoint());
@@ -391,7 +390,7 @@ TEST_F(RaftTestSuits, InitShutdown) {
     options.stable_uri = "./data/stable";
     options.snapshot_uri = "./data/snapshot";
 
-    raft::Node node("unittest", raft::PeerId(base::EndPoint(base::IP_ANY, 60006), 0));
+    raft::Node node("unittest", raft::PeerId(base::EndPoint(base::get_host_ip(), 60006), 0));
     ASSERT_EQ(0, node.init(options));
 
     node.shutdown(NULL);
@@ -408,36 +407,22 @@ TEST_F(RaftTestSuits, InitShutdown) {
     task.done = NEW_APPLYCLOSURE(&cond);
     node.apply(task);
     cond.Wait();
-
-    raft::stop_raft("0.0.0.0:60006", NULL);
 }
 
 TEST_F(RaftTestSuits, Server) {
-    ASSERT_EQ(0, raft::start_raft("0.0.0.0:60006", NULL, NULL));
-    ASSERT_NE(0, raft::start_raft("0.0.0.0:60006", NULL, NULL));
-    baidu::rpc::Server server;
-    baidu::rpc::ServerOptions server_options;
-    ASSERT_EQ(0, raft::start_raft("0.0.0.0:60007", &server, &server_options));
-
-    baidu::rpc::Server* server_ptr = NULL;
-    raft::stop_raft("0.0.0.0:60006", &server_ptr);
-    ASSERT_TRUE(server_ptr == NULL);
-    raft::stop_raft("0.0.0.0:60007", &server_ptr);
-    ASSERT_TRUE(server_ptr != NULL);
-    ASSERT_TRUE(server_ptr == &server);
-    raft::stop_raft("0.0.0.0:60007", &server_ptr);
-    ASSERT_TRUE(server_ptr == NULL);
-    raft::stop_raft("127.0.0.1:60007", &server_ptr);
-    ASSERT_TRUE(server_ptr == NULL);
-
-    server.Stop(200);
-    server.Join();
+    baidu::rpc::Server server1;
+    baidu::rpc::Server server2;
+    ASSERT_EQ(0, raft::add_service(&server1, "0.0.0.0:60006"));
+    ASSERT_EQ(0, raft::add_service(&server1, "0.0.0.0:60006"));
+    ASSERT_EQ(0, raft::add_service(&server2, "0.0.0.0:60007"));
+    server1.Start("0.0.0.0:60006", NULL);
+    server2.Start("0.0.0.0:60007", NULL);
 }
 
 TEST_F(RaftTestSuits, SingleNode) {
     baidu::rpc::Server server;
-    baidu::rpc::ServerOptions server_options;
-    int ret = raft::start_raft("0.0.0.0:60006", &server, &server_options);
+    int ret = raft::add_service(&server, 60006);
+    server.Start(60006, NULL);
     ASSERT_EQ(0, ret);
 
     raft::PeerId peer;
@@ -478,7 +463,6 @@ TEST_F(RaftTestSuits, SingleNode) {
     node.shutdown(NEW_SHUTDOWNCLOSURE(&cond, 0));
     cond.Wait();
 
-    raft::stop_raft("0.0.0.0:60006", NULL);
     server.Stop(200);
     server.Join();
 }
@@ -1466,8 +1450,9 @@ TEST_F(RaftTestSuits, InstallSnapshot) {
 TEST_F(RaftTestSuits, NoSnapshot) {
     baidu::rpc::Server server;
     baidu::rpc::ServerOptions server_options;
-    int ret = raft::start_raft("0.0.0.0:60006", &server, &server_options);
+    int ret = raft::add_service(&server, "0.0.0.0:60006");
     ASSERT_EQ(0, ret);
+    ASSERT_EQ(0, server.Start(60006, &server_options));
 
     raft::PeerId peer;
     peer.addr.ip = base::get_host_ip();
@@ -1516,7 +1501,6 @@ TEST_F(RaftTestSuits, NoSnapshot) {
     cond.Wait();
 
     // stop
-    raft::stop_raft("0.0.0.0:60006", NULL);
     server.Stop(200);
     server.Join();
 }
@@ -1524,8 +1508,9 @@ TEST_F(RaftTestSuits, NoSnapshot) {
 TEST_F(RaftTestSuits, AutoSnapshot) {
     baidu::rpc::Server server;
     baidu::rpc::ServerOptions server_options;
-    int ret = raft::start_raft("0.0.0.0:60006", &server, &server_options);
+    int ret = raft::add_service(&server, "0.0.0.0:60006");
     ASSERT_EQ(0, ret);
+    ASSERT_EQ(0, server.Start(60006, &server_options));
 
     raft::PeerId peer;
     peer.addr.ip = base::get_host_ip();
@@ -1574,7 +1559,6 @@ TEST_F(RaftTestSuits, AutoSnapshot) {
     cond.Wait();
 
     // stop
-    raft::stop_raft("0.0.0.0:60006", NULL);
     server.Stop(200);
     server.Join();
 }

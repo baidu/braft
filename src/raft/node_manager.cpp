@@ -17,109 +17,53 @@ NodeManager::NodeManager() {
 NodeManager::~NodeManager() {
 }
 
-baidu::rpc::Server* NodeManager::get_server(const base::EndPoint& ip_and_port) {
+bool NodeManager::server_exists(base::EndPoint addr) {
     BAIDU_SCOPED_LOCK(_mutex);
-    ServerMap::iterator it = _servers.find(ip_and_port);
-    if (it != _servers.end()) {
-        return it->second;
-    } else {
-        for (it = _servers.begin(); it != _servers.end(); ++it) {
-            base::EndPoint address = it->first;
-            if (address.port == ip_and_port.port &&
-                (address.ip == base::IP_ANY || address.ip == ip_and_port.ip)) {
-                return it->second;
-            }
-        }
-        return NULL;
-    }
-}
-
-void NodeManager::add_server(const base::EndPoint& ip_and_port, baidu::rpc::Server* server) {
-    BAIDU_SCOPED_LOCK(_mutex);
-    _servers.insert(std::pair<base::EndPoint, baidu::rpc::Server*>(ip_and_port, server));
-}
-
-baidu::rpc::Server* NodeManager::remove_server(const base::EndPoint& ip_and_port) {
-    BAIDU_SCOPED_LOCK(_mutex);
-    ServerMap::iterator it = _servers.find(ip_and_port);
-    if (it == _servers.end()) {
-        for (it = _servers.begin(); it != _servers.end(); ++it) {
-            base::EndPoint address = it->first;
-            if (address.port == ip_and_port.port &&
-                (address.ip == base::IP_ANY || address.ip == ip_and_port.ip)) {
-                break;
-            }
+    if (addr.ip != base::IP_ANY) {
+        base::EndPoint any_addr(base::IP_ANY, addr.port);
+        if (_addr_set.find(any_addr) != _addr_set.end()) {
+            return true;
         }
     }
-    baidu::rpc::Server* server = NULL;
-    if (it != _servers.end()) {
-        server = it->second;
-        _servers.erase(it);
-    }
-    return server;
+    return _addr_set.find(addr) != _addr_set.end();
 }
 
-int NodeManager::start(const base::EndPoint& ip_and_port,
-                      baidu::rpc::Server* server, baidu::rpc::ServerOptions* options) {
-    bool own = false;
-    if (!server) {
-        own = true;
-        server = new baidu::rpc::Server;
-    } else if (0 != server->listen_address().port ||
-               NULL != get_server(ip_and_port)){
-        LOG(ERROR) << "Add Raft Server has inited.";
-        return EINVAL;
+void NodeManager::remove_address(base::EndPoint addr) {
+    BAIDU_SCOPED_LOCK(_mutex);
+    _addr_set.erase(addr);
+}
+
+int NodeManager::add_service(baidu::rpc::Server* server, 
+                             const base::EndPoint& listen_address) {
+    if (server == NULL) {
+        LOG(ERROR) << "server is NULL";
+        return -1;
+    }
+    if (server_exists(listen_address)) {
+        return 0;
     }
 
-    baidu::rpc::ServerOptions server_options;
-    if (options) {
-        server_options = *options;
-    }
     if (0 != server->AddService(new FileServiceImpl, baidu::rpc::SERVER_OWNS_SERVICE)) {
         LOG(ERROR) << "Add File Service Failed.";
-        return EINVAL;
+        return -1;
     }
-    if (0 != server->AddService(&_service_impl, baidu::rpc::SERVER_DOESNT_OWN_SERVICE)) {
+
+    if (0 != server->AddService(
+                new RaftServiceImpl(listen_address), 
+                baidu::rpc::SERVER_OWNS_SERVICE)) {
         LOG(ERROR) << "Add Raft Service Failed.";
-        return EINVAL;
+        return -1;
     }
+
     if (0 != server->AddService(new RaftStatImpl, baidu::rpc::SERVER_OWNS_SERVICE)) {
         LOG(ERROR) << "Add Raft Service Failed.";
-        return EINVAL;
+        return -1;
     }
-    if (0 != server->Start(ip_and_port, &server_options)) {
-        LOG(ERROR) << "Start Raft Server Failed.";
-        return EINVAL;
-    }
-
-    base::EndPoint address = server->listen_address();
-    LOG(WARNING) << "start raft server " << address;
-    add_server(ip_and_port, server);
-    if (own) {
+    {
         BAIDU_SCOPED_LOCK(_mutex);
-        _own_servers.insert(ip_and_port);
+        _addr_set.insert(listen_address);
     }
     return 0;
-}
-
-baidu::rpc::Server* NodeManager::stop(const base::EndPoint& ip_and_port) {
-    baidu::rpc::Server* server = remove_server(ip_and_port);
-    if (server) {
-        bool own = false;
-        {
-            BAIDU_SCOPED_LOCK(_mutex);
-            if (_own_servers.end() != _own_servers.find(server->listen_address())) {
-                _own_servers.erase(server->listen_address());
-                own = true;
-            }
-        }
-        if (own) {
-            delete server; // ~Server() call Stop(0) and Join()
-            server = NULL;
-        }
-    }
-
-    return server;
 }
 
 size_t NodeManager::_add_node(Maps& m, const NodeImpl* node) {
@@ -152,7 +96,7 @@ size_t NodeManager::_remove_node(Maps& m, const NodeImpl* node) {
 
 bool NodeManager::add(NodeImpl* node) {
     // check address ok?
-    if (NULL == get_server(node->node_id().peer_id.addr)) {
+    if (!server_exists(node->node_id().peer_id.addr)) {
         return false;
     }
 

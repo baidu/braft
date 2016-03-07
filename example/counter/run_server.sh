@@ -25,8 +25,8 @@ eval set -- "${FLAGS_ARGV}"
 alias error=">&2 echo counter: "
 
 IP=`hostname -i`
-if [ "$FLAGS_valgrind" == "true" ]; then
-    VALGRIND="/home/wangyao/opt/bin/valgrind --tool=memcheck --leak-check=full"
+if [ "$FLAGS_valgrind" == "true" ] && [ $(which valgrind) ] ; then
+    VALGRIND="valgrind --tool=memcheck --leak-check=full"
     HAS_VALGRIND="-has_valgrind"
 fi
 

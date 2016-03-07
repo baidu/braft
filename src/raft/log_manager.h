@@ -26,6 +26,8 @@ struct LogManagerOptions {
 
 class NodeImpl;
 class SnapshotMeta;
+struct LogEntry;
+
 class BAIDU_CACHELINE_ALIGNMENT LogManager {
 public:
 
