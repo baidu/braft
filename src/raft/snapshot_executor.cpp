@@ -114,6 +114,16 @@ void SnapshotExecutor::do_snapshot(Closure* done) {
         }
         return;
     }
+    if (_fsm_caller->last_applied_index() == _last_snapshot_index) {
+        // There might be false positive as the last_applied_index() is being
+        // updated. But it's fine since we will do next snapshot saving in a
+        // predictable time.
+        lck.unlock();
+        if (done) {
+            run_closure_in_bthread(done);
+        }
+        return;
+    }
     SnapshotWriter* writer = _snapshot_storage->create();
     if (!writer) {
         lck.unlock();

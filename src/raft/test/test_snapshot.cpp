@@ -158,3 +158,77 @@ TEST_F(TestUsageSuits, copy) {
 
     ASSERT_EQ(0, ((raft::LocalSnapshotStorage*)storage2)->_last_snapshot_index);
 }
+
+struct Arg {
+    raft::SnapshotStorage* storage;
+    volatile bool stopped;
+};
+
+void *read_thread(void* arg) {
+    Arg *a = (Arg*)arg;
+    while (!a->stopped) {
+        raft::SnapshotMeta meta;
+        raft::SnapshotReader* reader = a->storage->open();
+        if (reader == NULL) {
+            EXPECT_TRUE(false);
+            break;
+        }
+        if (reader->load_meta(&meta) != 0) {
+            abort();
+            break;
+        }
+        if (a->storage->close(reader) != 0) {
+            EXPECT_TRUE(false);
+            break;
+        }
+    }
+    return NULL;
+}
+
+void *write_thread(void* arg) {
+    Arg *a = (Arg*)arg;
+    std::vector<raft::PeerId> peers;
+    peers.push_back(raft::PeerId("1.2.3.4:1000"));
+    peers.push_back(raft::PeerId("1.2.3.4:2000"));
+    peers.push_back(raft::PeerId("1.2.3.4:3000"));
+
+    raft::SnapshotMeta meta;
+    meta.last_included_index = 1000;
+    meta.last_included_term = 2;
+    meta.last_configuration = raft::Configuration(peers);
+
+    while (!a->stopped) {
+        // normal create writer
+        raft::SnapshotWriter* writer = a->storage->create();
+        if (writer == NULL) {
+            EXPECT_TRUE(false);
+            break;
+        }
+        if (writer->save_meta(meta) ) {
+            EXPECT_TRUE(false);
+            break;
+        }
+        if (a->storage->close(writer) != 0) {
+            EXPECT_TRUE(false);
+            break;
+        }
+    }
+    return NULL;
+}
+
+TEST_F(TestUsageSuits, thread_safety) {
+    raft::SnapshotStorage* storage = raft::create_local_snapshot_storage("file://./data");
+    Arg arg;
+    arg.storage = storage;
+    arg.stopped = false;
+    pthread_t writer;
+    pthread_t reader;
+    ASSERT_EQ(0, pthread_create(&writer, NULL, write_thread, &arg));
+    usleep(10 * 1000);
+    ASSERT_EQ(0, pthread_create(&reader, NULL, read_thread, &arg));
+    usleep(1L * 1000 * 1000);
+    arg.stopped = true;
+    pthread_join(writer, NULL);
+    pthread_join(reader, NULL);
+    delete storage;
+}

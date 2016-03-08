@@ -52,8 +52,7 @@ struct Task {
 // Implement a specific StateMachine for your own bussiness logic.
 //
 // NOTE: All the interfaces are called sequentially, saying that every single
-// operation will block all the following 
-//
+// operation will block all the following ones.
 class StateMachine {
 public:
 
@@ -75,7 +74,7 @@ public:
     //    from the group.
     //
     // 2: About the ownership:
-    //  - |task.buf| is readonly, users should not modify the content
+    //  - |task.buf| is readonly, users can not modify the content
     //  - |task.done| belongs to users.
     //
     virtual void on_apply(const int64_t index/*1*/, const Task& task/*2*/) = 0;

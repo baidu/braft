@@ -141,7 +141,7 @@ int main(int argc, char* argv[]) {
         LOG(INFO) << "Sending CompareExchangeRequest at qps=" << g_latency_recorder.qps(1)
                   << " latency=" << g_latency_recorder.latency(1);
     }
-    LOG(INFO) << "AtomicClient is goint to quit";
+    LOG(INFO) << "AtomicClient is going to quit";
     for (int i = 0; i < FLAGS_threads; ++i) {
         bthread_join(threads[i], NULL);
     }

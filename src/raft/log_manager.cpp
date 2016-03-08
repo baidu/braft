@@ -274,7 +274,11 @@ int LogManager::truncate_suffix(const int64_t last_index_kept) {
         _config_manager->truncate_suffix(last_index_kept);
         _disk_index.store(last_index_kept, boost::memory_order_release);
     }
-    int ret = _log_storage->truncate_suffix(last_index_kept);
+    int ret = 0;
+    {
+        BAIDU_SCOPED_LOCK(_modify_storage_mutex);
+        ret = _log_storage->truncate_suffix(last_index_kept);
+    }
 
     timer.stop();
     RAFT_VLOG << "truncate_suffix " << last_index_kept << " time: " << timer.u_elapsed();
@@ -283,27 +287,20 @@ int LogManager::truncate_suffix(const int64_t last_index_kept) {
 }
 
 int LogManager::append_entries(const std::vector<LogEntry*>& entries) {
-    std::unique_lock<raft_mutex_t> lck(_mutex);
-
-    //TODO: move index setting to LogStorage
-    for (size_t i = 0; i < entries.size(); i++) {
-        // follower append has index, not need set
-        if (entries[i]->index != 0) {
-            break;
-        }
-        entries[i]->index = _last_log_index + 1 + i;
-    }
-    lck.unlock();
 
     RAFT_VLOG << "follower append " << entries[0]->index
         << "-" << entries[0]->index + entries.size() - 1 << noflush;
 
     base::Timer timer;
     timer.start();
-    int ret = _log_storage->append_entries(entries);
+    int ret = 0;
+    {
+        BAIDU_SCOPED_LOCK(_modify_storage_mutex);
+        ret = _log_storage->append_entries(entries);
+    }
     if (static_cast<size_t>(ret) == entries.size()) {
         ret = 0;
-        lck.lock();
+        BAIDU_SCOPED_LOCK(_mutex);
         int64_t last_index = 0;
         for (size_t i = 0; i < entries.size(); i++) {
             last_index = entries[i]->index;
@@ -325,11 +322,6 @@ int LogManager::append_entries(const std::vector<LogEntry*>& entries) {
         }
         _last_log_index = last_index;
         _disk_index.store(_last_log_index);
-    } else {
-        // Remove partially appended logs which would make later appending
-        // undefined
-        _log_storage->truncate_suffix(_last_log_index);
-        ret = EIO;
     }
     timer.stop();
 
@@ -449,7 +441,7 @@ int LogManager::leader_disk_run(void* meta,
         }
         TruncatePrefixClosure* tpc = dynamic_cast<TruncatePrefixClosure*>(done);
         if (tpc) {
-            LOG(INFO) << "Truncating storage to first_index_kept="
+            RAFT_VLOG << "Truncating storage to first_index_kept="
                 << tpc->first_index_kept();
             log_manager->_log_storage->truncate_prefix(
                             tpc->first_index_kept());
@@ -474,7 +466,7 @@ int LogManager::leader_disk_run(void* meta,
 }
 
 void LogManager::set_snapshot(const SnapshotMeta* meta) {
-    LOG(INFO) << "Set snapshot last_included_index="
+    RAFT_VLOG << "Set snapshot last_included_index="
               << meta->last_included_index
               << " last_included_term=" <<  meta->last_included_term;
     std::unique_lock<raft_mutex_t> lck(_mutex);

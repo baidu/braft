@@ -461,8 +461,8 @@ void Replicator::_install_snapshot() {
 
     LOG(INFO) << "node " << _options.group_id << ":" << _options.server_id
         << " send InstallSnapshotRequest to " << _options.peer_id
-        << " term " << _options.term << " last_included_term " << meta.last_included_index
-        << " last_included_index " << meta.last_included_term << " uri " << uri;
+        << " term " << _options.term << " last_included_term " << meta.last_included_term
+        << " last_included_index " << meta.last_included_index << " uri " << uri;
 
     google::protobuf::Closure* done = baidu::rpc::NewCallback<
                 ReplicatorId, baidu::rpc::Controller*,

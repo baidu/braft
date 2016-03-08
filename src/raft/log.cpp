@@ -482,7 +482,7 @@ int Segment::unlink() {
         // TODO unlink follow control
         std::string* file_path = new std::string(tmp_path);
         bthread_t tid;
-        if (bthread_start_urgent(&tid, &BTHREAD_ATTR_NORMAL, run_unlink, file_path) != 0) {
+        if (bthread_start_background(&tid, &BTHREAD_ATTR_NORMAL, run_unlink, file_path) != 0) {
             run_unlink(file_path);
         }
 
@@ -501,7 +501,7 @@ int Segment::truncate(const int64_t last_index_kept) {
     }
     first_truncate_in_offset = last_index_kept + 1 - _first_index;
     truncate_size = _offset_and_term[first_truncate_in_offset].first;
-    LOG(INFO) << "Truncating " << _path << " first_index: " << _first_index
+    RAFT_VLOG << "Truncating " << _path << " first_index: " << _first_index
               << " last_index from " << _last_index << " to " << last_index_kept
               << " truncate size to " << truncate_size;
     lck.unlock();
@@ -818,7 +818,7 @@ int SegmentLogStorage::list_segments(bool is_empty) {
         match = sscanf(dir_reader.name(), RAFT_SEGMENT_CLOSED_PATTERN, 
                        &first_index, &last_index);
         if (match == 2) {
-            RAFT_VLOG << "restore closed segment, path: " << _path
+            LOG(INFO) << "restore closed segment, path: " << _path
                       << " first_index: " << first_index
                       << " last_index: " << last_index;
             Segment* segment = new Segment(_path, first_index, last_index);
@@ -829,7 +829,7 @@ int SegmentLogStorage::list_segments(bool is_empty) {
         match = sscanf(dir_reader.name(), RAFT_SEGMENT_OPEN_PATTERN, 
                        &first_index);
         if (match == 1) {
-            LOG(INFO) << "restore open segment, path: " << _path
+            RAFT_VLOG << "restore open segment, path: " << _path
                 << " first_index: " << first_index;
             if (!_open_segment) {
                 _open_segment.reset(new Segment(_path, first_index));

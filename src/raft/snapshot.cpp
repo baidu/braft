@@ -99,7 +99,7 @@ int LocalSnapshotWriter::save_meta(const SnapshotMeta& meta) {
     }
 
     timer.stop();
-    RAFT_VLOG << "snapshot save_meta " << meta_path << " time: " << timer.u_elapsed();
+    LOG(INFO) << "snapshot save_meta " << meta_path << " time: " << timer.u_elapsed();
     return ret;
 }
 
@@ -232,15 +232,18 @@ int LocalSnapshotStorage::init() {
 }
 
 void LocalSnapshotStorage::ref(const int64_t index) {
+    BAIDU_SCOPED_LOCK(_mutex);
     _ref_map[index] ++;
 }
 
 void LocalSnapshotStorage::unref(const int64_t index) {
+    std::unique_lock<raft_mutex_t> lck(_mutex);
     std::map<int64_t, int>::iterator it = _ref_map.find(index);
     if (it != _ref_map.end()) {
         it->second--;
 
         if (it->second == 0) {
+            lck.unlock();
             std::string old_path(_path);
             base::string_appendf(&old_path, "/" RAFT_SNAPSHOT_PATTERN, index);
             LOG(INFO) << "Deleting snapshot `" << old_path << "'";
@@ -290,9 +293,16 @@ int LocalSnapshotStorage::close(SnapshotWriter* writer_) {
         if (0 != ret) {
             break;
         }
-
-        int64_t old_index = _last_snapshot_index;
+        int64_t old_index = 0;
+        {
+            BAIDU_SCOPED_LOCK(_mutex);
+            old_index = _last_snapshot_index;
+        }
         int64_t new_index = writer->snapshot_index();
+        if (new_index == old_index) {
+            ret = EEXIST;
+            break;
+        }
 
         // rename temp to new
         std::string temp_path(_path);
@@ -314,10 +324,14 @@ int LocalSnapshotStorage::close(SnapshotWriter* writer_) {
             break;
         }
 
-        _last_snapshot_index = new_index;
+        ref(new_index);
+        {
+            BAIDU_SCOPED_LOCK(_mutex);
+            CHECK_EQ(old_index, _last_snapshot_index);
+            _last_snapshot_index = new_index;
+        }
         // unref old_index, ref new_index
         unref(old_index);
-        ref(new_index);
     } while (0);
 
     if (ret != 0) {
@@ -328,19 +342,24 @@ int LocalSnapshotStorage::close(SnapshotWriter* writer_) {
         base::DeleteFile(base::FilePath(temp_path), true);
     }
     delete writer;
-    return ret;
+    return ret == EEXIST ? 0 : ret;;
 }
 
 SnapshotReader* LocalSnapshotStorage::open() {
+    std::unique_lock<raft_mutex_t> lck(_mutex);
     if (_last_snapshot_index != 0) {
+        const int64_t last_snapshot_index = _last_snapshot_index;
+        ++_ref_map[last_snapshot_index];
+        lck.unlock();
         std::string snapshot_path(_path);
-        base::string_appendf(&snapshot_path, "/" RAFT_SNAPSHOT_PATTERN, _last_snapshot_index);
-        LocalSnapshotReader* reader =  new LocalSnapshotReader(snapshot_path);
+        base::string_appendf(&snapshot_path, "/" RAFT_SNAPSHOT_PATTERN, last_snapshot_index);
+        LocalSnapshotReader* reader = new LocalSnapshotReader(snapshot_path);
         if (reader->init() != 0) {
+            CHECK(!lck.owns_lock());
+            unref(last_snapshot_index);
             delete reader;
             return NULL;
         }
-        ref(_last_snapshot_index);
         return reader;
     } else {
         return NULL;

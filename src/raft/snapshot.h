@@ -9,6 +9,7 @@
 
 #include <string>
 #include "raft/storage.h"
+#include "raft/macros.h"
 
 namespace raft {
 
@@ -59,6 +60,7 @@ protected:
     void ref(const int64_t index);
     void unref(const int64_t index);
 
+    raft_mutex_t _mutex;
     std::string _path;
     int64_t _last_snapshot_index;
     std::map<int64_t, int> _ref_map;
