@@ -1,0 +1,31 @@
+#edit-mode: -*- python -*-
+#coding:gbk
+
+WORKROOT('../../../../')
+
+CPPFLAGS('-D__const__=  -D_GNU_SOURCE -D__STDC_LIMIT_MACROS -DNDEBUG -Wno-unused-parameter -Werror')
+CFLAGS('-g -O2 -pipe -W -Wall -fPIC')
+
+CXXFLAGS('-g -O2 -pipe -W -Wall -fPIC')
+CXXFLAGS('-fPIC ')
+#CXXFLAGS('-fsanitize=address  -fno-omit-frame-pointer')
+CPPFLAGS('-D__const__= ')
+
+INCPATHS('../../src ../common')
+
+ImportConfigsFrom('../..')
+
+CPPFLAGS('-DBAIDU_RPC_ENABLE_CPU_PROFILER -DBAIDU_RPC_ENABLE_HEAP_PROFILER')
+CONFIGS('third-64/tcmalloc@1.7.0.200',Libraries('lib/libtcmalloc_and_profiler.a'))
+
+LDFLAGS('-lpthread -lrt -ldl -lz -lssl -lcrypto')
+#LDFLAGS('-lasan')
+
+PROTOC(ENV.WorkRoot() + '/third-64/protobuf/bin/protoc')
+LIBS('../../libraft.a')
+
+common_sources = (GLOB('../common/*.proto ../common/*.cpp'))
+
+Application('block_server',Sources(common_sources, 'ebs.proto block_server.cpp'))
+Application('block_client',Sources(common_sources, 'ebs.proto block_client.cpp')) 
+

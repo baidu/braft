@@ -473,8 +473,6 @@ void LogManager::set_snapshot(const SnapshotMeta* meta) {
     if (meta->last_included_index <= _last_snapshot_index) {
         return;
     }
-    _last_snapshot_index = meta->last_included_index;
-    _last_snapshot_term = meta->last_included_term;
     _config_manager->set_snapshot(meta->last_included_index, meta->last_configuration);
     int64_t term = 0;
     LogEntry* entry = get_entry_from_memory(meta->last_included_index);
@@ -484,8 +482,18 @@ void LogManager::set_snapshot(const SnapshotMeta* meta) {
         term = _log_storage->get_term(meta->last_included_index);
         g_read_term_from_storage << 1;
     }
-    if (term == 0 || term == meta->last_included_term) {
+    if (term == 0) {
+        // last_included_index is larger than last_index
+        _last_snapshot_index = meta->last_included_index;
+        _last_snapshot_term = meta->last_included_term;
         truncate_prefix(meta->last_included_index + 1, lck);
+        return;
+    } else if (term == meta->last_included_term) {
+        // Trucating log to the index of the last snapshot.
+        const int64_t saved_last_snpashot_index = _last_snapshot_index;
+        _last_snapshot_index = meta->last_included_index;
+        _last_snapshot_term = meta->last_included_term;
+        truncate_prefix(saved_last_snpashot_index, lck);
         return;
     } else {
         // TODO: check the result of reset.
@@ -493,6 +501,13 @@ void LogManager::set_snapshot(const SnapshotMeta* meta) {
         return;
     }
     CHECK(false) << "Cannot reach here";
+}
+
+void LogManager::clear_bufferred_logs() {
+    std::unique_lock<raft_mutex_t> lck(_mutex);
+    if (_last_snapshot_index != 0) {
+        truncate_prefix(_last_snapshot_index, lck);
+    }
 }
 
 LogEntry* LogManager::get_entry_from_memory(const int64_t index) {

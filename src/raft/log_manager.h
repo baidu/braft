@@ -65,7 +65,14 @@ public:
     //  success return 0, failed return -1
     int truncate_suffix(const int64_t last_index_kept);
 
+    // Notify the log manager about the latest snapshot, which indicates the
+    // logs which can be safely truncated.
     void set_snapshot(const SnapshotMeta* meta);
+
+    // We don't delete all the logs before last snapshot to avoid installing
+    // snapshot on slow replica. Call this method to drop all the logs before
+    // last snapshot immediately.
+    void clear_bufferred_logs();
 
     // Get the log at |index|
     // Returns:

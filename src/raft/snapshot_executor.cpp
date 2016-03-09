@@ -119,6 +119,7 @@ void SnapshotExecutor::do_snapshot(Closure* done) {
         // updated. But it's fine since we will do next snapshot saving in a
         // predictable time.
         lck.unlock();
+        _log_manager->clear_bufferred_logs();
         if (done) {
             run_closure_in_bthread(done);
         }
@@ -161,6 +162,7 @@ int SnapshotExecutor::on_snapshot_save_done(
             writer->set_error(ESTALE, "snapshot is staled, maybe InstallSnapshot when snapshot");
         }
     }
+    lck.unlock();
 
     if (ret == 0) {
         if (writer->save_meta(meta)) {
@@ -172,12 +174,16 @@ int SnapshotExecutor::on_snapshot_save_done(
         ret = EIO;
         LOG(WARNING) << "Fail to close writer";
     }
+
+    lck.lock();
     if (ret == 0) {
         _last_snapshot_index = meta.last_included_index;
         _last_snapshot_term = meta.last_included_term;
-        _log_manager->set_snapshot(&meta);
     }
+    lck.unlock();
 
+    _log_manager->set_snapshot(&meta);
+    lck.lock();
     _saving_snapshot = false;
     return ret;
 }
@@ -371,6 +377,9 @@ void SnapshotExecutor::install_snapshot(baidu::rpc::Controller* cntl,
     } else {
         ret = writer->copy(request->uri());
     }
+    if (ret != 0 && writer != NULL && writer->ok()) {
+        writer->set_error(ret, berror(ret));
+    }
     return load_downloading_snapshot(ds.release(), meta, saved_version, writer);
 }
 
@@ -390,7 +399,10 @@ void SnapshotExecutor::load_downloading_snapshot(DownloadingSnapshot* ds,
     }
     CHECK_EQ(ds, _downloading_snapshot.load(boost::memory_order_relaxed));
     baidu::rpc::ClosureGuard done_guard(ds->done);
-    if (writer == NULL) {
+    if (writer == NULL || !writer->ok()) {
+        if (writer) {
+            _snapshot_storage->close(writer);
+        }
         _downloading_snapshot.store(NULL, boost::memory_order_release);
         lck.unlock();
         ds->cntl->SetFailed(baidu::rpc::EINTERNAL, 

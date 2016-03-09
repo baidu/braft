@@ -43,6 +43,13 @@ example/counter/run_client.sh -text
 example/counter/run_server.sh -text
 example/counter/run_stats.sh -text
 example/counter/stop.sh -text
+example/ebs/COMAKE -text
+example/ebs/block_client.cpp -text
+example/ebs/block_server.cpp -text
+example/ebs/ebs.proto -text
+example/ebs/run_client.sh -text
+example/ebs/run_server.sh -text
+example/ebs/stop.sh -text
 protocol/raft/builtin_service.proto -text
 protocol/raft/errno.proto -text
 protocol/raft/file_service.proto -text

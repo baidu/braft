@@ -1,0 +1,618 @@
+package baidu.ebs;
+
+option cc_generic_services = true;
+
+message EmptyRequest {
+}
+
+message ObjectId {
+}
+
+message BlockSavePoint {
+    required uint64 block_id 			= 1;
+    required uint64 lrsn     			= 2;
+    required bytes  bitset   			= 3;
+    required uint32 iops     			= 4;
+    repeated uint64 offsets  			= 5;
+    optional string history_bitset 		= 6;
+    optional uint64 cur_write_version 		= 7;
+    optional uint64 pre_snapshot_version 	= 8;
+    optional uint64 cur_snapshot_version 	= 9;
+    optional string object_name             = 10; 
+    repeated uint64 file_lrsns  			= 11;
+}
+
+message Storage {
+    required uint32 id                = 1;
+    required uint32 iops              = 2;
+    required uint32 capacity_gb       = 3;
+    required uint32 capacity_avail_gb = 4;
+    required bool   by_provisioned    = 5;
+    optional uint32 type              = 6;
+}
+
+message BlockServerId {
+    required int32 ip   = 1;
+    required int32 port = 2;
+}
+
+message BlockReplica {
+    required BlockServerId block_server = 1;
+    required int32         role         = 2; 
+}
+
+message HeartbeatRequest {
+    repeated Storage       storages      = 1;
+    optional int32         status        = 2;
+}
+
+message RoleRequest {
+    required uint64 block_id   = 1;
+    required int32  role       = 2;
+}
+
+message BlockRequest {
+    required uint64 block_id   = 1;
+    optional bool need_destroy = 2;
+    optional uint64 server_id  = 3;
+    optional bool can_reborn   = 4;
+    optional string token      = 5;
+    optional uint64 lrsn       = 6;
+    optional uint32 disk_id    = 7;
+
+}
+
+message BlockInfo {
+    required uint64       block_id   = 1;
+    repeated BlockReplica replicas   = 2;
+    optional int32   iops        = 3;
+    optional int32   throughput  = 4;
+    optional uint64  create_time = 5;
+    optional uint32  create_ip   = 6;
+    optional string  tag         = 7;
+}
+
+message ReplicaInfo {
+    required uint64 block_id     = 1;
+    optional uint64 server_id    = 2;
+    optional int32  disk_id      = 3;
+    optional int32  role         = 4;
+    optional int32  status       = 5;
+    optional int32  iops         = 6;
+    optional uint64 applied_lrsn = 7;
+}
+
+message AckResponse {
+    required int32  error_code    = 1;
+    optional string error_message = 2;
+    optional uint64 applied_lrsn  = 3;
+    optional uint64 server        = 4;
+    optional uint64 request_no    = 5;
+}
+
+message BlockResponse {
+    required int32     error_code = 1;
+    optional BlockInfo block_info = 2;
+    optional uint64    lrsn       = 3;
+    optional uint64    session_id = 4;
+    optional string    status     = 5;
+}
+
+message AllBlockRequest {
+    required uint64 start_block         = 1;
+    required uint64 end_block           = 2;
+}
+
+message AllBlockResponse {
+    required int32  error_code = 1;
+    repeated uint64 block_ids  = 2;
+}
+
+message AllBlockInfoRequest {
+    required uint64 request_id     		= 1;
+}
+
+message AllBlockInfoResponse {
+    required int32       error_code    = 1;
+    repeated Storage     storages      = 2;
+    repeated ReplicaInfo replicas 	   = 3;
+    optional string      build_version = 4;
+}
+
+message CreateRequest {
+    optional uint64 block_id        = 1;
+    optional uint32 iops            = 2;
+    optional uint32 throughput      = 3;
+    optional uint32 storage_id      = 4;
+    optional uint32 disk_id         = 5;
+    optional uint32 role            = 6;
+    optional bool need_trunc        = 7;
+    optional string token           = 8;
+    optional uint32 type            = 9;
+    optional uint64 session_id      = 10;
+    optional uint32 priority        = 11;
+    optional uint32 oversell_rate   = 12;
+    optional bool   create_in_pool  = 13;
+    optional string tag             = 14;
+}
+
+message ReadRequest {
+    required uint64 block_id   = 1;
+    required uint32 offset     = 2;
+    required uint32 size       = 3;
+}
+
+message ReadResponse {
+    required int32  error_code   = 1;
+    optional bytes  data         = 2;
+    optional uint64 applied_lrsn = 3;
+    optional uint64 server       = 4;
+    optional uint64 request_no   = 5;
+}
+
+message ReadRawResponse {
+    required int32 error_code = 1;
+}
+
+
+message WriteRequest {
+    required uint64 block_id   		= 1;
+    required uint32 offset     		= 2;
+    optional bytes  data       		= 3;
+    optional uint64 write_version    	= 4;
+    optional string access_key_id     	= 5;
+    optional string access_key_secret 	= 6;
+    optional string bucket_name       	= 7;
+    optional string boss_host         	= 8;
+}
+
+message WriteRawRequest {
+    required uint64 block_id   = 1;
+    required uint32 offset     = 2;
+}
+
+message BackupRequest {
+    required uint64 block_id          = 1;
+    required string backup_name       = 2;  // deprecated
+    required string access_key_id     = 3;
+    required string access_key_secret = 4;
+    required string bucket_name       = 5;
+    required string boss_host         = 6;
+    optional uint64 snapshot_version  = 7;
+
+}
+
+message BackupResponse {
+    required int32  error_code  = 1;
+    optional uint32 percent     = 2;
+    optional string object_name = 3;
+}
+
+message BossObject {
+    optional string boss_host     = 1;
+    optional string bucket_name   = 2;
+    optional string ak            = 3; 
+    optional string sk            = 4;
+    optional string object_name   = 5;
+}
+
+message RecoverRequest{
+    required uint64     block_id           = 1;
+    required string     snapshot_name      = 2;
+    repeated BossObject objects            = 3;
+}
+
+message RecoverResponse{
+    required int32  error_code  = 1;
+    optional uint32 percent     = 2;
+}
+
+message RollbackRequest {
+    required uint64 block_id          = 1;
+    required uint64 snapshot_version  = 2;
+}
+
+message RollbackResponse {
+    required int32  error_code  = 1;
+}
+
+message GetBlockStatusRequest {
+    required uint64 server_id = 1;
+    repeated uint64 block_ids = 2;
+}
+
+message BlockStatusInfo {
+    required uint64 block_id   = 1;
+    required int32  error_code = 2;
+    optional uint64 real_size  = 3;
+}
+
+message GetBlockStatusResponse {
+    required int32           error_code     = 1;
+    repeated BlockStatusInfo block_statuses = 2;
+}
+
+message ProgressResponse {
+    required int32  error_code = 1;
+    optional uint32 percent    = 2;
+}
+
+message SetBitSetRequest {
+    required uint64 block_id          = 1;
+}
+
+message SetBitSetResponse {
+    required int32  error_code  = 1;
+}
+
+message SafeModeRequest {
+}
+
+message DropDiskRequest {
+    required uint64 server_id = 1;
+    required uint32 disk_id   = 2;
+    optional string token     = 3;
+}
+
+message GetRebalanceBlockRequest {
+    required uint32 disk_id   = 1;
+}
+
+message InjectRequest {
+    required uint32 type       = 1;
+    optional int32  disk_errno = 2;
+};
+
+message ComlogRequest {
+    required string module  = 1;
+    required int32  level = 2;
+};
+
+service MasterControlServiceAdaptor {
+    // lib -> master
+    rpc Create(CreateRequest) returns(BlockResponse);
+    rpc Remove(BlockRequest)  returns(AckResponse);
+    rpc Get(BlockRequest)     returns(BlockResponse);
+    rpc ListBlockServer(ListBlockServerRequest)  returns(ListBlockServerResponse);
+    rpc ListBlock(ListBlockRequest)              returns(ListBlockResponse);
+    rpc SafeModeToNormal(SafeModeRequest)        returns(AckResponse);
+    rpc ListUnNormalBlock(ListUnNormalBlockRequest)   returns(ListUnNormalBlockResponse);
+    rpc DropDisk(DropDiskRequest)                returns(AckResponse);
+    rpc CheckPoint(CheckPointRequest)            returns(AckResponse);
+    rpc SchedulerControl(RebalanceRequest)       returns(RebalanceResponse);
+    rpc ChangeBlockToNormal(BlockRequest)  returns(AckResponse);
+
+    // block server -> master
+    rpc ReportBadBlock(BlockRequest)    returns(AckResponse);
+    rpc ReportOrphanBlock(BlockRequest) returns(AckResponse);
+    rpc GetAllBlock(AllBlockRequest)    returns(AllBlockResponse);
+    rpc Heartbeat(HeartbeatRequest)     returns(AckResponse);
+}
+
+service RefreshMasterServiceAdaptor {
+    // lib         -> master
+    // blockserver -> master
+    rpc QueryMaster(QueryMasterRequest)        	        returns(QueryMasterResponse);
+}
+
+service BlockControlServiceAdaptor {
+    // master -> block server
+    rpc Create(CreateRequest)        	returns(AckResponse);
+    rpc Remove(BlockRequest)            returns(AckResponse);
+    rpc ReportAllBlock(EmptyRequest)    returns(AllBlockInfoResponse);
+    rpc ChangeRole(RoleRequest)         returns(AckResponse);
+    rpc ShutDown(EmptyRequest) 	        returns(AckResponse);
+    rpc GetStatus(EmptyRequest)         returns(GetStatusResponse);
+    rpc Reborn(RebornRequest) 	        returns(AckResponse);
+    rpc DropDisk(DropDiskRequest)       returns(AckResponse);
+    rpc GetLrsn(BlockRequest)           returns(BlockResponse);
+    rpc GetRebalanceBlock(GetRebalanceBlockRequest) returns(AllBlockResponse);
+
+    // lib -> block server
+    rpc GetBlockStatus(GetBlockStatusRequest) returns(GetBlockStatusResponse);
+    rpc TriggerCheckPoint(BlockRequest)       returns(AckResponse);
+    rpc InjectError(InjectRequest)            returns(AckResponse);
+    rpc ChangeComlogLevel(ComlogRequest)      returns(AckResponse);
+}
+
+message GetLeaderRequest {
+    required uint64 block_id = 1;
+}
+
+message GetLeaderResponse {
+    required string leader_addr = 1;
+}
+
+service BlockServiceAdaptor {
+    rpc Write(WriteRequest)                          returns(AckResponse);
+    rpc Read(ReadRequest)                            returns(ReadResponse);
+    rpc Backup(BackupRequest)                        returns(BackupResponse);
+    rpc Recover(RecoverRequest)                      returns(RecoverResponse);
+    rpc Rollback(RollbackRequest)                    returns(RollbackResponse);
+    rpc SetBitSet(SetBitSetRequest)  returns(SetBitSetResponse);
+    rpc GetLeader(GetLeaderRequest) returns(GetLeaderResponse);
+}
+
+// master log record
+message CreateBlockLog {
+    required uint64 block_id        = 1;
+    required uint32 iops            = 2;
+    optional uint32 throughput      = 3;
+    repeated ReplicaInfo replicas   = 4;
+    optional uint32 type            = 5;
+    optional bool   in_pool         = 6;
+    optional bool   from_pool       = 7;
+    optional uint64 create_time     = 8;
+    optional uint32 create_ip       = 9;
+    optional string tag             = 10;
+}
+
+message CreateBlockBatch {
+    repeated CreateBlockLog blocks  = 1;
+}
+
+message DropBlockLog {
+    required uint64 block_id             = 1;
+}
+
+message BlockServerLog {
+    required uint64 server_id     = 1;
+    repeated Storage storages     = 2;
+    optional int32  status        = 3;
+    optional uint64 version       = 4;
+    optional string build_version = 5;
+    optional bool   drop_replica  = 6;
+}
+
+message ReplicaLog {
+    required ReplicaInfo replica             = 1;
+}
+
+message ReplicaLogBatch {
+    repeated ReplicaInfo replicas            = 1;
+}
+
+message RebornLog {
+    required uint64 block_id  = 1;
+    required uint64 server_id = 2;
+}
+
+message DropDiskLog {
+    required uint64 server_id = 1;
+    required uint32 disk_id   = 2;
+}
+// block server log record
+message WriteLog {
+    required uint32 offset            = 1;
+    required uint32 size              = 2;
+    optional uint64 write_version     = 3;
+    optional string access_key_id     = 4;
+    optional string access_key_secret = 5;
+    optional string bucket_name       = 6;
+    optional string boss_host         = 7;
+}
+
+message StartBackupLog {
+    required string backup_name       = 1;   // deprecated
+    required string access_key_id     = 2;
+    required string access_key_secret = 3;
+    required string bucket_name       = 4;
+    required string boss_host         = 5;
+    optional uint64 snapshot_version  = 6;
+    optional bool is_new_backup       = 7;
+}
+
+message FinishBackupLog {
+    required string name              = 1;   // deprecated
+    required string object_name       = 2;
+    optional uint64 snapshot_version  = 3;
+}
+
+message StartRecoverLog {
+    required string snapshot_name     = 1;
+}
+
+message FinishSliceLog {
+    required int32 slice_index        = 1;
+    required string slice_object_name = 2;
+    required bool is_priority 	      = 3;
+}
+
+message RollbackLog {
+    required uint64 snapshot_version = 1;
+}
+
+message SetBitSetLog {
+    required uint64 block_id          = 1;
+}
+
+message CheckPointPbHeader {
+    required uint32 type          		= 1;
+    required uint32 compress_type 		= 2;
+    optional uint32 iops          		= 3;
+    optional string history_bitset 		= 4;
+    optional uint64 cur_write_version 		= 5;
+    optional uint64 pre_snapshot_version 	= 6;
+    optional uint64 cur_snapshot_version 	= 7;
+    optional string object_name 		= 8; 
+    optional uint64 checkpoint_lrsn     	= 9;
+    repeated uint64 checkpoint_offsets 		= 10;
+    repeated uint64 checkpoint_file_lrsns   = 11;
+}
+
+message MasterCheckPointLog {
+    repeated BlockServerLog block_server = 1;
+    repeated CreateBlockLog block= 2;
+    repeated ReplicaLog replica = 3;
+}
+
+message BackupPbHeader {
+    required uint32 type          = 1;
+    required uint32 compress_type = 2;
+    optional bytes  bitmap        = 3;
+    repeated string object_names  = 4;
+    optional uint32 offset        = 5;
+    optional uint32 data_size     = 6;
+    optional uint64 lrsn          = 7;
+}
+
+// list server and list block
+message ListBlockServerRequest {
+    optional uint32 type = 1;
+}
+
+message SafeModeToNormalRequest {
+    optional uint32 type = 1;
+}
+
+message StorageInfo {
+    optional uint32 id                = 1;
+    optional uint32 iops              = 2;
+    optional uint32 iops_avail        = 3;
+    optional uint32 capacity_gb       = 4;
+    optional uint32 capacity_avail_gb = 5;
+    optional bool   by_provisioned    = 6;
+    optional int32  block_num         = 7;
+    optional int32  primary_num       = 8;
+    optional uint32 type              = 9;
+    optional int32  recover_num       = 10;
+}
+
+message BlockServerInfo {
+    optional string server     = 1;
+    optional int32  block_num = 2;
+    optional int32  primary_num = 3;
+    optional int32  storages_num = 4;
+    optional int32  capacity_gb = 5;
+    optional int32  capacity_avail_gb = 6;
+    optional int32  iops = 7;
+    optional int32  iops_avail = 8;
+    optional int32  status      = 9;
+    optional int32  switch_id = 10;
+    optional string build_version = 11;
+    optional int32  penalty = 12;
+    optional int32  recover_num    = 13;
+    optional int32  capacity_avail_percent = 14;
+    optional int32  primary_num_ratio = 15;
+    optional int32  capacity_ratio = 16;
+    repeated StorageInfo storages  = 50;
+}
+
+message ListBlockServerResponse {
+    required int32  error_code = 1;
+    optional int32  block_num = 2;    
+    optional int32  primary_num = 3;    
+    optional int32  server_num = 4;
+    optional int32  storages_num = 5;
+    optional int32  capacity_gb = 6;
+    optional int32  capacity_avail_gb = 7;
+    optional int32  iops = 8;
+    optional int32  iops_avail = 9;
+    optional int32  pool_block_num = 10;
+    optional int32  total_block_num = 11;    
+    optional int32  oversell_rate = 12;
+    optional int32  capacity_sell_avail_gb = 13;
+    optional bool   safe_mode = 14;
+    repeated BlockServerInfo block_server = 50;
+}
+
+message ListBlockRequest {
+    optional uint64 block_id = 1;
+    optional uint64 server_id = 2;
+}
+
+message StorageReplicaInfo {
+    required uint64 block_id    = 1;
+    optional int32  disk_id     = 2;
+    optional int32  role        = 3;
+    optional int32  status      = 4;
+    optional int32  iops        = 5;
+    optional bool   in_pool     = 6;
+    optional uint64 create_time = 7;
+    optional uint32 create_ip   = 8;
+    optional string tag         = 9;
+}
+
+message ListReplicaInfo {
+    optional int32  disk_id   = 1;
+    optional int32  block_num = 2;
+    optional int32  primary_num = 3;
+    repeated StorageReplicaInfo replica  = 4;
+    optional int32  recover_num = 5;
+}
+
+message ListBlockResponse {
+    required int32  error_code = 1;
+    optional int32  block_num = 2;
+    optional int32  primary_num = 3;
+    optional int32  storage_num = 4;
+    repeated ListReplicaInfo storage  = 5;
+    optional int32  recover_num = 6;
+}
+
+message GetStatusResponse {
+    required int32  error_code 			= 1;
+    required int32  blockserver_status 		= 2;
+    required uint32 total_block_num 		= 3;
+    required uint32 start_set_size 		= 4;
+    required uint32 normal_set_size 		= 5;
+    required uint32 change_set_size 		= 6;
+    required uint32 dead_set_size 		= 7;
+    required uint32 garbage_status_set_size 	= 8;
+    required uint32 primary_set_size 		= 9;
+    required uint32 checkpoint_set_size 	= 10;
+    required uint32 secondary_set_size 		= 11;
+    required uint32 garbage_role_set_size 	= 12;
+    repeated uint64 start_block_ids     	= 13;
+    repeated uint64 normal_block_ids    	= 14;
+    repeated uint64 change_block_ids    	= 15;
+    repeated uint64 dead_block_ids     		= 16;
+    repeated uint64 garbage_status_block_ids  	= 17;
+    repeated uint64 primary_block_ids    	= 18;
+    repeated uint64 checkpoint_block_ids    	= 19;
+    repeated uint64 secondary_block_ids     	= 20;
+    repeated uint64 garbage_role_block_ids     	= 21;
+}
+
+message ListUnNormalBlockRequest {
+    optional uint64 mode = 1;
+}
+
+message UnNormalBlockInfo {
+    optional uint32 num 		= 1;
+    repeated uint64 block_id  		= 2;
+}
+
+
+message ListUnNormalBlockResponse {
+    required int32  error_code 				= 1;
+    optional UnNormalBlockInfo no_primary_blocks 	= 2;
+    optional UnNormalBlockInfo lack_replica_blocks  	= 3;
+    optional UnNormalBlockInfo reborn_blocks  	= 4;
+}
+
+message RebornRequest {
+    required uint64 block_id  = 1;
+}
+
+message QueryMasterRequest {
+    required int32  mode = 1;
+}
+
+message QueryMasterResponse {
+    required int32  error_code = 1;
+    optional uint64 node  = 2;
+}
+
+message CheckPointRequest {
+    optional int32  mode = 1;
+}
+
+message RebalanceRequest {
+    optional string cmd = 1;
+}
+
+message RebalanceResponse {
+    required int32  error_code = 1;
+    optional string message = 2;
+}
