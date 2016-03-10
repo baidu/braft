@@ -89,8 +89,10 @@ int fileuri_parse(const std::string& uri, base::EndPoint* addr, std::string* pat
     // skip first /
     path->assign(uri, path_found + 1, uri.size() - (path_found + 1));
 
-    if (0 != base::hostname2endpoint(addr_str.c_str(), addr) &&
-        0 != base::str2endpoint(addr_str.c_str(), addr)) {
+    if (0 != base::str2endpoint(addr_str.c_str(), addr) &&
+        //            ^^^ Put str2endpoint in front as it's much faster than
+        //            hostname2endpoint
+        0 != base::hostname2endpoint(addr_str.c_str(), addr)) {
         return EINVAL;
     }
 

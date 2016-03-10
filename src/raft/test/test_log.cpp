@@ -799,3 +799,21 @@ TEST_F(TestUsageSuits, multi_read_single_modify_thread_safe) {
     raft::FLAGS_raft_max_segment_size = saved_max_segment_size;
 }
 
+TEST_F(TestUsageSuits, large_entry) {
+    system("rm -rf ./data");
+    raft::SegmentLogStorage* storage = new raft::SegmentLogStorage("./data");
+    raft::ConfigurationManager* configuration_manager = new raft::ConfigurationManager;
+    ASSERT_EQ(0, storage->init(configuration_manager));
+    raft::LogEntry* entry = new raft::LogEntry;
+    entry->type = raft::ENTRY_TYPE_DATA;
+    entry->index = 1;
+    std::string data;
+    data.resize(512 * 1024 * 1024, 'a');
+    entry->data.append(data);
+    ASSERT_EQ(0, storage->append_entry(entry));
+    ASSERT_EQ(0, entry->Release());
+    entry = storage->get_entry(1);
+    ASSERT_EQ(data, entry->data.to_string());
+    ASSERT_EQ(0, entry->Release());
+}
+

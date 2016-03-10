@@ -324,7 +324,7 @@ int Segment::append(const LogEntry* entry) {
     ssize_t written = 0;
     while (written < (ssize_t)to_write) {
         const ssize_t n = base::IOBuf::cut_multiple_into_file_descriptor(
-                _fd, pieces, ARRAY_SIZE(pieces) - start);
+                _fd, pieces + start, ARRAY_SIZE(pieces) - start);
         if (n < 0) {
             LOG(ERROR) << "Fail to write to fd=" << _fd << ", " << berror();
             return -1;
