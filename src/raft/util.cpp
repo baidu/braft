@@ -110,15 +110,6 @@ ssize_t file_pread(base::IOPortal* portal, int fd, off_t offset, size_t size) {
             offset += read_len;
         } else if (read_len == 0) {
             break;
-            /*
-            char zero_page[4096] = {0};
-            ssize_t page_num = left / 4096;
-            left -= (page_num * 4096);
-            for (ssize_t i = 0; i < page_num; i++) {
-                portal->append(zero_page, 4096);
-            }
-            portal->append(zero_page, left);
-            //*/
         } else if (errno == EINTR) {
             continue;
         } else {
@@ -141,7 +132,6 @@ ssize_t file_pwrite(const base::IOBuf& data, int fd, off_t offset) {
         if (writen >= 0) {
             offset += writen;
             left -= writen;
-            piece_data.pop_front(writen);
         } else if (errno == EINTR) {
             continue;
         } else {

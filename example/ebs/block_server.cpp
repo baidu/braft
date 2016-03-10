@@ -32,6 +32,8 @@ DEFINE_int32(block_num, 32, "Number of block");
 DEFINE_int64(block_size, 1L * 1024 * 1024 * 1024, "Size of each block");
 DEFINE_bool(sync_data, false, "Sync block on each write");
 
+BAIDU_RPC_VALIDATE_GFLAG(sync_data, ::baidu::rpc::PassValidate);
+
 namespace raft {
 DECLARE_bool(raft_sync);
 }
@@ -270,15 +272,19 @@ public:
         SnapshotSaveMeta* meta = (SnapshotSaveMeta*)arg;
         std::unique_ptr<SnapshotSaveMeta> meta_guard(meta);
         baidu::rpc::ClosureGuard done_guard(meta->done);
+        base::EndPoint local;
+        base::str2endpoint(FLAGS_ip_and_port.c_str(), &local);
 
         std::string snapshot_path(raft::fileuri2path(
-                    meta->writer->get_uri(base::EndPoint())));
+                    meta->writer->get_uri(local)));
         snapshot_path.append("/../data");
         std::string data_path(raft::fileuri2path(
-                    meta->writer->get_uri(base::EndPoint())));
+                    meta->writer->get_uri(local)));
         data_path.append("/data");
 
-        raft::raft_fsync(meta->fd->fd());
+        if (FLAGS_sync_data) {
+            raft::raft_fsync(meta->fd->fd());
+        }
         meta->fd->Release();
         CHECK_EQ(0, link(snapshot_path.c_str(),
                     data_path.c_str()))
@@ -377,7 +383,7 @@ public:
             base::string_printf(&name, "block_%d", i);
             Block* block = new Block(name, raft::PeerId(addr, 0));
             std::string prefix;
-            base::string_printf(&prefix, "file://./data/block_%d/", i);
+            base::string_printf(&prefix, "file://%s/data/block_%d", FLAGS_ip_and_port.c_str(), i);
             raft::NodeOptions node_options;
             node_options.election_timeout = base::fast_rand_in(5000, 20000);
             node_options.fsm = block;

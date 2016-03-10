@@ -103,8 +103,8 @@ int LocalSnapshotWriter::save_meta(const SnapshotMeta& meta) {
     return ret;
 }
 
-std::string LocalSnapshotWriter::get_uri(const base::EndPoint& /*hint_addr*/) {
-    return std::string("file://") + _path;
+std::string LocalSnapshotWriter::get_uri(const base::EndPoint& hint_addr) {
+    return std::string("file://") + base::endpoint2str(hint_addr).c_str() + '/' + _path;
 }
 
 LocalSnapshotReader::LocalSnapshotReader(const std::string& path)
