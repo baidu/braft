@@ -27,7 +27,10 @@ if gcc_version >= 40000:
     CXXFLAGS('-Wno-unused-local-typedefs -Wno-missing-field-initializers')
 
 INCPATHS('../../')
-LDFLAGS('-lpthread -lrt -ldl -lz -lssl -lcrypto')
+LDFLAGS('-pthread -lrt -ldl -lz -lssl -lcrypto')
+
+#CXXFLAGS('-fsanitize=address -fno-omit-frame-pointer')
+#LDFLAGS('-lasan')
 
 class AppGen:
     def __init__(self, autoTargetName):
