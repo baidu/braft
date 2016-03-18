@@ -10,6 +10,7 @@
 #include <base/iobuf.h>                         // base::IOBuf
 #include <base/memory/ref_counted.h>            // base::RefCountedThreadSafe
 #include <bvar/bvar.h>
+#include <murmurhash3.h>                        // fmix64
 #include "raft/configuration.h"
 #include "raft/raft.pb.h"
 
@@ -17,16 +18,23 @@ namespace raft {
 
 extern bvar::Adder<int64_t> g_nentries;
 
+// Log indentifier
+struct LogId {
+    LogId() : index(0), term(0) {}
+    LogId(int64_t index_, int64_t term_) : index(index_), term(term_) {}
+    int64_t index;
+    int64_t term;
+};
+
 // term start from 1, log index start from 1
 struct LogEntry {
 public:
     EntryType type; // log type
-    int64_t index; // log index
-    int64_t term; // leader term
+    LogId id;
     std::vector<PeerId>* peers; // peers
     base::IOBuf data;
 
-    LogEntry(): type(ENTRY_TYPE_UNKNOWN), index(0), term(0), peers(NULL), ref(0) {
+    LogEntry(): type(ENTRY_TYPE_UNKNOWN), peers(NULL), ref(0) {
         // FIXME: Use log entry in the RAII way
         g_nentries << 1;
         AddRef();
@@ -72,6 +80,49 @@ private:
     }
 };
 
+// Comparators
+
+inline bool operator==(const LogId& lhs, const LogId& rhs) {
+    return lhs.index == rhs.index && lhs.term == rhs.term;
 }
+
+inline bool operator!=(const LogId& lhs, const LogId& rhs) {
+    return !(lhs == rhs);
+}
+
+inline bool operator<(const LogId& lhs, const LogId& rhs) {
+    if (lhs.term == rhs.term) {
+        return lhs.index < rhs.index;
+    }
+    return lhs.term < rhs.term;
+}
+
+inline bool operator>(const LogId& lhs, const LogId& rhs) {
+    if (lhs.term == rhs.term) {
+        return lhs.index > rhs.index;
+    }
+    return lhs.term > rhs.term;
+}
+
+inline bool operator<=(const LogId& lhs, const LogId& rhs) {
+    return !(lhs > rhs);
+}
+
+inline bool operator>=(const LogId& lhs, const LogId& rhs) {
+    return !(lhs < rhs);
+}
+
+struct LogIdHasher {
+    size_t operator()(const LogId& id) const {
+        return fmix64(id.index) ^ fmix64(id.term);
+    }
+};
+
+inline std::ostream& operator<<(std::ostream& os, const LogId& id) {
+    os << "(index=" << id.index << ",term=" << id.term << ')';
+    return os;
+}
+
+}  // namespace raft
 
 #endif  //PUBLIC_RAFT_LOG_ENTRY_H

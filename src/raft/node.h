@@ -24,6 +24,7 @@
 #include "raft/replicator.h"
 #include "raft/util.h"
 #include "raft/closure_queue.h"
+#include "raft/configuration_manager.h"
 
 namespace raft {
 
@@ -35,6 +36,7 @@ class SnapshotExecutor;
 class BAIDU_CACHELINE_ALIGNMENT NodeImpl : public base::RefCountedThreadSafe<NodeImpl> {
 friend class RaftServiceImpl;
 friend class RaftStatImpl;
+friend class FollowerStableClosure;
 public:
     NodeImpl(const GroupId& group_id, const PeerId& peer_id);
 
@@ -102,9 +104,10 @@ public:
                      RequestVoteResponse* response);
 
     // handle received AppendEntries
-    int handle_append_entries_request(const base::IOBuf& data_buf,
-                       const AppendEntriesRequest* request,
-                       AppendEntriesResponse* response);
+    void handle_append_entries_request(baidu::rpc::Controller* cntl,
+                                      const AppendEntriesRequest* request,
+                                      AppendEntriesResponse* response,
+                                      google::protobuf::Closure* done);
 
     // handle received InstallSnapshot
     void handle_install_snapshot_request(baidu::rpc::Controller* controller,
@@ -169,9 +172,6 @@ private:
     void unsafe_apply_configuration(const Configuration& new_conf, 
                                     Closure* done);
 
-    // candidate/follower sync append log entry
-    int append(const std::vector<LogEntry*>& entries);
-
     void do_snapshot(Closure* done);
 
     void after_shutdown();
@@ -233,7 +233,7 @@ private:
     PeerId _voted_id;
     VoteCtx _vote_ctx; // candidate vote ctx
     VoteCtx _pre_vote_ctx; // prevote ctx
-    std::pair<int64_t, Configuration> _conf;
+    ConfigurationPair _conf;
 
     GroupId _group_id;
     PeerId _server_id;

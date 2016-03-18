@@ -25,6 +25,10 @@ DEFINE_int32(raft_max_entries_size, 1024,
              "The max number of entries in AppendEntriesRequest");
 BAIDU_RPC_VALIDATE_GFLAG(raft_max_entries_size, ::baidu::rpc::PositiveInteger);
 
+DEFINE_int32(raft_max_body_size, 8 * 1024 * 1024,
+             "The max number of entries in AppendEntriesRequest");
+BAIDU_RPC_VALIDATE_GFLAG(raft_max_body_size, ::baidu::rpc::PositiveInteger);
+
 ReplicatorOptions::ReplicatorOptions()
     : heartbeat_timeout_ms(-1)
     , log_manager(NULL)
@@ -341,7 +345,11 @@ int Replicator::_prepare_entry(int offset, EntryMeta* em, base::IOBuf *data) {
     if (entry == NULL) {
         return -1;
     }
-    em->set_term(entry->term);
+    if (entry->data.length() + data->length() > (size_t)FLAGS_raft_max_body_size) {
+        entry->Release();
+        return -1;
+    }
+    em->set_term(entry->id.term);
     em->set_type(entry->type);
     // FIXME: why don't put peers in data?
     if (entry->peers != NULL) {

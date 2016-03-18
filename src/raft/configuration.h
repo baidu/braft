@@ -3,6 +3,7 @@
 
 // Author: WangYao (fisherman), wangyao02@baidu.com
 // Date: 2015/09/28 17:34:22
+
 #ifndef PUBLIC_RAFT_RAFT_CONFIGURATION_H
 #define PUBLIC_RAFT_RAFT_CONFIGURATION_H
 
@@ -230,40 +231,9 @@ private:
     std::set<PeerId> _peers;
 
 };
+
 std::ostream& operator<<(std::ostream& os, const Configuration& a);
 
-typedef std::pair<int64_t, Configuration> ConfigurationPair;
-class ConfigurationManager {
-public:
-    ConfigurationManager() {
-        _snapshot = ConfigurationPair(0, Configuration());
-    }
-    virtual ~ConfigurationManager() {}
-
-    // add new configuration at index
-    void add(const int64_t index, const Configuration& config);
-
-    // [1, first_index_kept) are being discarded
-    void truncate_prefix(const int64_t first_index_kept);
-
-    // (last_index_kept, infinity) are being discarded
-    void truncate_suffix(const int64_t last_index_kept);
-
-    void set_snapshot(const int64_t index, const Configuration& config);
-
-    ConfigurationPair get_configuration(const int64_t last_included_index);
-
-    int64_t last_configuration_index();
-
-    ConfigurationPair last_configuration();
-
-private:
-
-    typedef std::map<int64_t, Configuration> ConfigurationMap;
-    ConfigurationMap _configurations;
-    ConfigurationPair _snapshot;
-};
-
-}
+}  // namespace raft
 
 #endif //~PUBLIC_RAFT_RAFT_CONFIGURATION_H

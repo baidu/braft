@@ -10,7 +10,7 @@ if [[ ! -d "$mydir" ]]; then mydir="$PWD"; fi
 
 # define command-line flags
 DEFINE_string crash_on_fatal 'true' 'Crash on fatal log'
-DEFINE_integer bthread_concurrency '18' 'Number of worker pthreads'
+DEFINE_integer bthread_concurrency '64' 'Number of worker pthreads'
 DEFINE_string sync 'false' 'fsync each time'
 DEFINE_string sync_data 'false' 'sync data each time'
 DEFINE_string valgrind 'false' 'Run in valgrind'

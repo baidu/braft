@@ -312,7 +312,7 @@ int NodeImpl::init(const NodeOptions& options) {
             break;
         }
 
-        _conf.first = 0;
+        _conf.first = LogId();
         // if have log using conf in log, else using conf in options
         if (_log_manager->last_log_index() > 0) {
             _log_manager->check_and_set_configuration(&_conf);
@@ -343,7 +343,7 @@ int NodeImpl::init(const NodeOptions& options) {
         }
         LOG(INFO) << "node " << _group_id << ":" << _server_id << " init,"
             << " term: " << _current_term
-            << " last_log_index: " << _log_manager->last_log_index()
+            << " last_log_id: " << _log_manager->last_log_id()
             << " conf: " << _conf.second;
         if (!_conf.second.empty()) {
             step_down(_current_term);
@@ -1019,9 +1019,9 @@ void NodeImpl::pre_vote() {
         request.set_server_id(_server_id.to_string());
         request.set_peer_id(peers[i].to_string());
         request.set_term(_current_term + 1); // next term
-        const int64_t last_log_index = _log_manager->last_log_index();
-        request.set_last_log_index(last_log_index);
-        request.set_last_log_term(_log_manager->get_term(last_log_index));
+        const LogId last_log_id = _log_manager->last_log_id();
+        request.set_last_log_index(last_log_id.index);
+        request.set_last_log_term(last_log_id.term);
 
         OnPreVoteRPCDone* done = new OnPreVoteRPCDone(peers[i], _current_term, this);
         RaftService_Stub stub(&channel);
@@ -1084,9 +1084,9 @@ void NodeImpl::elect_self() {
         request.set_server_id(_server_id.to_string());
         request.set_peer_id(peers[i].to_string());
         request.set_term(_current_term);
-        const int64_t last_log_index = _log_manager->last_log_index();
-        request.set_last_log_index(last_log_index);
-        request.set_last_log_term(_log_manager->get_term(last_log_index));
+        const LogId last_log_id = _log_manager->last_log_id();
+        request.set_last_log_index(last_log_id.index);
+        request.set_last_log_term(last_log_id.term);
 
         OnRequestVoteRPCDone* done = new OnRequestVoteRPCDone(peers[i], _current_term, this);
         RaftService_Stub stub(&channel);
@@ -1127,9 +1127,6 @@ void NodeImpl::step_down(const int64_t term) {
         }
 
         _commit_manager->clear_pending_tasks();
-
-        // stop disk thread, not need Release, stop is sync
-        _log_manager->stop_disk_thread();
 
         // signal fsm leader stop immediately
         _fsm_caller->on_leader_stop();
@@ -1190,9 +1187,6 @@ void NodeImpl::become_leader() {
 
     _state = LEADER;
     _leader_id = _server_id;
-
-    // init disk thread, not need AddRef, stop_disk_thread is sync
-    _log_manager->start_disk_thread();
 
     _replicator_group.reset_term(_current_term);
 
@@ -1281,7 +1275,7 @@ void NodeImpl::apply(LogEntryAndClosure* const tasks[], size_t size) {
         return;
     }
     for (size_t i = 0; i < size; ++i) {
-        entries[i]->term = _current_term;
+        entries[i]->id.term = _current_term;
         entries[i]->type = ENTRY_TYPE_DATA;
         _commit_manager->append_pending_task(_conf.second, tasks[i]->done);
     }
@@ -1298,7 +1292,7 @@ void NodeImpl::unsafe_apply_configuration(const Configuration& new_conf,
                                           Closure* done) {
     CHECK(!_conf_ctx.empty());
     LogEntry* entry = new LogEntry();
-    entry->term = _current_term;
+    entry->id.term = _current_term;
     entry->type = ENTRY_TYPE_CONFIGURATION;
     entry->peers = new std::vector<PeerId>;
     new_conf.list_peers(entry->peers);
@@ -1308,31 +1302,16 @@ void NodeImpl::unsafe_apply_configuration(const Configuration& new_conf,
     std::vector<PeerId> old_peers;
     _conf.second.list_peers(&old_peers);
     _commit_manager->append_pending_task(new_conf, configuration_change_done);
-
-    _log_manager->append_entry(entry, 
-                               new LeaderStableClosure(
+    
+    std::vector<LogEntry*> entries;
+    entries.push_back(entry);
+    _log_manager->append_entries(&entries, 
+                                 new LeaderStableClosure(
                                         NodeId(_group_id, _server_id), 
                                         1u,
                                         _commit_manager));
     // update _conf.first
     _log_manager->check_and_set_configuration(&_conf);
-}
-
-int NodeImpl::append(const std::vector<LogEntry*>& entries) {
-    if (entries.size() == 0) {
-        return 0;
-    }
-    int ret = _log_manager->append_entries(entries);
-    if (ret == 0) {
-        _log_manager->check_and_set_configuration(&_conf);
-    } else {
-        LogEntry* first_entry = entries[0];
-        LogEntry* last_entry = entries[entries.size() - 1];
-        LOG(ERROR) << "node " << _group_id << ":" << _server_id
-            << " append " << first_entry->index << " -> " << last_entry->index << " failed";
-    }
-
-    return ret;
 }
 
 int NodeImpl::handle_pre_vote_request(const RequestVoteRequest* request,
@@ -1371,11 +1350,9 @@ int NodeImpl::handle_pre_vote_request(const RequestVoteRequest* request,
             break;
         }
 
-        int64_t last_log_index = _log_manager->last_log_index();
-        int64_t last_log_term = _log_manager->get_term(last_log_index);
-        granted = (request->last_log_term() > last_log_term ||
-                          (request->last_log_term() == last_log_term &&
-                           request->last_log_index() >= last_log_index));
+        LogId last_log_id = _log_manager->last_log_id();
+        granted = (LogId(request->last_log_index(), request->last_log_term()) 
+                        >= last_log_id);
 
         LOG(INFO) << "node " << _group_id << ":" << _server_id
             << " received PreVote from " << request->server_id()
@@ -1394,11 +1371,9 @@ int NodeImpl::handle_request_vote_request(const RequestVoteRequest* request,
                                           RequestVoteResponse* response) {
     BAIDU_SCOPED_LOCK(_mutex);
 
-    int64_t last_log_index = _log_manager->last_log_index();
-    int64_t last_log_term = _log_manager->get_term(last_log_index);
-    bool log_is_ok = (request->last_log_term() > last_log_term ||
-                      (request->last_log_term() == last_log_term &&
-                       request->last_log_index() >= last_log_index));
+    LogId last_log_id = _log_manager->last_log_id();
+    bool log_is_ok = (LogId(request->last_log_index(), request->last_log_term()) 
+                        >= last_log_id);
     PeerId candidate_id;
     if (0 != candidate_id.parse(request->server_id())) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
@@ -1452,12 +1427,101 @@ int NodeImpl::handle_request_vote_request(const RequestVoteRequest* request,
     return 0;
 }
 
-int NodeImpl::handle_append_entries_request(const base::IOBuf& data,
-                                            const AppendEntriesRequest* request,
-                                            AppendEntriesResponse* response) {
-    base::IOBuf data_buf(data);
-    std::unique_lock<raft_mutex_t> lck(_mutex);
+class FollowerStableClosure : public LogManager::StableClosure {
+public:
+    FollowerStableClosure(
+            baidu::rpc::Controller* cntl,
+            const AppendEntriesRequest* request,
+            AppendEntriesResponse* response,
+            google::protobuf::Closure* done,
+            NodeImpl* node,
+            int64_t term)
+        : _cntl(cntl)
+        , _request(request)
+        , _response(response)
+        , _done(done)
+        , _node(node)
+        , _term(term)
+    {
+        _node->AddRef();
+    }
+    void Run() {
+        run();
+        delete this;
+    }
+private:
+    ~FollowerStableClosure() {
+        if (_node) {
+            _node->Release();
+        }
+    }
+    void run() {
+        baidu::rpc::ClosureGuard done_guard(_done);
+        if (!status().ok()) {
+            _cntl->SetFailed(status().error_code(), "%s",
+                             status().error_cstr());
+            return;
+        }
+        std::unique_lock<raft_mutex_t> lck(_node->_mutex);
+        if (_term != _node->_current_term) {
+            // The change of term indicates that leader has been changed during
+            // appending entries, so we can't respond ok to the old leader
+            // because we are not sure if the appended logs would be truncated
+            // by the new leader:
+            //  - If they won't be truncated and we respond failure to the old
+            //    leader: the new leader would know that they are stored in this
+            //    peer and they will be eventually committed when the new leader
+            //    found that quorum of the cluster have stored.
+            //  - If they will be truncated and we responed success to the old
+            //    leader: the old leader would possibly regard thos entries as
+            //    committed (very likely in a 3-nodes cluster) and respond
+            //    success to the clients, which would break the rule that
+            //    committed entries would never be truncated.
+            // So we have to respond failure to the old leader and set the new
+            // term to make it stepped down if it did't.
+            _response->set_success(false);
+            _response->set_term(_node->_current_term);
+            return;
+        }
+        // It's safe to release lck as we know everything is ok at this point.
+        lck.unlock();
 
+        // DON'T touch _node any more
+        _response->set_success(true);
+        _response->set_term(_term);
+
+        const int64_t committed_index = 
+                std::min(_request->committed_index(),
+                         // ^^^ committed_index is likely less than the
+                         // last_log_index
+                         _request->prev_log_index() + _request->entries_size()
+                         // ^^^ The logs after the appended entries are
+                         // untrustable so we can't commit them even if their 
+                         // indexes are less than request->committed_index()
+                        );
+        //_commit_manager is thread safe and tolerats disorder.
+        _node->_commit_manager->set_last_committed_index(committed_index);
+    }
+
+    baidu::rpc::Controller* _cntl;
+    const AppendEntriesRequest* _request;
+    AppendEntriesResponse* _response;
+    google::protobuf::Closure* _done;
+    NodeImpl* _node;
+    int64_t _term;
+};
+
+void NodeImpl::handle_append_entries_request(baidu::rpc::Controller* cntl,
+                                             const AppendEntriesRequest* request,
+                                             AppendEntriesResponse* response,
+                                             google::protobuf::Closure* done) {
+    base::IOBuf data_buf;
+    data_buf.swap(cntl->request_attachment());
+    std::vector<LogEntry*> entries;
+    entries.reserve(request->entries_size());
+    baidu::rpc::ClosureGuard done_guard(done);
+    std::unique_lock<raft_mutex_t> lck(_mutex);
+    
     // pre set term, to avoid get term in lock
     response->set_term(_current_term);
 
@@ -1466,166 +1530,108 @@ int NodeImpl::handle_append_entries_request(const base::IOBuf& data,
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
             << " received AppendEntries from " << request->server_id()
             << " server_id bad format";
-        return EINVAL;
+        cntl->SetFailed(baidu::rpc::EREQUEST,
+                        "Fail to parse server_id `%s'", 
+                        request->server_id().c_str());
+        return;
     }
 
-    bool success = false;
-    do {
-        // check stale term
-        if (request->term() < _current_term) {
-            LOG(WARNING) << "node " << _group_id << ":" << _server_id
-                << " ignore stale AppendEntries from " << request->server_id()
-                << " in term " << request->term()
-                << " current_term " << _current_term;
-            break;
-        }
-
-        // check term and state to step down
-        if (request->term() > _current_term || _state != FOLLOWER) {
-            step_down(request->term());
-            response->set_term(request->term());
-        }
-
-        // save current leader
-        if (_leader_id.is_empty()) {
-            _leader_id = server_id;
-        }
-
-        // FIXME: is it conflicted with set_peer?
-        CHECK_EQ(server_id, _leader_id) 
-                << "Another peer=" << server_id 
-                << " declares that it is the leader at term="
-                << _current_term << " which is occupied by leader="
-                << _leader_id;
-
-        if (request->entries_size() > 0 && 
-                (_snapshot_executor 
-                    && _snapshot_executor->is_installing_snapshot())) {
-            LOG(WARNING) << "Received append entries while installing snapshot";
-            _last_leader_timestamp = base::monotonic_time_ms();
-            return EBUSY;
-        }
-
-        // check prev log gap
-        if (request->prev_log_index() > _log_manager->last_log_index()) {
-            LOG(WARNING) << "node " << _group_id << ":" << _server_id
-                << " reject index_gapped AppendEntries from " << request->server_id()
-                << " in term " << request->term()
-                << " prev_log_index " << request->prev_log_index()
-                << " last_log_index " << _log_manager->last_log_index();
-            break;
-        }
-
-        // check prev log term
-        if (request->prev_log_index() >= _log_manager->first_log_index()) {
-            int64_t local_term = _log_manager->get_term(request->prev_log_index());
-            if (local_term != request->prev_log_term()) {
-                LOG(WARNING) << "node " << _group_id << ":" << _server_id
-                    << " reject term_unmatched AppendEntries from " << request->server_id()
-                    << " in term " << request->term()
-                    << " prev_log_index " << request->prev_log_index()
-                    << " prev_log_term " << request->prev_log_term()
-                    << " prev_log_term_local " << local_term;
-                break;
-            }
-        }
-
-        success = true;
-
-        std::vector<LogEntry*> entries;
-        int64_t index = request->prev_log_index();
-        for (int i = 0; i < request->entries_size(); i++) {
-            index++;
-
-            const EntryMeta& entry = request->entries(i);
-
-            if (index < _log_manager->first_log_index()) {
-                // log maybe discard after snapshot, skip retry AppendEntries rpc
-                continue;
-            }
-            // mostly index == _log_manager->last_log_index() + 1
-            if (_log_manager->last_log_index() >= index) {
-                if (_log_manager->get_term(index) == entry.term()) {
-                    // check same index entry's term when duplicated rpc
-                    continue;
-                }
-
-                int64_t last_index_kept = index - 1;
-                LOG(WARNING) << "node " << _group_id << ":" << _server_id
-                    << " term " << _current_term
-                    << " truncate from " << _log_manager->last_log_index()
-                    << " to " << last_index_kept;
-
-                _log_manager->truncate_suffix(last_index_kept);
-                // truncate configuration
-                _log_manager->check_and_set_configuration(&_conf);
-            }
-
-            if (entry.type() != ENTRY_TYPE_UNKNOWN) {
-                LogEntry* log_entry = new LogEntry();
-                log_entry->term = entry.term();
-                log_entry->index = index;
-                log_entry->type = (EntryType)entry.type();
-                if (entry.peers_size() > 0) {
-                    log_entry->peers = new std::vector<PeerId>;
-                    for (int i = 0; i < entry.peers_size(); i++) {
-                        log_entry->peers->push_back(entry.peers(i));
-                    }
-                    CHECK_EQ(log_entry->type, ENTRY_TYPE_CONFIGURATION);
-                } else {
-                    CHECK_NE(entry.type(), ENTRY_TYPE_CONFIGURATION);
-                }
-
-                if (entry.has_data_len()) {
-                    int len = entry.data_len();
-                    data_buf.cutn(&log_entry->data, len);
-                }
-
-                entries.push_back(log_entry);
-            }
-        }
-
-        RAFT_VLOG << "node " << _group_id << ":" << _server_id
-            << " received " << (entries.size() > 0 ? "AppendEntriesRequest" : "HeartbeatRequest")
-            << " from " << request->server_id()
+    // check stale term
+    if (request->term() < _current_term) {
+        LOG(WARNING) << "node " << _group_id << ":" << _server_id
+            << " ignore stale AppendEntries from " << request->server_id()
             << " in term " << request->term()
-            << " prev_index " << request->prev_log_index()
-            << " prev_term " << request->prev_log_term()
-            << " committed_index " << request->committed_index()
-            << " count " << entries.size()
             << " current_term " << _current_term;
+        response->set_success(false);
+        response->set_term(_current_term);
+        return;
+    }
 
+    // check term and state to step down
+    if (request->term() > _current_term || _state != FOLLOWER) {
+        step_down(request->term());
+    }
+
+    // save current leader
+    if (_leader_id.is_empty()) {
+        _leader_id = server_id;
+    }
+
+    // FIXME: is it conflicted with set_peer?
+    CHECK_EQ(server_id, _leader_id) 
+            << "Another peer=" << server_id 
+            << " declares that it is the leader at term="
+            << _current_term << " which is occupied by leader="
+            << _leader_id;
+
+    _last_leader_timestamp = base::monotonic_time_ms();
+    if (request->entries_size() > 0 && 
+            (_snapshot_executor 
+                && _snapshot_executor->is_installing_snapshot())) {
+        LOG(WARNING) << "Received append entries while installing snapshot";
+        cntl->SetFailed(EBUSY, "Is installing snapshot");
+        return;
+    }
+
+    const int64_t prev_log_index = request->prev_log_index();
+    const int64_t prev_log_term = request->prev_log_term();
+    if (_log_manager->get_term(prev_log_index) != prev_log_term) {
+        LOG(WARNING) << "node " << _group_id << ":" << _server_id
+            << " reject term_unmatched AppendEntries from " << request->server_id()
+            << " in term " << request->term()
+            << " prev_log_index " << request->prev_log_index()
+            << " last_log_index " << _log_manager->last_log_index();
+        response->set_success(false);
+        response->set_term(_current_term);
+        response->set_last_log_index(_log_manager->last_log_index());
+        return;
+    }
+
+    if (request->entries_size() == 0) {
+        response->set_success(true);
+        response->set_term(_current_term);
+        response->set_last_log_index(_log_manager->last_log_index());
         lck.unlock();
-
-        //TODO2: outof lock
-        if (0 != append(entries)) {
-            // free entry
-            for (size_t i = 0; i < entries.size(); i++) {
-                LogEntry* entry = entries[i];
-                entry->Release();
-            }
-            success = false;
-        }
-    } while (0);
-
-    // TOOD: unuse lock use atomic
-    if (!lck.owns_lock()) {
-        lck.lock();
-    }
-
-    response->set_success(success);
-    response->set_last_log_index(_log_manager->last_log_index());
-    if (success) {
-        // commit manager call fsmcaller
-        const int64_t last_index = _log_manager->last_log_index();
-        // 3 nodes cluster, old leader's committed_index may greater than some node.
-        // committed_index not the key of elect, the lesser committed_index node can be leader.
-        // new leader's committed_index may lesser than local committed_index
+        // see the comments at FollowerStableClosure::run()
         _commit_manager->set_last_committed_index(
-            std::min((int64_t)request->committed_index(), last_index));
-        _last_leader_timestamp = base::monotonic_time_ms();
+                std::min(request->committed_index(),
+                         prev_log_index));
+        return;
     }
-    return 0;
+
+    // Parse request
+    int64_t index = prev_log_index;
+    for (int i = 0; i < request->entries_size(); i++) {
+        index++;
+        const EntryMeta& entry = request->entries(i);
+        if (entry.type() != ENTRY_TYPE_UNKNOWN) {
+            LogEntry* log_entry = new LogEntry();
+            log_entry->id.term = entry.term();
+            log_entry->id.index = index;
+            log_entry->type = (EntryType)entry.type();
+            if (entry.peers_size() > 0) {
+                log_entry->peers = new std::vector<PeerId>;
+                for (int i = 0; i < entry.peers_size(); i++) {
+                    log_entry->peers->push_back(entry.peers(i));
+                }
+                CHECK_EQ(log_entry->type, ENTRY_TYPE_CONFIGURATION);
+            } else {
+                CHECK_NE(entry.type(), ENTRY_TYPE_CONFIGURATION);
+            }
+            if (entry.has_data_len()) {
+                int len = entry.data_len();
+                data_buf.cutn(&log_entry->data, len);
+            }
+            entries.push_back(log_entry);
+        }
+    }
+    FollowerStableClosure* c = new FollowerStableClosure(
+            cntl, request, response, done_guard.release(), 
+            this, _current_term);
+    _log_manager->append_entries(&entries, c);
+
+    // update configuration after _log_manager updated its memory status
+    _log_manager->check_and_set_configuration(&_conf);
 }
 
 int NodeImpl::increase_term_to(int64_t new_term) {
@@ -1719,7 +1725,7 @@ void NodeImpl::describe(std::ostream& os, bool use_html) {
         leader = _leader_id;
     }
     const int64_t term = _current_term;
-    const int64_t conf_index = _conf.first;
+    const int64_t conf_index = _conf.first.index;
     //const int ref_count = ref_count_;
     std::vector<PeerId> peers;
     _conf.second.list_peers(&peers);
@@ -1763,4 +1769,4 @@ void NodeImpl::describe(std::ostream& os, bool use_html) {
     }
 }
 
-}
+}  // namespace raft

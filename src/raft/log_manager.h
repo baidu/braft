@@ -14,6 +14,8 @@
 
 #include "raft/raft.h"
 #include "raft/util.h"
+#include "raft/log_entry.h"
+#include "raft/configuration_manager.h"
 
 namespace raft {
 
@@ -26,7 +28,6 @@ struct LogManagerOptions {
 
 class NodeImpl;
 class SnapshotMeta;
-struct LogEntry;
 
 class BAIDU_CACHELINE_ALIGNMENT LogManager {
 public:
@@ -39,7 +40,6 @@ public:
     private:
     friend class LogManager;
         std::vector<LogEntry*> _entries;
-        //LogEntry* _entry;
     };
 
     LogManager();
@@ -48,22 +48,9 @@ public:
 
     void shutdown();
 
-    // Start a independent thread to append log to LogStorage
-    int start_disk_thread();
-    int stop_disk_thread();
-
     // Append log entry vector and wait until it's stable (NOT COMMITTED!)
     // success return 0, fail return errno
-    int append_entries(const std::vector<LogEntry *>& entries);
-
-    // Append a log entry and call closure when it's stable
-    void append_entry(LogEntry* log_entry, StableClosure* done);
     void append_entries(std::vector<LogEntry*> *entries, StableClosure* done);
-
-    // delete uncommitted logs from storage's tail, (first_index_kept, infinity) will be discarded
-    // Returns:
-    //  success return 0, failed return -1
-    int truncate_suffix(const int64_t last_index_kept);
 
     // Notify the log manager about the latest snapshot, which indicates the
     // logs which can be safely truncated.
@@ -93,14 +80,17 @@ public:
     // Returns:
     //  success return last memory and logstorage index, empty return 0
     int64_t last_log_index();
+    
+    // Return the id the last log.
+    LogId last_log_id();
 
-    ConfigurationPair get_configuration(const int64_t index);
+    void get_configuration(const int64_t index, ConfigurationPair* conf);
 
     // Check if |current| should be updated to the latest configuration
     // Returns true and |current| is assigned to the lastest configuration, returns
     // false otherweise
     // FIXME: It's not ABA free
-    bool check_and_set_configuration(std::pair<int64_t, Configuration>* current);
+    bool check_and_set_configuration(ConfigurationPair* current);
 
     // Wait until there are more logs since |last_log_index| or error occurs
     // Returns:
@@ -116,15 +106,17 @@ public:
               int (*on_new_log)(void *arg, int error_code), void *arg);
     
     
-    // Set the applied index, indicating that the log and all the previose ones
+    // Set the applied id, indicating that the log and all the previose ones
     // can be droped from memory logs
-    void set_applied_index(int64_t applied_index);
+    void set_applied_id(const LogId& applied_id);
 
     void describe(std::ostream& os, bool use_html);
 
 private:
-    static int leader_disk_run(void* meta,
-                               StableClosure** const tasks[], size_t tasks_size);
+    void append_to_storage(std::vector<LogEntry*>* to_append, LogId* last_id);
+
+    static int disk_thread(void* meta,
+                           StableClosure** const tasks[], size_t tasks_size);
     
     // delete logs from storage's head, [1, first_index_kept) will be discarded
     // Returns:
@@ -137,14 +129,25 @@ private:
 
     // Must be called in the disk thread, otherwise the
     // behavior is undefined
-    void set_disk_index(int64_t index);
+    void set_disk_id(const LogId& disk_id);
 
     LogEntry* get_entry_from_memory(const int64_t index);
 
     void notify_on_new_log(int64_t expected_last_log_index, bthread_id_t wait_id);
 
-    // Clear the logs in memory whose log_index <= |index|
-    void clear_memory_logs(const int64_t index);
+    int check_and_resolve_confliction(std::vector<LogEntry*>* entries, 
+                                      StableClosure* done);
+
+    void unsafe_truncate_suffix(const int64_t last_index_kept);
+
+    // Clear the logs in memory whose id <= the given |id|
+    void clear_memory_logs(const LogId& id);
+
+    int64_t unsafe_get_term(const int64_t index);
+
+    // Start a independent thread to append log to LogStorage
+    int start_disk_thread();
+    int stop_disk_thread();
 
     // Fast implementation with one lock
     // TODO(chenzhangyi01): reduce the critical section
@@ -154,19 +157,16 @@ private:
     raft_mutex_t _mutex;
     bthread_id_list_t _wait_list;
 
-    boost::atomic<int64_t> _disk_index;
-    boost::atomic<int64_t> _applied_index;
-    // TODO(chenzhangyi01): replace deque with a thread-safe data structrue
+    LogId _disk_id;
+    LogId _applied_id;
+    // TODO(chenzhangyi01): replace deque with a thread-safe data structure
     std::deque<LogEntry* /*FIXME*/> _logs_in_memory;
     int64_t _first_log_index;
     int64_t _last_log_index;
-    int64_t _last_snapshot_index;
-    int64_t _last_snapshot_term;
+    LogId _last_snapshot_id;
 
-    bthread::ExecutionQueueId<StableClosure*> _leader_disk_queue;
-    bool _leader_disk_thread_running;
+    bthread::ExecutionQueueId<StableClosure*> _disk_queue;
     bool _stopped;
-    raft_mutex_t _modify_storage_mutex;
 };
 
 }  // namespace raft

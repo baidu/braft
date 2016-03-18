@@ -66,6 +66,8 @@ src/raft/commitment_manager.cpp -text
 src/raft/commitment_manager.h -text
 src/raft/configuration.cpp -text
 src/raft/configuration.h -text
+src/raft/configuration_manager.cpp -text
+src/raft/configuration_manager.h -text
 src/raft/errno.pb.cc -text
 src/raft/errno.pb.h -text
 src/raft/file_service.cpp -text

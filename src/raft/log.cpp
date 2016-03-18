@@ -245,7 +245,8 @@ int Segment::load(ConfigurationManager* configuration_manager) {
                 peers.push_back(peer_id);
             }
             if (meta_ok) {
-                configuration_manager->add(i, Configuration(peers));
+                configuration_manager->add(LogId(i, header.term), 
+                                           Configuration(peers));
             } else {
                 break;
             }
@@ -276,10 +277,9 @@ int Segment::append(const LogEntry* entry) {
 
     if (BAIDU_UNLIKELY(!entry || !_is_open)) {
         return EINVAL;
-    } else if (BAIDU_UNLIKELY(entry->index <= _last_index.load(boost::memory_order_consume))) {
-        return EEXIST;
-    } else if (BAIDU_UNLIKELY(entry->index != _last_index.load(boost::memory_order_consume) + 1)) {
-        CHECK(false) << "entry->index=" << entry->index
+    } else if (entry->id.index != 
+                    _last_index.load(boost::memory_order_consume) + 1) {
+        CHECK(false) << "entry->index=" << entry->id.index
                   << " _last_index=" << _last_index
                   << " _first_index=" << _first_index;
         return ERANGE;
@@ -312,7 +312,7 @@ int Segment::append(const LogEntry* entry) {
     CHECK_LE(data.length(), 1ul << 56ul);
     char header_buf[ENTRY_HEADER_SIZE];
     RawPacker packer(header_buf);
-    packer.pack64(entry->term)
+    packer.pack64(entry->id.term)
           .pack64((uint64_t)entry->type << 56ul | data.length())
           .pack32(murmurhash32(data));
     packer.pack32(murmurhash32(header_buf, ENTRY_HEADER_SIZE - 4));
@@ -333,7 +333,7 @@ int Segment::append(const LogEntry* entry) {
         for (;start < ARRAY_SIZE(pieces) && pieces[start]->empty(); ++start) {}
     }
     BAIDU_SCOPED_LOCK(_mutex);
-    _offset_and_term.push_back(std::make_pair(_bytes, entry->term));
+    _offset_and_term.push_back(std::make_pair(_bytes, entry->id.term));
     _last_index.fetch_add(1, boost::memory_order_relaxed);
     _bytes += to_write;
 
@@ -401,8 +401,8 @@ LogEntry* Segment::get(const int64_t index) const {
         if (!ok) { 
             break;
         }
-        entry->index = index;
-        entry->term = header.term;
+        entry->id.index = index;
+        entry->id.term = header.term;
         entry->type = (EntryType)header.type;
     } while (0);
 
@@ -585,16 +585,21 @@ int64_t SegmentLogStorage::last_log_index() {
 }
 
 int SegmentLogStorage::append_entries(const std::vector<LogEntry*>& entries) {
+    if (entries.empty()) {
+        return 0;
+    }
+    if (_last_log_index.load(boost::memory_order_relaxed) + 1
+            != entries.front()->id.index) {
+        LOG(FATAL) << "There's gap betwenn appending entries and _last_log_index";
+        return -1;
+    }
     Segment* last_segment = NULL;
     for (size_t i = 0; i < entries.size(); i++) {
         LogEntry* entry = entries[i];
 
         Segment* segment = open_segment();
         int ret = segment->append(entry);
-        if (0 != ret && EEXIST != ret) {
-            return i;
-        }
-        if (EEXIST == ret && entry->term != get_term(entry->index)) {
+        if (0 != ret) {
             return i;
         }
         _last_log_index.fetch_add(1, boost::memory_order_release);
@@ -610,7 +615,7 @@ int SegmentLogStorage::append_entry(const LogEntry* entry) {
     if (ret != 0 && ret != EEXIST) {
         return ret;
     }
-    if (EEXIST == ret && entry->term != get_term(entry->index)) {
+    if (EEXIST == ret && entry->id.term != get_term(entry->id.index)) {
         return EINVAL;
     }
     _last_log_index.fetch_add(1, boost::memory_order_release);

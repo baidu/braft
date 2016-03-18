@@ -97,7 +97,7 @@ TEST_F(TestUsageSuits, writer_and_reader) {
     writer = storage->create();
     ASSERT_TRUE(writer != NULL);
     ASSERT_EQ(0, writer->save_meta(meta));
-    ASSERT_EQ("file://./data/temp", writer->get_uri(base::EndPoint()));
+    ASSERT_EQ("file://0.0.0.0:0/./data/temp", writer->get_uri(base::EndPoint()));
     ASSERT_EQ(0, storage->close(writer));
 
     // normal open reader after reinit

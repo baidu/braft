@@ -13,13 +13,13 @@
 #include <base/status.h>
 
 #include "raft/configuration.h"
+#include "raft/configuration_manager.h"
 
 namespace raft {
 
 DECLARE_bool(raft_sync);
 
 class LogEntry;
-//class ConfigurationManager;
 
 class LogStorage {
 public:

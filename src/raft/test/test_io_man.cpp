@@ -39,12 +39,12 @@ void* io_func(void* arg) {
         char buf[1024];
         snprintf(buf, sizeof(buf), "DATA:%d\n", i);
         int ret = raft::bthread_write(fd, buf, strlen(buf));
-        assert(ret == strlen(buf));
+        assert(ret == (int)strlen(buf));
 
         char buf2[1024];
         lseek(fd, old_off, SEEK_SET);
         ret = raft::bthread_read(fd, buf2, strlen(buf));
-        assert(ret == strlen(buf));
+        assert(ret == (int)strlen(buf));
         assert(0 == strncmp(buf, buf2, strlen(buf)));
     }
 
@@ -52,10 +52,10 @@ void* io_func(void* arg) {
     char buf[1024];
     snprintf(buf, sizeof(buf), "DATA END\n");
     int ret = raft::bthread_pwrite(fd, buf, strlen(buf), curr_off);
-    assert(ret == strlen(buf));
+    assert(ret == (int)strlen(buf));
     char buf2[1024];
     ret = raft::bthread_pread(fd, buf2, strlen(buf), curr_off);
-    assert(ret == strlen(buf));
+    assert(ret == (int)strlen(buf));
     assert(0 == strncmp(buf, buf2, strlen(buf)));
 
     ::close(fd);

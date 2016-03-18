@@ -18,6 +18,7 @@
 #include <base/time.h>
 #include <base/logging.h>
 #include <base/iobuf.h>
+#include <base/unique_ptr.h>
 #include <bthread.h>
 #include "raft/macros.h"
 
@@ -91,9 +92,27 @@ inline uint32_t murmurhash32(const base::IOBuf& buf) {
     return hash;
 }
 
+// Start a bthread to run closure
 void run_closure_in_bthread(::google::protobuf::Closure* closure);
 
+struct RunClosureInBthread {
+    void operator()(google::protobuf::Closure* done) {
+        return run_closure_in_bthread(done);
+    }
+};
+
+typedef std::unique_ptr<google::protobuf::Closure, RunClosureInBthread>
+        AsyncClosureGuard;
+
+// Start a bthread to run closure without signal other worker thread to steal
+// it. You should call bthread_flush() at last.
 void run_closure_in_bthread_nosig(::google::protobuf::Closure* closure);
+
+struct RunClosureInBthreadNoSig {
+    void operator()(google::protobuf::Closure* done) {
+        return run_closure_in_bthread_nosig(done);
+    }
+};
 
 std::string fileuri2path(const std::string& uri);
 

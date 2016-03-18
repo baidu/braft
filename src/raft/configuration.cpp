@@ -23,57 +23,5 @@ std::ostream& operator<<(std::ostream& os, const Configuration& a) {
     return os;
 }
 
-void ConfigurationManager::add(const int64_t index, const Configuration& config) {
-    _configurations[index] = config;
-}
-
-void ConfigurationManager::truncate_prefix(const int64_t first_index_kept) {
-    _configurations.erase(_configurations.begin(),
-                          _configurations.lower_bound(first_index_kept));
-}
-
-void ConfigurationManager::truncate_suffix(const int64_t last_index_kept) {
-    _configurations.erase(_configurations.upper_bound(last_index_kept),
-                          _configurations.end());
-}
-
-void ConfigurationManager::set_snapshot(const int64_t index,
-                                        const Configuration& config) {
-    CHECK_GE(index, _snapshot.first);
-    _snapshot.first = index;
-    _snapshot.second = config;
-}
-
-ConfigurationPair ConfigurationManager::get_configuration(
-        const int64_t last_included_index) {
-    if (_configurations.empty()) {
-        return _snapshot;
-    }
-    ConfigurationMap::iterator it = _configurations.upper_bound(last_included_index);
-    if (it == _configurations.begin()) {
-        return _snapshot;
-    }
-    --it;
-    return *it;
-}
-
-int64_t ConfigurationManager::last_configuration_index() {
-    ConfigurationMap::reverse_iterator rit = _configurations.rbegin();
-    if (rit != _configurations.rend()) {
-        return rit->first;
-    } else {
-        return _snapshot.first;
-    }
-}
-
-ConfigurationPair ConfigurationManager::last_configuration() {
-    std::map<int64_t, Configuration>::reverse_iterator rit = _configurations.rbegin();
-    if (rit != _configurations.rend()) {
-        return *rit;
-    } else {
-        return _snapshot;
-    }
-}
-
 }
 

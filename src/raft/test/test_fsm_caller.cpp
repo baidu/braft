@@ -68,6 +68,33 @@ private:
     int _on_snapshot_load_times;
 };
 
+class SyncClosure : public raft::LogManager::StableClosure {
+public:
+    SyncClosure() {
+        _butex = (boost::atomic<int>*)bthread::butex_construct(_butex_memory);
+        *_butex = 0;
+    }
+    ~SyncClosure() {
+        bthread::butex_destruct(_butex_memory);
+    }
+    void Run() {
+        _butex->store(1);
+        bthread::butex_wake(_butex);
+    }
+    void reset() {
+        status().reset();
+        *_butex = 0;
+    }
+    void join() {
+        while (*_butex != 1) {
+            bthread::butex_wait(_butex, 0, NULL);
+        }
+    }
+private:
+    char _butex_memory[BUTEX_MEMORY_SIZE];
+    boost::atomic<int> *_butex;
+};
+
 TEST_F(FSMCallerTest, sanity) {
     system("rm -rf ./data");
     scoped_ptr<raft::ConfigurationManager> cm(
@@ -103,9 +130,13 @@ TEST_F(FSMCallerTest, sanity) {
         std::string buf;
         base::string_printf(&buf, "hello_%lu", i);
         entry->data.append(buf);
-        entry->index = i + 1;
+        entry->id.index = i + 1;
+        entry->id.term = i;
         entries.push_back(entry);
-        ASSERT_EQ(0, lm->append_entries(entries));
+        SyncClosure c;
+        lm->append_entries(&entries, &c);
+        c.join();
+        ASSERT_TRUE(c.status().ok()) << c.status();
     }
     ASSERT_EQ(0, caller.on_committed(N));
     ASSERT_EQ(0, caller.shutdown());

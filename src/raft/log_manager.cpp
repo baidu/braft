@@ -23,8 +23,6 @@ BAIDU_RPC_VALIDATE_GFLAG(raft_leader_batch, ::baidu::rpc::PositiveInteger);
 
 static bvar::LatencyRecorder g_log_manager_contention_recorder
             ("raft_log_manager_contention");
-static bvar::LatencyRecorder g_log_manager_modify_storage_contention_recorder
-            ("raft_log_manager_modify_storage_contention");
 static bvar::Adder<int64_t> g_read_entry_from_storage
             ("raft_read_entry_from_storage_count");
 static bvar::PerSecond<bvar::Adder<int64_t> > g_read_entry_from_storage_second
@@ -42,19 +40,13 @@ LogManagerOptions::LogManagerOptions()
 LogManager::LogManager()
     : _log_storage(NULL)
     , _config_manager(NULL)
-    , _disk_index(0)
-    , _applied_index(0)
     , _first_log_index(0)
     , _last_log_index(0)
-    , _last_snapshot_index(0)
-    , _last_snapshot_term(0)
-    , _leader_disk_thread_running(false)
     , _stopped(false)
 {
     CHECK_EQ(0, bthread_id_list_init(&_wait_list, 16/*FIXME*/, 16));
     _mutex.set_recorder(g_log_manager_contention_recorder);
-    _modify_storage_mutex.set_recorder(
-            g_log_manager_modify_storage_contention_recorder);
+    CHECK_EQ(0, start_disk_thread());
 }
 
 int LogManager::init(const LogManagerOptions &options) {
@@ -70,51 +62,37 @@ int LogManager::init(const LogManagerOptions &options) {
     }
     _first_log_index = _log_storage->first_log_index();
     _last_log_index = _log_storage->last_log_index();
-    _disk_index.store(_last_log_index, boost::memory_order_relaxed);
+    _disk_id.index = _last_log_index;
+    _disk_id.term = _log_storage->get_term(_last_log_index);
     return 0;
 }
 
 LogManager::~LogManager() {
+    stop_disk_thread();
+    for (size_t i = 0; i < _logs_in_memory.size(); ++i) {
+        _logs_in_memory[i]->Release();
+    }
+    _logs_in_memory.clear();
     bthread_id_list_destroy(&_wait_list);
 }
 
 int LogManager::start_disk_thread() {
-    RAFT_VLOG << "disk_thread start";
-    BAIDU_SCOPED_LOCK(_mutex);
-    CHECK(!_leader_disk_thread_running);
     bthread::ExecutionQueueOptions queue_options;
     queue_options.bthread_attr = BTHREAD_ATTR_NORMAL;
     queue_options.max_tasks_size = FLAGS_raft_leader_batch;
-    int ret = bthread::execution_queue_start(&_leader_disk_queue,
+    return bthread::execution_queue_start(&_disk_queue,
                                    &queue_options,
-                                   leader_disk_run,
+                                   disk_thread,
                                    this);
-    if (ret == 0) {
-        _leader_disk_thread_running = true;
-    } else {
-        LOG(FATAL) << "start_disk_thread failed";
-    }
-    return ret;
 }
 
 int LogManager::stop_disk_thread() {
-    RAFT_VLOG << "disk_thread stop";
-    std::unique_lock<raft_mutex_t> lck(_mutex);
-    bthread::ExecutionQueueId<StableClosure*> saved_queue = _leader_disk_queue;
-    // FIXME: see the comments in truncate_prefix
-    lck.unlock();
-    bthread::execution_queue_stop(saved_queue);
-    int ret = bthread::execution_queue_join(saved_queue);
-    if (0 == ret) {
-        lck.lock();
-        _leader_disk_thread_running = false;
-    }
-    return ret;
-    // _mutex is unlock by guard
+    bthread::execution_queue_stop(_disk_queue);
+    return bthread::execution_queue_join(_disk_queue);
 }
 
-void LogManager::clear_memory_logs(const int64_t index) {
-    LogEntry* entries_to_clear[32];
+void LogManager::clear_memory_logs(const LogId& id) {
+    LogEntry* entries_to_clear[256];
     size_t nentries = 0;
     do {
         nentries = 0;
@@ -123,7 +101,7 @@ void LogManager::clear_memory_logs(const int64_t index) {
             while (!_logs_in_memory.empty() 
                     && nentries < ARRAY_SIZE(entries_to_clear)) {
                 LogEntry* entry = _logs_in_memory.front();
-                if (entry->index > index) {
+                if (entry->id > id) {
                     break;
                 }
                 entries_to_clear[nentries++] = entry;
@@ -142,18 +120,21 @@ int64_t LogManager::first_log_index() {
 }
 
 int64_t LogManager::last_log_index() {
-    {
-        BAIDU_SCOPED_LOCK(_mutex);
-        if (_last_log_index != 0) {
-            return _last_log_index;
-        }
+    BAIDU_SCOPED_LOCK(_mutex);
+    return _last_log_index;
+}
+
+LogId LogManager::last_log_id() {
+    BAIDU_SCOPED_LOCK(_mutex);
+    if (_last_log_index >= _first_log_index) {
+        return LogId(_last_log_index, unsafe_get_term(_last_log_index));
     }
-    return _log_storage->last_log_index();
+    return _last_snapshot_id;
 }
 
 class TruncatePrefixClosure : public LogManager::StableClosure {
 public:
-    explicit TruncatePrefixClosure(int64_t first_index_kept)
+    explicit TruncatePrefixClosure(const int64_t first_index_kept)
         : _first_index_kept(first_index_kept)
     {}
     void Run() {
@@ -162,6 +143,19 @@ public:
     int64_t first_index_kept() const { return _first_index_kept; }
 private:
     int64_t _first_index_kept;
+};
+
+class TruncateSuffixClosure : public LogManager::StableClosure {
+public:
+    explicit TruncateSuffixClosure(const int64_t last_index_kept)
+        : _last_index_kept(last_index_kept)
+    {}
+    void Run() {
+        delete this;
+    }
+    int64_t last_index_kept() const { return _last_index_kept; }
+private:
+    int64_t _last_index_kept;
 };
 
 class ResetClosure : public LogManager::StableClosure {
@@ -179,12 +173,7 @@ private:
 
 int LogManager::truncate_prefix(const int64_t first_index_kept,
                                 std::unique_lock<raft_mutex_t>& lck) {
-    base::Timer timer;
-    timer.start();
-    CHECK(lck.owns_lock());
-    if (first_index_kept < _first_log_index) {
-        return EINVAL;
-    }
+    std::deque<LogEntry*> saved_logs_in_memory;
     // As the duration between two snapshot (which leads to truncate_prefix at
     // last) is likely to be a long period, _logs_in_memory is likely to
     // contain a large amount of logs to release, which holds the mutex so that
@@ -196,35 +185,26 @@ int LogManager::truncate_prefix(const int64_t first_index_kept,
     // _logs_in_memory has to be bounded.
     while (!_logs_in_memory.empty()) {
         LogEntry* entry = _logs_in_memory.front();
-        if (entry->index < first_index_kept) {
-            entry->Release();
+        if (entry->id.index < first_index_kept) {
+            saved_logs_in_memory.push_back(entry);
             _logs_in_memory.pop_front();
         } else {
             break;
         }
     }
-    _first_log_index  = first_index_kept;
+    _first_log_index = first_index_kept;
     if (first_index_kept > _last_log_index) {
         // The entrie log is dropped
         _last_log_index = first_index_kept - 1;
     }
     _config_manager->truncate_prefix(first_index_kept);
-    if (_leader_disk_thread_running &&
-        _disk_index.load(boost::memory_order_relaxed) < first_index_kept) {
-        TruncatePrefixClosure* c = new TruncatePrefixClosure(first_index_kept);
-        const int ret = bthread::execution_queue_execute(_leader_disk_queue, c);
-        CHECK_EQ(0, ret) << "execq execute failed, ret: " << ret << " err: " << berror();
-    } else {
-        // Acquire _modify_storage_mutex first before unlock lck to make sure
-        // there's not the out-of-order issue
-        BAIDU_SCOPED_LOCK(_modify_storage_mutex);
-        lck.unlock();
-        _log_storage->truncate_prefix(first_index_kept);
+    TruncatePrefixClosure* c = new TruncatePrefixClosure(first_index_kept);
+    const int rc = bthread::execution_queue_execute(_disk_queue, c);
+    lck.unlock();
+    for (size_t i = 0; i < saved_logs_in_memory.size(); ++i) {
+        saved_logs_in_memory[i]->Release();
     }
-    timer.stop();
-    RAFT_VLOG << "truncate_prefix " << first_index_kept << " time: " << timer.u_elapsed();
-
-    return 0;
+    return rc;
 }
 
 int LogManager::reset(const int64_t next_log_index,
@@ -236,232 +216,236 @@ int LogManager::reset(const int64_t next_log_index,
     _last_log_index = next_log_index - 1;
     _config_manager->truncate_prefix(_first_log_index);
     _config_manager->truncate_suffix(_last_log_index);
-    if (_leader_disk_thread_running) {
-        TruncatePrefixClosure* c = new TruncatePrefixClosure(next_log_index);
-        const int ret = bthread::execution_queue_execute(_leader_disk_queue, c);
-        lck.unlock();
-        CHECK_EQ(0, ret) << "execq execute failed, ret: " << ret << " err: " << berror();
-    } else {
-        BAIDU_SCOPED_LOCK(_modify_storage_mutex);
-        lck.unlock();
-        _log_storage->reset(next_log_index);
-    }
-    CHECK(!lck.owns_lock());
+    ResetClosure* c = new ResetClosure(next_log_index);
+    const int ret = bthread::execution_queue_execute(_disk_queue, c);
+    lck.unlock();
+    CHECK_EQ(0, ret) << "execq execute failed, ret: " << ret << " err: " << berror();
     for (size_t i = 0; i < saved_logs_in_memory.size(); ++i) {
         saved_logs_in_memory[i]->Release();
     }
     return 0;
 }
 
-int LogManager::truncate_suffix(const int64_t last_index_kept) {
-    base::Timer timer;
-    timer.start();
+void LogManager::unsafe_truncate_suffix(const int64_t last_index_kept) {
 
-    {
-        BAIDU_SCOPED_LOCK(_mutex);
+    if (last_index_kept < _applied_id.index) {
+        LOG(FATAL) << "Can't truncate logs before _applied_id=" <<_applied_id.index
+                   << ", last_log_kept=" << last_index_kept;
+        return;
+    }
 
-        while (!_logs_in_memory.empty()) {
-            LogEntry* entry = _logs_in_memory.back();
-            if (entry->index > last_index_kept) {
-                entry->Release();
-                _logs_in_memory.pop_back();
-            } else {
-                break;
-            }
+    while (!_logs_in_memory.empty()) {
+        LogEntry* entry = _logs_in_memory.back();
+        if (entry->id.index > last_index_kept) {
+            entry->Release();
+            _logs_in_memory.pop_back();
+        } else {
+            break;
         }
-        // not need flush queue, because only leader has queue, leader never call truncate_suffix
-        _last_log_index = last_index_kept;
-        _config_manager->truncate_suffix(last_index_kept);
-        _disk_index.store(last_index_kept, boost::memory_order_release);
     }
-    int ret = 0;
-    {
-        BAIDU_SCOPED_LOCK(_modify_storage_mutex);
-        ret = _log_storage->truncate_suffix(last_index_kept);
-    }
-
-    timer.stop();
-    RAFT_VLOG << "truncate_suffix " << last_index_kept << " time: " << timer.u_elapsed();
-
-    return ret;
+    _last_log_index = last_index_kept;
+    _config_manager->truncate_suffix(last_index_kept);
+    TruncateSuffixClosure* tsc = new TruncateSuffixClosure(last_index_kept);
+    CHECK_EQ(0, bthread::execution_queue_execute(_disk_queue, tsc));
 }
 
-int LogManager::append_entries(const std::vector<LogEntry*>& entries) {
+int LogManager::check_and_resolve_confliction(
+            std::vector<LogEntry*> *entries, StableClosure* done) {
+    AsyncClosureGuard done_guard(done);   
+    if (entries->front()->id.index == 0) {
+        // Node is currently the leader and |entries| are from the user who 
+        // don't know the exact index the logs should be. So we should assign 
+        // index to the appending entries
+        for (size_t i = 0; i < entries->size(); ++i) {
+            (*entries)[i]->id.index = ++_last_log_index;
+        }
+        done_guard.release();
+        return 0;
+    } else {
+        // Node is currently a follower and |entries| are from the leader. We 
+        // should check and resolve the confliction between the local logs and
+        // |entries|
+        if (entries->front()->id.index > _last_log_index + 1) {
+            done->status().set_error(EINVAL, "There's gap between first_index=%ld "
+                                     "and last_log_index=%ld", 
+                                     entries->front()->id.index, _last_log_index);
+            return -1;
+        }
+        const int64_t applied_index = _applied_id.index;
+        if (entries->back()->id.index <= applied_index) {
+            LOG(WARNING) << "Received entries of which the last_log="
+                         << entries->back()->id.index
+                         << " is not greater than _applied_index=" << applied_index
+                         << ", return immediately with nothing changed";
+            return 1;
+        }
 
-    RAFT_VLOG << "follower append " << entries[0]->index
-        << "-" << entries[0]->index + entries.size() - 1 << noflush;
-
-    base::Timer timer;
-    timer.start();
-    int ret = 0;
-    {
-        BAIDU_SCOPED_LOCK(_modify_storage_mutex);
-        ret = _log_storage->append_entries(entries);
-    }
-    if (static_cast<size_t>(ret) == entries.size()) {
-        ret = 0;
-        BAIDU_SCOPED_LOCK(_mutex);
-        int64_t last_index = 0;
-        for (size_t i = 0; i < entries.size(); i++) {
-            last_index = entries[i]->index;
-            // skip duplicated follower append logs
-            if (_logs_in_memory.size() == 0 ||
-                (_logs_in_memory.size() > 0 &&
-                 _logs_in_memory.back()->index + 1 == entries[i]->index)) {
-
-                // new logs append to memory
-                _logs_in_memory.push_back(entries[i]);
-
-                // update configuration
-                if (entries[i]->type == ENTRY_TYPE_CONFIGURATION) {
-                    _config_manager->add(entries[i]->index, Configuration(*(entries[i]->peers)));
+        if (entries->front()->id.index == _last_log_index + 1) {
+            // Fast path
+            _last_log_index = entries->back()->id.index;
+        } else {
+            // Appending entries overlap the local ones. We should find if there
+            // is a conflicting index from which we should truncate the local
+            // ones.
+            size_t conflicting_index = 0;
+            for (; conflicting_index < entries->size(); ++conflicting_index) {
+                if (unsafe_get_term((*entries)[conflicting_index]->id.index)
+                        != (*entries)[conflicting_index]->id.term) {
+                    break;
                 }
-            } else {
-                entries[i]->Release();
             }
+            if (conflicting_index != entries->size()) {
+                if ((*entries)[conflicting_index]->id.index <= _last_log_index) {
+                    // Truncate all the conflicting entries to make local logs
+                    // consensus with the leader.
+                    unsafe_truncate_suffix(
+                            (*entries)[conflicting_index]->id.index - 1);
+                }
+                _last_log_index = entries->back()->id.index;
+            }  // else this is a duplicated AppendEntriesRequest, we have 
+               // nothing to do besides releasing all the entries
+            
+            // Release all the entries before the conflicting_index and the rest
+            // would be append to _logs_in_memory and _log_storage after this
+            // function returns
+            for (size_t i = 0; i < conflicting_index; ++i) {
+                (*entries)[i]->Release();
+            }
+            entries->erase(entries->begin(), 
+                           entries->begin() + conflicting_index);
         }
-        _last_log_index = last_index;
-        _disk_index.store(_last_log_index);
+        done_guard.release();
+        return 0;
     }
-    timer.stop();
-
-    RAFT_VLOG << " time: " << timer.u_elapsed();
-    return ret;
-}
-
-void LogManager::append_entry(
-            LogEntry* log_entry, StableClosure* done) {
-    BAIDU_SCOPED_LOCK(_mutex);
-    log_entry->index = ++_last_log_index;
-    done->_first_log_index = log_entry->index;
-    // Add ref for disk thread, release in 
-    log_entry->AddRef();
-    done->_entries.push_back(log_entry);
-    _logs_in_memory.push_back(log_entry);
-    if (log_entry->type == ENTRY_TYPE_CONFIGURATION) {
-        _config_manager->add(log_entry->index, Configuration(*(log_entry->peers)));
-    }
-
-    RAFT_VLOG << "leader append " << log_entry->index;
-
-    CHECK(_leader_disk_thread_running);
-    // signal leader disk
-    int ret = bthread::execution_queue_execute(_leader_disk_queue, done);
-    CHECK_EQ(0, ret) << "execq execute failed, ret: " << ret << " err: " << berror();
-
-    // signal replicator
-    //int64_t last_log_index = log_entry->index;
-    bthread_id_list_reset(&_wait_list, 0);
+    CHECK(false) << "Can't reach here";
+    done->status().set_error(EIO, "Impossible");
+    return -1;
 }
 
 void LogManager::append_entries(
             std::vector<LogEntry*> *entries, StableClosure* done) {
-    CHECK(!entries->empty());
-    BAIDU_SCOPED_LOCK(_mutex);
+    CHECK(done);
+    std::unique_lock<raft_mutex_t> lck(_mutex);
+    if (!entries->empty() && check_and_resolve_confliction(entries, done) != 0) {
+        lck.unlock();
+        // release entries
+        for (size_t i = 0; i < entries->size(); ++i) {
+            (*entries)[i]->Release();
+        }
+        entries->clear();
+        return;
+    }
+
     for (size_t i = 0; i < entries->size(); ++i) {
-        (*entries)[i]->index = ++_last_log_index;
-        // Add ref for disk thread, release in leader_disk_run
+        // Add ref for disk_thread
         (*entries)[i]->AddRef();
         if ((*entries)[i]->type == ENTRY_TYPE_CONFIGURATION) {
-            _config_manager->add((*entries)[i]->index, 
+            _config_manager->add((*entries)[i]->id,
                                  Configuration(*((*entries)[i]->peers)));
         }
     }
-    done->_first_log_index = (*entries)[0]->index;
-    _logs_in_memory.insert(_logs_in_memory.end(), entries->begin(), entries->end());
+
+    if (!entries->empty()) {
+        done->_first_log_index = entries->front()->id.index;
+        _logs_in_memory.insert(_logs_in_memory.end(), entries->begin(), entries->end());
+    }
+
     done->_entries.swap(*entries);
-    //RAFT_VLOG << "leader append " << log_entry->index;
-    CHECK(_leader_disk_thread_running);
-    // signal leader disk
-    int ret = bthread::execution_queue_execute(_leader_disk_queue, done);
+    int ret = bthread::execution_queue_execute(_disk_queue, done);
     CHECK_EQ(0, ret) << "execq execute failed, ret: " << ret << " err: " << berror();
 
-    // signal replicator
-    //int64_t last_log_index = log_entry->index;
     bthread_id_list_reset(&_wait_list, 0);
 }
 
-int LogManager::leader_disk_run(void* meta,
-                                StableClosure** const tasks[], size_t tasks_size) {
+void LogManager::append_to_storage(std::vector<LogEntry*>* to_append, 
+                                   LogId* last_id) {
+    int nappent = _log_storage->append_entries(*to_append);
+    if (nappent != (int)to_append->size()) {
+        // FIXME
+        LOG(FATAL) << "We cannot tolerate the fault caused by log_storage, "
+            << "nappent=" << nappent 
+            << ", to_append=" << to_append->size()
+            << ", abort";
+        abort();
+    }
+    *last_id = to_append->back()->id;
+    for (size_t j = 0; j < to_append->size(); ++j) {
+        (*to_append)[j]->Release();
+    }
+    to_append->clear();
+}
+
+int LogManager::disk_thread(void* meta,
+                            StableClosure** const tasks[], size_t tasks_size) {
     if (tasks_size == 0) {
         return 0;
     }
 
     LogManager* log_manager = static_cast<LogManager*>(meta);
-    int64_t last_index = 0;
+    LogId last_id;
     std::vector<LogEntry*> to_append;
     to_append.reserve(1024);
+    size_t first_index = 0;
     for (size_t i = 0; i < tasks_size; i++) {
         StableClosure* done = *tasks[i];
-        // Skip TruncatePrefixClosure
-        // FIXME: Currrently only the leader starts disk thread so that there's
-        // no gap around the TruncatePrefixClosure. If followers also start disk
-        // thread, it's buggy after install snapshot.
         if (!done->_entries.empty()) {
             to_append.insert(to_append.end(), 
                              done->_entries.begin(), done->_entries.end());
-        }
-    }
-    
-    int ret = 0;
-    if (to_append.size() > 0) {
-        base::Timer timer;
-        timer.start();
-        RAFT_VLOG << "leader_disk_thread append " << to_append.front()->index
-            << "-" << to_append.back()->index << noflush;
-
-        ret = log_manager->_log_storage->append_entries(to_append);
-        if (to_append.size() == static_cast<size_t>(ret)) {
-            ret = 0;
-            last_index = to_append.back()->index;
         } else {
-            // TDOO: make sure the actions on EIO are supposed to be.
-            CHECK(false) << to_append.size() << "!=" << ret;
-            ret = EIO;
-        }
-        timer.stop();
-        RAFT_VLOG << " time: " << timer.u_elapsed();
-        for (size_t i = 0; i < to_append.size(); ++i) {
-            to_append[i]->Release();
-        }
-        to_append.clear();
-    }
-
-    for (size_t i = 0; i < tasks_size; i++) {
-        StableClosure* done = *tasks[i];
-        // skip barrier
-        baidu::rpc::ClosureGuard done_guard(done);
-        if (!done->_entries.empty()) {
-            //done->_entry->Release();
-            if (ret != 0) {
-                done->status().set_error(EIO, "append entry failed");
+            // Flush to_append before execute barrier task
+            if (!to_append.empty()) {
+                log_manager->append_to_storage(&to_append, &last_id);
             }
-            done->_entries.clear();
-            continue;
+            for (size_t j = first_index; j < i; ++j) {
+                (*tasks[j])->_entries.clear();
+                (*tasks[j])->Run();
+            }
+            int ret = 0;
+            do {
+                TruncatePrefixClosure* tpc = 
+                        dynamic_cast<TruncatePrefixClosure*>(done);
+                if (tpc) {
+                    RAFT_VLOG << "Truncating storage to first_index_kept="
+                        << tpc->first_index_kept();
+                    ret = log_manager->_log_storage->truncate_prefix(
+                                    tpc->first_index_kept());
+                    break;
+                }
+                TruncateSuffixClosure* tsc = 
+                        dynamic_cast<TruncateSuffixClosure*>(done);
+                if (tsc) {
+                    LOG(WARNING) << "Truncating storage to last_index_kept="
+                        << tsc->last_index_kept();
+                    ret = log_manager->_log_storage->truncate_suffix(
+                                    tsc->last_index_kept());
+                    break;
+                }
+                ResetClosure* rc = dynamic_cast<ResetClosure*>(done);
+                if (rc) {
+                    LOG(INFO) << "Reseting storage to next_log_index="
+                              << rc->next_log_index();
+                    ret = log_manager->_log_storage->reset(rc->next_log_index());
+                    break;
+                }
+            } while (0);
+            if (ret != 0) {
+                // FIXME
+                LOG(FATAL) << "We cannot tolerate the fault caused by log_storage, "
+                    << "ret=" << ret << ", abort";
+                abort();
+            }
+            done->Run();
+            first_index = i + 1;
         }
-        TruncatePrefixClosure* tpc = dynamic_cast<TruncatePrefixClosure*>(done);
-        if (tpc) {
-            RAFT_VLOG << "Truncating storage to first_index_kept="
-                << tpc->first_index_kept();
-            log_manager->_log_storage->truncate_prefix(
-                            tpc->first_index_kept());
-            continue;
-        }
-        ResetClosure* rc = dynamic_cast<ResetClosure*>(done);
-        if (rc) {
-            LOG(INFO) << "Reseting storage to next_log_index="
-                      << rc->next_log_index();
-            log_manager->_log_storage->reset(rc->next_log_index());
-            continue;
-        }
-
-        CHECK(false) << "Cannot reach here";
     }
-
-    if (last_index != 0) {
-        log_manager->set_disk_index(last_index);
+    if (!to_append.empty()) {
+        log_manager->append_to_storage(&to_append, &last_id);
     }
-
+    for (size_t j = first_index; j < tasks_size; ++j) {
+        (*tasks[j])->_entries.clear();
+        (*tasks[j])->Run();
+    }
+    log_manager->set_disk_id(last_id);
     return 0;
 }
 
@@ -470,30 +454,34 @@ void LogManager::set_snapshot(const SnapshotMeta* meta) {
               << meta->last_included_index
               << " last_included_term=" <<  meta->last_included_term;
     std::unique_lock<raft_mutex_t> lck(_mutex);
-    if (meta->last_included_index <= _last_snapshot_index) {
+    if (meta->last_included_index <= _last_snapshot_id.index) {
         return;
     }
-    _config_manager->set_snapshot(meta->last_included_index, meta->last_configuration);
-    int64_t term = 0;
+
+    _config_manager->set_snapshot(
+            LogId(meta->last_included_index, meta->last_included_term), 
+            meta->last_configuration);
+    int64_t term = unsafe_get_term(meta->last_included_index);
     LogEntry* entry = get_entry_from_memory(meta->last_included_index);
     if (entry) {
-        term = entry->term;
+        term = entry->id.term;
     } else {
         term = _log_storage->get_term(meta->last_included_index);
         g_read_term_from_storage << 1;
     }
+    const int64_t saved_last_snapshot_index = _last_snapshot_id.index;
+    _last_snapshot_id.index = meta->last_included_index;
+    _last_snapshot_id.term = meta->last_included_term;
+    if (_last_snapshot_id > _applied_id) {
+        _applied_id = _last_snapshot_id;
+    }
     if (term == 0) {
         // last_included_index is larger than last_index
-        _last_snapshot_index = meta->last_included_index;
-        _last_snapshot_term = meta->last_included_term;
         truncate_prefix(meta->last_included_index + 1, lck);
         return;
     } else if (term == meta->last_included_term) {
         // Trucating log to the index of the last snapshot.
-        const int64_t saved_last_snpashot_index = _last_snapshot_index;
-        _last_snapshot_index = meta->last_included_index;
-        _last_snapshot_term = meta->last_included_term;
-        truncate_prefix(saved_last_snpashot_index, lck);
+        truncate_prefix(saved_last_snapshot_index, lck);
         return;
     } else {
         // TODO: check the result of reset.
@@ -505,22 +493,45 @@ void LogManager::set_snapshot(const SnapshotMeta* meta) {
 
 void LogManager::clear_bufferred_logs() {
     std::unique_lock<raft_mutex_t> lck(_mutex);
-    if (_last_snapshot_index != 0) {
-        truncate_prefix(_last_snapshot_index, lck);
+    if (_last_snapshot_id.index != 0) {
+        truncate_prefix(_last_snapshot_id.index, lck);
     }
 }
 
 LogEntry* LogManager::get_entry_from_memory(const int64_t index) {
     LogEntry* entry = NULL;
     if (!_logs_in_memory.empty()) {
-        int64_t first_index = _logs_in_memory.front()->index;
-        int64_t last_index = _logs_in_memory.back()->index;
+        int64_t first_index = _logs_in_memory.front()->id.index;
+        int64_t last_index = _logs_in_memory.back()->id.index;
         CHECK_EQ(last_index - first_index + 1, static_cast<int64_t>(_logs_in_memory.size()));
         if (index >= first_index && index <= last_index) {
             entry = _logs_in_memory[index - first_index];
         }
     }
     return entry;
+}
+
+
+int64_t LogManager::unsafe_get_term(const int64_t index) {
+    if (index == 0) {
+        return 0;
+    }
+
+    if (index > _last_log_index) {
+        return 0;
+    }
+
+    // check index equal snapshot_index, return snapshot_term
+    if (index == _last_snapshot_id.index) {
+        return _last_snapshot_id.term;
+    }
+
+    LogEntry* entry = get_entry_from_memory(index);
+    if (entry) {
+        return entry->id.term;
+    }
+    g_read_term_from_storage << 1;
+    return _log_storage->get_term(index);
 }
 
 int64_t LogManager::get_term(const int64_t index) {
@@ -530,13 +541,13 @@ int64_t LogManager::get_term(const int64_t index) {
 
     std::unique_lock<raft_mutex_t> lck(_mutex);
     // check index equal snapshot_index, return snapshot_term
-    if (index == _last_snapshot_index) {
-        return _last_snapshot_term;
+    if (index == _last_snapshot_id.index) {
+        return _last_snapshot_id.term;
     }
 
     LogEntry* entry = get_entry_from_memory(index);
     if (entry) {
-        return entry->term;
+        return entry->id.term;
     }
     lck.unlock();
     g_read_term_from_storage << 1;
@@ -561,9 +572,9 @@ LogEntry* LogManager::get_entry(const int64_t index) {
     return _log_storage->get_entry(index);
 }
 
-ConfigurationPair LogManager::get_configuration(const int64_t index) {
+void LogManager::get_configuration(const int64_t index, ConfigurationPair* conf) {
     BAIDU_SCOPED_LOCK(_mutex);
-    return _config_manager->get_configuration(index);
+    return _config_manager->get_configuration(index, conf);
 }
 
 bool LogManager::check_and_set_configuration(ConfigurationPair* current) {
@@ -573,40 +584,34 @@ bool LogManager::check_and_set_configuration(ConfigurationPair* current) {
     }
     BAIDU_SCOPED_LOCK(_mutex);
 
-    int64_t last_config_index = _config_manager->last_configuration_index();
-    if (current->first != last_config_index) {
-        *current = _config_manager->last_configuration();
+    const ConfigurationPair& last_conf = _config_manager->last_configuration();
+    if (current->first != last_conf.first) {
+        *current = last_conf;
         return true;
     }
     return false;
 }
 
-void LogManager::set_disk_index(int64_t index) {
-    CHECK(_leader_disk_thread_running) << "Must be called in the leader disk thread";
-    int64_t old_disk_index = _disk_index.load(boost::memory_order_relaxed);
-    do {
-        if (old_disk_index >= index) {
-            return;
-        }
-    } while (_disk_index.compare_exchange_weak(old_disk_index, index, 
-            boost::memory_order_release, boost::memory_order_relaxed));
-
-    int64_t clear_index = std::min(
-            index, _applied_index.load(boost::memory_order_acquire));
-    return clear_memory_logs(clear_index);
+void LogManager::set_disk_id(const LogId& disk_id) {
+    std::unique_lock<raft_mutex_t> lck(_mutex);
+    if (disk_id < _disk_id) {
+        return;
+    }
+    _disk_id = disk_id;
+    LogId clear_id = std::min(_disk_id, _applied_id);
+    lck.unlock();
+    return clear_memory_logs(clear_id);
 }
 
-void LogManager::set_applied_index(int64_t index) {
-    int64_t old_applied_index = _applied_index.load(boost::memory_order_relaxed);
-    do {
-        if (old_applied_index >= index) {
-            return;
-        }
-    } while (!_applied_index.compare_exchange_weak(old_applied_index, index,
-                boost::memory_order_release, boost::memory_order_relaxed));
-    int64_t clear_index = std::min(
-            _disk_index.load(boost::memory_order_acquire), index);
-    return clear_memory_logs(clear_index);
+void LogManager::set_applied_id(const LogId& applied_id) {
+    std::unique_lock<raft_mutex_t> lck(_mutex);
+    if (applied_id < _applied_id) {
+        return;
+    }
+    _applied_id = applied_id;
+    LogId clear_id = std::min(_disk_id, _applied_id);
+    lck.unlock();
+    return clear_memory_logs(clear_id);
 }
 
 //////////////////////////////////////////
@@ -726,11 +731,9 @@ void LogManager::describe(std::ostream& os, bool use_html) {
     int64_t first_index = _log_storage->first_log_index();
     int64_t last_index = _log_storage->last_log_index();
     os << "storage: [" << first_index << ", " << last_index << ']' << newline;
-    os << "disk_index: " << _disk_index.load(boost::memory_order_relaxed) << newline;
-    os << " known_applied_index: " << _applied_index.load(boost::memory_order_relaxed) << newline;
-    const int64_t cur_last_log_index = last_log_index();
-    os << " last_log_index: " << cur_last_log_index << newline;
-    os << " last_log_term: " << get_term(cur_last_log_index) << newline; 
+    os << "disk_index: " << _disk_id.index << newline;
+    os << "known_applied_index: " << _applied_id.index << newline;
+    os << "last_log_id: " << last_log_id() << newline;
 }
 
 }  // namespace raft

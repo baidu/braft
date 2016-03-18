@@ -47,8 +47,8 @@ TEST_F(TestUsageSuits, open_segment) {
     for (int i = 0; i < 10; i++) {
         raft::LogEntry* entry = new raft::LogEntry();
         entry->type = raft::ENTRY_TYPE_DATA;
-        entry->term = 1;
-        entry->index = i + 1;
+        entry->id.term = 1;
+        entry->id.index = i + 1;
 
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "hello, world: %d", i + 1);
@@ -65,9 +65,9 @@ TEST_F(TestUsageSuits, open_segment) {
         ASSERT_EQ(term, 1);
 
         raft::LogEntry* entry = seg1->get(i+1);
-        ASSERT_EQ(entry->term, 1);
+        ASSERT_EQ(entry->id.term, 1);
         ASSERT_EQ(entry->type, raft::ENTRY_TYPE_DATA);
-        ASSERT_EQ(entry->index, i+1);
+        ASSERT_EQ(entry->id.index, i+1);
 
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "hello, world: %d", i + 1);
@@ -88,9 +88,9 @@ TEST_F(TestUsageSuits, open_segment) {
 
     for (int i = 0; i < 10; i++) {
         raft::LogEntry* entry = seg2->get(i+1);
-        ASSERT_EQ(entry->term, 1);
+        ASSERT_EQ(entry->id.term, 1);
         ASSERT_EQ(entry->type, raft::ENTRY_TYPE_DATA);
-        ASSERT_EQ(entry->index, i+1);
+        ASSERT_EQ(entry->id.index, i+1);
 
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "hello, world: %d", i + 1);
@@ -110,8 +110,8 @@ TEST_F(TestUsageSuits, open_segment) {
     for (int i = 0; i < 5; i++) {
         raft::LogEntry* entry = new raft::LogEntry();
         entry->type = raft::ENTRY_TYPE_DATA;
-        entry->term = 1;
-        entry->index = i + 6;
+        entry->id.term = 1;
+        entry->id.index = i + 6;
 
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "HELLO, WORLD: %d", i + 6);
@@ -123,9 +123,9 @@ TEST_F(TestUsageSuits, open_segment) {
     }
     for (int i = 0; i < 10; i++) {
         raft::LogEntry* entry = seg1->get(i+1);
-        ASSERT_EQ(entry->term, 1);
+        ASSERT_EQ(entry->id.term, 1);
         ASSERT_EQ(entry->type, raft::ENTRY_TYPE_DATA);
-        ASSERT_EQ(entry->index, i+1);
+        ASSERT_EQ(entry->id.index, i+1);
 
         char data_buf[128];
         if (i < 5) {
@@ -153,8 +153,8 @@ TEST_F(TestUsageSuits, closed_segment) {
     for (int i = 0; i < 10; i++) {
         raft::LogEntry* entry = new raft::LogEntry();
         entry->type = raft::ENTRY_TYPE_DATA;
-        entry->term = 1;
-        entry->index = i + 1;
+        entry->id.term = 1;
+        entry->id.index = i + 1;
 
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "hello, world: %d", i + 1);
@@ -169,9 +169,9 @@ TEST_F(TestUsageSuits, closed_segment) {
     // read entry
     for (int i = 0; i < 10; i++) {
         raft::LogEntry* entry = seg1->get(i+1);
-        ASSERT_EQ(entry->term, 1);
+        ASSERT_EQ(entry->id.term, 1);
         ASSERT_EQ(entry->type, raft::ENTRY_TYPE_DATA);
-        ASSERT_EQ(entry->index, i+1);
+        ASSERT_EQ(entry->id.index, i+1);
 
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "hello, world: %d", i + 1);
@@ -192,9 +192,9 @@ TEST_F(TestUsageSuits, closed_segment) {
 
     for (int i = 0; i < 10; i++) {
         raft::LogEntry* entry = seg2->get(i+1);
-        ASSERT_EQ(entry->term, 1);
+        ASSERT_EQ(entry->id.term, 1);
         ASSERT_EQ(entry->type, raft::ENTRY_TYPE_DATA);
-        ASSERT_EQ(entry->index, i+1);
+        ASSERT_EQ(entry->id.index, i+1);
 
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "hello, world: %d", i + 1);
@@ -214,8 +214,8 @@ TEST_F(TestUsageSuits, closed_segment) {
     for (int i = 0; i < 5; i++) {
         raft::LogEntry* entry = new raft::LogEntry();
         entry->type = raft::ENTRY_TYPE_DATA;
-        entry->term = 1;
-        entry->index = i + 6;
+        entry->id.term = 1;
+        entry->id.index = i + 6;
 
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "HELLO, WORLD: %d", i + 6);
@@ -235,9 +235,9 @@ TEST_F(TestUsageSuits, closed_segment) {
             ASSERT_TRUE(entry == NULL);
             continue;
         }
-        ASSERT_EQ(entry->term, 1);
+        ASSERT_EQ(entry->id.term, 1);
         ASSERT_EQ(entry->type, raft::ENTRY_TYPE_DATA);
-        ASSERT_EQ(entry->index, i+1);
+        ASSERT_EQ(entry->id.index, i+1);
         ASSERT_EQ(data_buf, entry->data.to_string());
         entry->Release();
     }
@@ -263,8 +263,8 @@ TEST_F(TestUsageSuits, multi_segment_and_segment_logstorage) {
             int64_t index = 5*i + j + 1;
             raft::LogEntry* entry = new raft::LogEntry();
             entry->type = raft::ENTRY_TYPE_DATA;
-            entry->term = 1;
-            entry->index = index;
+            entry->id.term = 1;
+            entry->id.index = index;
 
             char data_buf[128];
             snprintf(data_buf, sizeof(data_buf), "hello, world: %ld", index);
@@ -283,9 +283,9 @@ TEST_F(TestUsageSuits, multi_segment_and_segment_logstorage) {
     for (int i = 0; i < 500000; i++) {
         int64_t index = i + 1;
         raft::LogEntry* entry = storage->get_entry(index);
-        ASSERT_EQ(entry->term, 1);
+        ASSERT_EQ(entry->id.term, 1);
         ASSERT_EQ(entry->type, raft::ENTRY_TYPE_DATA);
-        ASSERT_EQ(entry->index, index);
+        ASSERT_EQ(entry->id.index, index);
 
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "hello, world: %ld", index);
@@ -321,9 +321,9 @@ TEST_F(TestUsageSuits, multi_segment_and_segment_logstorage) {
     for (int i = 250001; i <= 500000; i++) {
         int64_t index = i;
         raft::LogEntry* entry = storage->get_entry(index);
-        ASSERT_EQ(entry->term, 1);
+        ASSERT_EQ(entry->id.term, 1);
         ASSERT_EQ(entry->type, raft::ENTRY_TYPE_DATA);
-        ASSERT_EQ(entry->index, index);
+        ASSERT_EQ(entry->id.index, index);
 
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "hello, world: %ld", index);
@@ -338,8 +338,8 @@ TEST_F(TestUsageSuits, multi_segment_and_segment_logstorage) {
             int64_t index = 5*i + j + 1;
             raft::LogEntry* entry = new raft::LogEntry();
             entry->type = raft::ENTRY_TYPE_DATA;
-            entry->term = 1;
-            entry->index = index;
+            entry->id.term = 1;
+            entry->id.index = index;
 
             char data_buf[128];
             snprintf(data_buf, sizeof(data_buf), "hello, world: %ld", index);
@@ -381,9 +381,9 @@ TEST_F(TestUsageSuits, multi_segment_and_segment_logstorage) {
     for (int i = 250001; i <= storage->last_log_index(); i++) {
         int64_t index = i;
         raft::LogEntry* entry = storage->get_entry(index);
-        ASSERT_EQ(entry->term, 1);
+        ASSERT_EQ(entry->id.term, 1);
         ASSERT_EQ(entry->type, raft::ENTRY_TYPE_DATA);
-        ASSERT_EQ(entry->index, index);
+        ASSERT_EQ(entry->id.index, index);
 
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "hello, world: %ld", index);
@@ -415,8 +415,8 @@ TEST_F(TestUsageSuits, append_close_load_append) {
             int64_t index = 5*i + j + 1;
             raft::LogEntry* entry = new raft::LogEntry();
             entry->type = raft::ENTRY_TYPE_DATA;
-            entry->term = 1;
-            entry->index = index;
+            entry->id.term = 1;
+            entry->id.index = index;
 
             char data_buf[128];
             snprintf(data_buf, sizeof(data_buf), "hello, world: %ld", index);
@@ -446,8 +446,8 @@ TEST_F(TestUsageSuits, append_close_load_append) {
             int64_t index = 5*i + j + 1;
             raft::LogEntry* entry = new raft::LogEntry();
             entry->type = raft::ENTRY_TYPE_DATA;
-            entry->term = 2;
-            entry->index = index;
+            entry->id.term = 2;
+            entry->id.index = index;
 
             char data_buf[128];
             snprintf(data_buf, sizeof(data_buf), "hello, world: %ld", index);
@@ -470,12 +470,12 @@ TEST_F(TestUsageSuits, append_close_load_append) {
         int64_t index = i + 1;
         raft::LogEntry* entry = storage->get_entry(index);
         if (i < 100000*5) {
-            ASSERT_EQ(entry->term, 1);
+            ASSERT_EQ(entry->id.term, 1);
         } else {
-            ASSERT_EQ(entry->term, 2);
+            ASSERT_EQ(entry->id.term, 2);
         }
         ASSERT_EQ(entry->type, raft::ENTRY_TYPE_DATA);
-        ASSERT_EQ(entry->index, index);
+        ASSERT_EQ(entry->id.index, index);
 
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "hello, world: %ld", index);
@@ -500,8 +500,8 @@ TEST_F(TestUsageSuits, append_read_badcase) {
             int64_t index = 5*i + j + 1;
             raft::LogEntry* entry = new raft::LogEntry();
             entry->type = raft::ENTRY_TYPE_DATA;
-            entry->term = 1;
-            entry->index = index;
+            entry->id.term = 1;
+            entry->id.index = index;
 
             char data_buf[128];
             snprintf(data_buf, sizeof(data_buf), "hello, world: %ld", index);
@@ -602,8 +602,8 @@ TEST_F(TestUsageSuits, configuration) {
     {
         raft::LogEntry entry;
         entry.type = raft::ENTRY_TYPE_NO_OP;
-        entry.term = 1;
-        entry.index = 1;
+        entry.id.term = 1;
+        entry.id.index = 1;
 
         ASSERT_EQ(0, storage->append_entry(&entry));
     }
@@ -612,8 +612,8 @@ TEST_F(TestUsageSuits, configuration) {
     {
         raft::LogEntry entry;
         entry.type = raft::ENTRY_TYPE_CONFIGURATION;
-        entry.term = 1;
-        entry.index = 2;
+        entry.id.term = 1;
+        entry.id.index = 2;
         entry.peers = new std::vector<raft::PeerId>;
         entry.peers->push_back(raft::PeerId("1.1.1.1:1000:0"));
         entry.peers->push_back(raft::PeerId("1.1.1.1:2000:0"));
@@ -628,8 +628,8 @@ TEST_F(TestUsageSuits, configuration) {
             int64_t index = 3 + i*5+j;
             raft::LogEntry* entry = new raft::LogEntry();
             entry->type = raft::ENTRY_TYPE_DATA;
-            entry->term = 1;
-            entry->index = index;
+            entry->id.term = 1;
+            entry->id.index = index;
 
             char data_buf[128];
             snprintf(data_buf, sizeof(data_buf), "hello, world: %ld", index);
@@ -648,8 +648,8 @@ TEST_F(TestUsageSuits, configuration) {
         int64_t index = 2 + 100000*5 + 1;
         raft::LogEntry entry;
         entry.type = raft::ENTRY_TYPE_CONFIGURATION;
-        entry.term = 1;
-        entry.index = index;
+        entry.id.term = 1;
+        entry.id.index = index;
         entry.peers = new std::vector<raft::PeerId>;
         entry.peers->push_back(raft::PeerId("1.1.1.1:1000:0"));
         entry.peers->push_back(raft::PeerId("1.1.1.1:2000:0"));
@@ -661,22 +661,22 @@ TEST_F(TestUsageSuits, configuration) {
     raft::SegmentLogStorage* storage2 = new raft::SegmentLogStorage("./data");
     ASSERT_EQ(0, storage2->init(configuration_manager));
 
-    std::pair<int64_t, raft::Configuration> pair =
-        configuration_manager->get_configuration(2 + 100000*5);
-    ASSERT_EQ(2, pair.first);
+    raft::ConfigurationPair pair;
+    configuration_manager->get_configuration(2 + 100000*5, &pair);
+    ASSERT_EQ(2, pair.first.index);
     LOG(NOTICE) << pair.second;
 
-    pair = configuration_manager->get_configuration(2 + 100000*5 + 1);
-    ASSERT_EQ(2+100000*5+1, pair.first);
+    configuration_manager->get_configuration(2 + 100000*5 + 1, &pair);
+    ASSERT_EQ(2+100000*5+1, pair.first.index);
     LOG(NOTICE) << pair.second;
 
     storage2->truncate_suffix(400000);
-    pair = configuration_manager->get_configuration(400000);
-    ASSERT_EQ(2, pair.first);
+    configuration_manager->get_configuration(400000, &pair);
+    ASSERT_EQ(2, pair.first.index);
 
     storage2->truncate_prefix(2);
-    pair = configuration_manager->get_configuration(400000);
-    ASSERT_EQ(2, pair.first);
+    configuration_manager->get_configuration(400000, &pair);
+    ASSERT_EQ(2, pair.first.index);
 
     delete storage2;
 }
@@ -741,7 +741,7 @@ void* write_thread_routine(void* arg) {
         } else  {  // Append entry
             raft::LogEntry* entry = new raft::LogEntry;
             entry->type = raft::ENTRY_TYPE_DATA;
-            entry->index = next_log_index;
+            entry->id.index = next_log_index;
             std::string data;
             base::string_printf(&data, "hello_%d", next_log_index);
             entry->data.append(data);
@@ -768,7 +768,7 @@ TEST_F(TestUsageSuits, multi_read_single_modify_thread_safe) {
     for (int i = 1; i <= N; ++i) {
         raft::LogEntry* entry = new raft::LogEntry;
         entry->type = raft::ENTRY_TYPE_DATA;
-        entry->index = i;
+        entry->id.index = i;
         std::string data;
         base::string_printf(&data, "hello_%d", i);
         entry->data.append(data);
@@ -806,7 +806,8 @@ TEST_F(TestUsageSuits, large_entry) {
     ASSERT_EQ(0, storage->init(configuration_manager));
     raft::LogEntry* entry = new raft::LogEntry;
     entry->type = raft::ENTRY_TYPE_DATA;
-    entry->index = 1;
+    entry->id.index = 1;
+    entry->id.term = 1;
     std::string data;
     data.resize(512 * 1024 * 1024, 'a');
     entry->data.append(data);

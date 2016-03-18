@@ -19,6 +19,7 @@
 #include <gtest/gtest.h>
 #include <base/logging.h>
 #include "raft/raft.h"
+#include "raft/configuration_manager.h"
 
 class TestUsageSuits : public testing::Test {
 protected:
@@ -92,37 +93,38 @@ TEST_F(TestUsageSuits, Configuration) {
 TEST_F(TestUsageSuits, ConfigurationManager) {
     raft::ConfigurationManager* conf_manager = new raft::ConfigurationManager();
 
-    raft::ConfigurationPair it1 = conf_manager->get_configuration(10);
-    ASSERT_EQ(it1.first, 0);
+    raft::ConfigurationPair it1;
+    conf_manager->get_configuration(10, &it1);
+    ASSERT_EQ(it1.first, raft::LogId(0, 0));
     ASSERT_TRUE(it1.second.empty());
-    ASSERT_EQ(0, conf_manager->last_configuration_index());
+    ASSERT_EQ(raft::LogId(0, 0), conf_manager->last_configuration().first);
 
     std::vector<raft::PeerId> peers;
     peers.push_back(raft::PeerId("1.1.1.1:1000:0"));
     peers.push_back(raft::PeerId("1.1.1.1:1000:1"));
     peers.push_back(raft::PeerId("1.1.1.1:1000:2"));
-    conf_manager->add(8, raft::Configuration(peers));
-    ASSERT_EQ(8, conf_manager->last_configuration_index());
+    conf_manager->add(raft::LogId(8, 1), raft::Configuration(peers));
+    ASSERT_EQ(raft::LogId(8, 1), conf_manager->last_configuration().first);
 
-    it1 = conf_manager->get_configuration(10);
-    ASSERT_EQ(it1.first, 8);
+    conf_manager->get_configuration(10, &it1);
+    ASSERT_EQ(it1.first, raft::LogId(8, 1));
 
     conf_manager->truncate_suffix(7);
-    ASSERT_EQ(0, conf_manager->last_configuration_index());
+    ASSERT_EQ(raft::LogId(0, 0), conf_manager->last_configuration().first);
 
-    conf_manager->add(10, raft::Configuration(peers));
+    conf_manager->add(raft::LogId(10, 1), raft::Configuration(peers));
     peers.push_back(raft::PeerId("1.1.1.1:1000:3"));
-    conf_manager->add(20, raft::Configuration(peers));
-    ASSERT_EQ(20, conf_manager->last_configuration_index());
+    conf_manager->add(raft::LogId(20, 1), raft::Configuration(peers));
+    ASSERT_EQ(raft::LogId(20, 1), conf_manager->last_configuration().first);
 
     conf_manager->truncate_prefix(15);
-    ASSERT_EQ(20, conf_manager->last_configuration_index());
+    ASSERT_EQ(raft::LogId(20, 1), conf_manager->last_configuration().first);
 
     conf_manager->truncate_prefix(25);
-    ASSERT_EQ(0, conf_manager->last_configuration_index());
+    ASSERT_EQ(raft::LogId(0, 0), conf_manager->last_configuration().first);
 
     raft::ConfigurationPair pair = conf_manager->last_configuration();
-    ASSERT_EQ(pair.first, 0);
+    ASSERT_EQ(pair.first, raft::LogId(0, 0));
 
     delete conf_manager;
 }

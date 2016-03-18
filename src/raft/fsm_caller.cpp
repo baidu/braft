@@ -146,7 +146,7 @@ public:
             if (done) {
                 done->Run();
             }
-            _first_index = entry->index + 1;
+            _first_index = entry->id.index + 1;
         }
     }
 
@@ -191,20 +191,23 @@ void FSMCaller::do_committed(int64_t committed_index) {
     for (int64_t index = last_applied_index + 1; index <= committed_index; ++index) {
         LogEntry *entry = _log_manager->get_entry(index);
         CHECK(entry);
-        CHECK(index == entry->index);
+        CHECK(index == entry->id.index);
         Closure* done = NULL;
         if (index >= first_closure_index) {
             done = closure[index - first_closure_index];
         }
         tb.append(entry, done);
-        last_applied_term = entry->term;
+        last_applied_term = entry->id.term;
     }
     tb.apply_task();
     if (last_applied_term > 0) {
         _last_applied_term = last_applied_term;
     }
+    LogId last_applied_id;
+    last_applied_id.index = committed_index;
+    last_applied_id.term = last_applied_term;
     _last_applied_index.store(committed_index, boost::memory_order_release);
-    _log_manager->set_applied_index(committed_index);
+    _log_manager->set_applied_id(last_applied_id);
 }
 
 int FSMCaller::on_snapshot_save(SaveSnapshotClosure* done) {
@@ -222,8 +225,9 @@ void FSMCaller::do_snapshot_save(SaveSnapshotClosure* done) {
     SnapshotMeta meta;
     meta.last_included_index = last_applied_index;
     meta.last_included_term = _last_applied_term;
-    ConfigurationPair pair = _log_manager->get_configuration(last_applied_index);
-    meta.last_configuration = pair.second;
+    ConfigurationPair conf_pair;
+    _log_manager->get_configuration(last_applied_index, &conf_pair);
+    meta.last_configuration = conf_pair.second;
 
     SnapshotWriter* writer = done->start(meta);
     if (!writer) {

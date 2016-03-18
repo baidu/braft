@@ -101,14 +101,8 @@ void RaftServiceImpl::append_entries(google::protobuf::RpcController* cntl_base,
         return;
     }
 
-    int rc = node->handle_append_entries_request(cntl->request_attachment(),
-                                                      request, response);
-    if (BAIDU_UNLIKELY(rc != 0)) {
-        char err_buf[128];
-        strerror_r(rc, err_buf, sizeof(err_buf));
-        cntl->SetFailed(rc, err_buf);
-        return;
-    }
+    return node->handle_append_entries_request(cntl, request, response, 
+                                               done_guard.release());
 }
 
 void RaftServiceImpl::install_snapshot(google::protobuf::RpcController* cntl_base,
