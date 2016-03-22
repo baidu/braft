@@ -254,7 +254,7 @@ static void handle_finish_task(int fd, int events, void* data) {
             }
             return;
         }
-        const size_t ncmd = (size_t)nr / sizeof(void);
+        const size_t ncmd = (size_t)nr / sizeof(void*);
         size_t i = 0;
         for (i = 0; i < ncmd; ++i) {
             target_cmd_io_done(cmd[i], scsi_get_result(cmd[i]));

@@ -214,6 +214,7 @@ example/ebs/tgt/usr/util.h -text
 example/ebs/tgt/usr/work.c -text
 example/ebs/tgt/usr/work.d -text
 example/ebs/tgt/usr/work.h -text
+example/ebs/tools/attach_volume.sh -text
 protocol/raft/builtin_service.proto -text
 protocol/raft/errno.proto -text
 protocol/raft/file_service.proto -text
