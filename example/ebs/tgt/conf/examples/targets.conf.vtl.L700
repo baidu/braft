@@ -1,0 +1,92 @@
+# Virtual tape library example for a STK L700 tape library
+#
+# In this case, tapes are stored in the directory /root/tapes
+# size is in MB (1 GB in this case)
+# using the command "tgtimg --op=new --device-type=tape --barcode="A00000001" --size=10240 --type=data --file=A00000001"
+#
+# The tapes can be added after startup with
+# "tgtadm --lld iscsi --mode logicalunit --op update --tid 1 --lun 4 --params element_type=2,address=1000,barcode=A0000001,sides=1"
+# for slot 0 (is nr 1000)
+#
+
+include /etc/tgt/temp/*.conf
+
+default-driver iscsi
+
+<target iqn.2008-09.com.example:server.tape>
+    allow-in-use yes
+#
+# For every drive We need a backing store, although the tape drive will be empty,
+# so we create a dummy tape "notape" in directory /root/tapes
+# with the command "tgtimg --op=new --device-type=tape --barcode="" --size=1 --type=clean --file=notape"
+# and create symbolic links for every drive (limitation of tgt)
+# link -s /root/tapes/notape /root/tapes/notape1
+# link -s /root/tapes/notape /root/tapes/notape2
+# link -s /root/tapes/notape /root/tapes/notape2
+#
+    <backing-store /root/tapes/notape1>
+        lun 1
+        device-type tape
+        removable 1
+        vendor_id "HP"
+        product_id "LTO3 ULTRIUM"
+        product_rev "0001"
+        scsi_sn "HUM1A00001"
+        scsi_id "HP LTO3 ULTRIUM"
+    </backing-store>
+    <backing-store /root/tapes/notape2>
+        lun 2
+        device-type tape
+        removable 1
+        vendor_id "HP"
+        product_id "LTO3 ULTRIUM"
+        product_rev "0001"
+        scsi_sn "HUM1A00002"
+        scsi_id "HP LTO3 ULTRIUM"
+    </backing-store>
+    <backing-store /root/tapes/notape3>
+        lun 3
+        device-type tape
+        removable 1
+        vendor_id "HP"
+        product_id "LTO3 ULTRIUM"
+        product_rev "0001"
+        scsi_sn "HUM1A00003"
+        scsi_id "HP LTO3 ULTRIUM"
+    </backing-store>
+    <backing-store /root/smc>
+        lun 4
+        device-type changer
+        removable 1
+        vendor_id "STK"
+        product_id "L700"
+        product_rev "0001"
+        scsi_sn "123:456:789:000"
+        # Dummy 'page 0'
+        mode_page "0:0:0"
+        # Page 0x02: Disconnect/Reconnect SPC-3
+        mode_page "0x02:0:14:0x80:0x80:0:0xa:0:0:0:0:0:0:0:0:0:0"
+        # Page 0x1a: Power Condition SPC-3
+        mode_page "0x1a:0:18:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0"
+        # Page 0x1c: Informational Exceptions Control SPC-3
+        mode_page "0x1c:0:10:8:0:0:0:0:0:0:0:0:0"
+        # Page 0x1d: Element Address Assignment SMC-3 7.3.4
+        mode_page "0x1d:0:0x12:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0"
+        # Page 0x1e: Transport Geometry Parameters SMC-3 7.3.5
+        mode_page "0x1e:0:2:0:0"
+        # Page 0x1f: Device Capabilities SMC-3 7.3.2
+        # Page 0x1f/Subpage 0x41: Extended Device Capabilities SMC-3 7.3.3
+        mode_page "0x1f:0:0x12:0x0f:7:0x0f:0x0f:0x0f:0x0f:0:0:0:0:0x0f:0x0f:0x0f:0x0f:0:0:0:0"
+        # Type 1: Medium Transport Elements (robot arm/picker)
+        params element_type=1,start_address=1,quantity=1,media_home=/root/tapes
+        # Type 2: Storage Elements (tape slots)
+        params element_type=2,start_address=1000,quantity=216,media_home=/root/tapes
+        # Type 3: Import/Export Elements (CAP)
+        params element_type=3,start_address=10,quantity=20,media_home=/root/tapes
+        # Type 4: Add Data Transfer devices (drives)
+        params element_type=4,start_address=500,quantity=3,media_home=/root/tapes
+        params element_type=4,address=500,tid=1,lun=1
+        params element_type=4,address=500,tid=1,lun=2
+        params element_type=4,address=500,tid=1,lun=3
+    </backing-store>
+</target>

@@ -1,0 +1,50 @@
+The 'glfs' backing-store driver provides block  access to a file within the
+gluster distributed  file system  (www.gluster.org). The file  represents a
+LUN visible to the  initiator (the file may be a  regular file in gluster's
+underlying XFS filesystem, or a gluster "block device"). This configuration
+gives gluster support for any access method supported by the target driver,
+such as iSCSI.
+
+The backing-store  driver uses  the interfaces  to gluster  in libgfapi.so.
+This file is part of the glusterfs-api package which can be downloaded from
+www.gluster.org.
+
+To  build  the glfs  backing  store  driver,  set the  GLFS_BS  environment
+variable (export GLFS_BD=1) before running Make.
+
+When a LUN on a target is created with backing store of type glfs (--bstype
+glfs), a  handle to gluster  is created. The  handle is destroyed  when the
+target is  closed. The handle represents  a particular volume on  a gluster
+server and a particular file representing the LUN.
+
+To  set  the gluster  volume  and  file,  --backing-store takes  the  form:
+volume@hostname:filename
+
+For example, if the volume name was  vol1 , and the host gprfs010, and file
+name was "disk1", you would set --backing-store to:
+
+--backing-store="vol1@gprfs010:disk1"
+
+For each CDB, the driver issues an appropriate gluster api call against the
+handle.  For  example,  WRITE_16 becomes  glfs_pwrite(),  SYNCHRONIZE_CACHE
+becomes glfs_fdatasync() and UNMAP becomes glfs_discard().
+
+Each call is synchronous, meaning the  thread will wait for a response from
+gluster before  returning to  the caller.  The libgfapi  interfaces support
+asynchronous  calls, and  an asynchronous  version of  the driver  has been
+tested. For  more information  on the  asynchronous version  please contact
+dlambrig@redhat.com.
+
+If the  backing store driver  was not used,  the linux target  driver could
+still write data  to gluster by loopback mounting the  gluster file system.
+The backing-store would be a file within the file system. Gluster uses FUSE
+to forward  I/O from  the kernel  to it's user  space daemon.  The overhead
+incured by FUSE and the kernel is removed when the backing store driver and
+libgfapi package is used.
+
+The libgfapi interfaces  supports logs. You can use the  --bsopts option to
+set the logfile and loglevel.
+
+--bsops="logfile=glfs.log;loglevel=3"
+
+

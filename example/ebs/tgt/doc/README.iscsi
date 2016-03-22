@@ -1,0 +1,488 @@
+Preface
+-------------
+This show a simple example to set up some targets.
+
+
+Starting the daemon
+-------------
+The iSCSI target driver works with the 2.6.X kernels.
+
+First, you need to compile the source code:
+
+host:~/tgt/usr$ make
+
+Try the following commands:
+
+host:~/tgt$ su
+host:~/tgt# ./usr/tgtd
+
+
+Configuration
+-------------
+Everyting is configured via the tgtadm management tool.
+
+The following example creates a target with id 1 (the iqn is
+iqn.2001-04.com.example:storage.disk2.amiens.sys1.xyz) and adds a
+logical unit (backed by /dev/hdc1) with lun 1.
+
+Let's create one target device.
+
+host:~/tgt$ su
+host:~/tgt# ./usr/tgtadm --lld iscsi --op new --mode target --tid 1 -T iqn.2001-04.com.example:storage.disk2.amiens.sys1.xyz
+
+You can get the current configuration:
+
+host:~/tgt# ./usr/tgtadm --lld iscsi --op show --mode target
+Target 1: iqn.2001-04.com.example:storage.disk2.amiens.sys1.xyz
+    System information:
+        Driver: iscsi
+        Status: running
+    I_T nexus information:
+    LUN information:
+        LUN: 0
+            Type: controller
+            SCSI ID: deadbeaf1:0
+            SCSI SN: beaf10
+            Size: 0
+            Backing store: No backing store
+    Account information:
+    ACL information:
+
+
+The controller device for management with lun 0 was created
+automatically. You can't remove it.
+
+Now it's time to add a logical unit to the target:
+
+host:~/tgt# ./usr/tgtadm --lld iscsi --op new --mode logicalunit --tid 1 --lun 1 -b /dev/hdc1
+
+You can get the current configuration:
+
+host:~/tgt# ./usr/tgtadm --lld iscsi --op show --mode target
+Target 1: iqn.2001-04.com.example:storage.disk2.amiens.sys1.xyz
+    System information:
+        Driver: iscsi
+        Status: running
+    I_T nexus information:
+    LUN information:
+        LUN: 0
+            Type: controller
+            SCSI ID: deadbeaf1:0
+            SCSI SN: beaf10
+            Size: 0
+            Backing store: No backing store
+        LUN: 1
+            Type: disk
+            SCSI ID: deadbeaf1:1
+            SCSI SN: beaf11
+            Size: 55G
+            Backing store: /dev/hdc1
+    Account information:
+    ACL information:
+
+
+If you don't need to configure this target any more, enable the target
+to accept any initiators:
+
+host:~/tgt# ./usr/tgtadm --lld iscsi --op bind --mode target --tid 1 -I ALL
+host:~/tgt# ./usr/tgtadm --lld iscsi --op show --mode target
+Target 1: iqn.2001-04.com.example:storage.disk2.amiens.sys1.xyz
+    System information:
+        Driver: iscsi
+        Status: running
+    I_T nexus information:
+    LUN information:
+        LUN: 0
+            Type: controller
+            SCSI ID: deadbeaf1:0
+            SCSI SN: beaf10
+            Size: 0
+            Backing store: No backing store
+        LUN: 1
+            Type: disk
+            SCSI ID: deadbeaf1:1
+            SCSI SN: beaf11
+            Size: 55G
+            Backing store: /dev/hdc1
+    Account information:
+    ACL information:
+        ALL
+
+
+Note "ACL information" section. "ALL" means that this target accepts
+any initiators. The ACL feature also provides the access control based
+on initiators' addresses.
+
+First, let's remove "ALL" option:
+
+host:~/tgt# ./usr/tgtadm --lld iscsi --op unbind --mode target --tid 1 -I ALL
+host:~/tgt# ./usr/tgtadm --lld iscsi --op show --mode target
+Target 1: iqn.2001-04.com.example:storage.disk2.amiens.sys1.xyz
+    System information:
+        Driver: iscsi
+        Status: running
+    I_T nexus information:
+    LUN information:
+        LUN: 0
+            Type: controller
+            SCSI ID: deadbeaf1:0
+            SCSI SN: beaf10
+            Size: 0
+            Backing store: No backing store
+        LUN: 1
+            Type: disk
+            SCSI ID: deadbeaf1:1
+            SCSI SN: beaf11
+            Size: 55G
+            Backing store: /dev/hdc1
+    Account information:
+    ACL information:
+
+
+Here are some examples:
+
+host:~/tgt# ./usr/tgtadm --lld iscsi --op bind --mode target --tid 1 -I 192.0.2.229
+host:~/tgt# ./usr/tgtadm --lld iscsi --op bind --mode target --tid 1 -I 198.51.100.0/24
+host:~/tgt# ./usr/tgtadm --lld iscsi --op show --mode target
+Target 1: iqn.2001-04.com.example:storage.disk2.amiens.sys1.xyz
+    System information:
+        Driver: iscsi
+        Status: running
+    I_T nexus information:
+    LUN information:
+        LUN: 0
+            Type: controller
+            SCSI ID: deadbeaf1:0
+            SCSI SN: beaf10
+            Size: 0
+            Backing store: No backing store
+        LUN: 1
+            Type: disk
+            SCSI ID: deadbeaf1:1
+            SCSI SN: beaf11
+            Size: 55G
+            Backing store: /dev/hdc1
+    Account information:
+    ACL information:
+        192.0.2.229
+        198.51.100.0/24
+
+
+You can add lots of logical units:
+
+host:~/tgt# ./usr/tgtadm --lld iscsi --op new --mode logicalunit --tid 1 --lun 2 -b /dev/hdd1
+host:~/tgt# ./usr/tgtadm --lld iscsi --op show --mode target
+Target 1: iqn.2001-04.com.example:storage.disk2.amiens.sys1.xyz
+    System information:
+        Driver: iscsi
+        Status: running
+    I_T nexus information:
+    LUN information:
+        LUN: 0
+            Type: controller
+            SCSI ID: deadbeaf1:0
+            SCSI SN: beaf10
+            Size: 0
+            Backing store: No backing store
+        LUN: 1
+            Type: disk
+            SCSI ID: deadbeaf1:1
+            SCSI SN: beaf11
+            Size: 55G
+            Backing store: /dev/hdc1
+        LUN: 2
+            Type: disk
+            SCSI ID: deadbeaf1:2
+            SCSI SN: beaf12
+            Size: 55G
+            Backing store: /dev/hdd1
+    Account information:
+    ACL information:
+
+
+You can get iSCSI parameters of the target:
+
+host:~/tgt# ./usr/tgtadm --lld iscsi --op show --mode target --tid 1
+MaxRecvDataSegmentLength=8192
+MaxXmitDataSegmentLength=8192
+HeaderDigest=None
+DataDigest=None
+InitialR2T=Yes
+MaxOutstandingR2T=1
+ImmediateData=Yes
+FirstBurstLength=65536
+MaxBurstLength=262144
+DataPDUInOrder=Yes
+DataSequenceInOrder=Yes
+ErrorRecoveryLevel=0
+IFMarker=No
+OFMarker=No
+DefaultTime2Wait=2
+DefaultTime2Retain=20
+OFMarkInt=Reject
+IFMarkInt=Reject
+MaxConnections=1
+
+
+You can change iSCSI parameters like the following (e.g. set
+MaxRecvDataSegmentLength to 16384):
+
+host:~/tgt# ./usr/tgtadm --lld iscsi --mode target --op update --tid 1 --name MaxRecvDataSegmentLength --value 16384
+
+You can get iSCSI parameters again to see its change:
+
+host:~/tgt# ./usr/tgtadm --lld iscsi --op show --mode target --tid 1
+MaxRecvDataSegmentLength=16384
+MaxXmitDataSegmentLength=8192
+HeaderDigest=None
+DataDigest=None
+InitialR2T=Yes
+MaxOutstandingR2T=1
+ImmediateData=Yes
+FirstBurstLength=65536
+MaxBurstLength=262144
+DataPDUInOrder=Yes
+DataSequenceInOrder=Yes
+ErrorRecoveryLevel=0
+IFMarker=No
+OFMarker=No
+DefaultTime2Wait=2
+DefaultTime2Retain=20
+OFMarkInt=Reject
+IFMarkInt=Reject
+MaxConnections=1
+
+
+The following is another example to enable header digest:
+
+host:~/tgt# ./usr/tgtadm --lld iscsi --mode target --op update --tid 1 --name HeaderDigest --value CRC32C
+
+host:~/tgt# ./usr/tgtadm --lld iscsi --op show --mode target --tid 1
+MaxRecvDataSegmentLength=16384
+MaxXmitDataSegmentLength=8192
+HeaderDigest=CRC32C
+DataDigest=None
+InitialR2T=Yes
+MaxOutstandingR2T=1
+ImmediateData=Yes
+FirstBurstLength=65536
+MaxBurstLength=262144
+DataPDUInOrder=Yes
+DataSequenceInOrder=Yes
+ErrorRecoveryLevel=0
+IFMarker=No
+OFMarker=No
+DefaultTime2Wait=2
+DefaultTime2Retain=20
+OFMarkInt=Reject
+IFMarkInt=Reject
+MaxConnections=1
+
+The target accepts CRC32C and None. Currently, there is no way to
+configure a target to accept only CRC32C.
+
+
+Authentication
+-------------
+Let's create a new account:
+
+host:~/tgt# ./usr/tgtadm --lld iscsi --op new --mode account --user fujita --password tomo
+host:~/tgt# ./usr/tgtadm --lld iscsi --op show --mode account
+Account list:
+    fujita
+
+You can assign this account to any targets:
+
+host:~/tgt# ./usr/tgtadm --lld iscsi --op bind --mode account --tid 1 --user fujita
+host:~/tgt# ./usr/tgtadm --lld iscsi --op show --mode target
+Target 1: iqn.2001-04.com.example:storage.disk2.amiens.sys1.xyz
+    System information:
+        Driver: iscsi
+        Status: running
+    I_T nexus information:
+    LUN information:
+        LUN: 0
+            Type: controller
+            SCSI ID: deadbeaf1:0
+            SCSI SN: beaf10
+            Size: 0
+            Backing store: No backing store
+        LUN: 1
+            Type: disk
+            SCSI ID: deadbeaf1:1
+            SCSI SN: beaf11
+            Size: 55G
+            Backing store: /dev/hdc1
+    Account information:
+        fujita
+    ACL information:
+        ALL
+
+
+You can set up an outgoing account. First, you need to create a new
+account like the previous example:
+
+host:~/tgt# ./usr/tgtadm --lld iscsi --op new --mode account --user hoge --password deadbeaf
+host:~/tgt# ./usr/tgtadm --lld iscsi --op show --mode account
+Account list:
+    hoge
+    fujita
+host:~/tgt# ./usr/tgtadm --lld iscsi --op bind --mode account --tid 1 --user hoge --outgoing
+host:~/tgt# ./usr/tgtadm --lld iscsi --op show --mode target
+Target 1: iqn.2001-04.com.example:storage.disk2.amiens.sys1.xyz
+    System information:
+        Driver: iscsi
+        Status: running
+    I_T nexus information:
+    LUN information:
+        LUN: 0
+            Type: controller
+            SCSI ID: deadbeaf1:0
+            SCSI SN: beaf10
+            Size: 0
+            Backing store: No backing store
+        LUN: 1
+            Type: disk
+            SCSI ID: deadbeaf1:1
+            SCSI SN: beaf11
+            Size: 55G
+            Backing store: /dev/hdc1
+    Account information:
+        fujita
+        hoge (outgoing)
+    ACL information:
+        ALL
+
+
+Initiator Information
+-------------
+After the target accepts initiators, the system information would be
+something like the followings:
+
+host:~/tgt# ./usr/tgtadm --lld iscsi --op show --mode target
+Target 1: iqn.2001-04.com.example:storage.disk2.amiens.sys1.xyz
+    System information:
+        Driver: iscsi
+        Status: running
+    I_T nexus information:
+        I_T nexus: 2
+            Initiator: iqn.1987-05.com.cisco:01.4438aca09387
+            Connection: 0
+                IP Address: 192.0.2.115
+    LUN information:
+        LUN: 0
+            Type: controller
+            SCSI ID: deadbeaf1:0
+            SCSI SN: beaf10
+            Size: 0
+            Backing store: No backing store
+        LUN: 1
+            Type: disk
+            SCSI ID: deadbeaf1:1
+            SCSI SN: beaf11
+            Size: 55G
+            Backing store: /dev/hdc1
+    Account information:
+    ACL information:
+        ALL
+
+
+One initiator (192.0.2.113) logs in now. Let's try again:
+
+host:~/tgt# ./usr/tgtadm --lld iscsi --op show --mode target
+Target 1: iqn.2001-04.com.example:storage.disk2.amiens.sys1.xyz
+    System information:
+        Driver: iscsi
+        Status: running
+    I_T nexus information:
+        I_T nexus: 2
+            Initiator: iqn.1987-05.com.cisco:01.4438aca09387
+            Connection: 0
+                IP Address: 192.0.2.115
+        I_T nexus: 3
+            Initiator: iqn.1991-05.com.microsoft:kernel
+            Connection: 1
+                IP Address: 192.0.2.113
+    LUN information:
+        LUN: 0
+            Type: controller
+            SCSI ID: deadbeaf1:0
+            SCSI SN: beaf10
+            Size: 0
+            Backing store: No backing store
+        LUN: 1
+            Type: disk
+            SCSI ID: deadbeaf1:1
+            SCSI SN: beaf11
+            Size: 55G
+            Backing store: /dev/hdc1
+    Account information:
+    ACL information:
+        ALL
+
+
+Now we have two initiators. You can see the parameters that the target
+and initiator negotiated (use the values follows "I_T nexus:"):
+
+host:~/tgt# ./usr/tgtadm --lld iscsi --op show --mode session --tid 1 --sid 3
+MaxRecvDataSegmentLength=8192
+MaxXmitDataSegmentLength=8192
+HeaderDigest=None
+DataDigest=None
+InitialR2T=Yes
+MaxOutstandingR2T=1
+ImmediateData=Yes
+FirstBurstLength=65536
+MaxBurstLength=262144
+DataPDUInOrder=Yes
+DataSequenceInOrder=Yes
+ErrorRecoveryLevel=0
+IFMarker=No
+OFMarker=No
+DefaultTime2Wait=2
+DefaultTime2Retain=20
+OFMarkInt=Reject
+IFMarkInt=Reject
+MaxConnections=1
+
+
+Performance tips
+-------------
+If you need multiple logical units, you had better create multiple
+targets including one logical unit instead of creating one target
+including multiple logical units.
+
+
+Shutdown
+-------------
+host:~/tgt# killall -9 tgtd
+
+We will support better methods later.
+
+
+iSNS
+-------------
+iSNS support is still experimental.
+
+host:~/tgt# ./usr/tgtadm --lld iscsi --op show --mode sys
+iSNS:
+    iSNS=Off
+    iSNSServerIP=
+    iSNSServerPort=3205
+    iSNSAccessControl=Off
+
+host:~/tgt# ./usr/tgtadm --op update --mode sys --name iSNSServerIP -v 192.0.2.113
+
+host:~/tgt# ./usr/tgtadm --op update --mode sys --name iSNS -v On
+
+host:~/tgt# ./usr/tgtadm --lld iscsi --op show --mode sys
+iSNS:
+    iSNS=On
+    iSNSServerIP=192.0.2.113
+    iSNSServerPort=3205
+    iSNSAccessControl=Off
+
+Now you are ready to add targets. Now there are some limitations:
+
+- once you enable iSNS, you can't disable it.
+- you need to enable iSNS before adding targets.

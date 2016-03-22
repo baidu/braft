@@ -1,0 +1,321 @@
+#!/bin/bash
+
+# LUN assignment script
+#
+# Copyright (C) 2007 Erez Zilber <erezz@voltaire.com>
+# Copyright (C) 2012 Roi Dayan <roid@mellanox.com>
+#
+# This program is free software; you can redistribute it and/or
+# modify it under the terms of the GNU General Public License as
+# published by the Free Software Foundation, version 2 of the
+# License.
+#
+# This program is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+# General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
+# 02110-1301 USA
+
+usage()
+{
+	name=$(basename $0);
+	echo "usage:";
+	echo -e "\t$name -n tgt_name -d dev -b bs_name -t transport -C control_port [initiator_IP1 initiator_IP2 ...]";
+	echo "defaults:";
+	echo -e "\tbacking store: rdwr";
+	echo -e "\ttransport: iscsi";
+	echo -e "\tinitiator: ALL";
+	echo -e "\tcontrol port: -";
+	echo "examples:";
+	echo -e "\t$name -n tgt-1 -d /dev/sdb1 192.168.1.2";
+	echo -e "\t$name -n tgt-2 -d /tmp/null -b null -t iser";
+	echo -e "\t$name -n tgt-3 -d ~/disk3.bin -b rdwr 192.168.1.2 192.168.1.3";
+}
+
+verify_params()
+{
+	if ! [ "$dev" -o "$bs_type" == "null" ]; then
+		echo "Error: a device is mandatory";
+		exit 1;
+	else
+		return;
+	fi
+
+	# Make sure that the device exists
+	if ! [ -b $dev -o -f $dev -o -c $dev ]; then
+		echo "Error: $dev is not a device";
+		exit 1;
+	fi
+
+	if ! [ "$tgt_name" ]; then
+		echo "Error: target name is mandatory";
+		exit 1;
+	fi
+
+	if ! [ "$lld_name" ]; then
+		echo "Error: lld name empty";
+		exit 1;
+	fi
+}
+
+find_vacant_tgt_id()
+{
+	id_list=$($TGTADM --lld $lld_name --op show --mode target | grep Target | cut -d" " -f2 | sed s/://)
+
+	next_vacant_id=1
+
+	for id in $id_list; do
+		if (($id > $next_vacant_id)); then
+			break;
+		else
+			next_vacant_id=$((next_vacant_id+1))
+		fi
+	done
+
+	return $next_vacant_id
+}
+
+find_vacant_lun()
+{
+	tid=$1
+	tgt_found=0
+	next_vacant_lun=0
+	tmp_file=/tmp/target_list.txt
+
+	$TGTADM --lld $lld_name --op show --mode target > $tmp_file
+
+	while read line; do
+		# Check if we finished going over this target
+		if ((tgt_found == 1 && $(echo $line | grep -c "^Target") == 1)); then
+			break
+		fi
+
+		# Check if we found the requested target
+		if (($(echo $line | grep -c "Target $tid:") == 1)); then
+			tgt_found=1
+			continue
+		fi
+
+		if ((tgt_found == 1 && $(echo $line | grep -c "LUN:") == 1)); then
+			curr_lun=$(echo $line | cut -d" " -f2)
+			if (($curr_lun > $next_vacant_lun)); then
+				break
+			else
+				next_vacant_lun=$((next_vacant_lun+1))
+			fi
+		fi
+	done < $tmp_file
+
+	rm -f $tmp_file
+
+	if ((tgt_found == 0)); then
+		echo "Error: could not find a LUN for target $tid"
+		return -1
+	fi
+
+	return $next_vacant_lun
+}
+
+get_acl() {
+	tid=$1
+	tgt_found=0
+	acl_found=0
+	next_vacant_lun=0
+	tmp_file=/tmp/target_list.txt
+	local _acl=""
+
+	$TGTADM --lld $lld_name --op show --mode target > $tmp_file
+
+	while read line; do
+		# Check if we finished going over this target
+		if ((tgt_found == 1 && $(echo $line | grep -c "^Target") == 1)); then
+			break
+		fi
+
+		# Check if we found the requested target
+		if (($(echo $line | grep -c "Target $tid:") == 1)); then
+			tgt_found=1
+			continue
+		fi
+
+		if ((tgt_found == 1 && $(echo $line | grep -c "ACL information") == 1)); then
+			acl_found=1
+			continue
+		fi
+
+		if ((tgt_found == 1 && acl_found == 1)); then
+			curr_acl=$(echo $line)
+			_acl=`echo $_acl $curr_acl`
+		fi
+	done < $tmp_file
+
+	rm -f $tmp_file
+
+	echo $_acl
+}
+
+err_exit()
+{
+	if ((new_tgt == 0)); then
+		exit 1
+	fi
+
+	echo "Deleting new target, tid=$tid"
+	$TGTADM --lld $lld_name --op delete --mode target --tid $tid
+	res=$?
+
+	if [ $res -ne 0 ]; then
+		echo "Error: failed to delete target, tid=$tid"
+	fi
+
+	exit 1
+}
+
+check_if_tgt_exists()
+{
+	tgt_list=$($TGTADM --lld $lld_name --op show --mode target | grep Target | cut -d" " -f3)
+
+	for curr_tgt in $tgt_list; do
+		if [ $tgt_name = $curr_tgt ]; then
+			return 1
+		fi
+	done
+
+	return 0
+}
+
+if [ $# -eq 0 ]; then
+	usage
+	exit 1
+fi
+
+TGTADM="tgtadm"
+lld_name="iscsi"
+control_port=""
+
+while getopts "d:n:b:t:h:C:" opt
+do
+	case ${opt} in
+	d)
+		dev=$OPTARG;;
+	n)
+		tgt_name=$OPTARG;;
+	b)
+		bs_type=$OPTARG;;
+	t)
+		lld_name=$OPTARG;;
+        C)
+                control_port=$OPTARG;;
+	h*)
+		usage
+		exit 1
+	esac
+done
+
+shift $(($OPTIND - 1))
+
+initiators=$*
+
+verify_params
+
+# Check if tgtd is running (we should have 2 daemons)
+tgtd_count=`pidof tgtd | wc -w`
+if [ $tgtd_count -lt 1 ]; then
+	echo "tgtd is not running"
+	echo "Exiting..."
+	exit 1
+fi
+
+if [ -n "$control_port" ]; then
+    echo "Control port: $control_port"
+    TGTADM="$TGTADM -C $control_port"
+fi
+
+echo "Using transport: $lld_name"
+
+if ! [[ $tgt_name =~ ^iqn ]]; then
+    tgt_name="iqn.2001-04.com.$(hostname -s)-$tgt_name"
+fi
+
+# Make sure that a target with the same name doesn't exist
+check_if_tgt_exists
+if [ $? -eq 1 ]; then
+	echo "Error: target named $tgt_name already exists"
+	read -p "Add a new lun to the existing target? (yes/NO): " add_lun
+	if [ "$add_lun" != "yes" ]; then
+		exit 1
+	fi
+	tid=$($TGTADM --lld $lld_name --op show --mode target | grep $tgt_name | cut -d" " -f2)
+	tid=${tid%:}
+	new_tgt=0
+else
+	find_vacant_tgt_id
+	tid=$?
+
+	# Create the new target
+	echo "Creating new target (name=$tgt_name, tid=$tid)"
+	$TGTADM --lld $lld_name --op new --mode target --tid $tid -T $tgt_name
+	res=$?
+
+	if [ $res -ne 0 ]; then
+		echo "Error: failed to create target (name=$tgt_name, tid=$tid)"
+		exit 1
+	fi
+	new_tgt=1
+fi
+
+find_vacant_lun $tid
+lun=$?
+
+# Add a logical unit to the target
+echo "Adding a logical unit ($dev) to target, tid=$tid"
+if [ $bs_type ]; then
+	echo "Setting backing store type: $bs_type"
+	bs_opt="-E $bs_type"
+fi
+$TGTADM --lld $lld_name --op new --mode logicalunit --tid $tid --lun $lun -b $dev $bs_opt
+res=$?
+
+if [ $res -ne 0 ]; then
+	echo "Error: failed to add a logical unit ($dev) to target, tid=$tid"
+	err_exit
+fi
+
+# Define which initiators can use this target
+tgt_acl=`get_acl $tid`
+if test "$initiators" ; then
+	# Allow access only for specific initiators
+	echo "Accepting connections from $initiators"
+	for initiator in $initiators; do
+		# Check if record already exists
+		if ((`echo $tgt_acl | grep -c "\b$initiator\b"` == 1)) ; then
+			continue
+		fi
+
+		$TGTADM --lld $lld_name --op bind --mode target --tid $tid -I $initiator
+		res=$?
+
+		if [ $res -ne 0 ]; then
+			echo "Error: could not assign initiator $initiator to the target"
+		fi
+	done
+else
+	# Check if record already exists
+	if ((`echo $tgt_acl | grep -c "\bALL\b"` == 1)) ; then
+		exit 0
+	fi
+
+	# Allow access for everyone
+	echo "Accepting connections from all initiators"
+	$TGTADM --lld $lld_name --op bind --mode target --tid $tid -I ALL
+	res=$?
+
+	if [ $res -ne 0 ]; then
+		echo "Error: failed to set access for all initiators"
+		err_exit
+	fi
+fi

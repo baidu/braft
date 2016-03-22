@@ -1,0 +1,194 @@
+#!/bin/bash
+
+# Parent directory for data files..
+HOME=/d/01
+
+# Start tgtd if not running..
+P=`ps -ef|grep -v grep|grep tgtd|wc -l`
+if [ "X"$P == "X0" ]; then
+	tgtd -d 1
+	sleep 1
+fi
+
+if [ ! -d $HOME ]; then
+	mkdir -p $HOME
+fi
+
+if [ ! -f $HOME/hd_block ]; then
+	dd if=/dev/zero of=$HOME/hd_block bs=1M count=8
+fi
+
+set -x
+
+###############################################################################
+# Set up SBC HDD device
+###############################################################################
+TID=1
+
+# Create Target ID 1..
+tgtadm --lld iscsi --mode target --op new --tid $TID \
+		-T iqn.2007-03:marks-vtl_tgt:`hostname`
+sleep 1
+
+# Create first LUN - Disk
+LUN=1
+tgtadm --lld iscsi --mode logicalunit --op new --tid $TID --lun $LUN -b $HOME/hd_block --device-type=disk
+
+tgtadm --lld iscsi --mode logicalunit --op update --tid $TID --lun $LUN \
+	--params scsi_sn=FRED00,scsi_id=Fred
+
+tgtadm --lld iscsi --mode logicalunit --op update --tid $TID --lun $LUN \
+	--params vendor_id=QUANTUM,product_id=HD100,product_rev=0010,removable=1,sense_format=0
+
+#### Set up mode pages ####
+# First try a couple of attempts with incorrect data..
+# i.e. Expect the first two to fail!
+# - Length too long & Incorrect value (300) as one if the params...
+tgtadm --lld iscsi --mode logicalunit --op update --tid $TID --lun $LUN \
+	--params mode_page=2:0:14:0x80:0x80:0:0xa:0:300:0:0:0:0:0:0:0:0:3
+# - Length too short...
+tgtadm --lld iscsi --mode logicalunit --op update --tid $TID --lun $LUN \
+	--params mode_page=2:0:14:0x80:0x80:0:0xa:0:0:0:0:0:0:0:0:0
+#
+# From here on - should work OK..
+#
+
+# Vendor Uniq - Mode page 0..
+tgtadm --lld iscsi --mode logicalunit --op update --tid $TID --lun $LUN \
+	--params mode_page=0:0:0
+# Disconnect page
+tgtadm --lld iscsi --mode logicalunit --op update --tid $TID --lun $LUN \
+	--params mode_page=2:0:14:0x80:0x80:0:0xa:0:0:0:0:0:0:0:0:0:0
+# Format mode page
+tgtadm --lld iscsi --mode logicalunit --op update --tid $TID --lun $LUN \
+	--params mode_page=3:0:22:0:0:0:0:0:0:0:0:1:0:2:0:0:0:0:0:0:0:0:13:0:0
+# Geo mode page
+tgtadm --lld iscsi --mode logicalunit --op update --tid $TID --lun $LUN \
+	--params mode_page=4:0:22:0:0:0:0x40:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0x3a:0x98:0:0
+# Caching Page
+tgtadm --lld iscsi --mode logicalunit --op update --tid $TID --lun $LUN \
+	--params mode_page=8:0:18:0x14:0:0xff:0xff:0:0:0xff:0xff:0xff:0xff:0x80:0x14:0:0:0:0:0:0
+# ctrl mode page
+tgtadm --lld iscsi --mode logicalunit --op update --tid $TID --lun $LUN \
+	--params mode_page=10:0:10:2:0:0:0:0:0:0:0:2:0
+# Informational Exceptions Control Mode Page
+tgtadm --lld iscsi --mode logicalunit --op update --tid $TID --lun $LUN \
+	--params mode_page=0x1c:0:10:8:0:0:0:0:0:0:0:0:0
+
+
+for LUN in 2 3 4; do
+	if [ ! -f $HOME/cdrom$LUN ]; then
+		dd if=/dev/zero of=$HOME/cdrom$LUN bs=1M count=8
+	fi
+
+	# Create LUN - CD/ROM
+	tgtadm --lld iscsi --mode logicalunit --op new --tid $TID --lun $LUN -b $HOME/cdrom$LUN --device-type=cd
+	tgtadm --lld iscsi --mode logicalunit --op update --tid $TID --lun $LUN \
+		--params vendor_id=VirtualCD,product_id=CD101,product_rev=0010,scsi_sn=XYZZY1$LUN,removable=1
+	# Vendor Uniq - Mode page 0..
+	tgtadm --lld iscsi --mode logicalunit --op update --tid $TID --lun $LUN \
+		--params mode_page=0:0:0
+	# ctrl mode page
+	tgtadm --lld iscsi --mode logicalunit --op update --tid $TID --lun $LUN \
+		--params mode_page=10:0:10:2:0:0:0:0:0:0:0:2:0
+	# Informational Exceptions Control Mode Page
+	tgtadm --lld iscsi --mode logicalunit --op update --tid $TID --lun $LUN \
+		--params mode_page=0x1c:0:10:8:0:0:0:0:0:0:0:0:0
+done
+
+###############################################################################
+# Set up SMC Medium Changer
+###############################################################################
+LUN=5
+if [ ! -f $HOME/smc ]; then
+	dd if=/dev/zero of=$HOME/smc bs=1k count=1
+fi
+
+tgtadm --lld iscsi --mode logicalunit --op new --tid $TID --lun $LUN \
+			-b $HOME/smc --device-type=changer
+
+#### Set up mode pages ####
+# From smc3-06.pdf
+# Page 0x02: Disconnect/Reconnect SPC-3
+# Page 0x0a: Control SPC-3
+# Page 0x18: Protocol Specific LUN SPC-3
+# Page 0x19: Protocol Specific Port SPC-3
+# Page 0x1a: Power Condition SPC-3
+# Page 0x1c: Informational Exceptions Control SPC-3
+# Page 0x1d: Element Address Assignment SMC-3 7.3.4
+# Page 0x1e: Transport Geometry Parameters SMC-3 7.3.5
+# Page 0x1f: Device Capabilities SMC-3 7.3.2
+# Page 0x1f/Subpage 0x41: Extended Device Capabilities SMC-3 7.3.3
+
+# Dummy 'page 0'
+tgtadm --lld iscsi --mode logicalunit --op update --tid $TID --lun $LUN \
+	--params mode_page=0:0:0
+# Disconnect/Reconnect
+tgtadm --lld iscsi --mode logicalunit --op update --tid $TID --lun $LUN \
+	--params mode_page=2:0:14:0x80:0x80:0:0xa:0:0:0:0:0:0:0:0:0:0
+# Power Condition
+tgtadm --lld iscsi --mode logicalunit --op update --tid $TID --lun $LUN \
+	--params mode_page=0x1a:0:18:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0
+# Informational Exceptions Control Mode Page
+tgtadm --lld iscsi --mode logicalunit --op update --tid $TID --lun $LUN \
+	--params mode_page=0x1c:0:10:8:0:0:0:0:0:0:0:0:0
+# Element Address Assignment - Setup afterwards.
+tgtadm --lld iscsi --mode logicalunit --op update --tid $TID --lun $LUN \
+	--params mode_page=0x1d:0:0x12:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0
+# Transport Geometry Parameters
+tgtadm --lld iscsi --mode logicalunit --op update --tid $TID --lun $LUN \
+	--params mode_page=0x1e:0:2:0:0
+# Device Capabilities
+tgtadm --lld iscsi --mode logicalunit --op update --tid $TID --lun $LUN \
+	--params mode_page=0x1f:0:0x12:0x0f:7:0x0f:0x0f:0x0f:0x0f:0:0:0:0:0x0f:0x0f:0x0f:0x0f:0:0:0:0
+
+tgtadm --lld iscsi --mode logicalunit --op update --tid $TID --lun $LUN \
+	--params vendor_id=STK,product_id=L700,product_rev=0010,scsi_sn=XYZZY_0,removable=1
+
+
+## Add Data Transfer devices (3 drives)
+# Define slot address for devices.
+tgtadm --lld iscsi --mode logicalunit --op update --tid $TID --lun $LUN \
+	--params element_type=4,start_address=1,quantity=3
+# Now define which device at each address.
+tgtadm --lld iscsi --mode logicalunit --op update --tid $TID --lun $LUN \
+	--params element_type=4,address=1,tid=1,lun=2
+tgtadm --lld iscsi --mode logicalunit --op update --tid $TID --lun $LUN \
+	--params element_type=4,address=2,tid=1,lun=3
+tgtadm --lld iscsi --mode logicalunit --op update --tid $TID --lun $LUN \
+	--params element_type=4,address=3,tid=1,lun=4
+
+# Medium Transport Elements (robot arm / picker)
+tgtadm --lld iscsi --mode logicalunit --op update --tid $TID --lun $LUN \
+	--params element_type=1,start_address=16,quantity=1
+
+## Storage Elements - 8 starting at addr 1024
+tgtadm --lld iscsi --mode logicalunit --op update --tid $TID --lun $LUN \
+	--params element_type=2,start_address=1024,quantity=8
+# Add 'media' to slots
+tgtadm --lld iscsi --mode logicalunit --op update --tid $TID --lun $LUN \
+	--params element_type=2,address=1024,barcode=ABC123,sides=1
+tgtadm --lld iscsi --mode logicalunit --op update --tid $TID --lun $LUN \
+	--params element_type=2,address=1026,barcode=ULT001L3,sides=1
+
+# Import/Export Elements - 5 starting at addr 32
+tgtadm --lld iscsi --mode logicalunit --op update --tid $TID --lun $LUN \
+	--params element_type=3,start_address=32,quantity=5
+
+# define path to virtual media
+tgtadm --lld iscsi --mode logicalunit --op update --tid $TID --lun $LUN \
+	--params media_home=/d/01/vtl
+
+# Dump the list of configured slots to syslog...
+tgtadm --lld iscsi --mode logicalunit --op update --tid $TID --lun $LUN \
+	--params dump=1
+
+
+# Allow ALL initiators to connect to this target
+tgtadm --lld iscsi --mode target --op bind --tid $TID -I ALL
+
+
+# Show all our good work.
+tgtadm --lld iscsi --mode target --op show
+
+

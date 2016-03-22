@@ -1,0 +1,57 @@
+The 'rbd' backing-store driver provides access to Ceph (http://ceph.com)
+'RADOS block devices (rbd)" through tgtd.
+
+Ceph is a distributed storage system that provides clustered redundant
+object storage; one of the ways to use such storage is through the
+abstraction of a "block device".  rbd devices can be mapped through a
+kernel driver and show up as block devices directly, or they can be used
+through userland libraries to provide backing store for things like QEMU
+virtual disks.
+
+The bs_rbd backing-store driver allows tgtd to use rbd images as backing
+storage without requiring the 'rbd' kernel block device driver, and so
+avoids kernel version dependencies and the extra context switching between
+kernel and userland.  It also allows for userland caching of block images,
+managed by librbd.
+
+To use bs_rbd, select --bstype rbd, and set --backing-store to an rbd
+image specifier.  This is of the form
+
+	[poolname/]imagename[@snapname]
+
+where poolname is the RADOS pool containing the rbd image (defaults to
+"rbd"), imagename is the image you want to export, and snapname is the
+optional (readonly) snapshot of the image imagename.  (Obviously when
+a snapshot is exported, writes are not supported.)
+
+You may also want to use the --bsopts parameter to pass Ceph-specific
+parameters to bs_rbd.  Accepted keywords are
+
+conf=<path to ceph.conf file>
+
+This sets the path to the ceph.conf file for the cluster that
+stgt should connect to for this target/lun creation (luns may
+use different cluster connections).
+
+id=<client id>
+
+This sets the id portion of the ceph "client name" (which is
+"type.id").  Type is fixed at "client", and the default name is
+"client.admin", but you probably want this to set id to
+something like "tgt" so that the name of the ceph client is
+"client.tgt".  This lets you control permissions differently
+for the tgt client compared to others, and sets the default log path, etc.
+See the Ceph documentation regarding client names.
+
+cluster=<cluster name>
+
+This sets the Ceph cluster name, if you have multiple clusters or
+if your cluster name is anything other than "ceph".
+This is in turn used by librados to find the conf file and key files.
+
+To specify multiple options, separate them with ';', and since you are,
+make sure to quote the option string to protect the semicolon from
+the shell:
+
+	--bsopts "conf=/usr/local/ceph/ceph.conf;id=tgt"
+

@@ -1,0 +1,12 @@
+#!/usr/bin/make -f
+
+DEB_MAKE_ENVVARS += ISCSI_RDMA=1
+
+%:
+	dh $@ --with bash-completion
+
+override_dh_auto_build:
+	dh_auto_build -- $(DEB_MAKE_ENVVARS)
+
+override_dh_auto_install:
+	dh_auto_install -- $(DEB_MAKE_ENVVARS)

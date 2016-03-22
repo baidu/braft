@@ -1,0 +1,199 @@
+<?xml version="1.0" encoding="iso-8859-1"?>
+<refentry id="tgtimg.8">
+
+<refmeta>
+	<refentrytitle>tgtimg</refentrytitle>
+	<manvolnum>8</manvolnum>
+</refmeta>
+
+
+<refnamediv>
+	<refname>tgtimg</refname>
+	<refpurpose>Linux SCSI Target Framework Image File Utility</refpurpose>
+</refnamediv>
+
+<refsynopsisdiv>
+	<cmdsynopsis>
+		<command>tgtimg</command>
+		<arg chouce="opt">-o --op &lt;operation&gt;</arg>
+		<arg choice="opt">-Y --device-type &lt;device-type&gt;</arg>
+		<arg choice="opt">-b --barcode &lt;barcode&gt;</arg>
+		<arg choice="opt">-s --size &lt;size&gt;</arg>
+		<arg choice="opt">-t --type &lt;media-type&gt;</arg>
+		<arg choice="opt">-f --file &lt;path&gt;</arg>
+		<arg choice="opt">-T --thin-provisioning</arg>
+	</cmdsynopsis>
+	<cmdsynopsis>
+		<command>tgtimg --help</command>
+	</cmdsynopsis>
+	
+</refsynopsisdiv>
+
+  <refsect1><title>DESCRIPTION</title>
+    <para>
+      Tgtimg is a utility to create and manage the image files used by the 
+      TGTD device emulation.
+    </para>
+    <para>
+      This command is used to initialize device image files with the additional
+      metadata, such as barcode, list of blocks, total size, etc that
+      the TGTD emulation needs.
+    </para>
+  </refsect1>
+
+
+  <refsect1>
+    <title>OPTIONS</title>
+
+    <variablelist>
+      <varlistentry><term><option>-h, --help</option></term>
+        <listitem>
+          <para>
+	    Show a help screen and exit.
+          </para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry><term><option>-o, --op {new|show}</option></term>
+        <listitem>
+          <para>
+	    Operation. Is either new to create a new image file or show to
+	    show the content of an existing image file.
+          </para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry><term><option>-Y, --device-type &lt;type&gt;</option></term>
+        <listitem>
+          <para>
+	    This specifies the type of image file.
+          </para>
+        </listitem>
+      </varlistentry>
+      <screen format="linespecific">
+Supported device types are :
+    cd   : to create media for a dvd device
+    disk : to create media for a disk device
+    tape : to create media for a tape device
+      </screen>
+
+      <varlistentry><term><option>-t, --type &lt;media-type&gt;</option></term>
+        <listitem>
+          <para>
+	    When creating a new image, this specifies the type of media to
+	    emulate. The available mediatypes depend on the type of the
+	    device.
+          </para>
+        </listitem>
+      </varlistentry>
+      <screen format="linespecific">
+Supported media types for cd devices are :
+    dvd+r : create a blank writeable DVD+R disk
+
+Supported media types for disk devices are :
+    disk  : create an empty disk
+
+Supported media types for tape devices are :
+    data  : create a normal data tape
+    clean : create a cleaning tape
+    worm  : create a worm
+      </screen>
+
+      <varlistentry><term><option>-b, --barcode &lt;barcode&gt;</option></term>
+        <listitem>
+          <para>
+	    When creating a new image, this argument specifies the barcode
+	    to use with this image file. Backup application software often
+	    uses barcodes to identify specific tapes. When emulating a VTL,
+	    make sure that all tape images use unique barcodes.
+          </para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry><term><option>-s, --size &lt;size&gt;</option></term>
+        <listitem>
+          <para>
+	    When creating a new image, this specifies the size in megabytes
+	    for the virtual tape image.
+          </para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry><term><option>-f, --file &lt;path&gt;</option></term>
+        <listitem>
+          <para>
+	    The filename of the image file.
+          </para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry><term><option>-T, --thin-provisioning</option></term>
+        <listitem>
+          <para>
+	    This argument makes the allocation of the image format use
+	    thin-provisioning. This means that the file created will be a
+	    sparse file that will allocate blocks from the filesystem on demand.
+          </para>
+          <para>
+	    Be careful when using thin-provisioning. If the filesystem
+	    fills up a iSCSI write to a thin-provisioned LUN
+	    can fail. Initiators generally do not handle "out of space" errors
+	    gracefully.
+          </para>
+          <para>
+	    Thin-provisioning uses FALLOC_FL_PUNCH_HOLE which is only available
+	    on some linux filesystems. Thin-provisioning can only be used for
+	    DISK images.
+          </para>
+        </listitem>
+      </varlistentry>
+
+    </variablelist>
+  </refsect1>
+
+  <refsect1><title>EXAMPLES</title>
+    <para>
+      To create a new 100MByte disk
+    </para>
+    <screen format="linespecific">
+      tgtimg --op new --device-type disk --type disk --size 100 --file /data/hd001.raw
+    </screen>
+
+    <para>
+      To create a new tape image
+    </para>
+    <screen format="linespecific">
+      tgtimg --op new --device-type tape --barcode 12345 --size 100 --type data --file /data/tape001.img
+    </screen>
+
+    <para>
+      To view the content of an existing image
+    </para>
+    <screen format="linespecific">
+      tgtimg --op show --device-type tape --file /data/tape001.img
+    </screen>
+
+    <para>
+      To create a new blank DVD+R image
+    </para>
+    <screen format="linespecific">
+      tgtimg --op new --device-type cd --type dvd+r --file /data/dvd001.iso
+    </screen>
+
+  </refsect1>
+
+
+  <refsect1><title>SEE ALSO</title>
+    <para>
+      tgtd(8), tgtadm(8), tgt-admin(8), tgt-setup-lun(8).
+      <ulink url="http://stgt.sourceforge.net/"/>
+    </para>
+  </refsect1>
+
+  <refsect1><title>REPORTING BUGS</title>
+    <para>
+      Report bugs to &lt;stgt@vger.kernel.org&gt;
+    </para>
+  </refsect1>
+
+</refentry>

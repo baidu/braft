@@ -1,0 +1,109 @@
+#!/bin/sh
+# This is a simple script to aid in setting up a virtual tape library
+# (VTL) using STGT
+#
+# You can tweak the settings for how many tape drives and how many
+# and how big tapes the library should have using the variables below
+
+
+# Connection number. You can use multiple concurrent TGTD instances as
+# long as you give them unique CN numbers and they listen on different
+# portals
+CN=1
+# Listen to port 3260 on wildcard for both ipv4 and ipv6
+PORTAL=:3260
+# iSCSI name for this target
+TARGET=iqn.2012-08.ronnie.vtl
+# Number of TAPE Drives for this virtual tape library
+NUM_DRIVES=2
+# Number of tapes
+NUM_TAPES=8
+# Tape size in MB
+TAPE_SIZE=1024
+# Directory where the tape library state and media will be stored
+VTLDIR=$HOME/vtl
+
+
+
+# Create the directory to store the tapes
+if [ ! -d $VTLDIR ]; then
+	echo Creating directory for VTL : $VTLDIR
+	mkdir -p $VTLDIR
+fi
+
+# make sure we have a backing store for the media changer
+if [ ! -f $VTLDIR/smc ]; then
+	echo Creating a backing store for the media changer : $VTLDIR/smc
+	dd if=/dev/zero of=$VTLDIR/smc bs=1k count=1 2>/dev/null
+fi
+
+# Create the tapes
+seq 1 $NUM_TAPES | while read IDX; do
+	TAPE=`echo $IDX | awk '{printf "%08d", $1}'`
+	if [ ! -f $VTLDIR/$TAPE ]; then
+		echo Creating blank tape : $TAPE
+		tgtimg --op new --device-type tape --barcode $TAPE --size $TAPE_SIZE --type data --file $VTLDIR/$TAPE
+	fi
+done
+ 
+
+# Restart tgtd
+echo Restart TGTD
+tgt-admin -C $CN --update ALL -c /dev/null -f
+tgtadm -C $CN --op delete --mode system
+tgtd -C $CN --iscsi portal=$PORTAL
+sleep 1
+
+
+echo Create target
+tgtadm -C $CN --lld iscsi --op new --mode target --tid 1 -T $TARGET
+
+# Create the tape drives
+echo Create tape drives
+seq 1 $NUM_DRIVES | while read IDX; do
+	TAPE=`echo $IDX | awk '{printf "%08d", $1}'`
+	echo Create tape drive $IDX
+	tgtadm -C $CN --lld iscsi --mode logicalunit --op new --tid 1 --lun $IDX -b $VTLDIR/$TAPE --device-type=tape
+	tgtadm -C $CN --lld iscsi --mode logicalunit --op update --tid 1 --lun $IDX --params online=0
+done
+
+# Create the changer
+echo Create media changer device
+LUN=`expr "$NUM_DRIVES" "+" "1"`
+tgtadm -C $CN --lld iscsi --mode logicalunit --op new --tid 1 --lun $LUN -b $VTLDIR/smc --device-type=changer
+tgtadm -C $CN --lld iscsi --mode logicalunit --op update --tid 1 --lun $LUN --params media_home=$VTLDIR
+
+# Add data transfer devices (one for each tape drive)
+echo Adding data transfer devices
+tgtadm -C $CN --lld iscsi --mode logicalunit --op update --tid 1 --lun $LUN --params element_type=4,start_address=1,quantity=$NUM_DRIVES
+
+seq 1 $NUM_DRIVES | while read IDX; do
+	echo Adding data transfer device for drive $IDX
+	tgtadm -C $CN --lld iscsi --mode logicalunit --op update --tid 1 --lun $LUN --params element_type=4,address=$IDX,tid=1,lun=$IDX
+done
+
+# Add medium transport elements  (robot arm / picker)
+echo Adding medium transport elements
+tgtadm -C $CN --lld iscsi --mode logicalunit --op update --tid 1 --lun $LUN --params element_type=1,start_address=$LUN,quantity=1
+
+
+# Storage elements
+echo Adding storage elements
+STORAGE=`expr "$LUN" "+" "1"`
+tgtadm -C $CN --lld iscsi --mode logicalunit --op update --tid 1 --lun $LUN --params element_type=2,start_address=$STORAGE,quantity=$NUM_TAPES
+
+# Add media to the storage slots
+seq 1 $NUM_TAPES | while read IDX; do
+	TAPE=`echo $IDX | awk '{printf "%08d", $1}'`
+	echo Loading $TAPE into storage slot $STORAGE
+	tgtadm -C $CN --lld iscsi --mode logicalunit --op update --tid 1 --lun $LUN --params element_type=2,address=$STORAGE,barcode=$TAPE,sides=1
+	STORAGE=`expr "$STORAGE" "+" "1"`
+done
+
+
+# Allow anyone to access this target and the VTL
+tgtadm -C $CN --lld iscsi --op bind --mode target --tid 1 -I ALL
+
+# show all our good work
+tgtadm -C $CN --lld iscsi --op show --mode target
+

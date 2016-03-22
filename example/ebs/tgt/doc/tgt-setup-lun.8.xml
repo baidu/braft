@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="iso-8859-1"?>
+<refentry id="tgt-setup-lun.8">
+
+<refmeta>
+	<refentrytitle>tgt-setup-lun</refentrytitle>
+	<manvolnum>8</manvolnum>
+</refmeta>
+
+<refnamediv>
+  <refname>tgt-setup-lun</refname>
+  <refpurpose>
+    Helper script that creates a target, adds a device to the target, and defines
+    initiators that can connect to the target
+  </refpurpose>
+</refnamediv>
+
+<refsynopsisdiv>
+  <cmdsynopsis>
+    <command>tgt-setup-lun</command>
+    <arg choice="plain">-d &lt;device&gt;</arg>
+    <arg choice="plain">-n &lt;targetname&gt;</arg>
+    <arg choice="opt">-b &lt;bsname&gt;</arg>
+    <arg choice="opt">-t &lt;transport&gt;</arg>
+    <arg choice="opt">-C &lt;control_port&gt;</arg>
+    <arg choice="opt" rep="repeat">initiator_IP</arg>
+    <arg choice="opt">-h</arg>
+  </cmdsynopsis>
+</refsynopsisdiv>
+
+<refsect1><title>DESCRIPTION</title>
+  <para>
+    Creates a target according to the supplied target_name. tgtd must
+    be running. The format of the default IQN generated from the target name is:
+    "iqn.2001-04.com.&lt;hostname&gt;-&lt;target_name&gt;", or a
+    complete IQN may be given.
+    The target name must be unique.
+  </para>
+  <para>
+    The script then adds the requested device to the target. If specific IP
+    addresses are defined, it adds them to the list of allowed initiators
+    for that target. If no IP addresses is defined, it defines that the
+    target accepts any initiator.
+  </para>
+</refsect1>
+
+<refsect1>
+  <title>EXAMPLES</title>
+  
+  <informalexample>
+    <para>
+      Create a target that uses /dev/sdb1 and allows connections only from
+      192.168.10.81:
+    </para>
+    <screen>
+      tgt-setup-lun -d /dev/sdb1 -n my_target 192.168.10.81
+    </screen>
+  </informalexample>
+
+  <informalexample>
+    <para>
+      Create a target that uses /dev/sdb1 and allows connections only from
+      192.168.10.81 and 192.168.10.82:
+    </para>
+    <screen>
+      tgt-setup-lun -d /dev/sdb1 -n my_target 192.168.10.81 192.168.10.82
+    </screen>
+  </informalexample>
+
+  <informalexample>
+    <para>
+      Create a target that uses /dev/sdb1 and allows connections from any
+      initiator:
+    </para>
+    <screen>
+      tgt-setup-lun -d /dev/sdb1 -n my_target
+    </screen>
+  </informalexample>
+
+  <informalexample>
+    <para>
+      Display help:
+    </para>
+    <screen>
+      tgt-setup-lun -h
+    </screen>
+  </informalexample>
+
+</refsect1>
+
+<refsect1><title>AUTHOR</title>
+  <para>
+    Written by Erez Zilber
+  </para>
+</refsect1>
+
+<refsect1><title>SEE ALSO</title>
+  <para>
+    targets.conf(5), tgtd(8), tgtadm(8), tgtimg(8), tgt-admin(8).
+    <ulink url="http://stgt.sourceforge.net/"/>
+  </para>
+</refsect1>
+
+<refsect1><title>REPORTING BUGS</title>
+  <para>
+    Report bugs to &lt;stgt@vger.kernel.org&gt;
+  </para>
+</refsect1>
+
+<refsect1><title>COPYRIGHT</title>
+  <para>
+    Copyright © Voltaire Ltd. 2008.
+  </para>
+</refsect1>
+
+</refentry>

@@ -1,0 +1,15 @@
+Source: tgt
+Maintainer: FUJITA Tomonori <fujita.tomonori@lab.ntt.co.jp>
+Section: net
+Priority: optional
+Standards-Version: 3.9.1
+Build-Depends: debhelper (>= 8), dpkg-dev (>= 1.13.19), bash-completion,
+    librdmacm-dev, libibverbs-dev, xsltproc, docbook-xsl
+Homepage: http://stgt.berlios.de/
+
+Package: tgt
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, librdmacm1, libconfig-general-perl
+Description: The SCSI target daemon and utility programs
+ The SCSI target package contains the daemon and tools to setup a SCSI targets.
+ Currently, software iSCSI targets are supported.

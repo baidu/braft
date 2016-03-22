@@ -1,0 +1,152 @@
+Introduction
+-------------
+The SSC emulation in TGTD can emulate tape drives by using files. This
+virtualization technology is known as a virtual tape library (VTL).
+
+
+Solaris tips
+-------------
+If one wants to get VTL working on a Solaris initiator (and this
+target of course under Linux) then it is rather simple to get a tape
+drive working. Getting the changer device working under Solaris
+(OpenSolaris) take a bit more effort. This file describes the way to
+do it.
+
+Although most of it is probably well know to Solaris fans, it took me
+a bit of time to figure out to get the VTL target working fine under
+OpenSolaris. For those who want to give it a try, here are the
+commands:
+
+For normal disk and cd targets no files have to be changed. All you
+need is the following:
+
+# svcadm enable iscsi_initiator
+
+and check if it is online:
+
+# svcs iscsi_initiator
+
+the state should be online.
+
+Now we add the discovery address to the initiator:
+
+# iscsiadm add discovery-address <IP of target>
+
+Now we configure the discovery mode to sendtargets:
+
+# iscsiadm modify discovery -t enable
+
+Check the target:
+
+# iscsiadm list target -S
+
+And create the device files:
+
+# devfsadm -i iscsi
+
+
+Tape devices will be shown properly, but not the changer device, this
+takes a bit more work.  Two files need to be changed, and a reboot is
+needed to set things up properly.
+
+In the file /etc/driver_aliases the two lines
+
+sgen "scsa,08.bfcp"
+sgen "scsa,08.bvhci"
+
+need to be replaced with
+
+sgen "scsiclass,08"
+
+
+The file /kernel/drv/sgen.conf, which is basically all commented out
+needs to have the following lines:
+
+device-type-config-list="changer","sequential";
+inquiry-config-list=    "*", "*";
+
+name="sgen" class="scsi" target=0 lun=4;
+name="sgen" class="scsi" target=1 lun=4;
+name="sgen" class="scsi" target=2 lun=4;
+name="sgen" class="scsi" target=3 lun=4;
+name="sgen" class="scsi" target=4 lun=4;
+name="sgen" class="scsi" target=5 lun=4;
+name="sgen" class="scsi" target=6 lun=4;
+name="sgen" class="scsi" target=7 lun=4;
+name="sgen" class="scsi" target=8 lun=4;
+name="sgen" class="scsi" target=9 lun=4;
+name="sgen" class="scsi" target=10 lun=4;
+name="sgen" class="scsi" target=11 lun=4;
+name="sgen" class="scsi" target=12 lun=4;
+name="sgen" class="scsi" target=13 lun=4;
+name="sgen" class="scsi" target=14 lun=4;
+name="sgen" class="scsi" target=15 lun=4;
+
+
+For the last bit it should be noted that my changer was set to lun 4,
+and since I don't know which target I put all target numbers in (0-15).
+
+After these modifications the best is to reboot the machine, and do
+the iscsi commands above, and he presto it works:
+
+In my case, three tape drives and one changer:
+
+root@solar:/kernel/drv# iscsiadm list target -S
+Target: iqn.2008-09.com.example:server.tape
+   Alias: -
+   TPGT: 1
+   ISID: 4000002a0000
+   Connections: 1
+   LUN: 4
+        Vendor:  STK
+        Product: L700
+        OS Device Name: /dev/scsi/changer/c0t0d0
+   LUN: 3
+        Vendor:  HP
+        Product: LTO3 ULTRIUM
+        OS Device Name: /dev/rmt/2n
+   LUN: 2
+        Vendor:  HP
+        Product: LTO3 ULTRIUM
+        OS Device Name: /dev/rmt/1n
+   LUN: 1
+        Vendor:  HP
+        Product: LTO3 ULTRIUM
+        OS Device Name: /dev/rmt/0n
+
+
+
+root@solar:/kernel/drv# mtx -f /dev/scsi/changer/c0t0d0 status
+ Storage Changer /dev/scsi/changer/c0t0d0:3 Drives, 29 Slots ( 5 Import/Export )
+Data Transfer Element 0:Empty
+Data Transfer Element 1:Empty
+Data Transfer Element 2:Empty
+     Storage Element 1:Full :VolumeTag=A0000001
+     Storage Element 2:Full :VolumeTag=A0000002
+     Storage Element 3:Full :VolumeTag=A0000003
+     Storage Element 4:Full :VolumeTag=A0000004
+     Storage Element 5:Full :VolumeTag=A0000005
+     Storage Element 6:Full :VolumeTag=A0000006
+     Storage Element 7:Full :VolumeTag=A0000007
+     Storage Element 8:Full :VolumeTag=A0000008
+     Storage Element 9:Empty:VolumeTag=
+     Storage Element 10:Empty:VolumeTag=
+     Storage Element 11:Empty:VolumeTag=
+     Storage Element 12:Empty:VolumeTag=
+     Storage Element 13:Empty:VolumeTag=
+     Storage Element 14:Empty:VolumeTag=
+     Storage Element 15:Empty:VolumeTag=
+     Storage Element 16:Empty:VolumeTag=
+     Storage Element 17:Empty:VolumeTag=
+     Storage Element 18:Empty:VolumeTag=
+     Storage Element 19:Empty:VolumeTag=
+     Storage Element 20:Empty:VolumeTag=
+     Storage Element 21:Empty:VolumeTag=
+     Storage Element 22:Empty:VolumeTag=
+     Storage Element 23:Empty:VolumeTag=
+     Storage Element 24:Full :VolumeTag=CLN00001
+     Storage Element 25 IMPORT/EXPORT:Empty:VolumeTag=
+     Storage Element 26 IMPORT/EXPORT:Empty:VolumeTag=
+     Storage Element 27 IMPORT/EXPORT:Empty:VolumeTag=
+     Storage Element 28 IMPORT/EXPORT:Empty:VolumeTag=
+     Storage Element 29 IMPORT/EXPORT:Empty:VolumeTag=

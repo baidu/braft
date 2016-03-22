@@ -1,0 +1,251 @@
+<?xml version="1.0" encoding="iso-8859-1"?>
+<refentry id="tgt-admin.8">
+
+<refmeta>
+	<refentrytitle>tgt-admin</refentrytitle>
+	<manvolnum>8</manvolnum>
+</refmeta>
+
+
+<refnamediv>
+	<refname>tgt-admin</refname>
+	<refpurpose>Linux SCSI Target Configuration Tool</refpurpose>
+</refnamediv>
+
+<refsynopsisdiv>
+	<cmdsynopsis>
+		<command>tgt-admin</command>
+		<arg choice="opt">-e --execute</arg>
+		<arg choice="opt">--delete &lt;value&gt;</arg>
+		<arg choice="opt">--offline &lt;value&gt;</arg>
+		<arg choice="opt">--ready &lt;value&gt;</arg>
+		<arg choice="opt">-s --show</arg>
+		<arg choice="opt">-C --control-port &lt;NNNN&gt;</arg>
+		<arg choice="opt">-c --conf &lt;file&gt;</arg>
+		<arg choice="opt">--ignore-errors</arg>
+		<arg choice="opt">-f --force</arg>
+		<arg choice="opt">-p --pretend</arg>
+		<arg choice="opt">--dump</arg>
+		<arg choice="opt">-v --verbose</arg>
+		<arg choice="opt">-h --help</arg>
+	</cmdsynopsis>
+	
+</refsynopsisdiv>
+
+  <refsect1><title>DESCRIPTION</title>
+    <para>
+       tgt-admin  is a utility which allows a persistent configuration of targets and luns.
+       It uses tgtadm commands to create, delete and show targets.
+    </para>
+  </refsect1>
+
+
+  <refsect1>
+    <title>OPTIONS</title>
+
+    <variablelist>
+
+      <varlistentry><term><option>-e, --execute</option></term>
+        <listitem>
+          <para>
+            Read /etc/tgt/targets.conf and execute tgtadm commands.
+            If the  target  already  exists,  it  won't  be  processed.
+	    See --update.
+          </para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry><term><option>-d, --delete &lt;value&gt;</option></term>
+        <listitem>
+          <para>
+            Delete all or selected targets.
+            The  target  will be deleted only if it's not used (no initiator
+            is connected to it).
+          </para>
+          <para>
+	    If you want to delete targets which are in use, you have to add
+            the "--force" flag.
+	      <screen format="linespecific">
+Example usage:
+    --delete ALL            - delete all targets
+    --delete tid=4          - delete target 4
+                              (target with tid 4)
+    --delete iqn.2008-08.com.example:some.target
+                            - delete this target
+	      </screen>
+          </para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry><term><option>--offline</option></term>
+        <listitem>
+          <para>
+              Put all or selected targets in offline state.
+	      <screen format="linespecific">
+Example usage:
+    --offline ALL           - offline all targets
+    --offline tid=4         - offline target 4
+                              (target with tid 4)
+    --offline iqn.2008-08.com.example:some.target
+                            - offline this target
+	      </screen>
+          </para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry><term><option>--ready</option></term>
+        <listitem>
+          <para>
+            Put all or selected targets in ready state.
+	    <screen format="linespecific">
+Example usage:
+    --ready ALL             - ready all targets
+    --ready tid=4           - ready target 4
+                              (target with tid 4)
+    --ready iqn.2008-08.com.example:some.target
+                            - ready this target
+	    </screen>
+          </para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry><term><option>--update &lt;value&gt;</option></term>
+        <listitem>
+          <para>
+            Update all or selected targets.
+            The  target  will be updated only if it's not used (no initiator
+            is connected to it).
+          </para>
+          <para>
+            If you want to update targets which are in use, you have to  add
+            "--force" flag.
+	    <screen format="linespecific">
+Example usage:
+    --update ALL             - ready all targets
+    --update tid=4           - ready target 4
+                               (target with tid 4)
+    --update iqn.2008-08.com.example:some.target
+                             - update this target
+	    </screen>
+          </para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry><term><option>-s, --show</option></term>
+        <listitem>
+          <para>
+	    Show all the targets.
+          </para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry><term><option>-C, --control-port &lt;NNNN&gt;</option></term>
+        <listitem>
+          <para>
+	    It is possible to run multiple concurrent instances of
+	    tgtd on a host. This argument is used to control which
+	    instance the tgt-admin command will operate on.
+          </para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry><term><option>-c, --conf &lt;configuration file&gt;</option></term>
+        <listitem>
+          <para>
+            Specify an alternative configuration file instead of
+            /etc/tgt/targets.conf, which is the default.
+          </para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry><term><option>--ignore-errors</option></term>
+        <listitem>
+          <para>
+	    Continue even if tgtadm exits with non-zero code.
+          </para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry><term><option>-f, --force</option></term>
+        <listitem>
+          <para>
+	    Force some operations even if the target is in use.
+          </para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry><term><option>-p, --pretend</option></term>
+        <listitem>
+          <para>
+	    Only print tgtadm options which would be used; don't execute any
+            actions.
+            Assumes -v.
+          </para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry><term><option>--dump</option></term>
+        <listitem>
+          <para>
+	    Dump current tgtd configuration. Note: does not include detailed
+            parameters, like write caching.
+          </para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry><term><option>-v, --verbose</option></term>
+        <listitem>
+          <para>
+	    Increase verbosity (show tgtadm commands used).
+          </para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry><term><option>-h, --help</option></term>
+        <listitem>
+          <para>
+	    Display a list of available options and exit.
+          </para>
+        </listitem>
+      </varlistentry>
+
+    </variablelist>
+  </refsect1>
+
+  <refsect1><title>FILES</title>
+    <variablelist>
+
+      <varlistentry><term><option>/etc/tgt/targets.conf</option></term>
+        <listitem>
+          <para>
+	    Configuration file for tgt-admin.
+          </para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry><term><option>/usr/share/doc/tgt/targets.conf.example</option></term>
+        <listitem>
+          <para>
+	    Example configuration file for tgt-admin.
+          </para>
+        </listitem>
+      </varlistentry>
+
+    </variablelist>
+  </refsect1>
+
+
+  <refsect1><title>SEE ALSO</title>
+    <para>
+      targets.conf(5), tgtd(8), tgtadm(8), tgtimg(8), tgt-setup-lun(8).
+      <ulink url="http://stgt.sourceforge.net/"/>
+    </para>
+  </refsect1>
+
+  <refsect1><title>REPORTING BUGS</title>
+    <para>
+      Report bugs to &lt;stgt@vger.kernel.org&gt;
+    </para>
+  </refsect1>
+
+</refentry>

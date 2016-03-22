@@ -1,0 +1,465 @@
+<?xml version="1.0" encoding="iso-8859-1"?>
+<refentry id="targets.conf.5">
+
+<refmeta>
+	<refentrytitle>targets.conf</refentrytitle>
+	<manvolnum>5</manvolnum>
+</refmeta>
+
+
+<refnamediv>
+	<refname>targets.conf</refname>
+	<refpurpose>Linux SCSI Target Configuration File</refpurpose>
+</refnamediv>
+
+  <refsect1><title>DESCRIPTION</title>
+    <para>
+       tgt-admin uses /etc/tgt/targets.conf to initialize tgtd
+       configuration, by default. Its layout uses a HTML-like structure, with a
+       hierarchy of nested tags to define targets and LUNs.
+    </para>
+  </refsect1>
+
+  <refsect1><title>CONFIGURATION FILE SYNTAX</title>
+    <para>
+      Global directives configure options that are
+      global to tgtd's configuration, as well as defining exported
+      targets, via target sections.
+    </para>
+    <para>
+      Target sections contain directives specific to one target
+      device. They define each target's exported LUNs via "backing-store" and
+      "direct-store" directives, as well as other target-wide options.
+    </para>
+    <para>
+      LUN directives ("backing-store" and "direct-store") may contain
+      options specific to a single exported logical unit.
+    </para>
+
+  </refsect1>
+
+  <refsect1><title>GLOBAL DIRECTIVES</title>
+
+    <para>
+      With the exception of target directives, each of these should occur at most once.
+    </para>
+
+    <variablelist>
+
+      <varlistentry><term><option>&lt;target &lt;IQN&gt;&gt;</option></term>
+        <listitem>
+          <para>
+	    Defines a the start of a target definition. IQN is an ISCSI Qualified
+	    Name such as "iqn.2001-04.com.example:storage1". See "ISCSI" on
+	    Wikipedia for more information on IQNs.
+          </para>
+	  <para>
+	    Within this block should be target-level directives, as
+	    documented below.
+          </para>
+	  <para>
+	    The target definition ends with "&lt;/target&gt;"
+	  </para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry><term><option>default-driver &lt;lld&gt;</option></term>
+        <listitem>
+          <para>
+	    Instead of specifying a driver type for each target,
+	    default-driver defines a default low-level driver for all
+	    exported targets. It may be overriden on a per-target
+	    basis.
+	    Valid lld values are "iscsi" or
+	    "iser". Since iscsi is assumed if this directive
+	    is not present, it is only generally needed if iser
+	    is the desired default.
+          </para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry><term><option>include &lt;path&gt;</option></term>
+        <listitem>
+          <para>
+	    Include the configuration from another configuration
+	    file. Wildcards are allowed, so an example like "include
+	    /etc/tgt/xen/*.conf" is allowed.
+          </para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry><term><option>ignore-errors yes</option></term>
+        <listitem>
+          <para>
+	    Errors from tgtadm will be ignored. Default is no.
+          </para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry><term><option>control-port &lt;port&gt;</option></term>
+        <listitem>
+          <para>
+	    Define a different local socket key for communicating with
+	    tgtd. Defaults to 0. This is only generally useful if
+	    multiple instances of tgtd are in use.
+          </para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry><term><option>iSNSServerIP &lt;addr&gt;</option></term>
+        <listitem>
+          <para>
+	    Define the address of the iSNS server in IPv4 dotted-quad
+	    address format.
+	    Required when using iSNS, otherwise ignored.
+          </para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry><term><option>iSNSAccessControl &lt;value&gt;</option></term>
+        <listitem>
+          <para>
+	    Set iSNS access control. Valid values are "On" or "Off".
+	    Required when using iSNS, otherwise ignored.
+          </para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry><term><option>iSNSServerPort &lt;port&gt;</option></term>
+        <listitem>
+          <para>
+	    Set a different iSNS server port. Default is 3205.
+	    Optional when using iSNS, otherwise ignored.
+          </para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry><term><option>iSNS On</option></term>
+        <listitem>
+          <para>
+	    Enable iSNS. Only valid value is "On". Default is off.
+          </para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry><term><option>incomingdiscoveryuser &lt;user&gt; &lt;userpassword&gt;</option></term>
+        <listitem>
+          <para>
+	    Define iscsi incoming discovery authentication setting. If no
+	    value is given, no authentication is performed.
+          </para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry><term><option>outgoingdiscoveryuser &lt;user&gt; &lt;userpassword&gt;</option></term>
+        <listitem>
+          <para>
+	    Define iscsi outgoing discovery authentication setting. If no
+	    value is given, no authentication is performed.
+          </para>
+        </listitem>
+      </varlistentry>
+
+    </variablelist>
+
+  </refsect1>
+
+  <refsect1><title>TARGET-LEVEL DIRECTIVES</title>
+
+    <para>
+      Each target may export multiple block devices, or logical units
+      (LUNs). For the purposes of LUN numbering, backing-store
+      directives are processed before direct-store directives.
+    </para>
+
+    <variablelist>
+
+      <varlistentry><term><option>backing-store &lt;path&gt;</option></term>
+        <listitem>
+          <para>
+	    Defines a logical unit (LUN) exported by the
+	    target. This may specify either a regular file, or a block
+	    device.
+          </para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry><term><option>direct-store &lt;path&gt;</option></term>
+        <listitem>
+          <para>
+	    Defines a direct mapped logical unit (LUN) with the same properties
+	    as the physical device (such as VENDOR_ID, SERIAL_NUM, etc.)
+          </para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry><term><option>driver &lt;lld&gt;</option></term>
+        <listitem>
+          <para>
+	    Define the low-level driver to use for this target, either
+	    "iscsi" or "iser" (without quotes). This overrides the
+	    "default-driver" global directive.
+          </para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry><term><option>initiator-address &lt;addr&gt;</option></term>
+        <listitem>
+          <para>
+	    Allows connections only from the specified IP
+	    address. Defaults to ALL if no initiator-address directive is specified.
+          </para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry><term><option>initiator-name &lt;addr&gt;</option></term>
+        <listitem>
+          <para>
+	    Allows connections only from the specified initiator name.
+          </para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry><term><option>incominguser &lt;user&gt; &lt;userpassword&gt;</option></term>
+        <listitem>
+          <para>
+	    Define iscsi incoming authentication setting. If no
+	    "incominguser" is specified, it is not used. This
+	    directive may be used multiple times per target.
+          </para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry><term><option>outgoinguser &lt;user&gt; &lt;userpassword&gt;</option></term>
+        <listitem>
+          <para>
+	    Define iscsi outgoing authentication setting. If no
+	    "outgoinguser" is specified, it is not used. This
+	    directive may be used multiple times per target.
+          </para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry><term><option>controller_tid &lt;val&gt;</option></term>
+        <listitem>
+          <para>
+	    Define the tid of the controller. Default is next
+	    available integer.
+          </para>
+        </listitem>
+      </varlistentry>
+
+    </variablelist>
+  </refsect1>
+
+  <refsect1><title>LUN-LEVEL DIRECTIVES</title>
+
+    <para>
+      All of these may be listed at the target level (and apply to all
+      LUNs) or within an individual LUN's definition, if it is defined
+      using the container-style, multi-line definition, rather than
+      single-line definition format:
+    </para>
+    <screen format="linespecific">
+&lt;backing-store /dev/sdb1&gt;
+  # LUN directives go here
+&lt;/backing-store&gt;
+
+&lt;direct-store /dev/sdb1&gt;
+  # LUN directives go here
+&lt;/direct-store&gt;
+    </screen>
+
+    <para>
+      It is recommended to use either single-line or container-style
+      LUN definitions within a target. Mixing styles can cause parser
+      errors.
+    </para>
+
+    <variablelist>
+      <varlistentry><term><option>write-cache &lt;val&gt;</option></term>
+	<listitem>
+	  <para>
+	    "on" or "off", default on.
+	  </para>
+	</listitem>
+      </varlistentry>
+
+      <varlistentry><term><option>scsi_id &lt;val&gt;</option></term>
+      </varlistentry>
+
+      <varlistentry><term><option>scsi_sn &lt;val&gt;</option></term>
+      </varlistentry>
+
+      <varlistentry><term><option>vendor_id &lt;val&gt;</option></term>
+      </varlistentry>
+
+      <varlistentry><term><option>product_id &lt;val&gt;</option></term>
+      </varlistentry>
+
+      <varlistentry><term><option>product_rev &lt;val&gt;</option></term>
+      </varlistentry>
+
+      <varlistentry><term><option>sense_format &lt;val&gt;</option></term>
+      </varlistentry>
+
+      <varlistentry><term><option>removable &lt;val&gt;</option></term>
+      </varlistentry>
+
+      <varlistentry><term><option>path &lt;val&gt;</option></term>
+      </varlistentry>
+
+      <varlistentry><term><option>mode_page &lt;val&gt;</option></term>
+      </varlistentry>
+
+      <varlistentry><term><option>readonly &lt;val&gt;</option></term>
+      </varlistentry>
+
+      <varlistentry><term><option>device-type &lt;val&gt;</option></term>
+      </varlistentry>
+
+      <varlistentry><term><option>bs-type &lt;val&gt;</option></term>
+      </varlistentry>
+
+      <varlistentry><term><option>allow-in-use &lt;val&gt;</option></term>
+      </varlistentry>
+
+      <varlistentry><term><option>block-size &lt;val&gt;</option></term>
+	<listitem>
+	  <para>
+	    Specify the block size for this LUN.
+	  </para>
+	</listitem>
+      </varlistentry>
+
+      <varlistentry><term><option>lbppbe &lt;val&gt;</option></term>
+	<listitem>
+	  <para>
+	    Specify the Logical blocks per physical block
+	    exponent. By default TGTD will set the lbppbe to automatically
+	    match the underlying filesystem. Use this parameter to override
+	    that setting.
+	  </para>
+	  <para>
+	    This is an internal option that should not be
+	    set directly.
+	  </para>
+	</listitem>
+      </varlistentry>
+
+      <varlistentry><term><option>la_lba &lt;val&gt;</option></term>
+	<listitem>
+	  <para>
+	    Specify the lowest aligned logical block address.
+	    This is an internal option that should not be set directly.
+	  </para>
+	</listitem>
+      </varlistentry>
+
+      <varlistentry><term><option>optimal_xfer_gran &lt;val&gt;</option></term>
+	<listitem>
+	  <para>
+	    Specify the optimal transfer granularity, to be reflected
+	    in the Block Limits VPD.
+	    This is an internal option that should not be set directly.
+	  </para>
+	</listitem>
+      </varlistentry>
+
+      <varlistentry><term><option>optimal_xfer_len &lt;val&gt;</option></term>
+	<listitem>
+	  <para>
+	    Specify the optimal transfer length, to be reflected
+	    in the Block Limits VPD.
+	    This is an internal option that should not be set directly.
+	  </para>
+	</listitem>
+      </varlistentry>
+
+      <varlistentry><term><option>params &lt;vals&gt;</option></term>
+	<listitem>
+	  <para>
+	    Pass additional parameters to tgtadm.
+	  </para>
+	</listitem>
+      </varlistentry>
+
+    </variablelist>
+
+  </refsect1>
+
+  <refsect1><title>CONFIGURATION FILE EXAMPLE</title>
+	<screen format="linespecific">
+Example configuration file:
+
+&lt;target iqn.2007-04.com.example:san.monitoring&gt;
+  backing-store /dev/san/monitoring
+
+  # if no "incominguser" is specified, it is not used
+  incominguser backup secretpass12
+
+  # defaults to ALL if no "initiator-address" is specified
+  initiator-address 192.168.1.2
+&lt;/target&gt;
+
+&lt;target iqn.2007-02.com.example:san.xen1&gt;
+  backing-store /dev/san/xen1-disk1 # LUN1
+  direct-store /dev/san/xen1-disk2  # LUN2
+
+  initiator-address 192.168.1.2     # Allowed IP
+  initiator-address 192.168.5.6     # Allowed IP
+
+  incominguser user1 secretpass12
+  incominguser user2 secretpass23
+
+  outgoinguser userA secretpassA
+&lt;/target&gt;
+
+&lt;target iqn.2007-02.com.example:san.xen2&gt;
+  backing-store /dev/san/xen2
+&lt;/target&gt;
+
+&lt;target iqn.2007-06.com.example:san.vmware1&gt;
+  backing-store /dev/san/vmware1
+&lt;/target&gt;
+	</screen>
+  </refsect1>
+
+
+  <refsect1><title>FILES</title>
+    <variablelist>
+
+      <varlistentry><term><option>/etc/tgt/targets.conf</option></term>
+        <listitem>
+          <para>
+	    Configuration file for tgt-admin.
+          </para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry><term><option>/usr/share/doc/tgt/targets.conf.example</option></term>
+        <listitem>
+          <para>
+	    Example configuration file for tgt-admin.
+          </para>
+        </listitem>
+      </varlistentry>
+
+    </variablelist>
+  </refsect1>
+
+
+  <refsect1><title>SEE ALSO</title>
+    <para>
+      tgtd(8), tgtadm(8), tgtimg(8), tgt-setup-lun(8).
+      <ulink url="http://stgt.sourceforge.net/"/>
+    </para>
+  </refsect1>
+
+  <refsect1><title>REPORTING BUGS</title>
+    <para>
+      Report bugs to &lt;stgt@vger.kernel.org&gt;
+    </para>
+  </refsect1>
+
+</refentry>

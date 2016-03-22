@@ -1,0 +1,142 @@
+#!/bin/sh
+# EXAMPLE of sbc jukebox
+#
+# This is a simple script to create and drive a sbcjukebox that contains
+# the $NUMSLOT most recent snapshots of a production SBC LUN.
+# It requires that you store the LUN files on a filesystem that can create
+# file level cow snapshots using "cp --reflink".
+# On linux this is supported on BTRFS and possibly other filesystems too.
+#
+# It creates a new target with one SBC decice and a mediachanger.
+#
+#
+# TID is the target id to use
+# TNAME is the target iqn name to use
+# FILE is the backing store file for a production LUN. This file must reside on 
+#   a cow snapshot capable filesystem.
+# SNAPDIR is where we keep the SMC media file as well as where all snapshots are
+#   kept. This must be the same filesystem as FILE
+# NUMSLOTS is how many old snapshots we want to keep.
+# READONLYSNAPS is whether or not the snapshot device is readonly or not
+
+# sbcjukebox.sh start
+#    to create the target and populate the storage elements.
+#
+# sbcjukebox.sh list
+#    to show which snapshots are available
+#
+# sbcjukebox.sh snapshot
+#    to take a new snapshot of the production LUN
+#
+
+
+
+TID=2
+TNAME="iqn.ronnie.test-snapshot"
+FILE="/data/RHEL6/RHEL6-1.img"
+SNAPDIR="${FILE}.snapshots"
+NUMSLOTS=8
+READONLYSNAPS="yes"
+
+
+[ -d "$SNAPDIR" ] || mkdir "$SNAPDIR"
+
+usage() {
+	echo "sbcjukebox {start|list|snapshot|usage}"
+}
+
+prune_old_snapshots() {
+	ls $SNAPDIR | egrep -v "^smc$" | sort -n -r | tail -n +${NUMSLOTS} | while read OLD; do
+		echo "Deleting old snapshot $OLD"
+		rm -f ${SNAPDIR}/${OLD}
+	done
+}
+
+populate_elements() {
+	ELEMENT=1024
+	SNAPSHOTS=`ls $SNAPDIR | egrep -v "^smc$" | sort -n | head -n ${NUMSLOTS}`
+	for SNAP in $SNAPSHOTS; do
+		tgtadm --mode logicalunit --op update --tid $TID --lun 2 --params element_type=2,address=$ELEMENT,barcode=$SNAP,sides=1
+		ELEMENT=`expr "$ELEMENT" "+" "1"`
+	done
+
+	LAST=`expr "1024" "+" "$NUMSLOTS"`
+	while [ $ELEMENT -lt $LAST ]; do 
+		tgtadm --mode logicalunit --op update --tid $TID --lun 2 --params element_type=2,address=$ELEMENT,clear_slot=1
+		ELEMENT=`expr "$ELEMENT" "+" "1"`
+	done
+
+	tgtadm --mode logicalunit --op update --tid $TID --lun 2 --params element_type=2,address=`expr "$LAST" "-" "1"`,clear_slot=1
+}
+
+snapshot() {
+	SNAP=`date +"%y%m%d%H%M"`
+
+	echo Create snapshot $SNAP
+	cp --reflink $FILE $SNAPDIR/$SNAP
+
+	prune_old_snapshots
+	populate_elements
+}
+
+list() {
+       echo Snapshots:
+       ls $SNAPDIR | egrep -v "^smc$"
+}
+
+start() {
+	#create a target
+	tgtadm --lld iscsi --op new --mode target --tid $TID -T $TNAME
+
+	# create the data transfer device
+	tgtadm --op new --mode logicalunit --tid $TID --lun 1 -Y disk
+	tgtadm --op update --mode logicalunit --tid $TID --lun 1 --params vendor_id=STGT,product_id=SNAPSHOT_SBC,product_rev=0010
+
+	[ "$READONLYSNAPS" != "yes" ] || {
+		tgtadm --op update --mode logicalunit --tid $TID --lun 1 --params readonly=1
+	}
+
+	# create backing store for SMC
+	[ -f "${SNAPDIR}/smc" ] || dd if=/dev/zero of="${SNAPDIR}/smc" bs=1k count=1
+
+	# create the media changer
+	tgtadm --op new --mode logicalunit --tid $TID --lun 2 -b "${SNAPDIR}/smc" --device-type=changer
+	tgtadm --op update --mode logicalunit --tid $TID --lun 2 --params vendor_id=STGT,product_id=SNAPSHOT_SMC,product_rev=0010,removable=1
+
+	# Add a Data Transfer devices (1 drive)
+	tgtadm --op update --mode logicalunit --tid $TID --lun 2 --params element_type=4,start_address=1,quantity=1
+
+	# Specify that the DISK above (LUN 1) is the data transfer device
+	tgtadm --op update --mode logicalunit --tid $TID --lun 2 --params element_type=4,address=1,tid=$TID,lun=1
+
+	# Medium Transport Elements (robot arm / picker)
+	tgtadm --op update --mode logicalunit --tid $TID --lun 2 --params element_type=1,start_address=16,quantity=1
+
+	# define path to virtual media
+	tgtadm --op update --mode logicalunit --tid $TID --lun 2 --params media_home=${SNAPDIR}
+
+	# create the storage elements
+	tgtadm --op update --mode logicalunit --tid $TID --lun 2 --params element_type=2,start_address=1024,quantity=$NUMSLOTS
+
+	prune_old_snapshots
+	populate_elements
+
+	tgtadm --lld iscsi --op bind --mode target --tid $TID -I ALL
+	tgtadm --lld iscsi --op show --mode target
+}
+
+case "$1" in
+start)
+	start
+	;;
+snapshot)
+	snapshot
+	;;
+list)
+	list
+	;;
+*)
+	usage
+	;;
+esac
+

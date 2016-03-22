@@ -1,0 +1,190 @@
+Preface
+-------------
+This documents an example to set up tgt targets utilising existing SCSI
+targets on the host utilizing tgt passthrough module and /dev/sg paths.
+
+The hardware to be 'exported' via the SCSI target framework is an
+IBM 3573-TL library with a single LTO4 drive.
+
+Physical tape library connected and configured to host:
+# lsscsi -g
+[0:0:0:0]    disk    MAXTOR   ATLAS10K4_36SCA  DFM0  /dev/sda  /dev/sg0
+[0:0:6:0]    process PE/PV    1x3 SCSI BP      1.1   -         /dev/sg1
+[2:0:1:0]    tape    IBM      ULT3580-TD4      8192  /dev/st1  /dev/sg4
+[2:0:1:1]    mediumx IBM      3573-TL          6.50  -         /dev/sg5
+
+Please refer to the README.iscsi or README.iser for instructions
+specific to setting up the transport layer specific section.
+
+Many of the examples below are using the iSCSI lld (low Level) transport.
+
+
+Starting the daemon
+-------------
+Please refer to 'Starting the daemon' in the README.iscsi or README.iser.
+on instructions for correctly starting the daemon for your transport of choice.
+
+
+Configuration
+-------------
+Everyting is configured via the tgtadm management tool.
+
+Please refer to "Configuration" in README.iscsi or README.iser on how
+to configure your target for the transport of choice.
+
+Return to here for further instructions on setting up each logical unit using the
+passthrough module.
+
+An example to setup the target (target ID 1) for iSCSI
+host:~/tgt# ./usr/tgtadm --lld iscsi --op new --mode target --tid 1 \
+	-T iqn.2001-04.com.example:storage.vtl.amiens.sys1.xyz
+
+To display your target configuration:
+host:~/tgt# ./usr/tgtadm --lld iscsi --op show --mode target
+Target 1: iqn.2001-04.com.example:storage.vtl.amiens.sys1.xyz
+    System information:
+        Driver: iscsi
+        Status: running
+    I_T nexus information:
+    LUN information:
+        LUN: 0
+            Type: controller
+            SCSI ID: deadbeaf1:0
+            SCSI SN: beaf10
+            Size: 0
+            Backing store: No backing store
+    Account information:
+    ACL information:
+
+The controller device for management with lun 0 was created
+automatically. You can't remove it.
+
+Now it's time to add a logical unit to the target:
+ (The tape drive connected via /dev/sg4 - refer to 'lsscsi' output above)
+The important flags are:
+ - Specify device type as passthruough
+                      "--device-type=pt"
+ - Backing store type is the '/dev/sg' paths
+                      "--bstype=sg"
+ - Backing store path to use
+                     "-b /dev/sg4"
+
+host:~/tgt# ./usr/tgtadm --lld iscsi --op new --mode logicalunit \
+	--tid 1 --lun 1 --bstype=sg --device-type=pt -b /dev/sg4
+
+To display the current configuration:
+
+host:~/tgt# ./usr/tgtadm --lld iscsi --op show --mode target
+Target 1: iqn.2001-04.com.example:storage.vtl.amiens.sys1.xyz
+    System information:
+        Driver: iscsi
+        Status: running
+    I_T nexus information:
+    LUN information:
+        LUN: 0
+            Type: controller
+            SCSI ID: deadbeaf1:0
+            SCSI SN: beaf10
+            Size: 0
+            Backing store: No backing store
+        LUN: 1
+            Type: (null)
+            SCSI ID: IET     00010002
+            SCSI SN: beaf12
+            Size: 0 MB
+            Online: Yes
+            Removable media: No
+            Backing store type: sg
+            Backing store path: /dev/sg4
+            Backing store flags:
+    Account information:
+    ACL information:
+
+To add another logical unit to this target:
+host:~/tgt# ./usr/tgtadm --lld iscsi --op new --mode logicalunit \
+		--tid 1 --lun 2 --bstype=sg --device-type=pt -b /dev/sg5
+
+
+If you don't need to configure this target any more, enable the target
+to accept any initiators:
+
+host:~/tgt# ./usr/tgtadm --lld iscsi --op bind --mode target --tid 1 -I ALL
+
+Note "ACL information" section. "ALL" means that this target accepts
+any initiators. The ACL feature also provides the access control based
+on initiators' addresses.
+
+For further instructions on ACL and account setup, please refer to the README.iscsi
+
+As above, use the '--op show' option to display your current setup.
+host:~/tgt# ./usr/tgtadm --lld iscsi --op show --mode target
+Target 1: iqn.2001-04.com.example:storage.vtl.amiens.sys1.xyz
+    System information:
+        Driver: iscsi
+        Status: running
+    I_T nexus information:
+    LUN information:
+        LUN: 0
+            Type: controller
+            SCSI ID: deadbeaf1:0
+            SCSI SN: beaf10
+            Size: 0
+            Backing store: No backing store
+        LUN: 1
+            Type: (null)
+            SCSI ID: IET     00010002
+            SCSI SN: beaf12
+            Size: 0 MB
+            Online: Yes
+            Removable media: No
+            Backing store type: sg
+            Backing store path: /dev/sg4
+            Backing store flags:
+        LUN: 2
+            Type: (null)
+            SCSI ID: IET     00010002
+            SCSI SN: beaf12
+            Size: 0 MB
+            Online: Yes
+            Removable media: No
+            Backing store type: sg
+            Backing store path: /dev/sg5
+            Backing store flags:
+    Account information:
+    ACL information:
+        ALL
+
+
+
+iSCSI Initiator Information
+-------------
+After the target accepts initiators, the system information would be
+something like the following:
+
+Linux open-iscsi initiator
+hostb:~ # iscsiadm -m discovery -t sendtargets -p 10.251.60.20
+10.251.60.20:3260,1 iqn.2001-04.com.example:storage.vtl.amiens.sys1.xyz
+
+hostb:~ # iscsiadm -m node -T iqn.2001-04.com.example:storage.vtl.amiens.sys1.xyz \
+		 -p 10.251.60.20 --login
+Logging in to [iface: default, target: iqn.2001-04.com.example:storage.vtl.amiens.sys1.xyz, portal: 10.251.60.20,3260]
+Login to [iface: default, target: iqn.2001-04.com.example:storage.vtl.amiens.sys1.xyz, portal: 10.251.60.20,3260]: successful
+
+hostb:~ # lsscsi -g
+[0:0:0:0]    cd/dvd  TSSTcorp DVD-ROM TS-L333A D100  /dev/sr0  /dev/sg0
+[2:0:0:0]    disk    SEAGATE  ST3400755SS      NS25  /dev/sda  /dev/sg1
+[2:0:1:0]    disk    SEAGATE  ST3400755SS      NS25  /dev/sdb  /dev/sg2
+[3:0:0:0]    disk    DGC      DISK             0429  /dev/sdc  /dev/sg3
+[3:0:1:0]    disk    DGC      DISK             0429  /dev/sdd  /dev/sg4
+[11:0:0:0]   storage IET      Controller       0001  -         /dev/sg5
+[11:0:0:1]   tape    IBM      ULT3580-TD4      8192  /dev/st0  /dev/sg6
+[11:0:0:2]   mediumx IBM      3573-TL          6.50  -         /dev/sg7
+
+
+Shutdown the target cleanly
+---------------------------
+host:~/tgt# tgtadm --op unbind --mode target --tid 1 -I ALL
+host:~/tgt# tgtadm --op delete --mode conn --tid 1
+host:~/tgt# tgtadm --op delete --mode target --tid 1
+host:~/tgt# tgtadm --op delete --mode system
+

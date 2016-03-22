@@ -1,0 +1,136 @@
+Preface
+--------------
+This show a simple example to set up some logical units (lu).
+Please refer to README.iscsi on instructions to create logical unit(s).
+
+tgtadm options
+--------------
+You are able to modify some logical unit parameters as well as
+modify behaviour of SCSI Sense op code.
+
+NOTE: It is not recommended to change these parameters after the
+target/logical unit has been enabled to accept initiators.
+
+It is currently possible to change/modify the following:
+
+ Vendor Identification
+ Product Identification
+ Product Revision
+ Format of returned 'sense data'
+ Define if the lu is capable of supporting removable media
+ Define/set if the lu is online / offline.
+ Params are passed using the 'tgtadm' utility:
+
+Format of options are:
+ vendor_id="string"
+ product_id="string"
+ product_rev="string"
+ removable=<0|1> - 0 = non-removable, 1 = removable media
+ sense_format=<0|1> - 0 = Clasic sense format, 1 = Support descriptor format
+ online=<0|1> - 0 == Unit offline, 1 == Unit Online
+
+The options are passed to the logical unit via the "--params" switch to tgtadm
+
+e.g.
+tgtadm --lld iscsi --mode logicalunit --op update --tid <TID> --lun <LUN> \
+            --params vendor_id=QUANTUM,product_id=HD100,product_rev=0010
+tgtadm --lld iscsi --mode logicalunit --op update --tid <TID> --lun <LUN> \
+            --params removable=1,sense_format=1,online=1
+
+Or it can be performed in one go:
+tgtadm --lld iscsi --mode logicalunit --op update --tid <TID> --lun <LUN> \
+    --params vendor_id=QUANTUM,product_id=HD100,product_rev=0010,scsi_sn=FRED00,removable=1,sense_format=0,online=1
+
+
+# sg_inq -v /dev/sg5
+    inquiry cdb: 12 00 00 00 24 00
+standard INQUIRY:
+    inquiry cdb: 12 00 00 00 42 00
+  PQual=0  Device_type=0  RMB=1  version=0x05  [SPC-3]
+  [AERC=0]  [TrmTsk=1]  NormACA=0  HiSUP=0  Resp_data_format=2
+  SCCS=0  ACC=0  TGPS=0  3PC=0  Protect=0  BQue=0
+  EncServ=0  MultiP=0  [MChngr=0]  [ACKREQQ=0]  Addr16=0
+  [RelAdr=0]  WBus16=0  Sync=0  Linked=0  [TranDis=0]  CmdQue=1
+  Clocking=0x0  QAS=0  IUS=0
+    length=66 (0x42)   Peripheral device type: disk
+ Vendor identification: QUANTUM
+ Product identification: HD100
+ Product revision level: 0010
+    inquiry cdb: 12 01 00 00 fc 00
+    inquiry: requested 252 bytes but got 7 bytes
+    inquiry cdb: 12 01 80 00 fc 00
+    inquiry: requested 252 bytes but got 12 bytes
+ Unit serial number: FRED00
+
+As can be seen from above 'sg_inq' output, the RMB (removable) bit is set to 1.
+The Unit serial number page updated with 'FRED00'
+
+Mode Page Creation
+------------------
+Create mode page '2', subpage 0 and 14 bytes of data.
+tgtadm --mode logicalunit --op update --tid 1 --lun 2 \
+         --params mode_page=2:0:14:0x80:0x80:0:0xa:0:0:0:0:0:0:0:0:0:0
+
+Create mode page '3', subpage 0 and 22 bytes of data.
+tgtadm --lld iscsi --mode logicalunit --op update --tid 1 --lun 2 \
+         --params mode_page=3:0:22:0:0:0:0:0:0:0:0:1:0:2:0:0:0:0:0:0:0:0:13:0:0
+
+Create mode page '10', subpage 0 and 10 bytes of data.
+tgtadm --lld iscsi --mode logicalunit --op update --tid 1 --lun 2 \
+         --params mode_page=10:0:10:2:0:0:0:0:0:0:0:2:0
+
+Create mode page '0x1c', subpage 0 and 10 bytes of data.
+tgtadm --lld iscsi --mode logicalunit --op update --tid 1 --lun 2 \
+         --params mode_page=0x1c:0:10:8:0:0:0:0:0:0:0:0:0
+
+
+SMC unique options
+------------------
+
+--params have several unique key=value pairs ontop of all other modules.
+ - element_type=<1|2|3|4>
+ - start_address=Number between 1 & 65535
+ - quantity=Number between 1 & 65535
+ - sides=1|2
+ - address=Number between 1 & 65535
+ - barcode="Char string up to 10 chars"
+ - tid=<number>
+ - lun=<number>
+ - media_home=/path/to/virtual/media
+   The 'barcode' of media is appended to this path specified in media_home and
+   it is this file which is used for the backing store when reading/writing to
+   DATA TRANSFER DEVICE at address 'tid=x lun=x'
+
+Several of these parameters 'work together'
+
+e.g. To add 'quantity' slots as 'element_type' starting at 'start_address'
+ - element_type=<1|2|3|4>
+ - start_address=Number between 1 & 65535
+ - quantity=Number between 1 & 65535
+
+Note: start_address + quantity should not overlap with any other slots..
+
+
+While 'configuring slot 'address' of 'element_type':
+ - Set barcode of meda (occupy slot)
+ - If element type is DATA TRANSFER DEVICE, then define TID & LUN of device.
+
+ - element_type=<1|2|3|4>
+ - address=Number between 1 & 65535
+ - barcode="String up to 10 chars"
+ - sides=<1|2>
+ - tid=<tid of device which belongs at this address>
+ - lun=<lun of device which belongs at this address>
+
+
+It is the responsibility of the user not to configure overlapping slots
+of differing types.
+
+Slot types:
+ 1 -> Medium Transport (picker arm)
+ 2 -> Storage Element
+ 3 -> Import/Export Element
+ 4 -> Data Transfer device (CD drive, tape drive, MO drive etc)
+
+Please refer to scripts/tgt-core-test for a working example.
+

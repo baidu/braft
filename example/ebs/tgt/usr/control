@@ -1,0 +1,71 @@
+#!/bin/sh
+
+RETVAL=0
+uid=`id | cut -d\( -f1 | cut -d= -f2`
+
+ulimit -c unlimited
+
+LIB_PATH="$(pwd)/lib"
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$LIB_PATH
+
+case "$1" in
+  start)
+    # Only root can start the service
+    [ $uid -ne 0 ] && exit 4
+
+    echo -n $"Starting tgt: "
+
+    ASAN_OPTIONS=disable_core=0:abort_on_error=1:unmap_shadow_on_exit=1 nohup limit -n 1000000 ./sbin/tgtd -f &>tgtd.out&
+
+    RETVAL=$?
+    if [ $RETVAL -ne 0 ]; then
+        echo -n $" [FAILED]"
+    else
+        echo -n $" [SUCC]"
+    fi
+
+    sleep 1
+
+    su bcc -c "/home/bcc/services/cinder-volume restart"
+
+#root on cds
+    if [ -f /home/bcc/services/root_cds_tools/reboot_tgtd.sh ]
+    then
+        sh /home/bcc/services/root_cds_tools/reboot_tgtd.sh
+    fi
+    echo
+    ;;
+  stop)
+    # Only root can stop the service
+    [ $uid -ne 0 ] && exit 4
+
+    # Stop daemons.
+    echo -n $"Shutting down tgt daemon: "
+    killall -9 tgtd
+
+    RETVAL=$?
+    if [ $RETVAL -ne 0 ]; then
+        echo -n $" [FAILED]"
+    else
+        echo -n $" [SUCC]"
+    fi
+
+    echo
+
+    ;;
+  status)
+    tgt-admin -s
+    RETVAL=$?
+    ;;
+  restart)
+    sh $0 stop
+    sleep 1
+    sh $0 start
+    ;;
+  *)
+    echo $"Usage: tgtd {start|stop|status|restart}"
+    RETVAL=2
+    ;;
+esac
+
+exit $RETVAL

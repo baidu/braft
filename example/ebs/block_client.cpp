@@ -7,7 +7,6 @@
 #include <algorithm>
 #include <gflags/gflags.h>
 #include <base/containers/flat_map.h>
-#include <base/string_splitter.h>
 #include <baidu/rpc/channel.h>
 #include <baidu/rpc/errno.pb.h>
 #include "raft/util.h"

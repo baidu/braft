@@ -1,0 +1,444 @@
+*** iSCSI Extensions for RDMA (iSER) in tgt ***
+
+Copyright (C) 2007 Pete Wyckoff <pw@osc.edu>
+Copyright (C) 2011 Alexander Nezhinsky <alexandern@voltaire.com>
+
+
+1.  Background
+
+1.1.  Standards (iSCSI, iSER)
+
+The IETF standards track RFC 5046 extends the iSCSI protocol to work
+on RDMA-capable networks as well as on traditional TCP/IP:
+
+	Internet Small Computer System Interface (iSCSI) Extensions
+	for Remote Direct Memory Access (RDMA), Mike Ko, October 2007.
+
+It is available online:
+
+	http://tools.ietf.org/html/rfc5046
+
+RDMA stands for Remote Direct Memory Access, a way of accessing memory
+of a remote node directly through the network without involving the
+processor of that remote node.	Many network devices implement some
+form of RDMA.  Two of the more popular network devices are InfiniBand
+(IB) and iWARP.  IB uses its own physical and network layer, while
+iWARP sits on top of TCP/IP (or SCTP).
+
+Using these devices requires a new application programming interface
+(API).	The Linux kernel has many components of the OpenFabrics
+software stack, including APIs for access from user space and drivers
+for some popular RDMA-capable NICs, including IB cards with the
+chipset from Mellanox and QLogic, and iWARP cards from NetEffect,
+Chelsio, and Ammasso.  Most Linux distributions ship the user space
+libraries for device access and RDMA connection management.
+
+There is an ongoing activity, which is still in progress, intended
+to improve upon RFC 5046 and address some existing issues. The text
+of the latest proposal is available online (note, though, that it
+may become outdated quickly):
+
+	http://tools.ietf.org/html/draft-ietf-storm-iser-01
+
+
+1.2.  iSER in tgtd
+
+tgtd is a user space target that supports multiple transports,
+including iSCSI/TCP and iSER on RDMA devices.
+
+The original iSER code was written in early 2007 by researchers at
+the Ohio Supercomputer Center:
+
+	Dennis Dalessandro <dennis@osc.edu>
+	Ananth Devulapalli <ananth@osc.edu>
+	Pete Wyckoff <pw@osc.edu>
+
+The authors wanted to use a faster transport to test the capabilities
+of an object-based storage device (OSD) emulator.  A report describing
+this implementation and some performance results appears in IEEE
+conference proceedings as:
+
+	Dennis Dalessandro, Ananth Devulapalli and Pete Wyckoff, "iSER
+	Storage Target for Object-based Storage Devices", Proceedings
+	of MSST'07, SNAPI Workshop, San Diego, CA, September 2007.
+
+and is available at:
+
+	http://www.osc.edu/~pw/papers/iser-snapi07.pdf
+
+Slides of the talk with more results and analysis are available at:
+
+	http://www.osc.edu/~pw/papers/wyckoff-iser-snapi07-talk.pdf
+
+The original code lived in iscsi/iscsi_rdma.c, with a few places
+in iscsi/iscsid.c. RDMA transport was added and some more functions
+where TCP and RDMA behaved differently were virtualized.
+
+There was a bug that resulted in occasional data corruption.
+
+The new implementation was written by Alexander Nezhinsky
+<alexandern@voltaire.com>. It defines iSER as a separate transport
+(and not as a sub-transport of iSCSI/TCP).
+
+One of the main differences between iSCSI/TCP and iSER is that the
+former enjoys the stream semantics of TCP and may work in a synchronous
+manner, while the latter's flow is intrinsically asynchronous and
+message based.	Implementing a synchronous flow within an asynchronous
+framework is relatively natural, while fitting an asynchronous flow
+within a synchronous framework is usually met with a few obstacles
+resulting in a sub-optimal design.
+
+The main reason to define iser as a separate transport (which is
+an example of such obstacle) was to decouple rx/tx flow from using
+EPOLLIN/EPOLLOUT events originally used to poll TCP sockets. See
+"Event Management" section below for details.
+
+Although one day we may return to a common tcp/rdma transport, for
+now a separate transport LLD (named "iser") is defined.
+
+Other changes include avoiding memory copies, using a memory pool
+shared between connections with "patient" memory allocation mechanism,
+etc.
+
+Source-wise, a new header "iser.h" is created, "iscsi_rdma.c"
+is replaced by "iser.c". File iser_text.c contains the iscsi-text
+processing code replicated from iscsid.c. This is done because the
+functions there are not general enough, and rely on specifics of
+iscsi/tcp structs. This file will hopefully be removed in the future.
+
+
+2.  Design
+
+2.1.  General Notes
+
+In general, a SCSI system includes two components, an initiator and
+a target. The initiator submits commands and awaits responses.	The
+target services commands from initiators and returns responses.  Data
+may flow from the initiator, from the client, or both (bidirectional).
+The iSER specification requires all data transfers to be started
+by the target, regardless of direction.  In a read operation, the
+target uses RDMA Write to move data to the initiator, while a write
+operation uses RDMA Read to fetch data from the initiator.
+
+
+2.2.  Memory registration
+
+One of the most severe stumbling blocks in moving any application to
+take advantage of RDMA features is memory registration.  Before using
+RDMA, both the sending and receiving buffers must be registered with
+the operating system.  This operation ensures that the underlying
+hardware pages will not be modified during the transfer, and provides
+the physical addresses of the buffers to the network card.  However,
+the process itself is time consuming, and CPU intensive.  Previous
+investigations have shown that for InfiniBand, the throughput drops
+by up to 40% when memory registration and deregistration are included
+in the critical path.
+
+This iSER implementation uses pre-registered buffers for RDMA
+operations.  In general such a scheme is difficult to justify due
+to the large per-connection resource requirements.  However, in
+this application it may be appropriate.  Since the target always
+initiates RDMA operations and never advertises RDMA buffers, it can
+securely use one pool of buffers for multiple clients and can manage
+its memory resources explicitly.  Also, the architecture of the code
+is such that the iSCSI layer dictates incoming and outgoing buffer
+locations to the storage device layer, so supplying a registered
+buffer is relatively easy.
+
+
+2.3.  Event management
+
+As mentioned above, there is a mismatch between what the iscsid
+framework assumes and what the RDMA notification interface provides.
+The existing TCP-based iSCSI target code has one file descriptor
+per connection and it is driven by readability or writeability of
+the socket.  A single poll system call returns which sockets can be
+serviced, driving the TCP code to read or write as appropriate.
+
+The RDMA interface is also represented by a single file descriptor
+created by the driver responsible for the hardware. This file
+descriptor readability may be used by requesting interrupts from the
+network card on work request completions, after a sufficiently long
+period of quiescence.  Furter completions can be polled and retrieved
+without re-arming the interrupts.  Beside this first difference,
+the RDMA device file descriptor can not and should not be polled
+for writability, as any messages or RDMA transfer requests may be
+issued assynhcronously.
+
+Moreover, the existing sockets-based code goes beyond this and
+changes the bitmask of requested events to control its code flow.
+For instance, after it finishes sending a response, it will modify the
+bitmask to only look for readability.  Even if the socket is writeable,
+there is no data to write, hence polling for that status is not useful.
+The code also disables new message arrival during command execution
+as a sort of exclusion facility, again by modifying the bitmask.
+
+As it can not be done with the RDMA interface, the original code had
+to maintain an active list of tasks having data to write and to drive
+a progress engine to service them.  The progress was tracked by a
+counter, and the tgtd event loop checked this counter and called into
+the iSER-specific while the counter is still non-zero.	This scheme
+was quite unnatural and error-prone.
+
+The new implementation issues all SEND requests
+asynchronously. Besides, it relies heavily upon the scheduled events
+that are injected into the event loop with no dependence on file
+descriptors. It schedules such events to poll for new RDMA completion
+events, in hope that new ones are ready. If no event arrives after
+a certain number of polls then interrupts are requested and further
+progress will be driven through the file-based event mechanism.
+Note that only the first event is signal in this manner and while
+new completions are constantly arriving, they will be retrieved by
+polling only.
+
+Other internal events of the same kind (like tasks requesting a
+send, commands that are ready for submition etc.) are grouped on
+appropriate lists and special events are scheduled for them. This
+allows to process few tasks in a batched manner in order to optimise
+RDMA and other operations, if possible.
+
+
+2.4.  RDMA-only mode
+
+The code implies RDMA-only mode of work. This means the "first
+burst" including immediate data should be disabled, so that the
+entire data transfer is performed using RDMA. This mode is perhaps
+the most suitable one for iser in the majority of work scenarios.
+The only concern is about relatively small WRITE I/Os, which may
+enjoy theoretically lower latencies using IB SEND instead of RDMA-RD.
+Implementing this mode is meanwhile precluded because it would lead to
+multiple buffers per iSER task (e.g. ImmediateData buffer received
+with the command PDU, and the rest of the data retrieved using
+RDMA-RD), which is not supported by the existing tgt backing stores.
+The RDMA-only mode is achieved by setting:
+       target->session_param[ISCSI_PARAM_INITIAL_R2T_EN].val = 1;
+       target->session_param[ISCSI_PARAM_IMM_DATA_EN].val = 0;
+which is hardcoded in iser_target_create().
+
+
+2.5.  Padding
+
+The iSCSI specification clearly states that all segments in the
+protocol data unit (PDU) must be individually padded to four-byte
+boundaries.  However, the iSER specification remains mute on the
+subject of padding.  It is clear from an implementation perspective
+that padding data segments is both unnecessary and would add
+considerable overhead to implement.  (Possibly a memory copy or extra
+SG entry on the initiator when sending directly from user memory.)
+RDMA is used to move all data, with byte granularity provided by
+the network.  The need for padding in the TCP case was motivated by
+the optional marker support to work around the limitations of the
+streaming mode of TCP.	IB and iWARP are message-based networks and
+would never need markers.  And finally, the Linux initiator does not
+add padding either.
+
+
+3.  Using iSER
+
+3.1.  Building tgtd
+
+Compile tgtd with:
+
+	make ISCSI_RDMA=1
+
+As iSCSI support is compiled in by default, there is no need to specify
+additional symbols for it.
+
+For build purposes, you'll need to have two libraries installed
+on your system: libibverbs-devel and librdmacm-devel.
+
+To run iser, you'lll need the binary form of these libraries,
+libibverbs.so and librdmacm.so along with device specific user
+space library such as libmlx4 for Mellanox ConnectX HCAs.
+
+If they are installed in the normal system paths (/usr/include and
+/usr/lib or /usr/lib64), they will be found automatically. Otherwise,
+edit CFLAGS and LIBS in usr/Makefile under ISER to specify the paths
+by hand, e.g., for a /usr/local install, it should look like:
+
+	ifneq ($(ISCSI_RDMA),)
+	CFLAGS += -DISCSI_RDMA -I/usr/local/include
+	TGTD_OBJS += iscsi/iser.o
+	LIBS += -L/usr/local/lib -libverbs -lrdmacm
+	endif
+
+If these libraries are not in the normal system paths, you may
+possibly also have to set, e.g., LD_LIBRARY_PATH=/usr/local/lib in
+your environment to find the shared libraries at runtime.
+
+The libraries mentioned is this section have pre-set packages provided
+the by various distributions, e.g RPMs for Fedora, RedHat and Suse,
+or DEBs for Debian and Ubuntu.
+
+3.2.  Running tgtd
+
+Start the daemon (as root):
+
+	./tgtd
+
+It will send messages to syslog.  You can add "-d 1" to turn on debug
+messages. Debug messages can be also turned on and off during run
+time using the following commnds:
+
+	./tgtadm --mode system --op update --name debug --value on
+	./tgtadm --mode system --op update --name debug --value off
+
+The target will listen on all TCP interfaces (as usual), as well
+as all RDMA devices.  Both use the same default iSCSI port, 3260.
+Clients on TCP or RDMA will connect to the same tgtd instance.
+
+When using iser, you need to make sure the kernel IB/RDMA stack
+is up and running.
+
+It's recommended to use the rping tool provided by librdmacm-utils
+for quick RDMA connectivity testing between the initiator and the
+target nodes.
+
+3.3.  Configuring tgtd
+
+Configure the running target with one or more devices, using the
+tgtadm program you just built (also as root).  Full information is
+available in doc/README.iscsi. The difference is only in the name of
+LLD which should be "iser".
+
+Here is a quick-start example:
+
+	./tgtadm --lld iser --mode target \
+		 --op new --tid 1 --targetname "iqn.$(hostname).t1"
+	./tgtadm --lld iser --mode target \
+		 --op bind --tid 1 --initiator-address ALL
+	./tgtadm --lld iser --mode logicalunit \
+		 --op new --tid 1 --lun 1 \ --backing-store /dev/sde
+		 --bstype rdwr
+
+
+3.4.  Initiator side
+
+To make your initiator use RDMA, make sure the "ib_iser" module is
+loaded in your kernel.	Then do discovery as usual, over TCP:
+
+	iscsiadm -m discovery -t sendtargets -p $targetip
+
+where $targetip is the ethernet address of your IPoIB device.
+Discovery traffic will use IPoIB, but login and full feature phase
+will use RDMA natively.
+
+Then do something like the following to change the transport type:
+
+	iscsiadm -m node -p $targetip -T $targetname --op update \
+	    -n node.transport_name -v iser
+
+Next, login as usual:
+
+	iscsiadm -m node -p $targetip -T $targetname --login
+
+And access the new block device, e.g. /dev/sdb.
+
+Note that separate iscsi and iser transports mean that you should
+know which targets are configured as iser and which as iscsi/tcp.
+If you try to login to a target configured as iser over tcp, this
+will fail. And vice versa, trying to login to a target configured as
+iscsi/tcp over iser will not succeed as well.
+
+Because an iscsi target has no means for reporting its RDMA
+capabilities you have to try to login over iser to every target
+reported by SendTargets.  If it fails and you still want to access
+the target over tcp, then change the transport name back to "tcp"
+and try to login again.
+
+Some distributions include a script named "iscsi_discovery", which
+accomplishes just this. If you wish to login either over iser or
+over tcp:
+
+	iscsi_discovery $targetip -t iser
+
+This will login changing transports if necessary. Then, if succesful,
+it will logout leaving the target's record with the appropriate
+transport setting.
+
+If you are interested only in iser targets, then add "-f", forcing
+the transport to be iser.  Note also that the port can be specified
+explicitely:
+
+	iscsi_discovery $targetip -p $targetport -t iser -f
+
+This will cancel login retry over tcp in case of the initial failure.
+
+
+4.  Errata
+
+4.1.  Pre-2.6.21 mthca driver bug
+
+There is a major bug in the mthca driver in linux kernels
+before 2.6.21.	This includes the popular rhel5 kernels, such as
+2.6.18-8.1.6.el5 and possibly later.  The critical commit is:
+
+    608d8268be392444f825b4fc8fc7c8b509627129 IB/mthca: Fix data
+    corruption after FMR unmap on Sinai
+
+If you use single-port memfree cards, SCSI read operations will
+frequently result in randomly corrupted memory, leading to bad
+application data or unexplainable kernel crashes.  Older kernels
+are also missing some nice iSCSI changes that avoids crashes in some
+situations where the target goes away.	Stock kernel.org linux after
+2.6.21 have been tested and are known to work.
+
+
+4.2.  Bidirectional commands
+
+The Linux kernel iSER initiator is currently lacking support for
+bidirectional transfers, and for extended command descriptors (CDBs).
+Progress toward adding this is being made, with patches frequently
+appearing on the relevant mailing lists.
+
+
+4.3.  ZBVA
+
+The Linux kernel iSER initiator uses a different header structure on
+its packets than is in the iSER specification.	This is described in
+an InfiniBand document and is required for that network, which only
+supports for Zero-Based Virtual Addressing (ZBVA).  If you are using
+a non-IB initiator that doesn't need this header extension, it won't
+work with tgtd.  There may be some way to negotiate the header format.
+Using iWARP hardware devices with the Linux kernel iSER initiator
+also will not work due to its reliance on fast memory registration
+(FMR), an InfiniBand-only feature.
+
+
+4.4.  MaxOutstandingUnexpectedPDUs
+
+The current code sizes its per-connection resource consumption based
+on negotiatied parameters.  However, the Linux iSER initiator does
+not support negotiation of MaxOutstandingUnexpectedPDUs, so that
+value is hard-coded in the target.
+
+
+4.5.  TargetRecvDataSegmentLength
+
+Also, open-iscsi is hard-coded with a very small value of
+TargetRecvDataSegmentLength, so even though the target would be willing
+to accept a larger size, it cannot.  This may limit performance of
+small transfers on high-speed networks: transfers bigger than 8 kB,
+but not large enough to amortize a round-trip for RDMA setup.
+
+
+4.6.  Multiple devices
+
+The iser code has been successfully tested with multiple Infiniband
+devices.
+
+
+4.7.  SCSI command size
+
+A single buffer per SCSI command limitation has another implication
+(except the "RDMA-only mode", see above). The RDMA buffers pool is
+currently created with buffers of 512KB each (see "Memory registration"
+section above). This is suitable to work with most of the linux
+initiators, which split all transfers into SCSI commands of up to
+128KB, 256KB or 512KB (depending on the system). Initiators that issue
+explicit SCSI commands with the size greater than 512KB will be unable
+to work with the current iser implementation. Once multiple buffers
+are supported by the backing stores this limitation can be eliminated
+in a relatively simple manner.
+
+

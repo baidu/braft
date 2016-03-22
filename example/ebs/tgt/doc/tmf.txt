@@ -1,0 +1,52 @@
+The tgt Task Management Functions (TMF) works in the followings:
+
+- When LLDs queue scsi commands to tgt (scsi_tgt_queue_command), they
+need to specify unique 'tag' for each command.
+
+- LLDs call 'int scsi_tgt_tsk_mgmt_request(struct Scsi_Host *host, int,
+u64 tag, struct scsi_lun *lun, void *data)'.
+
+- int (* tsk_mgmt_response)(u64 data, int result) is added to
+scsi_host_template.
+
+The tag arg in scsi_tgt_queue_command is used only for ABORT_TASK to
+identify a single command. Initiators send a command with a unique
+tag so LLDs simply call scsi_tgt_queue_command() with it.
+
+With FCP and iSCSI, tag is 32-bit, however, unfortunately, SRP uses
+64-bit tag. So we need 64-bit for it.
+
+When an initiator sends a task management request, the LLD calls
+scsi_tgt_tsk_mgmt_request. the LLD can use whatever it wants for the
+data arg. The data arg is used later as the arg in the
+tsk_mgmt_response callback.
+
+tgt core just sends the task management request to user space
+(by using TGT_KEVENT_TSK_MGMT_REQ).
+
+In the case of ABORT_TASK, tgtd finds a single command to abort and
+sends TGT_UEVENT_CMD_RSP and TGT_UEVENT_TSK_MGMT_RSP events.
+
+tgt core calls eh_abort_handler for TGT_UEVENT_CMD_RSP and then
+tsk_mgmt_response for TGT_UEVENT_TSK_MGMT_RSP.
+
+If tgtd fails to find a command to abort, it sends only
+TGT_UEVENT_TSK_MGMT_RSP event (no TGT_UEVENT_CMD_RSP event).
+
+In the case of the rests task management functions (like
+ABORT_TASK_SET), tgt needs to abort multiple commands. Thus, tgtd
+finds multiple commands to abort and sends multiple TGT_UEVENT_CMD_RSP
+events and a single TGT_UEVENT_TSK_MGMT_RSP event. tgt core calls
+eh_abort_handler multiple times and tsk_mgmt_response once.
+
+eh_abort_handler enables LLDs to safely free resource related with a
+command to abort.
+
+Note that when tgtd finds that a TGT_KEVENT_TSK_MGMT_REQ event tries
+to abort commands between in TGT_UEVENT_CMD_RSP and
+TGT_KEVENT_CMD_DONE states (that is, tgt calls something like
+bio_map_user for the commands), tgtd gives up. After all, we cannot
+abort such commands. For example, possibly, The commands already touch
+page cache. In this case, tgtd waits for the completion of the commands
+(TGT_KEVENT_CMD_DONE) and sends TGT_UEVENT_TSK_MGMT_RSP event with an
+appropriate result value.
