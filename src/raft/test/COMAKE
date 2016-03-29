@@ -27,7 +27,7 @@ if gcc_version >= 40000:
     CXXFLAGS('-Wno-unused-local-typedefs -Wno-missing-field-initializers')
 
 INCPATHS('../../')
-LDFLAGS('-pthread -lrt -ldl -lz -lssl -lcrypto')
+LDFLAGS('-pthread -lrt -ldl -lz -lssl -lcrypto -lbz2')
 
 #CXXFLAGS('-fsanitize=address -fno-omit-frame-pointer')
 #LDFLAGS('-lasan')

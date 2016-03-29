@@ -1048,14 +1048,8 @@ int SegmentLogStorage::get_segment(int64_t index, boost::shared_ptr<Segment>* pt
     return 0;
 }
 
-LogStorage* create_local_log_storage(const std::string& uri) {
-    std::string local_path = fileuri2path(uri);
-    if (local_path.empty()) {
-        return NULL;
-    }
-
-    SegmentLogStorage* storage = new SegmentLogStorage(local_path);
-    return storage;
+LogStorage* SegmentLogStorage::new_instance(const std::string& uri) const {
+    return new SegmentLogStorage(uri);
 }
 
 }

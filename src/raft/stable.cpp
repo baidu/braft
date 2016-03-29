@@ -119,14 +119,8 @@ int LocalStableStorage::get_votedfor(PeerId* peer_id) {
     }
 }
 
-StableStorage* create_local_stable_storage(const std::string& uri) {
-    std::string local_path = fileuri2path(uri);
-    if (local_path.empty()) {
-        return NULL;
-    }
-
-    LocalStableStorage* storage = new LocalStableStorage(local_path);
-    return storage;
+StableStorage* LocalStableStorage::new_instance(const std::string& uri) const {
+    return new LocalStableStorage(uri);
 }
 
 }

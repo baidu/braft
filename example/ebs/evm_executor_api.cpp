@@ -9,6 +9,7 @@
 #include <base/containers/flat_map.h>               // base::FlatMap
 #include <base/containers/doubly_buffered_data.h>   // base::DoublyBufferedData
 #include <base/comlog_sink.h>                       // logging::ComlogSink
+#include <base/errno.h>
 #include <bthread.h>                                // bthread_start_background
 #include <bthread_unstable.h>                       // bthread_flush
 #include <base/object_pool.h>                       // base::get_object
@@ -132,6 +133,7 @@ int write(uint64_t block_id, const void* buf, int64_t len, off_t offset) {
         BlockServiceAdaptor_Stub stub(&channel);
         stub.Write(&cntl, &request, &response, NULL);
         if (!cntl.Failed()) {
+            CHECK_EQ(0, response.error_code());
             return 0;
         }
         if (cntl.ErrorCode() == baidu::rpc::ERPCTIMEDOUT) {
@@ -179,7 +181,22 @@ int read(uint64_t block_id, void* buf, int64_t len, off_t offset) {
         BlockServiceAdaptor_Stub stub(&channel);
         stub.Read(&cntl, &request, &response, NULL);
         if (!cntl.Failed()) {
-            CHECK_EQ(len, response.data().size());
+            if (response.error_code() != 0) {
+                LOG(ERROR) << "Fail to read block_id=" << block_id
+                           << " offset=" << offset
+                           << " length=" << len
+                           << " server=" << cntl.remote_side()
+                           << " error=" << berror(response.error_code());
+                return -1;
+            }
+            if ((size_t)len != response.data().size()) {
+                LOG(ERROR) << "Fail to read block_id=" << block_id
+                           << " offset=" << offset
+                           << " length=" << len
+                           << " data_size=" << response.data().size()
+                           << " server=" << cntl.remote_side();
+                return -1;
+            }
             memcpy(buf, response.data().data(), len);
             return 0;
         }
@@ -238,7 +255,7 @@ static void* volume_io(void *arg, void* (*block_io)(void*arg)) {
         bthread_t tids[num_blocks];
         memset(tids, 0, num_blocks * sizeof(bthread_t));
         for (size_t i = 0; i < num_blocks; ++i) {
-            CHECK_NE(0, block_meta[i].length);
+            CHECK_NE(0u, block_meta[i].length);
             bthread_attr_t dummy = BTHREAD_ATTR_NORMAL | BTHREAD_NOSIGNAL;
             if (bthread_start_background(
                         &tids[i], &dummy, block_io, &block_meta[i]) != 0) {

@@ -383,7 +383,7 @@ public:
             base::string_printf(&name, "block_%d", i);
             Block* block = new Block(name, raft::PeerId(addr, 0));
             std::string prefix;
-            base::string_printf(&prefix, "file://%s/data/block_%d", FLAGS_ip_and_port.c_str(), i);
+            base::string_printf(&prefix, "local://%s/data/block_%d", FLAGS_ip_and_port.c_str(), i);
             raft::NodeOptions node_options;
             node_options.election_timeout = base::fast_rand_in(5000, 20000);
             node_options.fsm = block;

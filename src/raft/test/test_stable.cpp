@@ -77,11 +77,4 @@ TEST_F(TestUsageSuits, stable) {
         ASSERT_EQ(candidate2.idx, 0);
     }
     delete storage;
-
-    raft::StableStorage* stable_storage = raft::create_local_stable_storage("./data");
-    ASSERT_TRUE(stable_storage != NULL);
-    delete stable_storage;
-
-    stable_storage = raft::create_local_stable_storage("http://a.com/b/c");
-    ASSERT_TRUE(stable_storage == NULL);
 }

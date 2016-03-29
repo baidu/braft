@@ -125,12 +125,14 @@ class SegmentLogStorage : public LogStorage {
 public:
     typedef std::map<int64_t, boost::shared_ptr<Segment> > SegmentMap;
 
-    SegmentLogStorage(const std::string& path)
-        : LogStorage(path), _path(path),
-        _first_log_index(1),
-        _last_log_index(0) {
+    explicit SegmentLogStorage(const std::string& path)
+        : _path(path),
+          _first_log_index(1),
+          _last_log_index(0) {
             _mutex.set_recorder(g_segment_storage_contention_recorder);
     }
+
+    SegmentLogStorage() {}
 
     virtual ~SegmentLogStorage() {
         _segments.clear();
@@ -171,6 +173,8 @@ public:
 
     virtual int reset(const int64_t next_log_index);
 
+    LogStorage* new_instance(const std::string& uri) const;
+
     SegmentMap& segments() {
         return _segments;
     }
@@ -199,8 +203,6 @@ private:
     boost::shared_ptr<Segment> _open_segment;
 };
 
-LogStorage* create_local_log_storage(const std::string& uri);
-
-}
+}  // namespace raft
 
 #endif //~PUBLIC_RAFT_LOG_H

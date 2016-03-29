@@ -280,23 +280,20 @@ void SaveSnapshotDone::Run() {
 int SnapshotExecutor::init(const SnapshotExecutorOptions& options) {
     if (options.uri.empty()) {
         LOG(ERROR) << "uri is empty()";
-        return EINVAL;
+        return -1;
     }
     _log_manager = options.log_manager;
     _fsm_caller = options.fsm_caller;
     _node = options.node;
 
-    Storage* storage = find_storage(options.uri);
-    if (storage) {
-        _snapshot_storage = storage->create_snapshot_storage(
-                options.uri);
-        if (_snapshot_storage == NULL) {
-            LOG(ERROR)  << "Fail to find snapshot storage, uri " << options.uri;
-            return EINVAL;
-        }
-    } else {
+    _snapshot_storage = SnapshotStorage::create(options.uri);
+    if (!_snapshot_storage) {
         LOG(ERROR)  << "Fail to find snapshot storage, uri " << options.uri;
-        return EINVAL;
+        return -1;
+    }
+    if (_snapshot_storage->init() != 0) {
+        LOG(ERROR) << "Fail to init snapshot storage";
+        return -1;
     }
     SnapshotReader* reader = _snapshot_storage->open();
     if (reader == NULL) {

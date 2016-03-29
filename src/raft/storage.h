@@ -11,6 +11,7 @@
 #include <vector>
 #include <gflags/gflags.h>
 #include <base/status.h>
+#include <baidu/rpc/extension.h>
 
 #include "raft/configuration.h"
 #include "raft/configuration_manager.h"
@@ -23,10 +24,9 @@ class LogEntry;
 
 class LogStorage {
 public:
-    LogStorage(const std::string& /*uri*/) {}
     virtual ~LogStorage() {}
 
-    // init log storage, check consistency and integrity
+    // init logstorage, check consistency and integrity
     virtual int init(ConfigurationManager* configuration_manager) = 0;
 
     // first log index in log
@@ -56,11 +56,17 @@ public:
     // Drop all the existing logs and reset next log index to |next_log_index|.
     // This function is called after installing snapshot from leader
     virtual int reset(const int64_t next_log_index) = 0;
+
+    // Create an instance of this kind of LogStorage with the parameters encoded 
+    // in |uri|
+    // Return the address referenced to the instance on success, NULL otherwise.
+    virtual LogStorage* new_instance(const std::string& uri) const = 0;
+
+    static LogStorage* create(const std::string& uri);
 };
 
 class StableStorage {
 public:
-    StableStorage(const std::string& /*uri*/) {}
     virtual ~StableStorage() {}
 
     // init stable storage, check consistency and integrity
@@ -80,6 +86,13 @@ public:
 
     // set term and votedfor information
     virtual int set_term_and_votedfor(const int64_t term, const PeerId& peer_id) = 0;
+
+    // Create an instance of this kind of LogStorage with the parameters encoded 
+    // in |uri|
+    // Return the address referenced to the instance on success, NULL otherwise.
+    virtual StableStorage* new_instance(const std::string& uri) const = 0;
+
+    static StableStorage* create(const std::string& uri);
 };
 
 struct SnapshotMeta {
@@ -109,7 +122,6 @@ public:
 
 class SnapshotStorage {
 public:
-    SnapshotStorage(const std::string& /*uri*/) {}
     virtual ~SnapshotStorage() {}
 
     // init
@@ -126,29 +138,23 @@ public:
 
     // close snapshot reader
     virtual int close(SnapshotReader* reader) = 0;
+
+    virtual SnapshotStorage* new_instance(const std::string& uri) const = 0;
+
+    static SnapshotStorage* create(const std::string& uri);
 };
 
-struct Storage {
-    std::string name;
+inline baidu::rpc::Extension<const LogStorage>* log_storage_extension() {
+    return baidu::rpc::Extension<const LogStorage>::instance();
+}
 
-    typedef LogStorage* (*CreateLogStorage)(const std::string& uri);
-    CreateLogStorage create_log_storage;
+inline baidu::rpc::Extension<const StableStorage>* stable_storage_extension() {
+    return baidu::rpc::Extension<const StableStorage>::instance();
+}
 
-    typedef StableStorage* (*CreateStableStorage)(const std::string& uri);
-    CreateStableStorage create_stable_storage;
-
-    typedef SnapshotStorage* (*CreateSnapshotStorage)(const std::string& uri);
-    CreateSnapshotStorage create_snapshot_storage;
-};
-
-// init storage
-int init_storage();
-
-// register storage
-int register_storage(const std::string& uri, const Storage& storage);
-
-// find storage by uri
-Storage* find_storage(const std::string& uri);
+inline baidu::rpc::Extension<const SnapshotStorage>* snapshot_storage_extension() {
+    return baidu::rpc::Extension<const SnapshotStorage>::instance();
+}
 
 }
 

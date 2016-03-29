@@ -30,17 +30,11 @@ protected:
     void TearDown() {}
 };
 
-TEST_F(TestUsageSuits, create) {
-    raft::SnapshotStorage* storage = raft::create_local_snapshot_storage("");
-    ASSERT_TRUE(storage == NULL);
-    storage = raft::create_local_snapshot_storage("file://./data");
-    ASSERT_TRUE(storage != NULL);
-    delete storage;
-}
-
 TEST_F(TestUsageSuits, writer_and_reader) {
     ::system("rm -rf data");
-    raft::SnapshotStorage* storage = raft::create_local_snapshot_storage("file://./data");
+    raft::SnapshotStorage* storage = new raft::LocalSnapshotStorage("./data");
+    ASSERT_TRUE(storage);
+    ASSERT_EQ(0, storage->init());
 
     // empty snapshot
     raft::SnapshotReader* reader = storage->open();
@@ -89,7 +83,9 @@ TEST_F(TestUsageSuits, writer_and_reader) {
     delete storage;
 
     // reinit
-    storage = raft::create_local_snapshot_storage("file://./data");
+    storage = new raft::LocalSnapshotStorage("./data");
+    ASSERT_TRUE(storage);
+    ASSERT_EQ(0, storage->init());
 
     // normal create writer after reinit
     meta.last_included_index = 3000;
@@ -130,7 +126,9 @@ TEST_F(TestUsageSuits, copy) {
     meta.last_configuration = raft::Configuration(peers);
 
     // storage1
-    raft::SnapshotStorage* storage1 = raft::create_local_snapshot_storage("file://./data");
+    raft::SnapshotStorage* storage1 = new raft::LocalSnapshotStorage("./data");
+    ASSERT_TRUE(storage1);
+    ASSERT_EQ(0, storage1->init());
 
     // normal create writer
     raft::SnapshotWriter* writer1 = storage1->create();
@@ -145,7 +143,7 @@ TEST_F(TestUsageSuits, copy) {
 
     // storage2
     ::system("rm -rf data2");
-    raft::SnapshotStorage* storage2 = raft::create_local_snapshot_storage("file://./data2");
+    raft::SnapshotStorage* storage2 = new raft::LocalSnapshotStorage("./data2");
     raft::SnapshotWriter* writer2 = storage2->create();
     ASSERT_TRUE(writer2 != NULL);
     ASSERT_EQ(0, writer2->save_meta(meta));
@@ -217,7 +215,8 @@ void *write_thread(void* arg) {
 }
 
 TEST_F(TestUsageSuits, thread_safety) {
-    raft::SnapshotStorage* storage = raft::create_local_snapshot_storage("file://./data");
+    raft::SnapshotStorage* storage = new raft::LocalSnapshotStorage("./data");
+    ASSERT_EQ(0, storage->init());
     Arg arg;
     arg.storage = storage;
     arg.stopped = false;

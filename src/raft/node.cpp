@@ -137,38 +137,25 @@ int NodeImpl::init_snapshot_storage() {
 }
 
 int NodeImpl::init_log_storage() {
-    int ret = 0;
-
-    do {
-        Storage* storage = find_storage(_options.log_uri);
-        if (storage) {
-            _log_storage = storage->create_log_storage(_options.log_uri);
-        } else {
-            ret = ENOENT;
-            break;
-        }
-
-        _log_manager = new LogManager();
-        LogManagerOptions log_manager_options;
-        log_manager_options.log_storage = _log_storage;
-        log_manager_options.configuration_manager = _config_manager;
-        ret = _log_manager->init(log_manager_options);
-        if (ret != 0) {
-            break;
-        }
-    } while (0);
-
-    return ret;
+    _log_storage = LogStorage::create(_options.log_uri);
+    if (!_log_storage) {
+        LOG(ERROR) << "Fail to find log storage of `" << _options.log_uri
+            << '\'';
+        return -1;
+    }
+    _log_manager = new LogManager();
+    LogManagerOptions log_manager_options;
+    log_manager_options.log_storage = _log_storage;
+    log_manager_options.configuration_manager = _config_manager;
+    return _log_manager->init(log_manager_options);
 }
 
 int NodeImpl::init_stable_storage() {
     int ret = 0;
 
     do {
-        Storage* storage = find_storage(_options.stable_uri);
-        if (storage) {
-            _stable_storage = storage->create_stable_storage(_options.stable_uri);
-        } else {
+        _stable_storage = StableStorage::create(_options.stable_uri);
+        if (!_stable_storage) {
             LOG(WARNING) << "node " << _group_id << ":" << _server_id
                 << " find stable storage failed, uri " << _options.stable_uri;
             ret = ENOENT;
@@ -378,7 +365,7 @@ void NodeImpl::apply(const Task& task) {
     LogEntryAndClosure m;
     m.entry = entry;
     m.done = task.done;
-    if (_apply_queue->execute(m) != 0) {
+    if (_apply_queue->execute(m, &bthread::TASK_OPTIONS_INPLACE) != 0) {
         task.done->status().set_error(EINVAL, "Node is down");
         entry->Release();
         return run_closure_in_bthread(task.done);

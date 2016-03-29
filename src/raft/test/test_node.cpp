@@ -175,11 +175,11 @@ public:
             options.conf = raft::Configuration(_peers);
         }
         options.fsm = new MockFSM(listen_addr);
-        base::string_printf(&options.log_uri, "./data/%s/log",
+        base::string_printf(&options.log_uri, "local://./data/%s/log",
                             base::endpoint2str(listen_addr).c_str());
-        base::string_printf(&options.stable_uri, "./data/%s/stable",
+        base::string_printf(&options.stable_uri, "local://./data/%s/stable",
                             base::endpoint2str(listen_addr).c_str());
-        base::string_printf(&options.snapshot_uri, "./data/%s/snapshot",
+        base::string_printf(&options.snapshot_uri, "local://./data/%s/snapshot",
                             base::endpoint2str(listen_addr).c_str());
 
         raft::Node* node = new raft::Node(_name, raft::PeerId(listen_addr, 0));
@@ -226,7 +226,7 @@ public:
 
     void clean(const base::EndPoint& listen_addr) {
         std::string data_path;
-        base::string_printf(&data_path, "./data/%s", base::endpoint2str(listen_addr).c_str());
+        base::string_printf(&data_path, "local://.data/%s", base::endpoint2str(listen_addr).c_str());
 
         if (!base::DeleteFile(base::FilePath(data_path), true)) {
             LOG(ERROR) << "delete path failed, path: " << data_path;
@@ -386,9 +386,9 @@ TEST_F(RaftTestSuits, InitShutdown) {
 
     raft::NodeOptions options;
     options.fsm = new MockFSM(base::EndPoint());
-    options.log_uri = "./data/log";
-    options.stable_uri = "./data/stable";
-    options.snapshot_uri = "./data/snapshot";
+    options.log_uri = "local://.data/log";
+    options.stable_uri = "local://.data/stable";
+    options.snapshot_uri = "local://.data/snapshot";
 
     raft::Node node("unittest", raft::PeerId(base::EndPoint(base::get_host_ip(), 60006), 0));
     ASSERT_EQ(0, node.init(options));
@@ -436,9 +436,9 @@ TEST_F(RaftTestSuits, SingleNode) {
     options.election_timeout = 300;
     options.conf = raft::Configuration(peers);
     options.fsm = new MockFSM(base::EndPoint());
-    options.log_uri = "./data/log";
-    options.stable_uri = "./data/stable";
-    options.snapshot_uri = "./data/snapshot";
+    options.log_uri = "local://.data/log";
+    options.stable_uri = "local://.data/stable";
+    options.snapshot_uri = "local://.data/snapshot";
 
     raft::Node node("unittest", peer);
     ASSERT_EQ(0, node.init(options));
@@ -1465,8 +1465,8 @@ TEST_F(RaftTestSuits, NoSnapshot) {
     options.election_timeout = 300;
     options.conf = raft::Configuration(peers);
     options.fsm = new MockFSM(base::EndPoint());
-    options.log_uri = "./data/log";
-    options.stable_uri = "./data/stable";
+    options.log_uri = "local://.data/log";
+    options.stable_uri = "local://.data/stable";
 
     raft::Node node("unittest", peer);
     ASSERT_EQ(0, node.init(options));
@@ -1523,9 +1523,9 @@ TEST_F(RaftTestSuits, AutoSnapshot) {
     options.election_timeout = 300;
     options.conf = raft::Configuration(peers);
     options.fsm = new MockFSM(base::EndPoint());
-    options.log_uri = "./data/log";
-    options.stable_uri = "./data/stable";
-    options.snapshot_uri = "./data/snapshot";
+    options.log_uri = "local://.data/log";
+    options.stable_uri = "local://.data/stable";
+    options.snapshot_uri = "local://.data/snapshot";
     options.snapshot_interval = 10;
 
     raft::Node node("unittest", peer);

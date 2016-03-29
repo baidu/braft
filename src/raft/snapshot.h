@@ -45,7 +45,8 @@ protected:
 
 class LocalSnapshotStorage : public SnapshotStorage {
 public:
-    LocalSnapshotStorage(const std::string& path);
+    explicit LocalSnapshotStorage(const std::string& path);
+    LocalSnapshotStorage() {}
     virtual ~LocalSnapshotStorage();
 
     static const char* _s_temp_path;
@@ -56,6 +57,7 @@ public:
 
     virtual SnapshotReader* open();
     virtual int close(SnapshotReader* reader);
+    SnapshotStorage* new_instance(const std::string& uri) const;
 protected:
     void ref(const int64_t index);
     void unref(const int64_t index);
@@ -66,8 +68,6 @@ protected:
     std::map<int64_t, int> _ref_map;
 };
 
-SnapshotStorage* create_local_snapshot_storage(const std::string& uri);
-
-}
+}  // namespace raft
 
 #endif //~PUBLIC_RAFT_RAFT_SNAPSHOT_H

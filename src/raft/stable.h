@@ -13,8 +13,9 @@ namespace raft {
 
 class LocalStableStorage : public StableStorage {
 public:
-    LocalStableStorage(const std::string& path)
-        : StableStorage(path), _is_inited(false), _path(path), _term(1) {}
+    explicit LocalStableStorage(const std::string& path)
+        : _is_inited(false), _path(path), _term(1) {}
+    LocalStableStorage() {}
     virtual ~LocalStableStorage() {}
 
     // init stable storage, check consistency and integrity
@@ -34,6 +35,8 @@ public:
 
     // set term and peer_id
     virtual int set_term_and_votedfor(const int64_t term, const PeerId& peer_id);
+
+    StableStorage* new_instance(const std::string& uri) const;
 private:
     static const char* _s_stable_meta;
     int load();
@@ -44,8 +47,6 @@ private:
     int64_t _term;
     PeerId _votedfor;
 };
-
-StableStorage* create_local_stable_storage(const std::string& uri);
 
 }
 

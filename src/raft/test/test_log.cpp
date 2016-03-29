@@ -404,7 +404,7 @@ TEST_F(TestUsageSuits, multi_segment_and_segment_logstorage) {
 
 TEST_F(TestUsageSuits, append_close_load_append) {
     ::system("rm -rf data");
-    raft::LogStorage* storage = raft::create_local_log_storage("file://./data");
+    raft::LogStorage* storage = new raft::SegmentLogStorage("./data");
     raft::ConfigurationManager* configuration_manager = new raft::ConfigurationManager;
     ASSERT_EQ(0, storage->init(configuration_manager));
 
@@ -435,7 +435,7 @@ TEST_F(TestUsageSuits, append_close_load_append) {
     delete configuration_manager;
 
     // reinit 
-    storage = raft::create_local_log_storage("file://./data");
+    storage = new raft::SegmentLogStorage("./data");
     configuration_manager = new raft::ConfigurationManager;
     ASSERT_EQ(0, storage->init(configuration_manager));
 
@@ -489,7 +489,7 @@ TEST_F(TestUsageSuits, append_close_load_append) {
 
 TEST_F(TestUsageSuits, append_read_badcase) {
     ::system("rm -rf data");
-    raft::LogStorage* storage = raft::create_local_log_storage("file://./data");
+    raft::LogStorage* storage = new raft::SegmentLogStorage("./data");
     raft::ConfigurationManager* configuration_manager = new raft::ConfigurationManager;
     ASSERT_EQ(0, storage->init(configuration_manager));
 
@@ -536,7 +536,7 @@ TEST_F(TestUsageSuits, append_read_badcase) {
     }
 
     // reinit failed, because load open no permission
-    storage = raft::create_local_log_storage("file://./data");
+    storage = new raft::SegmentLogStorage("./data");
     configuration_manager = new raft::ConfigurationManager;
     ASSERT_NE(0, storage->init(configuration_manager));
     delete storage;
@@ -554,7 +554,7 @@ TEST_F(TestUsageSuits, append_read_badcase) {
     }
 
     // reinit success
-    storage = raft::create_local_log_storage("file://./data");
+    storage = new raft::SegmentLogStorage("./data");
     configuration_manager = new raft::ConfigurationManager;
     ASSERT_EQ(0, storage->init(configuration_manager));
 

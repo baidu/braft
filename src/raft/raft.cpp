@@ -11,6 +11,9 @@
 #include "raft/node.h"
 #include "raft/storage.h"
 #include "raft/node_manager.h"
+#include "raft/log.h"
+#include "raft/stable.h"
+#include "raft/snapshot.h"
 
 namespace raft {
 
@@ -21,19 +24,32 @@ static const char* s_libraft_version = "libraft_version_unknown";
 #endif  // __RAFT_VERSION_ID__
 
 static pthread_once_t global_init_once = PTHREAD_ONCE_INIT;
+
+struct GlobalExtension {
+    SegmentLogStorage local_log; 
+    LocalStableStorage local_stable;
+    LocalSnapshotStorage local_snapshot;
+};
+
 static void global_init_or_die_impl() {
-    if (init_storage() != 0) {
-        LOG(FATAL) << "Fail to init storage";
-        exit(1);
+    static GlobalExtension s_ext;
+    
+    LOG(TRACE) << "init libraft ver: " << s_libraft_version;
+    log_storage_extension()->RegisterOrDie("local", &s_ext.local_log);
+    stable_storage_extension()->RegisterOrDie("local", &s_ext.local_stable);
+    snapshot_storage_extension()->RegisterOrDie("local", &s_ext.local_snapshot);
+}
+
+// Non-static for unit test
+void global_init_once_or_die() {
+    if (pthread_once(&global_init_once, global_init_or_die_impl) != 0) {
+        PLOG(FATAL) << "Fail to pthread_once";
+        exit(-1);
     }
-    LOG(NOTICE) << "init libraft ver: " << s_libraft_version;
 }
 
 int add_service(baidu::rpc::Server* server, const base::EndPoint& listen_addr) {
-    if (pthread_once(&global_init_once, global_init_or_die_impl) != 0) {
-        PLOG(FATAL) << "Fail to pthread_once";
-        return -1;
-    }
+    global_init_once_or_die();
     return NodeManager::GetInstance()->add_service(server, listen_addr);
 }
 

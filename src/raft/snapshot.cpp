@@ -169,7 +169,7 @@ std::string LocalSnapshotReader::get_uri(const base::EndPoint& hint_addr) {
 }
 
 LocalSnapshotStorage::LocalSnapshotStorage(const std::string& path)
-    : SnapshotStorage(path), _path(path),
+    : _path(path),
     _last_snapshot_index(0) {
 }
 
@@ -373,18 +373,8 @@ int LocalSnapshotStorage::close(SnapshotReader* reader_) {
     return 0;
 }
 
-SnapshotStorage* create_local_snapshot_storage(const std::string& uri) {
-    std::string local_path = fileuri2path(uri);
-    if (local_path.empty()) {
-        return NULL;
-    }
-
-    LocalSnapshotStorage* storage = new LocalSnapshotStorage(local_path);
-    if (storage->init() == 0) {
-        return storage;
-    }
-    delete storage;
-    return NULL;
+SnapshotStorage* LocalSnapshotStorage::new_instance(const std::string& uri) const {
+    return new LocalSnapshotStorage(uri);
 }
 
-}
+}  // namespace raft

@@ -293,6 +293,7 @@ src/raft/test/test_node.cpp -text
 src/raft/test/test_protobuf_file.cpp -text
 src/raft/test/test_snapshot.cpp -text
 src/raft/test/test_stable.cpp -text
+src/raft/test/test_storage.cpp -text
 src/raft/test/test_util.cpp -text
 src/raft/util.cpp -text
 src/raft/util.h -text
