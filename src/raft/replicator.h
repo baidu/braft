@@ -24,7 +24,7 @@ class NodeImpl;
 
 struct ReplicatorOptions {
     ReplicatorOptions();
-    int64_t heartbeat_timeout_ms;
+    int heartbeat_timeout_ms;
     GroupId group_id;
     PeerId server_id;
     PeerId peer_id;
@@ -118,7 +118,7 @@ private:
 
 struct ReplicatorGroupOptions {
     ReplicatorGroupOptions();
-    int64_t heartbeat_timeout_ms;
+    int heartbeat_timeout_ms;
     LogManager* log_manager;
     CommitmentManager* commit_manager;
     NodeImpl* node;
@@ -158,6 +158,12 @@ public:
     // leader, so we suppose that there are no running replicators.
     // Return 0 on success, -1 otherwise
     int reset_term(int64_t new_term);
+
+    // Reset the interval of heartbeat
+    // This method is supposed to be called when the very candidate becomes the
+    // leader, use new heartbeat_interval, maybe call vote() reset election_timeout
+    // Return 0 on success, -1 otherwise
+    int reset_heartbeat_interval(int new_interval_ms);
 
     // Returns true if the there's a replicator attached to the given |peer|
     bool contains(const PeerId& peer) const;

@@ -686,4 +686,9 @@ int ReplicatorGroup::reset_term(int64_t new_term) {
     return 0;
 }
 
+int ReplicatorGroup::reset_heartbeat_interval(int new_interval_ms) {
+    _common_options.heartbeat_timeout_ms = new_interval_ms;
+    return 0;
+}
+
 } // namespace raft

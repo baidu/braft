@@ -163,7 +163,7 @@ inline bool is_active_state(State s) {
 }
 
 struct NodeOptions {
-    int election_timeout; //ms, follower to candidate timeout
+    int election_timeout; // ms, follower to candidate timeout
     int snapshot_interval; // s, snapshot interval. 0 is disable internal snapshot timer
     int catchup_margin; // catchup margin to judge finish
     bool enable_pipeline; // pipeline switch
@@ -236,6 +236,9 @@ public:
     // done is user defined function, maybe response to client
     void snapshot(Closure* done);
 
+    // user trigger vote
+    // reset election_timeout, suggest some peer to leader
+    void vote(int election_timeout);
 private:
     NodeImpl* _impl;
 };

@@ -68,10 +68,6 @@ inline ip_t get_host_ip() {
 namespace raft {
 class Closure;
 
-inline int random_timeout(int timeout_ms) {
-    return base::fast_rand_in(timeout_ms, timeout_ms << 1);
-}
-
 inline uint32_t murmurhash32(const void *key, int len) {
     uint32_t hash = 0;
     MurmurHash3_x86_32(key, len, 0, &hash);

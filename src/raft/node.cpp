@@ -61,19 +61,37 @@ friend class NodeImpl;
 
 static ::bvar::LatencyRecorder g_node_contention("raft_node_contention");
 
+static inline int random_timeout(int timeout_ms) {
+    return base::fast_rand_in(timeout_ms, timeout_ms << 1);
+}
+
+DEFINE_int32(raft_election_heartbeat_factor, 10, "raft election:heartbeat timeout factor");
+static inline int heartbeat_timeout(int election_timeout) {
+    return std::max(election_timeout / FLAGS_raft_election_heartbeat_factor, 10);
+}
+
+static inline int vote_timeout(int election_timeout) {
+    return random_timeout(std::max(election_timeout / FLAGS_raft_election_heartbeat_factor, 1));
+}
+
 NodeImpl::NodeImpl(const GroupId& group_id, const PeerId& peer_id)
-    : _state(SHUTDOWN) 
+    : _state(SHUTDOWN)
     , _current_term(0)
     , _last_leader_timestamp(base::monotonic_time_ms())
     , _group_id(group_id)
-    , _log_storage(NULL) 
+    , _log_storage(NULL)
     , _stable_storage(NULL)
     , _closure_queue(NULL)
     , _config_manager(NULL)
     , _log_manager(NULL)
-    , _fsm_caller(NULL) 
-    , _commit_manager(NULL) 
-    , _snapshot_executor(NULL) {
+    , _fsm_caller(NULL)
+    , _commit_manager(NULL)
+    , _snapshot_executor(NULL)
+    , _election_timer(0)
+    , _vote_timer(0)
+    , _stepdown_timer(0)
+    , _snapshot_timer(0)
+    , _vote_triggered(false) {
         _server_id = peer_id;
         AddRef();
         _mutex.set_recorder(g_node_contention);
@@ -310,7 +328,7 @@ int NodeImpl::init(const NodeOptions& options) {
         //TODO: call fsm on_apply (_last_snapshot_index + 1, last_committed_index]
         // init replicator
         ReplicatorGroupOptions options;
-        options.heartbeat_timeout_ms = std::max(_options.election_timeout / 10, 10);
+        options.heartbeat_timeout_ms = heartbeat_timeout(_options.election_timeout);
         options.log_manager = _log_manager;
         options.commit_manager = _commit_manager;
         options.node = this;
@@ -786,8 +804,9 @@ void NodeImpl::handle_election_timeout() {
     if (_state != FOLLOWER) {
         return;
     }
-    // check timestamp
-    if (base::monotonic_time_ms() - _last_leader_timestamp < _options.election_timeout) {
+    // check timestamp, skip one cycle check when trigger vote
+    if (!_vote_triggered &&
+        base::monotonic_time_ms() - _last_leader_timestamp < _options.election_timeout) {
         AddRef();
         int64_t election_timeout = random_timeout(_options.election_timeout);
         bthread_timer_add(&_election_timer, base::milliseconds_from_now(election_timeout),
@@ -797,8 +816,7 @@ void NodeImpl::handle_election_timeout() {
         return;
     }
 
-    // reset leader_id before vote
-    _leader_id.reset();
+    _vote_triggered = false;
 
     // start pre_vote, need restart election_timer
     AddRef();
@@ -808,12 +826,35 @@ void NodeImpl::handle_election_timeout() {
     RAFT_VLOG << "node " << _group_id << ":" << _server_id
         << " term " << _current_term << " restart election_timer";
 
-    RAFT_VLOG << "node " << _group_id << ":" << _server_id
-        << " term " << _current_term << " start elect";
     pre_vote();
 
     // first vote
     //elect_self();
+}
+
+void NodeImpl::vote(int election_timeout) {
+    BAIDU_SCOPED_LOCK(_mutex);
+
+    LOG(INFO) << "node " << _group_id << ":" << _server_id << " trigger-vote,"
+        " current_term " << _current_term << " state " << state2str(_state) <<
+        " election_timeout " << election_timeout;
+
+    _vote_triggered = true;
+    _options.election_timeout = election_timeout;
+    //if (_state == LEADER) {
+    //    step_down(_current_term);
+    //} else {
+    //    _leader_id.reset();
+    //}
+
+    int ret = bthread_timer_del(_election_timer);
+    if (ret == 0) {
+        int64_t new_election_timeout = random_timeout(_options.election_timeout);
+        bthread_timer_add(&_election_timer, base::milliseconds_from_now(new_election_timeout),
+                          on_election_timer, this);
+        RAFT_VLOG << "node " << _group_id << ":" << _server_id
+            << " term " << _current_term << " restart election_timer";
+    }
 }
 
 static void on_vote_timer(void* arg) {
@@ -1038,14 +1079,18 @@ void NodeImpl::elect_self() {
         }
     }
 
+    // reset leader_id before vote
+    _leader_id.reset();
+
     _state = CANDIDATE;
     _current_term++;
     _voted_id = _server_id;
     _vote_ctx.reset();
 
     AddRef();
-    int64_t vote_timeout = random_timeout(std::max(_options.election_timeout / 10, 1));
-    bthread_timer_add(&_vote_timer, base::milliseconds_from_now(vote_timeout), on_vote_timer, this);
+    bthread_timer_add(&_vote_timer,
+                      base::milliseconds_from_now(vote_timeout(_options.election_timeout)),
+                      on_vote_timer, this);
     RAFT_VLOG << "node " << _group_id << ":" << _server_id
         << " term " << _current_term << " start vote_timer";
 
@@ -1133,6 +1178,11 @@ void NodeImpl::step_down(const int64_t term) {
 
     // no empty configuration, start election timer
     if (!_conf.second.empty() && _conf.second.contains(_server_id)) {
+        // maybe called from follower, try del timer
+        int ret = bthread_timer_del(_election_timer);
+        if (ret == 0) {
+            Release();
+        }
         AddRef();
         int64_t election_timeout = random_timeout(_options.election_timeout);
         bthread_timer_add(&_election_timer, base::milliseconds_from_now(election_timeout),
@@ -1176,6 +1226,7 @@ void NodeImpl::become_leader() {
     _leader_id = _server_id;
 
     _replicator_group.reset_term(_current_term);
+    _replicator_group.reset_heartbeat_interval(heartbeat_timeout(_options.election_timeout));
 
     std::vector<PeerId> peers;
     _conf.second.list_peers(&peers);
@@ -1318,14 +1369,14 @@ int NodeImpl::handle_pre_vote_request(const RequestVoteRequest* request,
         // check leader to tolerate network partitions:
         //     1. leader always reject RequstVote
         //     2. follower reject RequestVote before change to candidate
-        if (!_leader_id.is_empty()) {
-            LOG(WARNING) << "node " << _group_id << ":" << _server_id
-                << " reject PreVote from " << request->server_id()
-                << " in term " << request->term()
-                << " current_term " << _current_term
-                << " current_leader " << _leader_id;
-            break;
-        }
+        //if (!_leader_id.is_empty()) {
+        //    LOG(WARNING) << "node " << _group_id << ":" << _server_id
+        //        << " reject PreVote from " << request->server_id()
+        //        << " in term " << request->term()
+        //        << " current_term " << _current_term
+        //        << " current_leader " << _leader_id;
+        //    break;
+        //}
 
         // check next term
         if (request->term() < _current_term) {
@@ -1373,14 +1424,14 @@ int NodeImpl::handle_request_vote_request(const RequestVoteRequest* request,
         // check leader to tolerate network partitioning:
         //     1. leader always reject RequstVote
         //     2. follower reject RequestVote before change to candidate
-        if (!_leader_id.is_empty()) {
-            LOG(WARNING) << "node " << _group_id << ":" << _server_id
-                << " reject RequestVote from " << request->server_id()
-                << " in term " << request->term()
-                << " current_term " << _current_term
-                << " current_leader " << _leader_id;
-            break;
-        }
+        //if (!_leader_id.is_empty()) {
+        //    LOG(WARNING) << "node " << _group_id << ":" << _server_id
+        //        << " reject RequestVote from " << request->server_id()
+        //        << " in term " << request->term()
+        //        << " current_term " << _current_term
+        //        << " current_leader " << _leader_id;
+        //    break;
+        //}
 
         // check term
         if (request->term() >= _current_term) {

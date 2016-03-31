@@ -94,6 +94,9 @@ public:
     // trigger snapshot
     void snapshot(Closure* done);
 
+    // trigger vote
+    void vote(int election_timeout);
+
     // rpc request proc func
     //
     // handle received PreVote
@@ -255,6 +258,7 @@ private:
     bthread_timer_t _vote_timer; // candidate retry timer
     bthread_timer_t _stepdown_timer; // leader check quorum node ok
     bthread_timer_t _snapshot_timer; // snapshot timer
+    bool _vote_triggered;
     bthread::ExecutionQueueId<LogEntryAndClosure> _apply_queue_id;
     bthread::ExecutionQueue<LogEntryAndClosure>::scoped_ptr_t _apply_queue;
 };

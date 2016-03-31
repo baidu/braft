@@ -117,4 +117,8 @@ void Node::snapshot(Closure* done) {
     _impl->snapshot(done);
 }
 
+void Node::vote(int election_timeout) {
+    _impl->vote(election_timeout);
+}
+
 }

@@ -80,6 +80,7 @@ TEST_F(TestUsageSuits, get_host_ip) {
                 host_ip == bond0_ip || host_ip == brex_ip);
 }
 
+/*
 TEST_F(TestUsageSuits, random) {
     for (int i = 0; i < 10000; i++) {
         int32_t value = base::fast_rand_in(0, 10000);
@@ -89,6 +90,7 @@ TEST_F(TestUsageSuits, random) {
     int32_t rand_time = raft::random_timeout(300);
     ASSERT_TRUE(rand_time >= 0 && rand_time <= 600);
 }
+//*/
 
 TEST_F(TestUsageSuits, murmurhash) {
     char* data = (char*)malloc(1024*1024);

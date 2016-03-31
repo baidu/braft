@@ -226,7 +226,8 @@ public:
 
     void clean(const base::EndPoint& listen_addr) {
         std::string data_path;
-        base::string_printf(&data_path, "local://.data/%s", base::endpoint2str(listen_addr).c_str());
+        base::string_printf(&data_path, "local://./data/%s",
+                            base::endpoint2str(listen_addr).c_str());
 
         if (!base::DeleteFile(base::FilePath(data_path), true)) {
             LOG(ERROR) << "delete path failed, path: " << data_path;
@@ -386,9 +387,9 @@ TEST_F(RaftTestSuits, InitShutdown) {
 
     raft::NodeOptions options;
     options.fsm = new MockFSM(base::EndPoint());
-    options.log_uri = "local://.data/log";
-    options.stable_uri = "local://.data/stable";
-    options.snapshot_uri = "local://.data/snapshot";
+    options.log_uri = "local://./data/log";
+    options.stable_uri = "local://./data/stable";
+    options.snapshot_uri = "local://./data/snapshot";
 
     raft::Node node("unittest", raft::PeerId(base::EndPoint(base::get_host_ip(), 60006), 0));
     ASSERT_EQ(0, node.init(options));
@@ -436,9 +437,9 @@ TEST_F(RaftTestSuits, SingleNode) {
     options.election_timeout = 300;
     options.conf = raft::Configuration(peers);
     options.fsm = new MockFSM(base::EndPoint());
-    options.log_uri = "local://.data/log";
-    options.stable_uri = "local://.data/stable";
-    options.snapshot_uri = "local://.data/snapshot";
+    options.log_uri = "local://./data/log";
+    options.stable_uri = "local://./data/stable";
+    options.snapshot_uri = "local://./data/snapshot";
 
     raft::Node node("unittest", peer);
     ASSERT_EQ(0, node.init(options));
@@ -1032,6 +1033,72 @@ TEST_F(RaftTestSuits, RemoveLeader) {
     cluster.ensure_same();
 }
 
+TEST_F(RaftTestSuits, TriggerVote) {
+    std::vector<raft::PeerId> peers;
+    for (int i = 0; i < 3; i++) {
+        raft::PeerId peer;
+        peer.addr.ip = base::get_host_ip();
+        peer.addr.port = 60006 + i;
+        peer.idx = 0;
+
+        peers.push_back(peer);
+    }
+
+    // start cluster
+    Cluster cluster("unittest", peers);
+    for (size_t i = 0; i < peers.size(); i++) {
+        ASSERT_EQ(0, cluster.start(peers[i].addr));
+    }
+
+    cluster.wait_leader();
+    raft::Node* leader = cluster.leader();
+    ASSERT_TRUE(leader != NULL);
+    LOG(WARNING) << "leader is " << leader->node_id();
+
+    BthreadCond cond;
+    // apply something
+    cond.Init(10);
+    for (int i = 0; i < 10; i++) {
+        base::IOBuf data;
+        char data_buf[128];
+        snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
+        data.append(data_buf);
+
+        raft::Task task;
+        task.data = &data;
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
+        leader->apply(task);
+    }
+    cond.Wait();
+
+    cluster.ensure_same();
+
+    std::vector<raft::Node*> nodes;
+    cluster.followers(&nodes);
+    ASSERT_EQ(2, nodes.size());
+
+    leader->vote(1000);
+    nodes[0]->vote(200);
+    nodes[1]->vote(600);
+    LOG(WARNING) << "trigger vote";
+
+    // max wait 5 seconds for new leader
+    int count = 0;
+    raft::NodeId old_leader = leader->node_id();
+    while (1) {
+        cluster.wait_leader();
+        leader = cluster.leader();
+        ASSERT_TRUE(leader != NULL);
+        if (leader->node_id() == old_leader && count < 5) {
+            count++;
+            sleep(1);
+        } else {
+            break;
+        }
+    }
+    LOG(WARNING) << "new leader is " << leader->node_id();
+}
+
 TEST_F(RaftTestSuits, PreVote) {
     std::vector<raft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
@@ -1465,8 +1532,8 @@ TEST_F(RaftTestSuits, NoSnapshot) {
     options.election_timeout = 300;
     options.conf = raft::Configuration(peers);
     options.fsm = new MockFSM(base::EndPoint());
-    options.log_uri = "local://.data/log";
-    options.stable_uri = "local://.data/stable";
+    options.log_uri = "local://./data/log";
+    options.stable_uri = "local://./data/stable";
 
     raft::Node node("unittest", peer);
     ASSERT_EQ(0, node.init(options));
@@ -1523,9 +1590,9 @@ TEST_F(RaftTestSuits, AutoSnapshot) {
     options.election_timeout = 300;
     options.conf = raft::Configuration(peers);
     options.fsm = new MockFSM(base::EndPoint());
-    options.log_uri = "local://.data/log";
-    options.stable_uri = "local://.data/stable";
-    options.snapshot_uri = "local://.data/snapshot";
+    options.log_uri = "local://./data/log";
+    options.stable_uri = "local://./data/stable";
+    options.snapshot_uri = "local://./data/snapshot";
     options.snapshot_interval = 10;
 
     raft::Node node("unittest", peer);
