@@ -87,10 +87,6 @@ NodeImpl::NodeImpl(const GroupId& group_id, const PeerId& peer_id)
     , _fsm_caller(NULL)
     , _commit_manager(NULL)
     , _snapshot_executor(NULL)
-    , _election_timer(0)
-    , _vote_timer(0)
-    , _stepdown_timer(0)
-    , _snapshot_timer(0)
     , _vote_triggered(false) {
         _server_id = peer_id;
         AddRef();
@@ -219,7 +215,7 @@ void NodeImpl::handle_snapshot_timeout() {
     do_snapshot(NULL);
 
     AddRef();
-    bthread_timer_add(&_snapshot_timer,
+    raft_timer_add(&_snapshot_timer,
                       base::milliseconds_from_now(_options.snapshot_interval * 1000),
                       on_snapshot_timer, this);
     RAFT_VLOG << "node " << _group_id << ":" << _server_id
@@ -357,7 +353,7 @@ int NodeImpl::init(const NodeOptions& options) {
         // start snapshot timer
         if (_snapshot_executor && _options.snapshot_interval > 0) {
             AddRef();
-            bthread_timer_add(&_snapshot_timer,
+            raft_timer_add(&_snapshot_timer,
                               base::milliseconds_from_now(_options.snapshot_interval * 1000),
                               on_snapshot_timer, this);
             RAFT_VLOG << "node " << _group_id << ":" << _server_id
@@ -546,7 +542,7 @@ void NodeImpl::handle_stepdown_timeout() {
     if (dead_count < (peers.size() / 2 + 1)) {
         AddRef();
         int64_t stepdown_timeout = _options.election_timeout;
-        bthread_timer_add(&_stepdown_timer, base::milliseconds_from_now(stepdown_timeout),
+        raft_timer_add(&_stepdown_timer, base::milliseconds_from_now(stepdown_timeout),
                           on_stepdown_timer, this);
         RAFT_VLOG << "node " << _group_id << ":" << _server_id
             << " term " << _current_term << " restart stepdown_timer";
@@ -760,7 +756,7 @@ void NodeImpl::shutdown(Closure* done) {
             // follower stop election timer
             RAFT_VLOG << "node " << _group_id << ":" << _server_id
                 << " term " << _current_term << " stop election_timer";
-            int ret = bthread_timer_del(_election_timer);
+            int ret = raft_timer_del(_election_timer);
             if (ret == 0) {
                 Release();
             }
@@ -768,7 +764,7 @@ void NodeImpl::shutdown(Closure* done) {
             // all stop snapshot timer
             RAFT_VLOG << "node " << _group_id << ":" << _server_id
                 << " term " << _current_term << " stop snapshot_timer";
-            ret = bthread_timer_del(_snapshot_timer);
+            ret = raft_timer_del(_snapshot_timer);
             if (ret == 0) {
                 Release();
             }
@@ -809,7 +805,7 @@ void NodeImpl::handle_election_timeout() {
         base::monotonic_time_ms() - _last_leader_timestamp < _options.election_timeout) {
         AddRef();
         int64_t election_timeout = random_timeout(_options.election_timeout);
-        bthread_timer_add(&_election_timer, base::milliseconds_from_now(election_timeout),
+        raft_timer_add(&_election_timer, base::milliseconds_from_now(election_timeout),
                           on_election_timer, this);
         RAFT_VLOG << "node " << _group_id << ":" << _server_id
             << " term " << _current_term << " restart election_timer";
@@ -821,7 +817,7 @@ void NodeImpl::handle_election_timeout() {
     // start pre_vote, need restart election_timer
     AddRef();
     int64_t election_timeout = random_timeout(_options.election_timeout);
-    bthread_timer_add(&_election_timer, base::milliseconds_from_now(election_timeout),
+    raft_timer_add(&_election_timer, base::milliseconds_from_now(election_timeout),
                       on_election_timer, this);
     RAFT_VLOG << "node " << _group_id << ":" << _server_id
         << " term " << _current_term << " restart election_timer";
@@ -847,10 +843,10 @@ void NodeImpl::vote(int election_timeout) {
     //    _leader_id.reset();
     //}
 
-    int ret = bthread_timer_del(_election_timer);
+    int ret = raft_timer_del(_election_timer);
     if (ret == 0) {
         int64_t new_election_timeout = random_timeout(_options.election_timeout);
-        bthread_timer_add(&_election_timer, base::milliseconds_from_now(new_election_timeout),
+        raft_timer_add(&_election_timer, base::milliseconds_from_now(new_election_timeout),
                           on_election_timer, this);
         RAFT_VLOG << "node " << _group_id << ":" << _server_id
             << " term " << _current_term << " restart election_timer";
@@ -1071,7 +1067,7 @@ void NodeImpl::elect_self() {
     if (_state == FOLLOWER) {
         RAFT_VLOG << "node " << _group_id << ":" << _server_id
             << " term " << _current_term << " stop election_timer";
-        int ret = bthread_timer_del(_election_timer);
+        int ret = raft_timer_del(_election_timer);
         if (ret == 0) {
             Release();
         } else {
@@ -1088,7 +1084,7 @@ void NodeImpl::elect_self() {
     _vote_ctx.reset();
 
     AddRef();
-    bthread_timer_add(&_vote_timer,
+    raft_timer_add(&_vote_timer,
                       base::milliseconds_from_now(vote_timeout(_options.election_timeout)),
                       on_vote_timer, this);
     RAFT_VLOG << "node " << _group_id << ":" << _server_id
@@ -1142,7 +1138,7 @@ void NodeImpl::step_down(const int64_t term) {
     if (_state == CANDIDATE) {
         RAFT_VLOG << "node " << _group_id << ":" << _server_id
             << " term " << _current_term << " stop vote_timer";
-        int ret = bthread_timer_del(_vote_timer);
+        int ret = raft_timer_del(_vote_timer);
         if (0 == ret) {
             Release();
         } else {
@@ -1151,7 +1147,7 @@ void NodeImpl::step_down(const int64_t term) {
     } else if (_state == LEADER) {
         RAFT_VLOG << "node " << _group_id << ":" << _server_id
             << " term " << _current_term << " stop stepdown_timer";
-        int ret = bthread_timer_del(_stepdown_timer);
+        int ret = raft_timer_del(_stepdown_timer);
         if (0 == ret) {
             Release();
         } else {
@@ -1179,13 +1175,13 @@ void NodeImpl::step_down(const int64_t term) {
     // no empty configuration, start election timer
     if (!_conf.second.empty() && _conf.second.contains(_server_id)) {
         // maybe called from follower, try del timer
-        int ret = bthread_timer_del(_election_timer);
+        int ret = raft_timer_del(_election_timer);
         if (ret == 0) {
             Release();
         }
         AddRef();
         int64_t election_timeout = random_timeout(_options.election_timeout);
-        bthread_timer_add(&_election_timer, base::milliseconds_from_now(election_timeout),
+        raft_timer_add(&_election_timer, base::milliseconds_from_now(election_timeout),
                           on_election_timer, this);
         RAFT_VLOG << "node " << _group_id << ":" << _server_id
             << " term " << _current_term << " start election_timer";
@@ -1215,7 +1211,7 @@ void NodeImpl::become_leader() {
     LOG(INFO) << "node " << _group_id << ":" << _server_id
         << " term " << _current_term << " become leader, and stop vote_timer";
     // cancel candidate vote timer
-    int ret = bthread_timer_del(_vote_timer);
+    int ret = raft_timer_del(_vote_timer);
     if (0 == ret) {
         Release();
     } else {
@@ -1254,7 +1250,7 @@ void NodeImpl::become_leader() {
 
     AddRef();
     int64_t stepdown_timeout = _options.election_timeout;
-    bthread_timer_add(&_stepdown_timer, base::milliseconds_from_now(stepdown_timeout),
+    raft_timer_add(&_stepdown_timer, base::milliseconds_from_now(stepdown_timeout),
                       on_stepdown_timer, this);
     RAFT_VLOG << "node " << _group_id << ":" << _server_id
         << " term " << _current_term << " start stepdown_timer";

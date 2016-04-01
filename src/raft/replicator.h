@@ -15,6 +15,7 @@
 #include "raft/configuration.h"
 #include "raft/raft.pb.h"
 #include "raft/storage.h"
+#include "raft/timer.h"
 
 namespace raft {
 
@@ -43,14 +44,13 @@ public:
 protected:
     CatchupClosure()
         : _max_margin(0)
-        , _timer(0)
         , _has_timer(false)
         , _error_was_set(false)
     {}
 private:
 friend class Replicator;
     int64_t _max_margin;
-    bthread_timer_t _timer;
+    raft_timer_t _timer;
     bool _has_timer;
     bool _error_was_set;
     void _run();

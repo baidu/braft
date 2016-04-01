@@ -641,15 +641,15 @@ int LogManager::wait(int64_t expected_last_log_index,
     if (rc != 0) {
         return -1;
     }
-    bthread_timer_t timer_id;
+    raft_timer_t timer_id;
     if (due_time) {
-        CHECK_EQ(0, bthread_timer_add(&timer_id, *due_time, on_timed_out,
+        CHECK_EQ(0, raft_timer_add(&timer_id, *due_time, on_timed_out,
                                       reinterpret_cast<void*>(wait_id.value)));
     }
     notify_on_new_log(expected_last_log_index, wait_id);
     bthread_id_join(wait_id);
     if (due_time) {
-        bthread_timer_del(timer_id);
+        raft_timer_del(timer_id);
     }
     return return_code;
 }
@@ -658,13 +658,12 @@ struct WaitMeta {
     WaitMeta()
         : on_new_log(NULL)
         , arg(NULL)
-        , timer_id()
         , has_timer(false)
         , error_code(0)
     {}
     int (*on_new_log)(void *arg, int error_code);
     void *arg;
-    bthread_timer_t timer_id;
+    raft_timer_t timer_id;
     bool has_timer;
     int error_code;
 };
@@ -672,7 +671,7 @@ struct WaitMeta {
 void* run_on_new_log(void *arg) {
     WaitMeta* wm = (WaitMeta*)arg;
     if (wm->has_timer) {
-        bthread_timer_del(wm->timer_id);
+        raft_timer_del(wm->timer_id);
     }
     wm->on_new_log(wm->arg, wm->error_code);
     delete wm;
@@ -702,9 +701,9 @@ void LogManager::wait(int64_t expected_last_log_index,
         return;
     }
     CHECK_EQ(0, bthread_id_lock(wait_id, NULL));
-    bthread_timer_t timer_id;
+    raft_timer_t timer_id;
     if (due_time) {
-        CHECK_EQ(0, bthread_timer_add(&timer_id, *due_time, on_timed_out,
+        CHECK_EQ(0, raft_timer_add(&timer_id, *due_time, on_timed_out,
                                       reinterpret_cast<void*>(wait_id.value)));
         wm->timer_id = timer_id;
         wm->has_timer = true;

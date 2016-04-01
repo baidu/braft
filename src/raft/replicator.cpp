@@ -144,7 +144,7 @@ void Replicator::wait_for_caught_up(ReplicatorId id,
     done->_max_margin = max_margin;
     if (due_time != NULL) {
         done->_has_timer = true;
-        if (bthread_timer_add(&done->_timer,
+        if (raft_timer_add(&done->_timer,
                               *due_time,
                               _on_catch_up_timedout,
                               (void*)id) != 0) {
@@ -175,8 +175,8 @@ void Replicator::_block(long start_time_us, int /*error_code NOTE*/) {
     const timespec due_time = base::milliseconds_from(
             base::microseconds_to_timespec(start_time_us), 
             _options.heartbeat_timeout_ms);
-    bthread_timer_t timer;
-    const int rc = bthread_timer_add(&timer, due_time, 
+    raft_timer_t timer;
+    const int rc = raft_timer_add(&timer, due_time, 
                                      _on_block_timedout, (void*)_id.value);
     RAFT_VLOG << "Blocking " << _options.peer_id << " for " 
               << _options.heartbeat_timeout_ms << "ms";
@@ -544,7 +544,7 @@ void Replicator::_notify_on_caught_up(int error_code, bool before_destory) {
             _catchup_closure->status().set_error(error_code, "%s", berror(error_code));
         }
         if (_catchup_closure->_has_timer) {
-            if (!before_destory && bthread_timer_del(_catchup_closure->_timer) == 1) {
+            if (!before_destory && raft_timer_del(_catchup_closure->_timer) == 1) {
                 // There's running timer task, let timer task trigger
                 // on_caught_up to void ABA problem
                 return;

@@ -294,7 +294,10 @@ src/raft/test/test_protobuf_file.cpp -text
 src/raft/test/test_snapshot.cpp -text
 src/raft/test/test_stable.cpp -text
 src/raft/test/test_storage.cpp -text
+src/raft/test/test_timer.cpp -text
 src/raft/test/test_util.cpp -text
+src/raft/timer.cpp -text
+src/raft/timer.h -text
 src/raft/util.cpp -text
 src/raft/util.h -text
 sys_test/COMAKE -text

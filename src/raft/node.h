@@ -254,10 +254,10 @@ private:
     SnapshotExecutor* _snapshot_executor;
     ReplicatorGroup _replicator_group;
     std::vector<Closure*> _shutdown_continuations;
-    bthread_timer_t _election_timer; // follower -> candidate timer
-    bthread_timer_t _vote_timer; // candidate retry timer
-    bthread_timer_t _stepdown_timer; // leader check quorum node ok
-    bthread_timer_t _snapshot_timer; // snapshot timer
+    raft_timer_t _election_timer; // follower -> candidate timer
+    raft_timer_t _vote_timer; // candidate retry timer
+    raft_timer_t _stepdown_timer; // leader check quorum node ok
+    raft_timer_t _snapshot_timer; // snapshot timer
     bool _vote_triggered;
     bthread::ExecutionQueueId<LogEntryAndClosure> _apply_queue_id;
     bthread::ExecutionQueue<LogEntryAndClosure>::scoped_ptr_t _apply_queue;
