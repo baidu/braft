@@ -19,22 +19,17 @@
 
 namespace raft {
 
-extern ::bvar::LatencyRecorder g_segment_contention_recorder;
-extern ::bvar::LatencyRecorder g_segment_storage_contention_recorder;
-
 class BAIDU_CACHELINE_ALIGNMENT Segment {
 public:
     Segment(const std::string& path, const int64_t first_index)
         : _path(path), _bytes(0),
         _fd(-1), _is_open(true),
         _first_index(first_index), _last_index(first_index - 1) {
-            _mutex.set_recorder(g_segment_contention_recorder);
     }
     Segment(const std::string& path, const int64_t first_index, const int64_t last_index)
         : _path(path), _bytes(0),
         _fd(-1), _is_open(false),
         _first_index(first_index), _last_index(last_index) {
-            _mutex.set_recorder(g_segment_contention_recorder);
     }
     ~Segment() {
         if (_fd >= 0) {
@@ -129,10 +124,11 @@ public:
         : _path(path),
           _first_log_index(1),
           _last_log_index(0) {
-            _mutex.set_recorder(g_segment_storage_contention_recorder);
     }
 
-    SegmentLogStorage() {}
+    SegmentLogStorage()
+        : _first_log_index(1), _last_log_index(0) {
+    }
 
     virtual ~SegmentLogStorage() {
         _segments.clear();

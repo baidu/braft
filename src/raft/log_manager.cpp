@@ -15,14 +15,13 @@
 #include "raft/storage.h"
 #include "raft/node.h"
 #include "raft/util.h"
+#include "raft/bthread_support.h"
 
 namespace raft {
 
 DEFINE_int32(raft_leader_batch, 256, "max leader io batch");
 BAIDU_RPC_VALIDATE_GFLAG(raft_leader_batch, ::baidu::rpc::PositiveInteger);
 
-static bvar::LatencyRecorder g_log_manager_contention_recorder
-            ("raft_log_manager_contention");
 static bvar::Adder<int64_t> g_read_entry_from_storage
             ("raft_read_entry_from_storage_count");
 static bvar::PerSecond<bvar::Adder<int64_t> > g_read_entry_from_storage_second
@@ -45,7 +44,6 @@ LogManager::LogManager()
     , _stopped(false)
 {
     CHECK_EQ(0, bthread_id_list_init(&_wait_list, 16/*FIXME*/, 16));
-    _mutex.set_recorder(g_log_manager_contention_recorder);
     CHECK_EQ(0, start_disk_thread());
 }
 
@@ -119,17 +117,64 @@ int64_t LogManager::first_log_index() {
     return _first_log_index;
 }
 
-int64_t LogManager::last_log_index() {
-    BAIDU_SCOPED_LOCK(_mutex);
-    return _last_log_index;
+class LastLogIdClosure : public LogManager::StableClosure {
+public:
+    explicit LastLogIdClosure(BthreadCond* cond, LogId* log_id)
+        : _cond(cond), _last_log_id(log_id)
+    {}
+    void Run() {
+        delete this;
+    }
+    void set_last_log_id(const LogId& log_id) {
+        *_last_log_id = log_id;
+        _cond->signal();
+    }
+private:
+    BthreadCond* _cond;
+    LogId* _last_log_id;
+};
+
+int64_t LogManager::last_log_index(bool is_flush) {
+    std::unique_lock<raft_mutex_t> lck(_mutex);
+    if (!is_flush) {
+        return _last_log_index;
+    } else {
+        BthreadCond cond;
+        LogId last_id;
+        LastLogIdClosure* c = new LastLogIdClosure(&cond, &last_id);
+        const int rc = bthread::execution_queue_execute(_disk_queue, c);
+        lck.unlock();
+
+        if (rc != 0) {
+            return 0;
+        } else {
+            cond.wait();
+            return last_id.index;
+        }
+    }
 }
 
-LogId LogManager::last_log_id() {
-    BAIDU_SCOPED_LOCK(_mutex);
-    if (_last_log_index >= _first_log_index) {
-        return LogId(_last_log_index, unsafe_get_term(_last_log_index));
+LogId LogManager::last_log_id(bool is_flush) {
+    std::unique_lock<raft_mutex_t> lck(_mutex);
+    if (!is_flush) {
+        if (_last_log_index >= _first_log_index) {
+            return LogId(_last_log_index, unsafe_get_term(_last_log_index));
+        }
+        return _last_snapshot_id;
+    } else {
+        BthreadCond cond;
+        LogId last_id;
+        LastLogIdClosure* c = new LastLogIdClosure(&cond, &last_id);
+        const int rc = bthread::execution_queue_execute(_disk_queue, c);
+        lck.unlock();
+
+        if (rc != 0) {
+            return LogId();
+        } else {
+            cond.wait();
+            return last_id;
+        }
     }
-    return _last_snapshot_id;
 }
 
 class TruncatePrefixClosure : public LogManager::StableClosure {
@@ -402,6 +447,12 @@ int LogManager::disk_thread(void* meta,
             }
             int ret = 0;
             do {
+                LastLogIdClosure* llic =
+                        dynamic_cast<LastLogIdClosure*>(done);
+                if (llic) {
+                    llic->set_last_log_id(log_manager->get_disk_id());
+                    break;
+                }
                 TruncatePrefixClosure* tpc = 
                         dynamic_cast<TruncatePrefixClosure*>(done);
                 if (tpc) {
@@ -418,6 +469,11 @@ int LogManager::disk_thread(void* meta,
                         << tsc->last_index_kept();
                     ret = log_manager->_log_storage->truncate_suffix(
                                     tsc->last_index_kept());
+                    if (ret == 0) {
+                        // update last_id after truncate_suffix
+                        last_id.index = tsc->last_index_kept();
+                        last_id.term = log_manager->get_term(last_id.index);
+                    }
                     break;
                 }
                 ResetClosure* rc = dynamic_cast<ResetClosure*>(done);
@@ -457,18 +513,15 @@ void LogManager::set_snapshot(const SnapshotMeta* meta) {
     if (meta->last_included_index <= _last_snapshot_id.index) {
         return;
     }
+    if (meta->last_included_index > _last_log_index) {
+        return;
+    }
 
     _config_manager->set_snapshot(
             LogId(meta->last_included_index, meta->last_included_term), 
             meta->last_configuration);
     int64_t term = unsafe_get_term(meta->last_included_index);
-    LogEntry* entry = get_entry_from_memory(meta->last_included_index);
-    if (entry) {
-        term = entry->id.term;
-    } else {
-        term = _log_storage->get_term(meta->last_included_index);
-        g_read_term_from_storage << 1;
-    }
+
     const int64_t saved_last_snapshot_index = _last_snapshot_id.index;
     _last_snapshot_id.index = meta->last_included_index;
     _last_snapshot_id.term = meta->last_included_term;
@@ -511,7 +564,6 @@ LogEntry* LogManager::get_entry_from_memory(const int64_t index) {
     return entry;
 }
 
-
 int64_t LogManager::unsafe_get_term(const int64_t index) {
     if (index == 0) {
         return 0;
@@ -540,6 +592,11 @@ int64_t LogManager::get_term(const int64_t index) {
     }
 
     std::unique_lock<raft_mutex_t> lck(_mutex);
+    // out of range, direct return NULL
+    if (index > _last_log_index) {
+        return 0;
+    }
+
     // check index equal snapshot_index, return snapshot_term
     if (index == _last_snapshot_id.index) {
         return _last_snapshot_id.term;
@@ -590,6 +647,11 @@ bool LogManager::check_and_set_configuration(ConfigurationPair* current) {
         return true;
     }
     return false;
+}
+
+LogId LogManager::get_disk_id() {
+    std::unique_lock<raft_mutex_t> lck(_mutex);
+    return _disk_id;
 }
 
 void LogManager::set_disk_id(const LogId& disk_id) {

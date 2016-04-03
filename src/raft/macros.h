@@ -23,7 +23,7 @@
 
 #include <bthread/mutex.h>
 
-typedef ::bvar::MutexWithLatencyRecorder<bthread_mutex_t> raft_mutex_t;
+typedef ::bthread::Mutex raft_mutex_t;
 #define raft_mutex_init bthread_mutex_init
 #define raft_mutex_destroy bthread_mutex_destroy
 #define raft_mutex_lock bthread_mutex_lock
@@ -38,8 +38,7 @@ typedef ::bvar::MutexWithLatencyRecorder<bthread_mutex_t> raft_mutex_t;
 
 #else   // USE_BTHREAD_MUTEX
 
-typedef ::bvar::MutexWithLatencyRecorder<pthread_mutex_t> raft_mutex_t;
-
+typedef pthread_mutex_t raft_mutex_t;
 #define raft_mutex_init pthread_mutex_init
 #define raft_mutex_destroy  pthread_mutex_destroy
 #define raft_mutex_lock pthread_mutex_lock

@@ -26,11 +26,6 @@
 
 namespace raft {
 
-::bvar::LatencyRecorder 
-        g_segment_contention_recorder("raft_segment_contention");
-::bvar::LatencyRecorder 
-        g_segment_storage_contention_recorder("raft_segment_storage_contention");
-
 using ::base::RawPacker;
 using ::base::RawUnpacker;
 

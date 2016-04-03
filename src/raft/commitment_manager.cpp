@@ -14,15 +14,12 @@
 
 namespace raft {
 
-static bvar::LatencyRecorder g_commit_mutex_latency("raft_commit_manager_contention");
-
 CommitmentManager::CommitmentManager()
     : _waiter(NULL)
     , _closure_queue(NULL)
     , _last_committed_index(0)
     , _pending_index(0)
 {
-    _mutex.set_recorder(g_commit_mutex_latency);
 }
 
 CommitmentManager::~CommitmentManager() {

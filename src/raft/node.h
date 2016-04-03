@@ -166,10 +166,10 @@ private:
     void step_down(const int64_t term);
 
     // pre vote before elect_self
-    void pre_vote();
+    void pre_vote(std::unique_lock<raft_mutex_t>* lck);
 
     // elect self to candidate
-    void elect_self();
+    void elect_self(std::unique_lock<raft_mutex_t>* lck);
 
     // leader async apply configuration
     void unsafe_apply_configuration(const Configuration& new_conf, 

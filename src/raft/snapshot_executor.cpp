@@ -64,7 +64,7 @@ public:
     void wait_for_run() {
         BAIDU_SCOPED_LOCK(_mutex);
         while (!_has_run) {
-            raft_cond_wait(&_cond, &_mutex.mutex());
+            raft_cond_wait(&_cond, _mutex.native_handler());
         }
     }
 private:

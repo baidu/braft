@@ -79,10 +79,10 @@ public:
     // Get the last log index of log
     // Returns:
     //  success return last memory and logstorage index, empty return 0
-    int64_t last_log_index();
+    int64_t last_log_index(bool is_flush = false);
     
     // Return the id the last log.
-    LogId last_log_id();
+    LogId last_log_id(bool is_flush = false);
 
     void get_configuration(const int64_t index, ConfigurationPair* conf);
 
@@ -109,6 +109,9 @@ public:
     // Set the applied id, indicating that the log and all the previose ones
     // can be droped from memory logs
     void set_applied_id(const LogId& applied_id);
+
+    // get disk id, call some case need sync log_id, e.g. pre_vote/vote request and response
+    LogId get_disk_id();
 
     void describe(std::ostream& os, bool use_html);
 

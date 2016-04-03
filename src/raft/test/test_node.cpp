@@ -29,11 +29,11 @@ public:
     int64_t snapshot_index;
 
     void lock() {
-        raft_mutex_lock(&mutex.mutex());
+        raft_mutex_lock(mutex.native_handler());
     }
 
     void unlock() {
-        raft_mutex_unlock(&mutex.mutex());
+        raft_mutex_unlock(mutex.native_handler());
     }
 
     virtual void on_apply(const int64_t index, const raft::Task& task) {

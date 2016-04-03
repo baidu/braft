@@ -59,8 +59,6 @@ friend class NodeImpl;
     Closure* _user_done;
 };
 
-static ::bvar::LatencyRecorder g_node_contention("raft_node_contention");
-
 static inline int random_timeout(int timeout_ms) {
     return base::fast_rand_in(timeout_ms, timeout_ms << 1);
 }
@@ -90,7 +88,6 @@ NodeImpl::NodeImpl(const GroupId& group_id, const PeerId& peer_id)
     , _vote_triggered(false) {
         _server_id = peer_id;
         AddRef();
-        _mutex.set_recorder(g_node_contention);
 }
 
 NodeImpl::~NodeImpl() {
@@ -794,7 +791,7 @@ static void on_election_timer(void* arg) {
 }
 
 void NodeImpl::handle_election_timeout() {
-    BAIDU_SCOPED_LOCK(_mutex);
+    std::unique_lock<raft_mutex_t> lck(_mutex);
 
     // check state
     if (_state != FOLLOWER) {
@@ -822,7 +819,7 @@ void NodeImpl::handle_election_timeout() {
     RAFT_VLOG << "node " << _group_id << ":" << _server_id
         << " term " << _current_term << " restart election_timer";
 
-    pre_vote();
+    pre_vote(&lck);
 
     // first vote
     //elect_self();
@@ -861,14 +858,14 @@ static void on_vote_timer(void* arg) {
 }
 
 void NodeImpl::handle_vote_timeout() {
-    BAIDU_SCOPED_LOCK(_mutex);
+    std::unique_lock<raft_mutex_t> lck(_mutex);
 
     // check state
     if (_state == CANDIDATE) {
         // retry vote
         RAFT_VLOG << "node " << _group_id << ":" << _server_id
             << " term " << _current_term << " retry elect";
-        elect_self();
+        elect_self(&lck);
     }
 }
 
@@ -941,7 +938,7 @@ struct OnRequestVoteRPCDone : public google::protobuf::Closure {
 
 void NodeImpl::handle_pre_vote_response(const PeerId& peer_id, const int64_t term,
                                             const RequestVoteResponse& response) {
-    BAIDU_SCOPED_LOCK(_mutex);
+    std::unique_lock<raft_mutex_t> lck(_mutex);
 
     // check state
     if (_state != FOLLOWER) {
@@ -973,7 +970,7 @@ void NodeImpl::handle_pre_vote_response(const PeerId& peer_id, const int64_t ter
     if (response.granted()) {
         _pre_vote_ctx.grant(peer_id);
         if (_pre_vote_ctx.quorum()) {
-            elect_self();
+            elect_self(&lck);
         }
     }
 }
@@ -1006,12 +1003,14 @@ struct OnPreVoteRPCDone : public google::protobuf::Closure {
     NodeImpl* node;
 };
 
-void NodeImpl::pre_vote() {
+void NodeImpl::pre_vote(std::unique_lock<raft_mutex_t>* lck) {
     LOG(INFO) << "node " << _group_id << ":" << _server_id
         << " term " << _current_term
         << " start pre_vote";
     if (_snapshot_executor && _snapshot_executor->is_installing_snapshot()) {
-        LOG(WARNING) << "We don't do pre_vote when installing snapshot as the "
+        LOG(WARNING) << "node " << _group_id << ":" << _server_id
+            << " term " << _current_term
+            << " don't do pre_vote when installing snapshot as the "
                      " configuration is possibly out of date";
         return;
     }
@@ -1020,6 +1019,19 @@ void NodeImpl::pre_vote() {
                      << " can't do pre_vote as it is not in " << _conf.second;
         return;
     }
+
+    int64_t old_term = _current_term;
+    // get last_log_id outof node mutex
+    lck->unlock();
+    const LogId last_log_id = _log_manager->last_log_id(true);
+    lck->lock();
+    // pre_vote need defense ABA after unlock&lock
+    if (old_term != _current_term) {
+        LOG(WARNING) << "node " << _group_id << ":" << _server_id
+            << " raise term " << _current_term << " when get last_log_id";
+        return;
+    }
+
     _pre_vote_ctx.reset();
     std::vector<PeerId> peers;
     _conf.second.list_peers(&peers);
@@ -1043,7 +1055,6 @@ void NodeImpl::pre_vote() {
         request.set_server_id(_server_id.to_string());
         request.set_peer_id(peers[i].to_string());
         request.set_term(_current_term + 1); // next term
-        const LogId last_log_id = _log_manager->last_log_id();
         request.set_last_log_index(last_log_id.index);
         request.set_last_log_term(last_log_id.term);
 
@@ -1054,12 +1065,12 @@ void NodeImpl::pre_vote() {
     _pre_vote_ctx.grant(_server_id);
 
     if (_pre_vote_ctx.quorum()) {
-        elect_self();
+        elect_self(lck);
     }
 }
 
 // in lock
-void NodeImpl::elect_self() {
+void NodeImpl::elect_self(std::unique_lock<raft_mutex_t>* lck) {
     LOG(INFO) << "node " << _group_id << ":" << _server_id
         << " term " << _current_term
         << " start vote and grant vote self";
@@ -1093,6 +1104,19 @@ void NodeImpl::elect_self() {
     std::vector<PeerId> peers;
     _conf.second.list_peers(&peers);
     _vote_ctx.set(peers.size());
+
+    int64_t old_term = _current_term;
+    // get last_log_id outof node mutex
+    lck->unlock();
+    const LogId last_log_id = _log_manager->last_log_id(true);
+    lck->lock();
+    // vote need defense ABA after unlock&lock
+    if (old_term != _current_term) {
+        LOG(WARNING) << "node " << _group_id << ":" << _server_id
+            << " raise term " << _current_term << " when get last_log_id";
+        return;
+    }
+
     for (size_t i = 0; i < peers.size(); i++) {
         if (peers[i] == _server_id) {
             continue;
@@ -1112,7 +1136,6 @@ void NodeImpl::elect_self() {
         request.set_server_id(_server_id.to_string());
         request.set_peer_id(peers[i].to_string());
         request.set_term(_current_term);
-        const LogId last_log_id = _log_manager->last_log_id();
         request.set_last_log_index(last_log_id.index);
         request.set_last_log_term(last_log_id.term);
 
@@ -1350,7 +1373,7 @@ void NodeImpl::unsafe_apply_configuration(const Configuration& new_conf,
 
 int NodeImpl::handle_pre_vote_request(const RequestVoteRequest* request,
                                           RequestVoteResponse* response) {
-    BAIDU_SCOPED_LOCK(_mutex);
+    std::unique_lock<raft_mutex_t> lck(_mutex);
 
     PeerId candidate_id;
     if (0 != candidate_id.parse(request->server_id())) {
@@ -1384,7 +1407,12 @@ int NodeImpl::handle_pre_vote_request(const RequestVoteRequest* request,
             break;
         }
 
-        LogId last_log_id = _log_manager->last_log_id();
+        // get last_log_id outof node mutex
+        lck.unlock();
+        LogId last_log_id = _log_manager->last_log_id(true);
+        lck.lock();
+        // pre_vote not need ABA check after unlock&lock
+
         granted = (LogId(request->last_log_index(), request->last_log_term()) 
                         >= last_log_id);
 
@@ -1403,11 +1431,8 @@ int NodeImpl::handle_pre_vote_request(const RequestVoteRequest* request,
 
 int NodeImpl::handle_request_vote_request(const RequestVoteRequest* request,
                                           RequestVoteResponse* response) {
-    BAIDU_SCOPED_LOCK(_mutex);
+    std::unique_lock<raft_mutex_t> lck(_mutex);
 
-    LogId last_log_id = _log_manager->last_log_id();
-    bool log_is_ok = (LogId(request->last_log_index(), request->last_log_term()) 
-                        >= last_log_id);
     PeerId candidate_id;
     if (0 != candidate_id.parse(request->server_id())) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
@@ -1448,6 +1473,19 @@ int NodeImpl::handle_request_vote_request(const RequestVoteRequest* request,
             break;
         }
 
+        // get last_log_id outof node mutex
+        lck.unlock();
+        LogId last_log_id = _log_manager->last_log_id(true);
+        lck.lock();
+        // vote need ABA check after unlock&lock
+        if (request->term() != _current_term) {
+            LOG(WARNING) << "node " << _group_id << ":" << _server_id
+                << " raise term " << _current_term << " when get last_log_id";
+            break;
+        }
+
+        bool log_is_ok = (LogId(request->last_log_index(), request->last_log_term()) 
+                          >= last_log_id);
         // save
         if (log_is_ok && _voted_id.is_empty()) {
             _voted_id = candidate_id;
@@ -1602,7 +1640,8 @@ void NodeImpl::handle_append_entries_request(baidu::rpc::Controller* cntl,
     if (request->entries_size() > 0 && 
             (_snapshot_executor 
                 && _snapshot_executor->is_installing_snapshot())) {
-        LOG(WARNING) << "Received append entries while installing snapshot";
+        LOG(WARNING) << "node " << _group_id << ":" << _server_id
+            << " received append entries while installing snapshot";
         cntl->SetFailed(EBUSY, "Is installing snapshot");
         return;
     }
@@ -1610,14 +1649,15 @@ void NodeImpl::handle_append_entries_request(baidu::rpc::Controller* cntl,
     const int64_t prev_log_index = request->prev_log_index();
     const int64_t prev_log_term = request->prev_log_term();
     if (_log_manager->get_term(prev_log_index) != prev_log_term) {
+        int64_t last_index = _log_manager->last_log_index();
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
             << " reject term_unmatched AppendEntries from " << request->server_id()
             << " in term " << request->term()
             << " prev_log_index " << request->prev_log_index()
-            << " last_log_index " << _log_manager->last_log_index();
+            << " last_log_index " << last_index;
         response->set_success(false);
         response->set_term(_current_term);
-        response->set_last_log_index(_log_manager->last_log_index());
+        response->set_last_log_index(last_index);
         return;
     }
 
@@ -1737,7 +1777,7 @@ void NodeImpl::handle_install_snapshot_request(baidu::rpc::Controller* controlle
 
     // FIXME: is it conflicted with set_peer?
     CHECK_EQ(server_id, _leader_id) 
-            << "Another peer=" << server_id 
+            << "Another peer=" << _group_id << ":" << _server_id
             << " declares that it is the leader at term="
             << _current_term << " which is occupied by leader="
             << _leader_id;
