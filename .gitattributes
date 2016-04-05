@@ -4,6 +4,7 @@
 /OWNER -text
 example/atomic/COMAKE -text
 example/atomic/atomic.proto -text
+example/atomic/bench.cpp -text
 example/atomic/client.cpp -text
 example/atomic/run_client.sh -text
 example/atomic/run_server.sh -text

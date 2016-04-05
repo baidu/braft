@@ -45,11 +45,31 @@ struct AtomicClosure : public raft::Closure {
 class Atomic : public CommonStateMachine {
 public:
     Atomic(const raft::GroupId& group_id, const raft::PeerId& peer_id) 
-        : CommonStateMachine(group_id, peer_id) {
+        : CommonStateMachine(group_id, peer_id), _is_leader(false) {
             CHECK_EQ(0, _value_map.init(FLAGS_map_capacity));
     }
 
     virtual ~Atomic() {}
+
+    int get(const int64_t id, int64_t* value) {
+        BAIDU_SCOPED_LOCK(_mutex);
+        if (_is_leader) {
+            *value = _value_map[id];
+            return 0;
+        } else {
+            return EINVAL;
+        }
+    }
+
+    int set(const int64_t id, const int64_t value) {
+        BAIDU_SCOPED_LOCK(_mutex);
+        if (_is_leader) {
+            _value_map[id] = value;
+            return 0;
+        } else {
+            return EINVAL;
+        }
+    }
 
     // FSM method
     void on_apply(const int64_t /*index*/,
@@ -66,6 +86,8 @@ public:
             LOG(INFO) << "Fail to parse CompareExchangeRequest";
             return;
         }
+
+        BAIDU_SCOPED_LOCK(_mutex);
         const int64_t id = req.id();
         int64_t& cur_val = _value_map[id];
         CompareExchangeResponse* res = NULL;
@@ -100,6 +122,8 @@ public:
     }
 
     void on_snapshot_save(raft::SnapshotWriter* writer, raft::Closure* done) {
+        BAIDU_SCOPED_LOCK(_mutex);
+
         SnapshotClosure* sc = new SnapshotClosure;
         sc->values.reserve(_value_map.size());
         sc->writer = writer;
@@ -116,6 +140,8 @@ public:
     }
 
     int on_snapshot_load(raft::SnapshotReader* reader) {
+        BAIDU_SCOPED_LOCK(_mutex);
+
         // TODO: verify snapshot
         _value_map.clear();
         std::string snapshot_path = 
@@ -131,8 +157,14 @@ public:
     }
 
     // Acutally we don't care now
-    void on_leader_start() {}
-    void on_leader_stop() {}
+    void on_leader_start() {
+        BAIDU_SCOPED_LOCK(_mutex);
+        _is_leader = true;
+    }
+    void on_leader_stop() {
+        BAIDU_SCOPED_LOCK(_mutex);
+        _is_leader = false;
+    }
 
     void apply(base::IOBuf *iobuf, raft::Closure* done) {
         raft::Task task;
@@ -164,6 +196,10 @@ private:
         raft::SnapshotWriter* writer;
         raft::Closure* done;
     };
+
+
+    bool _is_leader;
+    raft_mutex_t _mutex;
     // TODO: To support the read-only load, _value_map should be COW or doubly
     // buffered
     ValueMap _value_map;
@@ -175,6 +211,36 @@ public:
     explicit AtomicServiceImpl(Atomic* atomic) : _atomic(atomic) {}
 
     // rpc method
+    virtual void get(::google::protobuf::RpcController* controller,
+                       const ::example::GetRequest* request,
+                       ::example::GetResponse* response,
+                       ::google::protobuf::Closure* done) {
+        baidu::rpc::ClosureGuard done_guard(done);
+        baidu::rpc::Controller* cntl = (baidu::rpc::Controller*)controller;
+
+        int64_t value = 0;
+        if (0 == _atomic->get(request->id(), &value)) {
+            response->set_success(true);
+            response->set_value(value);
+        } else {
+            cntl->SetFailed(baidu::rpc::SYS_EPERM, "not leader");
+        }
+    }
+
+    virtual void set(::google::protobuf::RpcController* controller,
+                       const ::example::SetRequest* request,
+                       ::example::SetResponse* response,
+                       ::google::protobuf::Closure* done) {
+        baidu::rpc::ClosureGuard done_guard(done);
+        baidu::rpc::Controller* cntl = (baidu::rpc::Controller*)controller;
+
+        if (0 == _atomic->set(request->id(), request->value())) {
+            response->set_success(true);
+        } else {
+            cntl->SetFailed(baidu::rpc::SYS_EPERM, "not leader");
+        }
+    }
+
     virtual void compare_exchange(::google::protobuf::RpcController* controller,
                        const ::example::CompareExchangeRequest* request,
                        ::example::CompareExchangeResponse* response,

@@ -1,7 +1,7 @@
 // Copyright (c) 2016 Baidu.com, Inc. All Rights Reserved
 
-// Author: Zhangyi Chen (chenzhangyi01@baidu.com)
-// Date: 2016/01/14 13:45:32
+// Author: WangYao (wangyao02@baidu.com)
+// Date: 2016/03/14 13:45:32
 
 #include <stdint.h>
 #include <gflags/gflags.h>
@@ -13,138 +13,221 @@
 #include "raft/util.h"
 #include "cli.h"
 
-DEFINE_int32(threads, 50, "Number of work threads");
-DEFINE_int32(timeout_ms, 100, "Timeout for each request");
-DEFINE_int32(num_requests, -1, "Quit after sending so many requests");
-DEFINE_string(cluster_ns, "list", "Name service for the cluster");
+DEFINE_int32(timeout_ms, 3000, "Timeout for each request");
+DEFINE_string(cluster_ns, "", "Name service for the cluster");
+DEFINE_string(atomic_op, "get", "atomic op: get/set/cas");
+DEFINE_int64(atomic_id, 0, "atomic id");
+DEFINE_int64(atomic_val, 0, "atomic value");
+DEFINE_int64(atomic_new_val, 0, "atomic new_value");
 
-volatile bool g_signal_quit = false;
-
-void sigint_handler(int) { 
-    g_signal_quit = true;
-}
-
-bvar::LatencyRecorder g_latency_recorder("atomic_client");
-boost::atomic<int> g_nthreads(0);
-boost::atomic<int64_t> nsent(0);
-
-int get_leader(baidu::rpc::Channel* channel, base::EndPoint* leader_addr) {
-    example::CliService_Stub stub(channel);
-    example::GetLeaderRequest request;
-    example::GetLeaderResponse response;
-    baidu::rpc::Controller cntl;
-    cntl.set_timeout_ms(FLAGS_timeout_ms);
-    stub.leader(&cntl, &request, &response, NULL);
-    if (cntl.Failed() || !response.success()) {
-        return -1;
+class AtomicClient {
+public:
+    AtomicClient() {
+        reset_leader();
+        int ret = _cluster.Init(FLAGS_cluster_ns.c_str(), "rr", NULL);
+        CHECK_EQ(0, ret) << "cluster channel init failed, cluster: " << FLAGS_cluster_ns;
     }
-    return base::str2endpoint(response.leader_addr().c_str(), leader_addr);
-}
+    ~AtomicClient() {}
 
-static void* sender(void* arg) {
-    baidu::rpc::Channel* cluster = (baidu::rpc::Channel*)arg;
-    const long sleep_ms = 1000;
-    // Each thread maintains a unique atomic
-    const int id = g_nthreads.fetch_add(1);
-    // Current value of the maintained atomic
-    int64_t value = 0; 
-    while (!g_signal_quit) {
+    int get(const int64_t id, int64_t* value) {
+        int ret = 0;
 
-        bthread_usleep(sleep_ms * 1000L);
-        // Ask the cluster for the leader
-        base::EndPoint leader_addr;
-        if (get_leader(cluster, &leader_addr) != 0) {
-            LOG(WARNING) << "Fail to get leader, sleep for " << sleep_ms << "ms";
-            bthread_usleep(sleep_ms * 1000L);
-            continue;
-        }
+        while (true) {
+            get_leader();
 
-        // Now we know who is the leader, construct a Channel directed to the
-        // leader
-        baidu::rpc::Channel leader;
-        if (leader.Init(leader_addr, NULL) != 0) {
-            LOG(ERROR) << "Fail to create channel to leader, sleep for "
-                       << sleep_ms << "ms";
-            bthread_usleep(sleep_ms * 1000L);
-            continue;
-        }
-        example::AtomicService_Stub stub(&leader);
+            // init leader channel
+            baidu::rpc::Channel channel;
+            if (channel.Init(_leader, NULL) != 0) {
+                LOG(WARNING) << "leader_channel init failed.";
+                return EINVAL;
+            }
 
-        // Send request to leader until failure
-        while (!g_signal_quit) {
+            // get request
+            example::AtomicService_Stub stub(&channel);
             baidu::rpc::Controller cntl;
             cntl.set_timeout_ms(FLAGS_timeout_ms);
 
-            // Using CAS to increase value
-            example::CompareExchangeRequest request;
+            example::GetRequest request;
+            example::GetResponse response;
             request.set_id(id);
-            request.set_expected_value(value);
-            request.set_new_value(value + 1);
-            example::CompareExchangeResponse response;
-            const int64_t start_time = base::cpuwide_time_us();
-            stub.compare_exchange(&cntl, &request, &response, NULL);
-            const int64_t end_time = base::cpuwide_time_us();
-            const int64_t elp = end_time - start_time;
+
+            stub.get(&cntl, &request, &response, NULL);
             if (!cntl.Failed()) {
-                g_latency_recorder << elp;
                 if (response.success()) {
-                    if (value != response.old_value()) {
-                        CHECK_EQ(value, response.old_value());
-                        exit(-1);
-                    }
-                    ++value;
-                } else if (value != response.old_value()) {
-                    if (value == 0 || response.old_value() == value + 1) {
-                        //   ^^^                          ^^^
-                        // It's initalized value          ^^^
-                        //                          There was false negative
-                        value = response.old_value();
-                    } else {
-                        CHECK_EQ(value, response.old_value());
-                        exit(-1);
-                    }
+                    ret = 0;
+                    *value = response.value();
+                    LOG(INFO) << "atomic_get success, id: " << id << " value: " << *value;
+                    break;
                 } else {
-                    CHECK(false) << "Impossible";
-                    exit(-1);
+                    ret = EINVAL;
+                    LOG(INFO) << "atomic_get failed, id: " << id;
+                    break;
                 }
-                if (FLAGS_num_requests > 0 && 
-                        nsent.fetch_add(1, boost::memory_order_relaxed) 
-                            >= FLAGS_num_requests) {
-                    g_signal_quit = true;
-                }
-            } else {
-                LOG(WARNING) << "Fail to issue rpc, " << cntl.ErrorText();
+            } else if (cntl.ErrorCode() == baidu::rpc::SYS_ETIMEDOUT ||
+                       cntl.ErrorCode() == baidu::rpc::ERPCTIMEDOUT){
+                ret = ETIMEDOUT;
+                LOG(WARNING) << "atomic_get timedout, id: " << id;
                 break;
+            } else {
+                // not leader, retry
+                reset_leader();
+                continue;
             }
         }
+
+        return ret;
     }
-    return NULL;
-}
+
+    int set(const int64_t id, const int64_t value) {
+        int ret = 0;
+
+        while (true) {
+            get_leader();
+
+            // init leader channel
+            baidu::rpc::Channel channel;
+            if (channel.Init(_leader, NULL) != 0) {
+                LOG(WARNING) << "leader_channel init failed.";
+                return EINVAL;
+            }
+
+            // set request
+            example::AtomicService_Stub stub(&channel);
+            baidu::rpc::Controller cntl;
+            cntl.set_timeout_ms(FLAGS_timeout_ms);
+
+            example::SetRequest request;
+            example::SetResponse response;
+            request.set_id(id);
+            request.set_value(value);
+
+            stub.set(&cntl, &request, &response, NULL);
+            if (!cntl.Failed()) {
+                if (response.success()) {
+                    ret = 0;
+                    LOG(INFO) << "atomic_set success, id: " << id << " value: " << value;
+                    break;
+                } else {
+                    ret = EINVAL;
+                    LOG(WARNING) << "atomic_set failed, id: " << id << " value: " << value;
+                    break;
+                }
+            } else if (cntl.ErrorCode() == baidu::rpc::SYS_ETIMEDOUT ||
+                       cntl.ErrorCode() == baidu::rpc::ERPCTIMEDOUT){
+                ret = ETIMEDOUT;
+                LOG(WARNING) << "atomic_set timedout, id: " << id << " value: " << value;
+                break;
+            } else {
+                // not leader, retry
+                reset_leader();
+                continue;
+            }
+        }
+
+        return ret;
+    }
+
+    int cas(const int64_t id, const int64_t old_value, const int64_t new_value) {
+        int ret = 0;
+
+        while (true) {
+            get_leader();
+
+            // init leader channel
+            baidu::rpc::Channel channel;
+            if (channel.Init(_leader, NULL) != 0) {
+                LOG(WARNING) << "leader_channel init failed.";
+                return EINVAL;
+            }
+
+            // cas request
+            example::AtomicService_Stub stub(&channel);
+            baidu::rpc::Controller cntl;
+            cntl.set_timeout_ms(FLAGS_timeout_ms);
+
+            example::CompareExchangeRequest request;
+            example::CompareExchangeResponse response;
+            request.set_id(id);
+            request.set_expected_value(old_value);
+            request.set_new_value(new_value);
+
+            stub.compare_exchange(&cntl, &request, &response, NULL);
+            if (!cntl.Failed()) {
+                if (response.success()) {
+                    CHECK_EQ(old_value, response.old_value());
+                    ret = 0;
+                    LOG(INFO) << "atomic_cas success, id: " << id
+                        << " old: " << old_value << " new: " << new_value;
+                    break;
+                } else {
+                    ret = EINVAL;
+                    LOG(WARNING) << "atomic_cas failed, id: " << id
+                        << " old: " << old_value << " new: " << new_value;
+                    break;
+                }
+            } else if (cntl.ErrorCode() == baidu::rpc::SYS_ETIMEDOUT ||
+                       cntl.ErrorCode() == baidu::rpc::ERPCTIMEDOUT){
+                ret = ETIMEDOUT;
+                LOG(WARNING) << "atomic_cas timedout, id: " << id
+                    << " old: " << old_value << " new: " << new_value;
+                break;
+            } else {
+                // not leader, retry
+                reset_leader();
+                continue;
+            }
+        }
+
+        return ret;
+    }
+
+private:
+    int get_leader() {
+        if (_leader.ip != base::IP_ANY && _leader.port != 0) {
+            return 0;
+        }
+
+        do {
+            example::CliService_Stub stub(&_cluster);
+            example::GetLeaderRequest request;
+            example::GetLeaderResponse response;
+            baidu::rpc::Controller cntl;
+            cntl.set_timeout_ms(FLAGS_timeout_ms);
+            stub.leader(&cntl, &request, &response, NULL);
+            if (cntl.Failed() || !response.success()) {
+                continue;
+            }
+            base::str2endpoint(response.leader_addr().c_str(), &_leader);
+        } while (_leader.ip == base::IP_ANY || _leader.port == 0);
+        return 0;
+    }
+    void reset_leader() {
+        _leader.ip = base::IP_ANY;
+        _leader.port = 0;
+    }
+
+    baidu::rpc::Channel _cluster;
+    base::EndPoint _leader;
+};
 
 int main(int argc, char* argv[]) {
     google::ParseCommandLineFlags(&argc, &argv, true);
-    signal(SIGINT, sigint_handler);
-    baidu::rpc::Channel cluster;
-    if (cluster.Init(FLAGS_cluster_ns.c_str(), "rr", NULL) != 0) {
-        LOG(FATAL) << "Fail to init channel to `" << FLAGS_cluster_ns << "'";
+
+    if (FLAGS_cluster_ns.length() == 0) {
         return -1;
     }
-    bthread_t threads[FLAGS_threads];
-    for (int i = 0; i < FLAGS_threads; ++i) {
-        if (bthread_start_background(&threads[i], NULL, sender, &cluster) != 0) {
-            LOG(ERROR) << "Fail to create bthread";
-            return -1;
-        }
+
+    AtomicClient client;
+
+    if (FLAGS_atomic_op.compare("get") == 0) {
+        int64_t value = 0;
+        return client.get(FLAGS_atomic_id, &value);
+    } else if (FLAGS_atomic_op.compare("set") == 0) {
+        return client.set(FLAGS_atomic_id, FLAGS_atomic_val);
+    } else if (FLAGS_atomic_op.compare("cas") == 0) {
+        return client.cas(FLAGS_atomic_id, FLAGS_atomic_val, FLAGS_atomic_new_val);
+    } else {
+        return -1;
     }
-    while (!g_signal_quit) {
-        sleep(1);
-        LOG(INFO) << "Sending CompareExchangeRequest at qps=" << g_latency_recorder.qps(1)
-                  << " latency=" << g_latency_recorder.latency(1);
-    }
-    LOG(INFO) << "AtomicClient is going to quit";
-    for (int i = 0; i < FLAGS_threads; ++i) {
-        bthread_join(threads[i], NULL);
-    }
-    return 0;
 }
 

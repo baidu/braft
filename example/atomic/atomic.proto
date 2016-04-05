@@ -2,6 +2,24 @@ syntax="proto2";
 package example;
 option cc_generic_services = true;
 
+message GetRequest {
+    required int64 id = 1;
+};
+
+message GetResponse {
+    required int64 value = 1;
+    required bool success = 2;
+};
+
+message SetRequest {
+    required int64 id = 1;
+    required int64 value = 2;
+};
+
+message SetResponse {
+    required bool success = 1;
+};
+
 message CompareExchangeRequest {
     required int64 id = 1;
     required int64 expected_value = 2;
@@ -14,6 +32,8 @@ message CompareExchangeResponse {
 }
 
 service AtomicService {
+    rpc get(GetRequest) returns (GetResponse);
+    rpc set(SetRequest) returns (SetResponse);
     rpc compare_exchange(CompareExchangeRequest)
             returns (CompareExchangeResponse);
 };
