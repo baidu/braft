@@ -7,6 +7,7 @@
 #include <gflags/gflags.h>
 #include <base/string_splitter.h>
 #include <baidu/rpc/channel.h>
+#include <base/logging.h>
 #include "atomic.pb.h"
 #include "cli.pb.h"
 #include "raft/raft.h"
@@ -19,6 +20,7 @@ DEFINE_string(atomic_op, "get", "atomic op: get/set/cas");
 DEFINE_int64(atomic_id, 0, "atomic id");
 DEFINE_int64(atomic_val, 0, "atomic value");
 DEFINE_int64(atomic_new_val, 0, "atomic new_value");
+DEFINE_int32(log_level, 1, "min log level");
 
 class AtomicClient {
 public:
@@ -56,11 +58,11 @@ public:
                 if (response.success()) {
                     ret = 0;
                     *value = response.value();
-                    LOG(INFO) << "atomic_get success, id: " << id << " value: " << *value;
+                    LOG(NOTICE) << "atomic_get success, id: " << id << " value: " << *value;
                     break;
                 } else {
                     ret = EINVAL;
-                    LOG(INFO) << "atomic_get failed, id: " << id;
+                    LOG(WARNING) << "atomic_get failed, id: " << id;
                     break;
                 }
             } else if (cntl.ErrorCode() == baidu::rpc::SYS_ETIMEDOUT ||
@@ -105,7 +107,7 @@ public:
             if (!cntl.Failed()) {
                 if (response.success()) {
                     ret = 0;
-                    LOG(INFO) << "atomic_set success, id: " << id << " value: " << value;
+                    LOG(NOTICE) << "atomic_set success, id: " << id << " value: " << value;
                     break;
                 } else {
                     ret = EINVAL;
@@ -156,7 +158,7 @@ public:
                 if (response.success()) {
                     CHECK_EQ(old_value, response.old_value());
                     ret = 0;
-                    LOG(INFO) << "atomic_cas success, id: " << id
+                    LOG(NOTICE) << "atomic_cas success, id: " << id
                         << " old: " << old_value << " new: " << new_value;
                     break;
                 } else {
@@ -212,6 +214,8 @@ private:
 
 int main(int argc, char* argv[]) {
     google::ParseCommandLineFlags(&argc, &argv, true);
+
+    logging::SetMinLogLevel(FLAGS_log_level);
 
     if (FLAGS_cluster_ns.length() == 0) {
         return -1;
