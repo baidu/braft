@@ -63,7 +63,7 @@ CFLAGS += -fno-omit-frame-pointer
 #		../../thirdsrc/tcmalloc/output/lib/libtcmalloc_minimal.a \
 #	    ../../thirdsrc/tcmalloc/output/lib/libtcmalloc_minimal_debug.a 
 #LIBS += -lpthread -ldl -lstdc++ -lrt -lssl -lm
-LIBS += -lpthread -ldl -lrt -lssl -lm
+LIBS += -lpthread -ldl -lrt -lssl -lm -lbz2 -lcrypto
 #LIBS += -lpthread -ldl -lrt -lssl -lm -lasan
 
 PROGRAMS += tgtd tgtadm tgtimg

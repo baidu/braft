@@ -1782,6 +1782,12 @@ void NodeImpl::handle_install_snapshot_request(baidu::rpc::Controller* controlle
             << _current_term << " which is occupied by leader="
             << _leader_id;
     lck.unlock();
+    LOG(INFO) << "node " << _group_id << ":" << _server_id
+              << "received InstallSnapshotRequest"
+              << " last_included_log_index=" << request->last_included_log_index()
+              << " last_include_log_term=" << request->last_included_log_term()
+              << " from " << server_id
+              << " when last_log_id=" << _log_manager->last_log_id();
     return _snapshot_executor->install_snapshot(
             cntl, request, response, done_guard.release());
 }

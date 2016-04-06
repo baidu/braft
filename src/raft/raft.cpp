@@ -31,6 +31,8 @@ struct GlobalExtension {
     LocalSnapshotStorage local_snapshot;
 };
 
+int __attribute__((weak)) register_rocksdb_extension();
+
 static void global_init_or_die_impl() {
     static GlobalExtension s_ext;
     
@@ -38,6 +40,10 @@ static void global_init_or_die_impl() {
     log_storage_extension()->RegisterOrDie("local", &s_ext.local_log);
     stable_storage_extension()->RegisterOrDie("local", &s_ext.local_stable);
     snapshot_storage_extension()->RegisterOrDie("local", &s_ext.local_snapshot);
+
+    if ((void*)register_rocksdb_extension != NULL) {
+        register_rocksdb_extension();
+    }
 }
 
 // Non-static for unit test

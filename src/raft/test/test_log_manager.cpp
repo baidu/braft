@@ -468,3 +468,20 @@ TEST_F(LogManagerTest, pipelined_append) {
     }
 }
 
+TEST_F(LogManagerTest, set_snapshot) {
+    system("rm -rf ./data");
+    scoped_ptr<raft::ConfigurationManager> cm(
+                                new raft::ConfigurationManager);
+    scoped_ptr<raft::SegmentLogStorage> storage(
+                                new raft::SegmentLogStorage("./data"));
+    scoped_ptr<raft::LogManager> lm(new raft::LogManager());
+    raft::LogManagerOptions opt;
+    opt.log_storage = storage.get();
+    opt.configuration_manager = cm.get();
+    ASSERT_EQ(0, lm->init(opt));
+    raft::SnapshotMeta meta;
+    meta.last_included_index = 1000;
+    meta.last_included_term = 2;
+    lm->set_snapshot(&meta);
+    ASSERT_EQ(raft::LogId(1000, 2), lm->last_log_id(false));
+}

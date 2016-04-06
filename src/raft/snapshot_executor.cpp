@@ -179,11 +179,10 @@ int SnapshotExecutor::on_snapshot_save_done(
     if (ret == 0) {
         _last_snapshot_index = meta.last_included_index;
         _last_snapshot_term = meta.last_included_term;
+        lck.unlock();
+        _log_manager->set_snapshot(&meta);
+        lck.lock();
     }
-    lck.unlock();
-
-    _log_manager->set_snapshot(&meta);
-    lck.lock();
     _saving_snapshot = false;
     return ret;
 }
@@ -205,7 +204,7 @@ void SnapshotExecutor::on_snapshot_load_done(const base::Status& st) {
         << " last_configuration " << _loading_snapshot_meta.last_configuration;
     lck.unlock();
     if (_node) {
-        // FIXME: race with set_peer, maybe it's fine
+        // FIXME: race with set_peer, not sure if this is fine
         _node->update_configuration_after_installing_snapshot();
     }
     lck.lock();
@@ -248,7 +247,7 @@ SnapshotWriter* SaveSnapshotDone::start(const SnapshotMeta& meta) {
 void* SaveSnapshotDone::continue_run(void* arg) {
     SaveSnapshotDone* self = (SaveSnapshotDone*)arg;
     std::unique_ptr<SaveSnapshotDone> self_guard(self);
-    // Must call on_snapshot_load_done to clear _saving_snapshot
+    // Must call on_snapshot_save_done to clear _saving_snapshot
     int ret = self->_se->on_snapshot_save_done(
         self->status(), self->_meta, self->_writer);
     if (ret != 0 && self->status().ok()) {

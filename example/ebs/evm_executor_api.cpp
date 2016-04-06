@@ -132,16 +132,18 @@ int write(uint64_t block_id, const void* buf, int64_t len, off_t offset) {
         cntl.set_timeout_ms(FLAGS_timeout_ms);
         BlockServiceAdaptor_Stub stub(&channel);
         stub.Write(&cntl, &request, &response, NULL);
-        if (!cntl.Failed()) {
-            CHECK_EQ(0, response.error_code());
+        if (!cntl.Failed() && response.error_code() == 0) {
             return 0;
         }
         if (cntl.ErrorCode() == baidu::rpc::ERPCTIMEDOUT) {
             bthread_usleep(100 * 1000);
             continue;
         }
-        CHECK(cntl.ErrorCode() == EINVAL || cntl.ErrorCode() == EPERM);
-        LOG(WARNING) << "Fail to write, " << cntl.ErrorText();
+        const int ec = cntl.Failed() ? cntl.ErrorCode() : response.error_code();
+        const char* error_text = cntl.Failed() ? cntl.ErrorText().c_str() 
+                                               : response.error_message().c_str();
+        CHECK(ec == EPERM || ec == EINVAL);
+        LOG(WARNING) << "Fail to write, " << error_text;
         should_get_leader = true;
     }
 
@@ -180,15 +182,7 @@ int read(uint64_t block_id, void* buf, int64_t len, off_t offset) {
         cntl.set_timeout_ms(FLAGS_timeout_ms);
         BlockServiceAdaptor_Stub stub(&channel);
         stub.Read(&cntl, &request, &response, NULL);
-        if (!cntl.Failed()) {
-            if (response.error_code() != 0) {
-                LOG(ERROR) << "Fail to read block_id=" << block_id
-                           << " offset=" << offset
-                           << " length=" << len
-                           << " server=" << cntl.remote_side()
-                           << " error=" << berror(response.error_code());
-                return -1;
-            }
+        if (!cntl.Failed() && response.error_code() == 0)  {
             if ((size_t)len != response.data().size()) {
                 LOG(ERROR) << "Fail to read block_id=" << block_id
                            << " offset=" << offset
@@ -204,8 +198,8 @@ int read(uint64_t block_id, void* buf, int64_t len, off_t offset) {
             bthread_usleep(100 * 1000);
             continue;
         }
-        CHECK(cntl.ErrorCode() == EINVAL || cntl.ErrorCode() == EPERM);
-        LOG(WARNING) << "Fail to write, " << cntl.ErrorText();
+        const int ec = cntl.Failed() ? cntl.ErrorCode() : response.error_code();
+        CHECK(ec == EPERM || ec == EINVAL) << "ec=" << ec << ", " << berror(ec);
         should_get_leader = true;
     }
     return -1;

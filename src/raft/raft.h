@@ -14,6 +14,10 @@
 #include <base/status.h>
 #include "raft/configuration.h"
 
+#ifdef RAFT_ENABLE_ROCKSDB_STORAGE
+#include <raft/rocksdb.h>
+#endif // RAFT_ENABLE_ROCKSDB_STORAGE
+
 namespace baidu {
 namespace rpc {
 class Server;

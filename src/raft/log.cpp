@@ -243,6 +243,7 @@ int Segment::load(ConfigurationManager* configuration_manager) {
                 configuration_manager->add(LogId(i, header.term), 
                                            Configuration(peers));
             } else {
+                ret = -1;
                 break;
             }
         }

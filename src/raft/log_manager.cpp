@@ -513,9 +513,6 @@ void LogManager::set_snapshot(const SnapshotMeta* meta) {
     if (meta->last_included_index <= _last_snapshot_id.index) {
         return;
     }
-    if (meta->last_included_index > _last_log_index) {
-        return;
-    }
 
     _config_manager->set_snapshot(
             LogId(meta->last_included_index, meta->last_included_term), 
@@ -533,8 +530,8 @@ void LogManager::set_snapshot(const SnapshotMeta* meta) {
         truncate_prefix(meta->last_included_index + 1, lck);
         return;
     } else if (term == meta->last_included_term) {
-        // Trucating log to the index of the last snapshot.
-        truncate_prefix(saved_last_snapshot_index, lck);
+        // Truncating log to the index of the last snapshot.
+        truncate_prefix(saved_last_snapshot_index + 1, lck);
         return;
     } else {
         // TODO: check the result of reset.
@@ -547,7 +544,7 @@ void LogManager::set_snapshot(const SnapshotMeta* meta) {
 void LogManager::clear_bufferred_logs() {
     std::unique_lock<raft_mutex_t> lck(_mutex);
     if (_last_snapshot_id.index != 0) {
-        truncate_prefix(_last_snapshot_id.index, lck);
+        truncate_prefix(_last_snapshot_id.index + 1, lck);
     }
 }
 

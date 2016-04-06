@@ -143,15 +143,14 @@ void protobuf_AddDesc_raft_2flocal_5fstorage_2eproto() {
   already_here = true;
   GOOGLE_PROTOBUF_VERIFY_VERSION;
 
-  ::raft::protobuf_AddDesc_raft_2fraft_2eproto();
   ::google::protobuf::DescriptorPool::InternalAddGeneratedFile(
-    "\n\030raft/local_storage.proto\022\004raft\032\017raft/r"
-    "aft.proto\"$\n\023ConfigurationPBMeta\022\r\n\005peer"
-    "s\030\001 \003(\t\"$\n\tLogPBMeta\022\027\n\017first_log_index\030"
-    "\001 \002(\003\".\n\014StablePBMeta\022\014\n\004term\030\001 \002(\003\022\020\n\010v"
-    "otedfor\030\002 \002(\t\"X\n\016SnapshotPBMeta\022\032\n\022last_"
-    "included_term\030\001 \002(\003\022\033\n\023last_included_ind"
-    "ex\030\002 \002(\003\022\r\n\005peers\030\003 \003(\t", 263);
+    "\n\030raft/local_storage.proto\022\004raft\"$\n\023Conf"
+    "igurationPBMeta\022\r\n\005peers\030\001 \003(\t\"$\n\tLogPBM"
+    "eta\022\027\n\017first_log_index\030\001 \002(\003\".\n\014StablePB"
+    "Meta\022\014\n\004term\030\001 \002(\003\022\020\n\010votedfor\030\002 \002(\t\"X\n\016"
+    "SnapshotPBMeta\022\032\n\022last_included_term\030\001 \002"
+    "(\003\022\033\n\023last_included_index\030\002 \002(\003\022\r\n\005peers"
+    "\030\003 \003(\t", 246);
   ::google::protobuf::MessageFactory::InternalRegisterGeneratedFile(
     "raft/local_storage.proto", &protobuf_RegisterTypes);
   ConfigurationPBMeta::default_instance_ = new ConfigurationPBMeta();

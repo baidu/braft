@@ -31,6 +31,7 @@ DEFINE_int32(election_timeout_ms, 5000,
 DEFINE_int32(block_num, 32, "Number of block");
 DEFINE_int64(block_size, 1L * 1024 * 1024 * 1024, "Size of each block");
 DEFINE_bool(sync_data, false, "Sync block on each write");
+DEFINE_bool(use_rocksdb, true, "Store WAL in RocksDB");
 
 BAIDU_RPC_VALIDATE_GFLAG(sync_data, ::baidu::rpc::PassValidate);
 
@@ -179,7 +180,9 @@ public:
         if (_fd != NULL) {
             return 0;
         }
-        std::string path = raft::fileuri2path(options.snapshot_uri);
+        const size_t pos = options.snapshot_uri.find("://");
+        CHECK_NE(std::string::npos, pos);
+        std::string path = options.snapshot_uri.substr(pos + 3);
         path.append("/data");
         int fd = ::open(path.c_str(), O_CREAT | O_RDWR, 0644);
         if (fd < 0) {
@@ -383,7 +386,7 @@ public:
             base::string_printf(&name, "block_%d", i);
             Block* block = new Block(name, raft::PeerId(addr, 0));
             std::string prefix;
-            base::string_printf(&prefix, "local://%s/data/block_%d", FLAGS_ip_and_port.c_str(), i);
+            base::string_printf(&prefix, "local://data/block_%d", i);
             raft::NodeOptions node_options;
             node_options.election_timeout = base::fast_rand_in(5000, 20000);
             node_options.fsm = block;
@@ -391,7 +394,13 @@ public:
             node_options.snapshot_interval = 
                     base::fast_rand_in(FLAGS_snapshot_interval, 
                                        FLAGS_snapshot_interval * 2);
-            node_options.log_uri = prefix + "/log";
+            std::string log_uri;
+            if (FLAGS_use_rocksdb) {
+                base::string_printf(&log_uri, "rocksdb://data/logs?id=%s", name.c_str());
+            } else {
+                log_uri = prefix + "/log";
+            }
+            node_options.log_uri = log_uri;
             node_options.stable_uri = prefix + "/stable";
             node_options.snapshot_uri = prefix + "/snapshot";
             if (block->init(node_options) != 0) {
@@ -459,7 +468,7 @@ int main(int argc, char* argv[]) {
 
     // [ Setup from ComlogSinkOptions ]
     logging::ComlogSinkOptions options;
-    options.async = true;
+    options.async = false;
     options.process_name = "block_server";
     options.print_vlog_as_warning = false;
     options.split_type = logging::COMLOG_SPLIT_SIZECUT;

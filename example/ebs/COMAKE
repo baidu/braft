@@ -8,8 +8,10 @@ CFLAGS('-g -O2 -pipe -W -Wall -fPIC')
 
 CPPFLAGS('-g -O2 -pipe -W -Wall -fPIC')
 CPPFLAGS('-fPIC ')
-#CXXFLAGS('-fsanitize=address  -fno-omit-frame-pointer')
+#CXXFLAGS('-fsanitize=address  
+CPPFLAGS('-fno-omit-frame-pointer')
 CPPFLAGS('-D__const__= ')
+CPPFLAGS('-DRAFT_ENABLE_ROCKSDB_STORAGE')
 
 INCPATHS('../../src ../common')
 
@@ -17,8 +19,10 @@ ImportConfigsFrom('../..')
 
 profiler_flags=CppFlags('-DBAIDU_RPC_ENABLE_CPU_PROFILER -DBAIDU_RPC_ENABLE_HEAP_PROFILER')
 CONFIGS('third-64/tcmalloc@1.7.0.200',Libraries())
+                                       # ^^^ Don't link tcmalloc to libexecutor.so
+CONFIGS('public/raft-rocksdb@trunk@comake')
 
-LDFLAGS('-lpthread -lrt -ldl -lz -lssl -lcrypto')
+LDFLAGS('-lpthread -lrt -ldl -lz -lssl -lcrypto -lbz2')
 #LDFLAGS('-lasan')
 
 PROTOC(ENV.WorkRoot() + '/third-64/protobuf/bin/protoc')
