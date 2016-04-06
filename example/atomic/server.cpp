@@ -43,8 +43,9 @@ struct AtomicClosure : public raft::Closure {
 };
 
 enum AtomicOpType {
-    ATOMIC_OP_SET = 0,
-    ATOMIC_OP_CAS = 1,
+    ATOMIC_OP_GET = 0,
+    ATOMIC_OP_SET = 1,
+    ATOMIC_OP_CAS = 2,
 };
 
 class Atomic : public CommonStateMachine {
@@ -79,6 +80,8 @@ public:
             fsm_set(done, task.data);
         } else if (type == ATOMIC_OP_CAS) {
             fsm_cas(done, task.data);
+        } else if (type == ATOMIC_OP_GET) {
+            fsm_get(done, task.data);
         } else {
             CHECK(false) << "bad log format";
         }
@@ -157,6 +160,33 @@ public:
 
 private:
 
+    void fsm_get(raft::Closure* done, base::IOBuf* data) {
+        // follower direct return
+        if (!done) {
+            return;
+        }
+        base::IOBufAsZeroCopyInputStream wrapper(*data);
+        GetRequest req;
+        if (!req.ParseFromZeroCopyStream(&wrapper)) {
+            done->status().set_error(baidu::rpc::EREQUEST,
+                                     "Fail to parse buffer");
+            LOG(INFO) << "Fail to parse GetRequest";
+            return;
+        }
+
+        LOG(INFO) << "fsm_get, id: " << req.id();
+        BAIDU_SCOPED_LOCK(_mutex);
+        GetResponse* res = (GetResponse*)((AtomicClosure*)done)->response;
+        int64_t* val_ptr = _value_map.seek(req.id());
+        if (val_ptr) {
+            res->set_value(*val_ptr);
+            res->set_success(true);
+        } else {
+            res->set_value(0);
+            res->set_success(false);
+        }
+    }
+
     void fsm_set(raft::Closure* done, base::IOBuf* data) {
         base::IOBufAsZeroCopyInputStream wrapper(*data);
         SetRequest req;
@@ -169,11 +199,11 @@ private:
             return;
         }
 
+        LOG(INFO) << "fsm_set, id: " << req.id() << " val: " << req.value();
         BAIDU_SCOPED_LOCK(_mutex);
         _value_map[req.id()] = req.value();
-        SetResponse* res = NULL;
         if (done) {
-            res = (SetResponse*)((AtomicClosure*)done)->response;
+            SetResponse* res = (SetResponse*)((AtomicClosure*)done)->response;
             res->set_success(true);
         }
     }
@@ -190,19 +220,30 @@ private:
             return;
         }
 
+        LOG(INFO) << "fsm_cas, id: " << req.id() << " expected_val: " << req.expected_value()
+            << " new_val: " << req.new_value();
         BAIDU_SCOPED_LOCK(_mutex);
-        const int64_t id = req.id();
-        int64_t& cur_val = _value_map[id];
         CompareExchangeResponse* res = NULL;
-        if (done) {
-            res = (CompareExchangeResponse*)((AtomicClosure*)done)->response;
-            res->set_old_value(cur_val);
-        }
-        if (cur_val == req.expected_value()) {
-            cur_val = req.new_value();
-            if (res) { res->set_success(true); }
+        const int64_t id = req.id();
+        int64_t* val_ptr = _value_map.seek(id);
+        if (val_ptr == NULL) {
+            if (done) {
+                res = (CompareExchangeResponse*)((AtomicClosure*)done)->response;
+                res->set_old_value(0);
+                res->set_success(false);
+            }
         } else {
-            if (res) { res->set_success(false); }
+            int64_t& cur_val = _value_map[id];
+            if (done) {
+                res = (CompareExchangeResponse*)((AtomicClosure*)done)->response;
+                res->set_old_value(cur_val);
+            }
+            if (cur_val == req.expected_value()) {
+                cur_val = req.new_value();
+                if (res) { res->set_success(true); }
+            } else {
+                if (res) { res->set_success(false); }
+            }
         }
     }
 
@@ -250,6 +291,7 @@ public:
         baidu::rpc::Controller* cntl = (baidu::rpc::Controller*)controller;
 
         //XXX: strict linearity check need trigger heartbeat before read, to check leader valid
+#if 0
         int64_t value = 0;
         if (0 == _atomic->get(request->id(), &value)) {
             response->set_success(true);
@@ -257,6 +299,22 @@ public:
         } else {
             cntl->SetFailed(baidu::rpc::SYS_EPERM, "not leader");
         }
+#else
+        base::IOBuf data;
+        AtomicOpType type = ATOMIC_OP_GET;
+        data.append(&type, sizeof(type));
+        base::IOBufAsZeroCopyOutputStream wrapper(&data);
+        if (!request->SerializeToZeroCopyStream(&wrapper)) {
+            cntl->SetFailed(baidu::rpc::EREQUEST, "Fail to serialize request");
+            return;
+        }
+
+        AtomicClosure* c = new AtomicClosure;
+        c->cntl = cntl;
+        c->response = response;
+        c->done = done_guard.release();
+        return _atomic->apply(&data, c);
+#endif
     }
 
     virtual void set(::google::protobuf::RpcController* controller,
@@ -276,6 +334,7 @@ public:
         }
 
         AtomicClosure* c = new AtomicClosure;
+        c->cntl = cntl;
         c->response = response;
         c->done = done_guard.release();
         return _atomic->apply(&data, c);

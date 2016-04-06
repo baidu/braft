@@ -216,6 +216,14 @@ example/ebs/tgt/usr/work.c -text
 example/ebs/tgt/usr/work.d -text
 example/ebs/tgt/usr/work.h -text
 example/ebs/tools/attach_volume.sh -text
+jepsen.atomic/.hgignore -text
+jepsen.atomic/CHANGELOG.md -text
+jepsen.atomic/LICENSE -text
+jepsen.atomic/README.md -text
+jepsen.atomic/doc/intro.md -text
+jepsen.atomic/project.clj -text
+jepsen.atomic/src/jepsen/atomic.clj -text
+jepsen.atomic/test/jepsen/atomic_test.clj -text
 protocol/raft/builtin_service.proto -text
 protocol/raft/errno.proto -text
 protocol/raft/file_service.proto -text

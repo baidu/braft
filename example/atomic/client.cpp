@@ -58,7 +58,9 @@ public:
                 if (response.success()) {
                     ret = 0;
                     *value = response.value();
-                    LOG(NOTICE) << "atomic_get success, id: " << id << " value: " << *value;
+                    //LOG(NOTICE) << "atomic_get success, id: " << id << " value: " << *value;
+                    //XXX: make jepsen parse get's output easily
+                    printf("%ld\n", *value);
                     break;
                 } else {
                     ret = EINVAL;
