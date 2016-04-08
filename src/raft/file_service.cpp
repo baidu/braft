@@ -22,6 +22,14 @@ void FileServiceImpl::list_path(::google::protobuf::RpcController* controller,
                                ::google::protobuf::Closure* done) {
     baidu::rpc::ClosureGuard done_gurad(done);
     baidu::rpc::Controller* cntl = (baidu::rpc::Controller*)controller;
+
+    //check path acl
+    if (!PathACL::GetInstance()->check(request->path())) {
+        cntl->SetFailed(ENOENT, "Fail to get info of path=%s",
+                        request->path().c_str());
+        return;
+    }
+
     std::stack<base::FilePath> st;
     st.push(base::FilePath(request->path()));
     while (!st.empty()) {
@@ -58,6 +66,14 @@ void FileServiceImpl::get_file(::google::protobuf::RpcController* controller,
          << " offset " << request->offset() << " count " << request->count();
     baidu::rpc::ClosureGuard done_gurad(done);
     baidu::rpc::Controller* cntl = (baidu::rpc::Controller*)controller;
+
+    //check path acl
+    if (!PathACL::GetInstance()->check(request->file_path())) {
+        cntl->SetFailed(ENOENT, "Fail to get info of path=%s",
+                        request->file_path().c_str());
+        return;
+    }
+
     if (request->count() <= 0 || request->offset() < 0) {
         cntl->SetFailed(baidu::rpc::EREQUEST, "Invalid request=%s",
                         request->ShortDebugString().c_str());

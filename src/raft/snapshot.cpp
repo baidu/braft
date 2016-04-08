@@ -171,9 +171,13 @@ std::string LocalSnapshotReader::get_uri(const base::EndPoint& hint_addr) {
 LocalSnapshotStorage::LocalSnapshotStorage(const std::string& path)
     : _path(path),
     _last_snapshot_index(0) {
+    if (!PathACL::GetInstance()->add(_path)) {
+        LOG(WARNING) << "LocalSnapshotStorage add PathACL failed, path: " << path;
+    }
 }
 
 LocalSnapshotStorage::~LocalSnapshotStorage() {
+    PathACL::GetInstance()->remove(_path);
 }
 
 int LocalSnapshotStorage::init() {

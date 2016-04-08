@@ -10,7 +10,10 @@
 #include <zlib.h>
 #include <net/if.h>
 #include <sys/ioctl.h>
+#include <limits.h>
+#include <stdlib.h>
 #include <string>
+#include <set>
 #include <iterative_murmurhash3.h>
 #include <base/endpoint.h>
 #include <base/scoped_lock.h>
@@ -19,6 +22,8 @@
 #include <base/logging.h>
 #include <base/iobuf.h>
 #include <base/unique_ptr.h>
+#include <base/memory/singleton.h>
+#include <base/containers/doubly_buffered_data.h>
 #include <bthread.h>
 #include "raft/macros.h"
 
@@ -149,6 +154,34 @@ private:
     base::IOBuf::Area _seg_header;
     uint64_t _seg_offset;
     uint32_t _seg_len;
+};
+
+// PathACL, path must is dir, and not inherit relationship with any path in acl
+class PathACL {
+public:
+    static PathACL* GetInstance() {
+        return Singleton<PathACL>::get();
+    }
+
+    bool check(const std::string& path);
+
+    bool add(const std::string& path);
+
+    bool remove(const std::string& path);
+
+private:
+    PathACL() {}
+    ~PathACL() {}
+    DISALLOW_COPY_AND_ASSIGN(PathACL);
+    friend struct DefaultSingletonTraits<PathACL>;
+
+    typedef std::set<std::string> AccessList;
+
+    static bool is_sub_path(const std::string& parent, const std::string& child);
+    static size_t add_path(AccessList& m, const std::string& path);
+    static size_t remove_path(AccessList& m, const std::string& path);
+
+    base::DoublyBufferedData<AccessList> _acl;
 };
 
 }  // namespace raft

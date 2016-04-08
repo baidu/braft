@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <base/macros.h>
 #include <base/raw_pack.h>                     // base::RawPacker
+#include <base/file_util.h>
 
 #include "raft/raft.h"
 
@@ -194,6 +195,75 @@ size_t FileSegData::next(uint64_t* offset, base::IOBuf* data) {
     size_t body_len = _data.cutn(data, seg_len);
     CHECK_EQ(body_len, seg_len) << "seg_len: " << seg_len << " body_len: " << body_len;
     return seg_len;
+}
+
+bool PathACL::check(const std::string& path) {
+    base::DoublyBufferedData<AccessList>::ScopedPtr ptr;
+    if (_acl.Read(&ptr) != 0) {
+        return false;
+    }
+
+    AccessList::const_iterator it = ptr->upper_bound(path);
+    if (it == ptr->begin()) {
+        return false;
+    }
+    --it;
+
+    int rc = path.compare(*it);
+    if (rc == 0) {
+        return true;
+    } else if (rc < 0) {
+        return false;
+    } else if (PathACL::is_sub_path((*it), path)) {
+        return true;
+    }
+
+    return false;
+}
+
+bool PathACL::add(const std::string& path) {
+    std::string real_path(path);
+    if (real_path.length() > 1 && real_path.at(real_path.length() - 1) == '/') {
+        real_path.erase(real_path.length() - 1, 1);
+    }
+    return _acl.Modify(add_path, real_path) != 0;
+}
+
+bool PathACL::remove(const std::string& path) {
+    std::string real_path(path);
+    if (real_path.length() > 1 && real_path.at(real_path.length() - 1) == '/') {
+        real_path.erase(real_path.length() - 1, 1);
+    }
+    return _acl.Modify(remove_path, path) != 0;
+}
+
+bool PathACL::is_sub_path(const std::string& parent, const std::string& child) {
+    if (child.length() >= parent.length() &&
+        strncmp(child.c_str(), parent.c_str(), parent.length()) == 0) {
+        if (child.length() == parent.length() ||
+            (child.length() > parent.length() && child.at(parent.length()) == '/')) {
+            return true;
+        } else {
+            return false;
+        }
+    } else {
+        return false;
+    }
+}
+
+size_t PathACL::add_path(AccessList& m, const std::string& path) {
+    for (AccessList::iterator it = m.begin(); it != m.end(); ++it) {
+        if (is_sub_path((*it), path) || is_sub_path(path, (*it))) {
+            LOG(WARNING) << "add_path " << path << " has inherit relationship with " << *it;
+            return 0;
+        }
+    }
+    m.insert(path);
+    return 1;
+}
+
+size_t PathACL::remove_path(AccessList& m, const std::string& path) {
+    return m.erase(path);
 }
 
 }  // namespace raft

@@ -538,7 +538,7 @@ void NodeImpl::handle_stepdown_timeout() {
     }
     if (dead_count < (peers.size() / 2 + 1)) {
         AddRef();
-        int64_t stepdown_timeout = _options.election_timeout;
+        int stepdown_timeout = _options.election_timeout;
         raft_timer_add(&_stepdown_timer, base::milliseconds_from_now(stepdown_timeout),
                           on_stepdown_timer, this);
         RAFT_VLOG << "node " << _group_id << ":" << _server_id
@@ -801,7 +801,7 @@ void NodeImpl::handle_election_timeout() {
     if (!_vote_triggered &&
         base::monotonic_time_ms() - _last_leader_timestamp < _options.election_timeout) {
         AddRef();
-        int64_t election_timeout = random_timeout(_options.election_timeout);
+        int election_timeout = random_timeout(_options.election_timeout);
         raft_timer_add(&_election_timer, base::milliseconds_from_now(election_timeout),
                           on_election_timer, this);
         RAFT_VLOG << "node " << _group_id << ":" << _server_id
@@ -813,7 +813,7 @@ void NodeImpl::handle_election_timeout() {
 
     // start pre_vote, need restart election_timer
     AddRef();
-    int64_t election_timeout = random_timeout(_options.election_timeout);
+    int election_timeout = random_timeout(_options.election_timeout);
     raft_timer_add(&_election_timer, base::milliseconds_from_now(election_timeout),
                       on_election_timer, this);
     RAFT_VLOG << "node " << _group_id << ":" << _server_id
@@ -842,7 +842,7 @@ void NodeImpl::vote(int election_timeout) {
 
     int ret = raft_timer_del(_election_timer);
     if (ret == 0) {
-        int64_t new_election_timeout = random_timeout(_options.election_timeout);
+        int new_election_timeout = random_timeout(_options.election_timeout);
         raft_timer_add(&_election_timer, base::milliseconds_from_now(new_election_timeout),
                           on_election_timer, this);
         RAFT_VLOG << "node " << _group_id << ":" << _server_id
@@ -1203,7 +1203,7 @@ void NodeImpl::step_down(const int64_t term) {
             Release();
         }
         AddRef();
-        int64_t election_timeout = random_timeout(_options.election_timeout);
+        int election_timeout = random_timeout(_options.election_timeout);
         raft_timer_add(&_election_timer, base::milliseconds_from_now(election_timeout),
                           on_election_timer, this);
         RAFT_VLOG << "node " << _group_id << ":" << _server_id
@@ -1272,7 +1272,7 @@ void NodeImpl::become_leader() {
                                new LeaderStartClosure(_options.fsm));
 
     AddRef();
-    int64_t stepdown_timeout = _options.election_timeout;
+    int stepdown_timeout = _options.election_timeout;
     raft_timer_add(&_stepdown_timer, base::milliseconds_from_now(stepdown_timeout),
                       on_stepdown_timer, this);
     RAFT_VLOG << "node " << _group_id << ":" << _server_id

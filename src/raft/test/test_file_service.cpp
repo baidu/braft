@@ -8,6 +8,7 @@
 
 #include <baidu/rpc/server.h>
 #include "raft/file_service.h"
+#include "raft/util.h"
 #include "raft/remote_path_copier.h"
 
 class FileServiceTest : public testing::Test {
@@ -35,6 +36,8 @@ TEST_F(FileServiceTest, sanity) {
     // normal init
     ASSERT_EQ(0, str2endpoint("127.0.0.1:60006", &point));
     ASSERT_EQ(0, copier.init(point));
+
+    raft::PathACL::GetInstance()->add("./a");
 
     // normal copy dir
     system("chmod -R 755 ./a; chmod -R 755 ./b");
@@ -67,6 +70,7 @@ TEST_F(FileServiceTest, sanity) {
                         "dd if=/dev/zero of=./a/1M.data bs=1024 count=1024"));
     ASSERT_EQ(0, copier.copy("./a", "./b", NULL));
 
+    raft::PathACL::GetInstance()->add("./1M.data");
     // normal copy file
     ASSERT_EQ(0, system("rm -rf a; rm -rf b; mkdir a;"
                         "dd if=/dev/zero of=./1M.data bs=1024 count=1024"));
@@ -81,6 +85,9 @@ TEST_F(FileServiceTest, sanity) {
     ASSERT_NE(0, copier.copy("./1M.data", "./b", NULL));
 
     ASSERT_EQ(0, system("rm -rf a; rm -rf b;"));
+
+    raft::PathACL::GetInstance()->remove("./a");
+    raft::PathACL::GetInstance()->remove("./1M.data");
 }
 
 TEST_F(FileServiceTest, hole_file) {
@@ -97,10 +104,14 @@ TEST_F(FileServiceTest, hole_file) {
     }
     ::close(fd);
 
+    raft::PathACL::GetInstance()->add("./a");
+
     raft::RemotePathCopier copier;
     base::EndPoint point;
     // normal init
     ASSERT_EQ(0, str2endpoint("127.0.0.1:60006", &point));
     ASSERT_EQ(0, copier.init(point));
     ASSERT_EQ(0, copier.copy("./a", "./b", NULL));
+
+    raft::PathACL::GetInstance()->remove("./a");
 }
