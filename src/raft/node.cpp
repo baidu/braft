@@ -710,9 +710,9 @@ int NodeImpl::set_peer(const std::vector<PeerId>& old_peers, const std::vector<P
     Configuration new_conf(new_peers);
     LOG(INFO) << "node " << _group_id << ":" << _server_id << " set_peer from " << _conf.second
         << " to " << new_conf;
-    // step down and change conf
-    step_down(_current_term + 1);
+    // change conf and step_down
     _conf.second = new_conf;
+    step_down(_current_term + 1);
     return 0;
 }
 
@@ -1158,6 +1158,7 @@ void NodeImpl::step_down(const int64_t term) {
         << " term " << _current_term << " stepdown from " << state2str(_state)
         << " new_term " << term;
 
+    // delete timer and something else
     if (_state == CANDIDATE) {
         RAFT_VLOG << "node " << _group_id << ":" << _server_id
             << " term " << _current_term << " stop vote_timer";
@@ -1181,27 +1182,36 @@ void NodeImpl::step_down(const int64_t term) {
 
         // signal fsm leader stop immediately
         _fsm_caller->on_leader_stop();
-    }
-
-    if (_snapshot_executor) {
-        _snapshot_executor->interrupt_downloading_snapshot(term);
-    }
-
-    _state = FOLLOWER;
-    _leader_id.reset();
-    _current_term = term;
-    _voted_id.reset();
-    _conf_ctx.reset();
-    //TODO: outof lock
-    _stable_storage->set_term_and_votedfor(term, _voted_id);
-
-    // no empty configuration, start election timer
-    if (!_conf.second.empty() && _conf.second.contains(_server_id)) {
+    } else {
         // maybe called from follower, try del timer
         int ret = raft_timer_del(_election_timer);
         if (ret == 0) {
             Release();
         }
+    }
+
+    // soft state in memory
+    _state = FOLLOWER;
+    _leader_id.reset();
+    _conf_ctx.reset();
+
+    // stable state
+    if (term > _current_term) {
+        if (_snapshot_executor) {
+            _snapshot_executor->interrupt_downloading_snapshot(term);
+        }
+
+        _current_term = term;
+        _voted_id.reset();
+        //TODO: outof lock
+        _stable_storage->set_term_and_votedfor(term, _voted_id);
+    }
+
+    // stop stagging new node
+    _replicator_group.stop_all();
+
+    // no empty configuration, start election timer
+    if (!_conf.second.empty() && _conf.second.contains(_server_id)) {
         AddRef();
         int election_timeout = random_timeout(_options.election_timeout);
         raft_timer_add(&_election_timer, base::milliseconds_from_now(election_timeout),
@@ -1209,9 +1219,6 @@ void NodeImpl::step_down(const int64_t term) {
         RAFT_VLOG << "node " << _group_id << ":" << _server_id
             << " term " << _current_term << " start election_timer";
     }
-
-    // stop stagging new node
-    _replicator_group.stop_all();
 }
 
 class LeaderStartClosure : public Closure {
@@ -1488,6 +1495,7 @@ int NodeImpl::handle_request_vote_request(const RequestVoteRequest* request,
                           >= last_log_id);
         // save
         if (log_is_ok && _voted_id.is_empty()) {
+            step_down(request->term());
             _voted_id = candidate_id;
             //TODO: outof lock
             _stable_storage->set_votedfor(candidate_id);

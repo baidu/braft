@@ -201,6 +201,21 @@ TEST_F(TestUsageSuits, FileSegData) {
 }
 
 TEST_F(TestUsageSuits, PathACL) {
+
+    std::string real_path;
+    ASSERT_TRUE(raft::PathACL::normalize_path("/a/b/c/", &real_path));
+    ASSERT_EQ(real_path, std::string("/a/b/c"));
+    ASSERT_TRUE(raft::PathACL::normalize_path("//a/b/c/", &real_path));
+    ASSERT_EQ(real_path, std::string("/a/b/c"));
+    ASSERT_TRUE(raft::PathACL::normalize_path("//a/b//c/", &real_path));
+    ASSERT_EQ(real_path, std::string("/a/b/c"));
+    ASSERT_TRUE(raft::PathACL::normalize_path("../a//./b/c/", &real_path));
+    ASSERT_EQ(real_path, std::string("../a/b/c"));
+    ASSERT_TRUE(raft::PathACL::normalize_path(".//a//./b/c/", &real_path));
+    ASSERT_EQ(real_path, std::string("a/b/c"));
+    ASSERT_TRUE(raft::PathACL::normalize_path("./a//../b/c/", &real_path));
+    ASSERT_EQ(real_path, std::string("b/c"));
+
     raft::PathACL* acl = raft::PathACL::GetInstance();
     ASSERT_TRUE(acl->add("./test1/"));
     ASSERT_FALSE(acl->add("./test1/test2/"));
@@ -215,6 +230,9 @@ TEST_F(TestUsageSuits, PathACL) {
     ASSERT_TRUE(acl->check("./test1/test2/test3"));
     ASSERT_TRUE(acl->check("./test1"));
     ASSERT_TRUE(acl->check("./test1/test2"));
+    ASSERT_FALSE(acl->check("./test1/../test2"));
+    ASSERT_TRUE(acl->check("./test1/test2/../test3"));
+    ASSERT_FALSE(acl->check("/"));
 
     ASSERT_TRUE(acl->remove("./test1"));
     ASSERT_FALSE(acl->remove("./test1/test2"));

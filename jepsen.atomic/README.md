@@ -16,6 +16,8 @@ A Clojure library designed to ... well, that part is up to you.
 6. lein deps && lein test
 
 [NOTE] deps can download from dev, then copy .m2 to control host.
+iptables command invalid in jepsen/src/net.clj, remove -w. then lein install
+most code copy from elasticsearch and logcabin
 
 ## License
 

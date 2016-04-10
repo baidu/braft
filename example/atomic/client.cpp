@@ -16,15 +16,17 @@
 
 DEFINE_int32(timeout_ms, 3000, "Timeout for each request");
 DEFINE_string(cluster_ns, "", "Name service for the cluster");
+DEFINE_string(peer, "", "add/remove peer");
 DEFINE_string(atomic_op, "get", "atomic op: get/set/cas");
 DEFINE_int64(atomic_id, 0, "atomic id");
 DEFINE_int64(atomic_val, 0, "atomic value");
 DEFINE_int64(atomic_new_val, 0, "atomic new_value");
 DEFINE_int32(log_level, 1, "min log level");
 
-class AtomicClient {
+class AtomicClient : public example::CommonCli {
 public:
-    AtomicClient() {
+    AtomicClient(const std::vector<raft::PeerId>& peers)
+        : example::CommonCli(peers) {
         reset_leader();
         int ret = _cluster.Init(FLAGS_cluster_ns.c_str(), "rr", NULL);
         CHECK_EQ(0, ret) << "cluster channel init failed, cluster: " << FLAGS_cluster_ns;
@@ -216,15 +218,24 @@ private:
 
 int main(int argc, char* argv[]) {
     google::ParseCommandLineFlags(&argc, &argv, true);
-
     logging::SetMinLogLevel(FLAGS_log_level);
 
+    // parse cluster
     if (FLAGS_cluster_ns.length() == 0) {
         return -1;
     }
+    std::vector<raft::PeerId> peers;
+    const char* the_string_to_split = FLAGS_cluster_ns.c_str() + strlen("list://");
+    for (base::StringSplitter s(the_string_to_split, ','); s; ++s) {
+        raft::PeerId peer(std::string(s.field(), s.length()));
+        peers.push_back(peer);
+    }
+    if (peers.size() == 0) {
+        LOG(ERROR) << "atomic_client need set peers";
+        return -1;
+    }
 
-    AtomicClient client;
-
+    AtomicClient client(peers);
     if (FLAGS_atomic_op.compare("get") == 0) {
         int64_t value = 0;
         return client.get(FLAGS_atomic_id, &value);
@@ -232,7 +243,22 @@ int main(int argc, char* argv[]) {
         return client.set(FLAGS_atomic_id, FLAGS_atomic_val);
     } else if (FLAGS_atomic_op.compare("cas") == 0) {
         return client.cas(FLAGS_atomic_id, FLAGS_atomic_val, FLAGS_atomic_new_val);
+    } else if (FLAGS_atomic_op.compare("add_peer") == 0) {
+        if (FLAGS_peer.length() == 0) {
+            LOG(ERROR) << "atomic_client add_peer need peer argument";
+            return -1;
+        }
+        raft::PeerId peer(FLAGS_peer);
+        return client.add_peer(peer.addr);
+    } else if (FLAGS_atomic_op.compare("remove_peer") == 0) {
+        if (FLAGS_peer.length() == 0) {
+            LOG(ERROR) << "atomic_client add_peer need peer argument";
+            return -1;
+        }
+        raft::PeerId peer(FLAGS_peer);
+        return client.remove_peer(peer.addr);
     } else {
+        LOG(ERROR) << "unexpected command " << FLAGS_atomic_op;
         return -1;
     }
 }

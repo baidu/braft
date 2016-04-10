@@ -26,6 +26,7 @@
 #include <base/containers/doubly_buffered_data.h>
 #include <bthread.h>
 #include "raft/macros.h"
+#include "raft/timer.h"
 
 namespace base {
 
@@ -177,6 +178,7 @@ private:
 
     typedef std::set<std::string> AccessList;
 
+    static bool normalize_path(const std::string& path, std::string* real_path);
     static bool is_sub_path(const std::string& parent, const std::string& child);
     static size_t add_path(AccessList& m, const std::string& path);
     static size_t remove_path(AccessList& m, const std::string& path);

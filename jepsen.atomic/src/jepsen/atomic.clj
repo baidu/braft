@@ -5,10 +5,17 @@
               [cheshire.core :as json]
               [jepsen [db :as db]
                       [client  :as client]
+                      [checker   :as checker]
+                      [model     :as model]
                       [generator :as gen]
+                      [nemesis   :as nemesis]
+                      [store     :as store]
+                      [report    :as report]
                       [control :as c]
-                      [tests :as tests]]))
+                      [tests :as tests]]
+             [jepsen.checker.timeline :as timeline]))
 
+(def atomic-bin "atomic_server")
 (def atomic-path "/root/atomic")
 (def peers "list://10.75.27.19:8700,10.75.27.20:8700,10.75.27.25:8700,10.75.27.27:8700,10.75.27.28:8700")
 (def ip_and_port "0.0.0.0:8700")
@@ -20,20 +27,56 @@
 (def timeout-msg-pattern
   (re-pattern "'.*' atomic_cas timedout, id: '.*' old: '.*' new: '.*'"))
 
+(defn start!
+  "start atomic_server."
+  [node]
+  (info node "start atomic_server")
+  (c/cd atomic-path
+      (c/exec :sh "control.sh" "start")
+      (c/exec :sleep 5)))
+
+(defn stop!
+  "stop atomic_server."
+  [node]
+  (info node "stop atomic_server")
+  (c/cd atomic-path
+      (c/exec :sh "control.sh" "stop")
+      (c/exec :sleep 5)))
+
+(defn restart!
+  "restart atomic_server."
+  [node]
+  (info node "restart atomic_server")
+  (c/cd atomic-path
+      (c/exec :sh "control.sh" "restart")
+      (c/exec :sleep 5)))
+
+(defn add!
+  "add atomic_server."
+  [node]
+  (info node "add atomic_server")
+  (c/cd atomic-path
+      (c/exec :sh "control.sh" "join")
+      (c/exec :sleep 5)))
+
+(defn remove!
+  "remove atomic_server."
+  [node]
+  (info node "remove atomic_server")
+  (c/cd atomic-path
+      (c/exec :sh "control.sh" "leave")
+      (c/exec :sleep 5)))
+
 (defn db
     "atomic DB"
     []
     (reify db/DB
         (setup! [_ test node]
-            (info node "installing atomic")
-            (c/cd atomic-path
-                (c/exec :sh "start.sh")
-                (c/exec :sleep 5)))
+            (doto node
+                (start!)))
         (teardown! [_ test node]
-            (info node "tearing down atomic")
-            (c/cd atomic-path
-                (c/exec :sh "stop.sh")))))
-
+            (doto node
+                (stop!)))))
 
 (defn atomic-get!
     "get a value for id"
@@ -125,4 +168,169 @@
   "A compare and set register built around a single atomic id."
   []
   (CASClient. 1 nil))
+
+(defn mostly-small-nonempty-subset
+  "Returns a subset of the given collection, with a logarithmically decreasing
+  probability of selecting more elements. Always selects at least one element.
+
+      (->> #(mostly-small-nonempty-subset [1 2 3 4 5])
+           repeatedly
+           (map count)
+           (take 10000)
+           frequencies
+           sort)
+      ; => ([1 3824] [2 2340] [3 1595] [4 1266] [5 975])"
+  [xs]
+  (-> xs
+      count
+      inc
+      Math/log
+      rand
+      Math/exp
+      long
+      (take (shuffle xs))))
+
+(def crash-nemesis
+  "A nemesis that crashes a random subset of nodes."
+  (nemesis/node-start-stopper
+    mostly-small-nonempty-subset
+    (fn start [test node] (stop! node) [:killed node])
+    (fn stop  [test node] (restart! node) [:restarted node])))
+
+(def configuration-nemesis
+  "A nemesis that add/remove a random node."
+  (nemesis/node-start-stopper
+    rand-nth
+    (fn start [test node] (remove! node) [:removed node])
+    (fn stop  [test node] (add! node) [:added node])))
+
+(defn recover
+  "A generator which stops the nemesis and allows some time for recovery."
+  []
+  (gen/nemesis
+    (gen/phases
+      (gen/once {:type :info, :f :stop})
+      (gen/sleep 20))))
+
+(defn read-once
+  "A generator which reads exactly once."
+  []
+  (gen/clients
+    (gen/once {:type :invoke, :f :read})))
+
+(defn atomic-test
+  "Defaults for testing atomic."
+  [name opts]
+  (merge tests/noop-test
+         {:name (str "atomic" name)
+          :db   (db)}
+         opts))
+
+(defn create-test
+  "A generic create test."
+  [name opts]
+  (atomic-test (str "." name)
+           (merge {:client  (cas-client)
+                   :model     (model/cas-register)
+                   :checker   (checker/compose {:html   timeline/html
+                                                :linear checker/linearizable})
+                   :ssh {:username "root"
+                         :password "bcetest"
+                         :strict-host-key-checking "false"}}
+                   opts)))
+
+(defn create-crash-test
+  "killing random nodes and restarting them."
+  []
+  (create-test "crash"
+               {:nemesis   crash-nemesis
+                 :generator (gen/phases
+                              (->> gen/cas
+                                  (gen/stagger 1/10)
+                                  (gen/delay 1/10)
+                                  (gen/nemesis
+                                      (gen/seq
+                                          (cycle [(gen/sleep 10)
+                                              {:type :info :f :start}
+                                              (gen/sleep 10)
+                                              {:type :info :f :stop}])))
+                                  (gen/time-limit 120))
+                              (recover)
+                              (read-once))}))
+
+(defn create-configuration-test
+  "remove and add a random node."
+  []
+  (create-test "configuration"
+               {:nemesis   configuration-nemesis
+                 :generator (gen/phases
+                              (->> gen/cas
+                                  (gen/stagger 1/10)
+                                  (gen/delay 1/10)
+                                  (gen/nemesis
+                                      (gen/seq
+                                          (cycle [(gen/sleep 10)
+                                              {:type :info :f :start}
+                                              (gen/sleep 10)
+                                              {:type :info :f :stop}])))
+                                  (gen/time-limit 120))
+                              (recover)
+                              (read-once))}))
+
+(defn create-partition-test
+  "Cuts the network into randomly chosen halves."
+  []
+  (create-test "partition"
+               { :nemesis   (nemesis/partition-random-halves)
+                 :generator (gen/phases
+                              (->> gen/cas
+                                  (gen/stagger 1/10)
+                                  (gen/delay 1/10)
+                                  (gen/nemesis
+                                      (gen/seq
+                                          (cycle [(gen/sleep 10)
+                                              {:type :info :f :start}
+                                              (gen/sleep 10)
+                                              {:type :info :f :stop}])))
+                                  (gen/time-limit 120))
+                              (recover)
+                              (read-once))}))
+
+(defn create-pause-test
+  "pausing random node with SIGSTOP/SIGCONT."
+  []
+  (create-test "pause"
+               { :nemesis   (nemesis/hammer-time atomic-bin)
+                 :generator (gen/phases
+                              (->> gen/cas
+                                  (gen/stagger 1/10)
+                                  (gen/delay 1/10)
+                                  (gen/nemesis
+                                      (gen/seq
+                                          (cycle [(gen/sleep 10)
+                                              {:type :info :f :start}
+                                              (gen/sleep 10)
+                                              {:type :info :f :stop}])))
+                                  (gen/time-limit 120))
+                              (recover)
+                              (read-once))}))
+
+(defn create-bridge-test
+  "weaving the network into happy little intersecting majority rings"
+  []
+  (create-test "bridge"
+               { :nemesis   (nemesis/partitioner (comp nemesis/bridge shuffle))
+                 :generator (gen/phases
+                              (->> gen/cas
+                                  (gen/stagger 1/10)
+                                  (gen/delay 1/10)
+                                  (gen/nemesis
+                                      (gen/seq
+                                          (cycle [(gen/sleep 10)
+                                              {:type :info :f :start}
+                                              (gen/sleep 10)
+                                              {:type :info :f :stop}])))
+                                  (gen/time-limit 120))
+                              (recover)
+                              (read-once))}))
 

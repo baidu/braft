@@ -198,23 +198,28 @@ size_t FileSegData::next(uint64_t* offset, base::IOBuf* data) {
 }
 
 bool PathACL::check(const std::string& path) {
+    std::string real_path;
+    if (!PathACL::normalize_path(path, &real_path)) {
+        return false;
+    }
+
     base::DoublyBufferedData<AccessList>::ScopedPtr ptr;
     if (_acl.Read(&ptr) != 0) {
         return false;
     }
 
-    AccessList::const_iterator it = ptr->upper_bound(path);
+    AccessList::const_iterator it = ptr->upper_bound(real_path);
     if (it == ptr->begin()) {
         return false;
     }
     --it;
 
-    int rc = path.compare(*it);
+    int rc = real_path.compare(*it);
     if (rc == 0) {
         return true;
     } else if (rc < 0) {
         return false;
-    } else if (PathACL::is_sub_path((*it), path)) {
+    } else if (PathACL::is_sub_path((*it), real_path)) {
         return true;
     }
 
@@ -222,19 +227,21 @@ bool PathACL::check(const std::string& path) {
 }
 
 bool PathACL::add(const std::string& path) {
-    std::string real_path(path);
-    if (real_path.length() > 1 && real_path.at(real_path.length() - 1) == '/') {
-        real_path.erase(real_path.length() - 1, 1);
+    std::string real_path;
+    if (!PathACL::normalize_path(path, &real_path)) {
+        return false;
     }
+
     return _acl.Modify(add_path, real_path) != 0;
 }
 
 bool PathACL::remove(const std::string& path) {
-    std::string real_path(path);
-    if (real_path.length() > 1 && real_path.at(real_path.length() - 1) == '/') {
-        real_path.erase(real_path.length() - 1, 1);
+    std::string real_path;
+    if (!PathACL::normalize_path(path, &real_path)) {
+        return false;
     }
-    return _acl.Modify(remove_path, path) != 0;
+
+    return _acl.Modify(remove_path, real_path) != 0;
 }
 
 bool PathACL::is_sub_path(const std::string& parent, const std::string& child) {
@@ -249,6 +256,48 @@ bool PathACL::is_sub_path(const std::string& parent, const std::string& child) {
     } else {
         return false;
     }
+}
+
+bool PathACL::normalize_path(const std::string& path, std::string* real_path) {
+    base::FilePath real_file_path;
+    base::FilePath file_path(path);
+    std::vector<base::FilePath::StringType> components;
+    file_path.GetComponents(&components);
+
+    bool is_absolute = false;
+    std::vector<base::FilePath::StringType> real_components;
+    for (size_t i = 0; i < components.size(); i++) {
+        // maybe is // at head
+        if (components[i].at(0) == '/') {
+            if (i == 0) {
+                is_absolute = true;
+            }
+            continue;
+        } else if (components[i] == ".") {
+            continue;
+        } else if (components[i] == "..") {
+            if (real_components.size() > 0 && real_components.back() != "..") {
+                real_components.erase(real_components.end() - 1);
+            } else {
+                real_components.push_back(components[i]);
+            }
+        } else {
+            real_components.push_back(components[i]);
+        }
+    }
+
+    real_path->clear();
+    if (is_absolute) {
+        real_path->append("/");
+    }
+    for (size_t i = 0; i < real_components.size(); i++) {
+        real_path->append(real_components[i]);
+        if (i < real_components.size() - 1) {
+            real_path->append("/");
+        }
+    }
+
+    return (real_path->length() > 0);
 }
 
 size_t PathACL::add_path(AccessList& m, const std::string& path) {

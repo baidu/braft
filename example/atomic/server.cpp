@@ -68,13 +68,15 @@ public:
     }
 
     // FSM method
-    void on_apply(const int64_t /*index*/,
+    void on_apply(const int64_t index,
                   const raft::Task& task) {
         raft::Closure* done = task.done;
         baidu::rpc::ClosureGuard done_guard(done);
 
         AtomicOpType type;
         task.data->cutn(&type, sizeof(type));
+
+        LOG(INFO) << "on_apply index: " << index;
 
         if (type == ATOMIC_OP_SET) {
             fsm_set(done, task.data);
@@ -83,7 +85,7 @@ public:
         } else if (type == ATOMIC_OP_GET) {
             fsm_get(done, task.data);
         } else {
-            CHECK(false) << "bad log format";
+            CHECK(false) << "bad log format, type: " << type;
         }
 
         if (done) {
@@ -149,6 +151,7 @@ public:
     void on_leader_stop() {
         BAIDU_SCOPED_LOCK(_mutex);
         _is_leader = false;
+        int fd = creat("data/leader_flag", 0644);
     }
 
     void apply(base::IOBuf *iobuf, raft::Closure* done) {
