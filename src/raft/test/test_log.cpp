@@ -33,7 +33,7 @@ protected:
 
 TEST_F(TestUsageSuits, open_segment) {
     // open segment operation
-    raft::Segment* seg1 = new raft::Segment("./data", 1L);
+    raft::Segment* seg1 = new raft::Segment("./data", 1L, 0);
 
     // not open
     raft::LogEntry* entry = seg1->get(1);
@@ -83,7 +83,7 @@ TEST_F(TestUsageSuits, open_segment) {
 
     raft::ConfigurationManager* configuration_manager = new raft::ConfigurationManager;
     // load open segment
-    raft::Segment* seg2 = new raft::Segment("./data", 1);
+    raft::Segment* seg2 = new raft::Segment("./data", 1, 0);
     ASSERT_EQ(0, seg2->load(configuration_manager));
 
     for (int i = 0; i < 10; i++) {
@@ -146,7 +146,7 @@ TEST_F(TestUsageSuits, open_segment) {
 
 TEST_F(TestUsageSuits, closed_segment) {
     // open segment operation
-    raft::Segment* seg1 = new raft::Segment("./data", 1L);
+    raft::Segment* seg1 = new raft::Segment("./data", 1L, 0);
     ASSERT_EQ(0, seg1->create());
     ASSERT_TRUE(seg1->is_open());
     // append entry
@@ -187,7 +187,7 @@ TEST_F(TestUsageSuits, closed_segment) {
 
     raft::ConfigurationManager* configuration_manager = new raft::ConfigurationManager;
     // load open segment
-    raft::Segment* seg2 = new raft::Segment("./data", 1, 10);
+    raft::Segment* seg2 = new raft::Segment("./data", 1, 10, 0);
     ASSERT_EQ(0, seg2->load(configuration_manager));
 
     for (int i = 0; i < 10; i++) {
@@ -816,5 +816,61 @@ TEST_F(TestUsageSuits, large_entry) {
     entry = storage->get_entry(1);
     ASSERT_EQ(data, entry->data.to_string());
     ASSERT_EQ(0, entry->Release());
+}
+
+TEST_F(TestUsageSuits, reboot_with_checksum_type_changed) {
+    system("rm -rf ./data");
+    raft::SegmentLogStorage* storage = new raft::SegmentLogStorage("./data");
+    raft::ConfigurationManager* configuration_manager = new raft::ConfigurationManager;
+    ASSERT_EQ(0, storage->init(configuration_manager));
+    storage->_checksum_type = 0;  // murmurhash
+    for (int i = 0; i < 10; i++) {
+        raft::LogEntry* entry = new raft::LogEntry();
+        entry->type = raft::ENTRY_TYPE_DATA;
+        entry->id.term = 1;
+        entry->id.index = i + 1;
+
+        char data_buf[128];
+        snprintf(data_buf, sizeof(data_buf), "hello, world: %d", i + 1);
+        entry->data.append(data_buf);
+
+        ASSERT_EQ(0, storage->append_entry(entry));
+
+        entry->Release();
+    }
+    delete storage;
+    storage = new raft::SegmentLogStorage("./data");
+    ASSERT_EQ(0, storage->init(configuration_manager));
+    storage->_checksum_type = 1;  // crc32
+    for (int i = 10; i < 20; i++) {
+        raft::LogEntry* entry = new raft::LogEntry();
+        entry->type = raft::ENTRY_TYPE_DATA;
+        entry->id.term = 1;
+        entry->id.index = i + 1;
+
+        char data_buf[128];
+        snprintf(data_buf, sizeof(data_buf), "hello, world: %d", i + 1);
+        entry->data.append(data_buf);
+
+        ASSERT_EQ(0, storage->append_entry(entry));
+
+        entry->Release();
+    }
+    delete storage;
+    storage = new raft::SegmentLogStorage("./data");
+    ASSERT_EQ(0, storage->init(configuration_manager));
+    for (int index = 1; index <= 20; ++index) {
+        raft::LogEntry* entry = storage->get_entry(index);
+        ASSERT_EQ(entry->id.term, 1);
+        ASSERT_EQ(entry->type, raft::ENTRY_TYPE_DATA);
+        ASSERT_EQ(entry->id.index, index);
+
+        char data_buf[128];
+        snprintf(data_buf, sizeof(data_buf), "hello, world: %d", index);
+        ASSERT_EQ(data_buf, entry->data.to_string());
+        entry->Release();
+    }
+    
+    delete storage;
 }
 

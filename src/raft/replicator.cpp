@@ -29,6 +29,9 @@ DEFINE_int32(raft_max_body_size, 8 * 1024 * 1024,
              "The max number of entries in AppendEntriesRequest");
 BAIDU_RPC_VALIDATE_GFLAG(raft_max_body_size, ::baidu::rpc::PositiveInteger);
 
+bvar::LatencyRecorder g_send_entries_latency("raft_send_entries");
+bvar::LatencyRecorder g_normalized_send_entries_latency("raft_send_entries_normalized");
+
 ReplicatorOptions::ReplicatorOptions()
     : heartbeat_timeout_ms(-1)
     , log_manager(NULL)
@@ -284,6 +287,11 @@ void Replicator::_on_rpc_returned(ReplicatorId id, baidu::rpc::Controller* cntl,
         r->_options.commit_manager->set_stable_at_peer(
                 r->_next_index, r->_next_index + entries_size - 1,
                 r->_options.peer_id);
+        g_send_entries_latency << cntl->latency_us();
+        if (cntl->request_attachment().size() > 0) {
+            g_normalized_send_entries_latency << 
+                cntl->latency_us() * 1024 / cntl->request_attachment().size();
+        }
     }
     r->_next_index += entries_size;
     r->_notify_on_caught_up(0, false);

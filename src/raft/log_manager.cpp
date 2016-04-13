@@ -32,6 +32,9 @@ static bvar::Adder<int64_t> g_read_term_from_storage
 static bvar::PerSecond<bvar::Adder<int64_t> > g_read_term_from_storage_second
             ("raft_read_term_from_storage_second", &g_read_term_from_storage);
 
+static bvar::LatencyRecorder g_storage_append_entries_latency("raft_storage_append_entries");
+static bvar::LatencyRecorder g_nomralized_append_entries_latency("raft_storage_append_entries_normalized");
+
 LogManagerOptions::LogManagerOptions()
     : log_storage(NULL), configuration_manager(NULL)
 {}
@@ -404,7 +407,14 @@ void LogManager::append_entries(
 
 void LogManager::append_to_storage(std::vector<LogEntry*>* to_append, 
                                    LogId* last_id) {
+    size_t written_size = 0;
+    for (size_t i = 0; i < to_append->size(); ++i) {
+        written_size += (*to_append)[i]->data.size();
+    }
+    base::Timer timer;
+    timer.start();
     int nappent = _log_storage->append_entries(*to_append);
+    timer.stop();
     if (nappent != (int)to_append->size()) {
         // FIXME
         LOG(FATAL) << "We cannot tolerate the fault caused by log_storage, "
@@ -418,6 +428,10 @@ void LogManager::append_to_storage(std::vector<LogEntry*>* to_append,
         (*to_append)[j]->Release();
     }
     to_append->clear();
+    g_storage_append_entries_latency << timer.u_elapsed();
+    if (written_size) {
+        g_nomralized_append_entries_latency << timer.u_elapsed() * 1024 / written_size;
+    }
 }
 
 int LogManager::disk_thread(void* meta,

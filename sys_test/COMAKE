@@ -25,5 +25,5 @@ LIBS('../libraft.a')
 common_sources = (GLOB('../example/common/*.proto ../example/common/*.cpp'))
 
 Application('sys_atomic_server',Sources('../example/atomic/server.cpp ../example/atomic/atomic.proto', common_sources))
-Application('sys_atomic_client',Sources('../example/atomic/client.cpp ../example/atomic/atomic.proto', common_sources)) 
+Application('sys_atomic_client',Sources('../example/atomic/bench.cpp ../example/atomic/atomic.proto', common_sources)) 
 

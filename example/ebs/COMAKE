@@ -30,11 +30,11 @@ LIBS('../../libraft.a')
 
 common_sources = (GLOB('../common/*.proto ../common/*.cpp'))
 
-Application('block_server',Sources(common_sources, 'ebs.proto block_server.cpp'), 
+Application('block_server',Sources(common_sources, 'ebs.proto block_server.cpp', ENV.CppFlags() + profiler_flags),
             ENV.Libraries() + Libraries(ENV.WorkRoot() + 'third-64/tcmalloc/lib/libtcmalloc_and_profiler.a'),
-            ENV.CppFlags() + profiler_flags)
-Application('block_client',Sources(common_sources, 'ebs.proto block_client.cpp'), 
+            )
+Application('block_client',Sources(common_sources, 'ebs.proto block_client.cpp', ENV.CppFlags() + profiler_flags),
             ENV.Libraries() + Libraries(ENV.WorkRoot() + 'third-64/tcmalloc/lib/libtcmalloc_and_profiler.a'),
-            ENV.CppFlags() + profiler_flags)
+            )
 SharedLibrary('executor', LinkDeps(True), Sources('ebs.proto evm_executor_api.cpp'))
 

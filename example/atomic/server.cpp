@@ -152,6 +152,7 @@ public:
         BAIDU_SCOPED_LOCK(_mutex);
         _is_leader = false;
         int fd = creat("data/leader_flag", 0644);
+        close(fd);
     }
 
     void apply(base::IOBuf *iobuf, raft::Closure* done) {

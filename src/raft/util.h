@@ -24,6 +24,7 @@
 #include <base/unique_ptr.h>
 #include <base/memory/singleton.h>
 #include <base/containers/doubly_buffered_data.h>
+#include <base/crc32c.h>
 #include <bthread.h>
 #include "raft/macros.h"
 #include "raft/timer.h"
@@ -83,14 +84,31 @@ inline uint32_t murmurhash32(const void *key, int len) {
 inline uint32_t murmurhash32(const base::IOBuf& buf) {
     MurmurHash3_x86_32_Context ctx;
     MurmurHash3_x86_32_Init(&ctx, 0);
-    base::IOBufAsZeroCopyInputStream wrapper(buf);
-    const void *data = NULL;
-    int len = 0;
-    while (wrapper.Next(&data, &len)) {
-        MurmurHash3_x86_32_Update(&ctx, data, len);
+    const size_t block_num = buf.backing_block_num();
+    for (size_t i = 0; i < block_num; ++i) {
+        base::StringPiece sp = buf.backing_block(i);
+        if (!sp.empty()) {
+            MurmurHash3_x86_32_Update(&ctx, sp.data(), sp.size());
+        }
     }
     uint32_t hash = 0;
     MurmurHash3_x86_32_Final(&hash, &ctx);
+    return hash;
+}
+
+inline uint32_t crc32(const void* key, int len) {
+    return base::crc32c::Value((const char*)key, len);
+}
+
+inline uint32_t crc32(const base::IOBuf& buf) {
+    uint32_t hash = 0;
+    const size_t block_num = buf.backing_block_num();
+    for (size_t i = 0; i < block_num; ++i) {
+        base::StringPiece sp = buf.backing_block(i);
+        if (!sp.empty()) {
+            hash = base::crc32c::Extend(hash, sp.data(), sp.size());
+        }
+    }
     return hash;
 }
 

@@ -21,16 +21,19 @@ namespace raft {
 
 class BAIDU_CACHELINE_ALIGNMENT Segment {
 public:
-    Segment(const std::string& path, const int64_t first_index)
+    Segment(const std::string& path, const int64_t first_index, int checksum_type)
         : _path(path), _bytes(0),
         _fd(-1), _is_open(true),
-        _first_index(first_index), _last_index(first_index - 1) {
-    }
-    Segment(const std::string& path, const int64_t first_index, const int64_t last_index)
+        _first_index(first_index), _last_index(first_index - 1),
+        _checksum_type(checksum_type)
+    {}
+    Segment(const std::string& path, const int64_t first_index, const int64_t last_index,
+            int checksum_type)
         : _path(path), _bytes(0),
         _fd(-1), _is_open(false),
-        _first_index(first_index), _last_index(last_index) {
-    }
+        _first_index(first_index), _last_index(last_index),
+        _checksum_type(checksum_type)
+    {}
     ~Segment() {
         if (_fd >= 0) {
             ::close(_fd);
@@ -106,6 +109,7 @@ private:
     bool _is_open;
     const int64_t _first_index;
     boost::atomic<int64_t> _last_index;
+    int _checksum_type;
     std::vector<std::pair<int64_t/*offset*/, int64_t/*term*/> > _offset_and_term;
 };
 
@@ -121,14 +125,17 @@ public:
     typedef std::map<int64_t, boost::shared_ptr<Segment> > SegmentMap;
 
     explicit SegmentLogStorage(const std::string& path)
-        : _path(path),
-          _first_log_index(1),
-          _last_log_index(0) {
-    }
+        : _path(path)
+        , _first_log_index(1)
+        , _last_log_index(0)
+        , _checksum_type(0)
+    {} 
 
     SegmentLogStorage()
-        : _first_log_index(1), _last_log_index(0) {
-    }
+        : _first_log_index(1)
+        , _last_log_index(0)
+        , _checksum_type(0)
+    {}
 
     virtual ~SegmentLogStorage() {
         _segments.clear();
@@ -197,6 +204,7 @@ private:
     raft_mutex_t _mutex;
     SegmentMap _segments;
     boost::shared_ptr<Segment> _open_segment;
+    int _checksum_type;
 };
 
 }  // namespace raft

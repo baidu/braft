@@ -89,15 +89,15 @@ int write(baidu::rpc::Channel* cluster, uint64_t block_id, off_t offset,
         cntl.set_timeout_ms(FLAGS_timeout_ms);
         BlockServiceAdaptor_Stub stub(channel);
         stub.Write(&cntl, &request, &response, NULL);
-        if (!cntl.Failed()) {
+        if (!cntl.Failed() && response.error_code() == 0) {
             return 0;
         }
         if (cntl.ErrorCode() == baidu::rpc::ERPCTIMEDOUT) {
             bthread_usleep(100 * 1000);
             continue;
         }
-        CHECK(cntl.ErrorCode() == EINVAL || cntl.ErrorCode() == EPERM);
-        LOG(WARNING) << "Fail to write, " << cntl.ErrorText();
+        //CHECK(cntl.ErrorCode() == EINVAL || cntl.ErrorCode() == EPERM);
+        //LOG(WARNING) << "Fail to write, " << cntl.ErrorText();
         delete channel;
         channel = NULL;
     }

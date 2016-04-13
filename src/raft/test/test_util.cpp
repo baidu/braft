@@ -80,18 +80,6 @@ TEST_F(TestUsageSuits, get_host_ip) {
                 host_ip == bond0_ip || host_ip == brex_ip);
 }
 
-/*
-TEST_F(TestUsageSuits, random) {
-    for (int i = 0; i < 10000; i++) {
-        int32_t value = base::fast_rand_in(0, 10000);
-        ASSERT_TRUE(value >= 0 && value <= 10000);
-    }
-
-    int32_t rand_time = raft::random_timeout(300);
-    ASSERT_TRUE(rand_time >= 0 && rand_time <= 600);
-}
-//*/
-
 TEST_F(TestUsageSuits, murmurhash) {
     char* data = (char*)malloc(1024*1024);
     for (int i = 0; i < 1024*1024; i++) {
@@ -295,4 +283,22 @@ TEST_F(TestUsageSuits, PathACL) {
     LOG(INFO) << "rand " << round << " test on " << acl_num / 2
         << " total " << end - start << " us"
         << " per " << (end - start) / round << " us";
+}
+
+TEST_F(TestUsageSuits, crc32) {
+    char* data = (char*)malloc(1024*1024);
+    for (int i = 0; i < 1024*1024; i++) {
+        data[i] = 'a' + i % 26;
+    }
+    int32_t val1 = raft::crc32(data, 1024*1024);
+
+    base::IOBuf buf;
+    for (int i = 0; i < 1024 * 1024; i++) {
+        char c = 'a' + i % 26;
+        buf.push_back(c);
+    }
+    int32_t val2 = raft::crc32(buf);
+    ASSERT_EQ(val1, val2);
+
+    free(data);
 }

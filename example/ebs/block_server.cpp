@@ -14,6 +14,7 @@
 #include <base/raw_pack.h>
 #include <bthread.h>
 #include <bthread/execution_queue.h>
+#include <bvar/bvar.h>
 #include <baidu/rpc/controller.h>
 #include <baidu/rpc/server.h>
 #include <raft/util.h>
@@ -40,6 +41,9 @@ DECLARE_bool(raft_sync);
 }
 
 namespace example {
+
+bvar::LatencyRecorder g_write_file_latency("write_file");
+bvar::LatencyRecorder g_normalized_write_file_latency("write_file_normalized");
 
 using namespace baidu::ebs;
 
@@ -249,8 +253,11 @@ public:
                 return raft::run_closure_in_bthread(task.done);
             }
         }
+        base::Timer timer;
+        timer.start();
         const ssize_t towrite = data.length();
         CHECK_EQ(towrite, raft::file_pwrite(data, _fd->fd(), meta.offset()));
+        timer.stop();
         if (task.done) {
             ((WriteClosure*)task.done)->set_log_index(index);
             raft::run_closure_in_bthread(task.done);
@@ -259,6 +266,8 @@ public:
             _fd->AddRef();
             CHECK_EQ(0, bthread::execution_queue_execute(_sync_queue, _fd));
         }
+        g_write_file_latency << timer.u_elapsed();
+        g_normalized_write_file_latency << timer.u_elapsed() * 1024 / data.length();
     }
 
     void on_shutdown() {

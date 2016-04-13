@@ -41,24 +41,31 @@ int ftruncate_uninterrupted(int fd, off_t length) {
     return rc;
 }
 
+enum CheckSumType {
+    CHECKSUM_MURMURHASH32 = 0,
+    CHECKSUM_CRC32 = 1,   
+};
 
 // Format of Header, all fields are in network order
-// | ----------------- term (64bits) ----------------- |
-// | type (8bits) | -------- data len (56bits) ------- |
-// | data_checksum (32bits) | header checksum (32bits) |
+// | -------------------- term (64bits) -------------------------  |
+// | entry-type (8bits) | checksum_type (8bits) | reserved(16bits) |
+// | ------------------ data len (32bits) -----------------------  |
+// | data_checksum (32bits) | header checksum (32bits)             |
 
 const static size_t ENTRY_HEADER_SIZE = 24;
 
 struct Segment::EntryHeader {
     int64_t term;
     int type;
-    uint64_t data_len;
+    int checksum_type;
+    uint32_t data_len;
     uint32_t data_checksum;
 };
 
 std::ostream& operator<<(std::ostream& os, const Segment::EntryHeader& h) {
     os << "{term=" << h.term << ", type=" << h.type << ", data_len="
-       << h.data_len << ", data_checksum=" << h.data_checksum << '}';
+       << h.data_len << ", checksum_type=" << h.checksum_type
+       << ", data_checksum=" << h.data_checksum << '}';
     return os;
 }
 
@@ -82,6 +89,58 @@ int Segment::create() {
     return _fd >= 0 ? 0 : -1;
 }
 
+inline bool verify_checksum(int checksum_type,
+                            const char* data, size_t len, uint32_t value) {
+    switch (checksum_type) {
+    case CHECKSUM_MURMURHASH32:
+        return (value == murmurhash32(data, len));
+    case CHECKSUM_CRC32:
+        return (value == crc32(data, len));
+    default:
+        LOG(ERROR) << "Unknown checksum_type=" << checksum_type;
+        return false;
+    }
+}
+
+inline bool verify_checksum(int checksum_type, 
+                            const base::IOBuf& data, uint32_t value) {
+    switch (checksum_type) {
+    case CHECKSUM_MURMURHASH32:
+        return (value == murmurhash32(data));
+    case CHECKSUM_CRC32:
+        return (value == crc32(data));
+    default:
+        LOG(ERROR) << "Unknown checksum_type=" << checksum_type;
+        return false;
+    }
+}
+
+inline uint32_t get_checksum(int checksum_type, const char* data, size_t len) {
+    switch (checksum_type) {
+    case CHECKSUM_MURMURHASH32:
+        return murmurhash32(data, len);
+    case CHECKSUM_CRC32:
+        return crc32(data, len);
+    default:
+        CHECK(false) << "Unknown checksum_type=" << checksum_type;
+        abort();
+        return -1;
+    }
+}
+
+inline uint32_t get_checksum(int checksum_type, const base::IOBuf& data) {
+    switch (checksum_type) {
+    case CHECKSUM_MURMURHASH32:
+        return murmurhash32(data);
+    case CHECKSUM_CRC32:
+        return crc32(data);
+    default:
+        CHECK(false) << "Unknown checksum_type=" << checksum_type;
+        abort();
+        return -1;
+    }
+}
+
 int Segment::_load_entry(off_t offset, EntryHeader* head, base::IOBuf* data,
                          size_t size_hint) const {
     base::IOPortal buf;
@@ -93,32 +152,29 @@ int Segment::_load_entry(off_t offset, EntryHeader* head, base::IOBuf* data,
     char header_buf[ENTRY_HEADER_SIZE];
     const char *p = (const char *)buf.fetch(header_buf, ENTRY_HEADER_SIZE);
     int64_t term = 0;
-    uint64_t type_and_data_len = 0;
+    uint32_t meta_field;
+    uint32_t data_len = 0;
     uint32_t data_checksum = 0;
     uint32_t header_checksum = 0;
     RawUnpacker(p).unpack64((uint64_t&)term)
-                  .unpack64(type_and_data_len)
+                  .unpack32(meta_field)
+                  .unpack32(data_len)
                   .unpack32(data_checksum)
                   .unpack32(header_checksum);
-    if (header_checksum != murmurhash32(p, ENTRY_HEADER_SIZE - 4)) {
-        int type = type_and_data_len >> 56;
-        uint64_t data_len = type_and_data_len & 0xFFFFFFFFFFFFFFUL;
-        EntryHeader dummy;
-        dummy.term = term;
-        dummy.type = type;
-        dummy.data_len = data_len;
-        dummy.data_checksum = data_checksum;
+    EntryHeader tmp;
+    tmp.term = term;
+    tmp.type = meta_field >> 24;
+    tmp.checksum_type = (meta_field << 8) >> 24;
+    tmp.data_len = data_len;
+    tmp.data_checksum = data_checksum;
+    if (!verify_checksum(tmp.checksum_type, 
+                        p, ENTRY_HEADER_SIZE - 4, header_checksum)) {
         LOG(ERROR) << "Found corrupted header at offset=" << offset
-                   << " dummy=" << dummy;
+                   << ", header=" << tmp;
         return -1;
     }
-    uint64_t data_len = type_and_data_len & 0xFFFFFFFFFFFFFFUL;
-    int type = type_and_data_len >> 56;
     if (head != NULL) {
-        head->term = term;
-        head->type = type;
-        head->data_len = data_len;
-        head->data_checksum = data_checksum;
+        *head = tmp;
     }
     if (data != NULL) {
         if (buf.length() < ENTRY_HEADER_SIZE + data_len) {
@@ -132,10 +188,10 @@ int Segment::_load_entry(off_t offset, EntryHeader* head, base::IOBuf* data,
         }
         CHECK_EQ(buf.length(), ENTRY_HEADER_SIZE + data_len);
         buf.pop_front(ENTRY_HEADER_SIZE);
-        if (murmurhash32(buf) != data_checksum) {
+        if (!verify_checksum(tmp.checksum_type, buf, tmp.data_checksum)) {
             LOG(ERROR) << "Found corrupted data at offset=" 
                        << offset + ENTRY_HEADER_SIZE
-                       << " data_len=" << data_len;
+                       << " header=" << tmp;
             // TODO: abort()?
             return -1;
         }
@@ -307,11 +363,14 @@ int Segment::append(const LogEntry* entry) {
     }
     CHECK_LE(data.length(), 1ul << 56ul);
     char header_buf[ENTRY_HEADER_SIZE];
+    const uint32_t meta_field = (entry->type << 24 ) | (_checksum_type << 16);
     RawPacker packer(header_buf);
     packer.pack64(entry->id.term)
-          .pack64((uint64_t)entry->type << 56ul | data.length())
-          .pack32(murmurhash32(data));
-    packer.pack32(murmurhash32(header_buf, ENTRY_HEADER_SIZE - 4));
+          .pack32(meta_field)
+          .pack32((uint32_t)data.length())
+          .pack32(get_checksum(_checksum_type, data));
+    packer.pack32(get_checksum(
+                  _checksum_type, header_buf, ENTRY_HEADER_SIZE - 4));
     base::IOBuf header;
     header.append(header_buf, ENTRY_HEADER_SIZE);
     const size_t to_write = header.length() + data.length();
@@ -545,6 +604,14 @@ int SegmentLogStorage::init(ConfigurationManager* configuration_manager) {
     if (!base::CreateDirectory(dir_path)) {
         LOG(ERROR) << "Fail to create " << dir_path.AsUTF8Unsafe();
         return -1;
+    }
+
+    if (base::crc32c::IsFastCrc32Supported()) {
+        _checksum_type = CHECKSUM_CRC32;
+        LOG(INFO) << "Use crc32c as the checksum type of appending entries";
+    } else {
+        _checksum_type = CHECKSUM_MURMURHASH32;
+        LOG(INFO) << "Use murmurhash32 as the checksum type of appending entries";
     }
 
     int ret = 0;
@@ -822,7 +889,7 @@ int SegmentLogStorage::list_segments(bool is_empty) {
             LOG(INFO) << "restore closed segment, path: " << _path
                       << " first_index: " << first_index
                       << " last_index: " << last_index;
-            Segment* segment = new Segment(_path, first_index, last_index);
+            Segment* segment = new Segment(_path, first_index, last_index, _checksum_type);
             _segments[first_index].reset(segment);
             continue;
         }
@@ -833,7 +900,7 @@ int SegmentLogStorage::list_segments(bool is_empty) {
             RAFT_VLOG << "restore open segment, path: " << _path
                 << " first_index: " << first_index;
             if (!_open_segment) {
-                _open_segment.reset(new Segment(_path, first_index));
+                _open_segment.reset(new Segment(_path, first_index, _checksum_type));
                 continue;
             } else {
                 LOG(WARNING) << "open segment conflict, path: " << _path
@@ -983,7 +1050,7 @@ Segment* SegmentLogStorage::open_segment() {
     {
         BAIDU_SCOPED_LOCK(_mutex);
         if (!_open_segment) {
-            _open_segment.reset(new Segment(_path, last_log_index() + 1));
+            _open_segment.reset(new Segment(_path, last_log_index() + 1, _checksum_type));
             if (_open_segment->create() != 0) {
                 _open_segment.reset();
                 return NULL;
@@ -998,7 +1065,7 @@ Segment* SegmentLogStorage::open_segment() {
         if (prev_open_segment) {
             if (prev_open_segment->close() == 0) {
                 BAIDU_SCOPED_LOCK(_mutex);
-                _open_segment.reset(new Segment(_path, last_log_index() + 1));
+                _open_segment.reset(new Segment(_path, last_log_index() + 1, _checksum_type));
                 if (_open_segment->create() == 0) {
                     // success
                     break;

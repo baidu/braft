@@ -8,6 +8,7 @@ CONFIGS('third-64/tcmalloc@1.7.0.200',Libraries('lib/libprofiler.a'))
 CPPFLAGS('-D_GNU_SOURCE -D__const__=')
 CPPFLAGS('-DUNIT_TEST')
 CPPFLAGS('$(ENV_CXXFLAGS)')
+#CONFIGS('baidu/public/rocksdb@ci-base@null')
 
 CXXFLAGS('-pipe -Wall -W -g -fPIC -Wno-invalid-offsetof -D__STDC_CONSTANT_MACROS -Dprivate=public -Dprotected=public -include baidu/rpc/config.h')
 
@@ -242,5 +243,6 @@ def PathDiff(pathStr1, pathStr2):
 #GenProtoCpp('echo.proto')
 
 ag.AddOptFile('test_commitment_manager.cpp')
+ag.AddOptFile('test_checksum.cpp')
 ag.AutoTargetForSourceFiles()
 ag.GenerateApps(GLOB('test_*.cpp'))

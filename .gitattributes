@@ -290,6 +290,7 @@ src/raft/storage.cpp -text
 src/raft/storage.h -text
 src/raft/test/COMAKE -text
 src/raft/test/bthread_sync.h -text
+src/raft/test/test_checksum.cpp -text
 src/raft/test/test_commitment_manager.cpp -text
 src/raft/test/test_configuration.cpp -text
 src/raft/test/test_file_service.cpp -text
