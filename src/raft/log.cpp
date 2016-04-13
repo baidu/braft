@@ -124,7 +124,7 @@ inline uint32_t get_checksum(int checksum_type, const char* data, size_t len) {
     default:
         CHECK(false) << "Unknown checksum_type=" << checksum_type;
         abort();
-        return -1;
+        return 0;
     }
 }
 
@@ -137,7 +137,7 @@ inline uint32_t get_checksum(int checksum_type, const base::IOBuf& data) {
     default:
         CHECK(false) << "Unknown checksum_type=" << checksum_type;
         abort();
-        return -1;
+        return 0;
     }
 }
 
