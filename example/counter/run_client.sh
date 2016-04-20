@@ -27,7 +27,7 @@ IP=`hostname -i`
 
 #fetch_and_add
 #./counter_client -peers="${IP}:8100,${IP}:8101,${IP}:8102" -fetch_and_add_num=1000 -threads=10
-./counter_client -peers="${IP}:8100,${IP}:8101,${IP}:8102" -fetch_and_add_num=-1 -threads=200
+./counter_client -peers="${IP}:8100,${IP}:8101,${IP}:8102" -fetch_and_add_num=-1 -threads=300
 
 #shutdown
 #./counter_client -shutdown="${IP}:8102"

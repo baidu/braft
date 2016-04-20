@@ -76,7 +76,7 @@ public:
         AtomicOpType type;
         task.data->cutn(&type, sizeof(type));
 
-        LOG(INFO) << "on_apply index: " << index;
+        //LOG(INFO) << "on_apply index: " << index;
 
         if (type == ATOMIC_OP_SET) {
             fsm_set(done, task.data);
@@ -178,7 +178,7 @@ private:
             return;
         }
 
-        LOG(INFO) << "fsm_get, id: " << req.id();
+        //LOG(INFO) << "fsm_get, id: " << req.id();
         BAIDU_SCOPED_LOCK(_mutex);
         GetResponse* res = (GetResponse*)((AtomicClosure*)done)->response;
         int64_t* val_ptr = _value_map.seek(req.id());
@@ -203,7 +203,7 @@ private:
             return;
         }
 
-        LOG(INFO) << "fsm_set, id: " << req.id() << " val: " << req.value();
+        //LOG(INFO) << "fsm_set, id: " << req.id() << " val: " << req.value();
         BAIDU_SCOPED_LOCK(_mutex);
         _value_map[req.id()] = req.value();
         if (done) {
@@ -224,8 +224,8 @@ private:
             return;
         }
 
-        LOG(INFO) << "fsm_cas, id: " << req.id() << " expected_val: " << req.expected_value()
-            << " new_val: " << req.new_value();
+        //LOG(INFO) << "fsm_cas, id: " << req.id() << " expected_val: " << req.expected_value()
+        //    << " new_val: " << req.new_value();
         BAIDU_SCOPED_LOCK(_mutex);
         CompareExchangeResponse* res = NULL;
         const int64_t id = req.id();

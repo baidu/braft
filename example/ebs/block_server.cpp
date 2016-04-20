@@ -133,13 +133,20 @@ public:
         }
     }
 
-    static int do_sync(void* /*meta*/, SharedFD** const tasks[], size_t size) {
-        if (size == 0) {
+    static int do_sync(void* /*meta*/, bthread::TaskIterator<SharedFD*>& iter) {
+        if (iter.is_queue_stopped()) {
             return 0;
         }
-        raft::raft_fsync((*tasks[size -1])->fd());
-        for (size_t i = 0; i < size; ++i) {
-            (*tasks[i])->Release();
+        SharedFD* last = NULL;
+        for (; iter; ++iter) {
+            if (last) {
+                last->Release();
+            }
+            last = *iter;
+        }
+        if (last) {
+            raft::raft_fsync(last->fd());
+            last->Release();
         }
         return 0;
     }

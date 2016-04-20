@@ -31,35 +31,35 @@ FSMCaller::~FSMCaller() {
     CHECK(_after_shutdown == NULL);
 }
 
-int FSMCaller::run(void* meta, ApplyTask* const tasks[], size_t tasks_size) {
+int FSMCaller::run(void* meta, bthread::TaskIterator<ApplyTask>& iter) {
     FSMCaller* caller = (FSMCaller*)meta;
-    if (tasks_size == 0) {
+    if (iter.is_queue_stopped()) {
         caller->do_shutdown();
         return 0;
     }
     int64_t max_committed_index = -1;
-    for (size_t i = 0; i < tasks_size; ++i) {
-        if (tasks[i]->type == COMMITTED) {
-            if (tasks[i]->committed_index > max_committed_index) {
-                max_committed_index = tasks[i]->committed_index;
+    for (; iter; ++iter) {
+        if (iter->type == COMMITTED) {
+            if (iter->committed_index > max_committed_index) {
+                max_committed_index = iter->committed_index;
             }
         } else {
             if (max_committed_index >= 0) {
                 caller->do_committed(max_committed_index);
                 max_committed_index = -1;
             }
-            switch (tasks[i]->type) {
+            switch (iter->type) {
             case COMMITTED:
                 CHECK(false) << "Impossible";
                 break;
             case SNAPSHOT_SAVE:
-                caller->do_snapshot_save((SaveSnapshotClosure*)tasks[i]->done);
+                caller->do_snapshot_save((SaveSnapshotClosure*)iter->done);
                 break;
             case SNAPSHOT_LOAD:
-                caller->do_snapshot_load((LoadSnapshotClosure*)tasks[i]->done);
+                caller->do_snapshot_load((LoadSnapshotClosure*)iter->done);
                 break;
             case LEADER_STOP:
-                CHECK(!tasks[i]->done);
+                CHECK(!iter->done);
                 caller->do_leader_stop();
                 break;
             };

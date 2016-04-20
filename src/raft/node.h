@@ -184,8 +184,8 @@ private:
 
     struct LogEntryAndClosure;
     static int execute_applying_tasks(
-                void* meta, LogEntryAndClosure* const tasks[], size_t);
-    void apply(LogEntryAndClosure* const tasks[], size_t size);
+                void* meta, bthread::TaskIterator<LogEntryAndClosure>& iter);
+    void apply(LogEntryAndClosure tasks[], size_t size);
 
 private:
     struct VoteCtx {

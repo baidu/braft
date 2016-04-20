@@ -82,7 +82,7 @@ private:
     };
 
     static double get_cumulated_cpu_time(void* arg);
-    static int run(void* meta, ApplyTask* const tasks[], size_t tasks_size);
+    static int run(void* meta, bthread::TaskIterator<ApplyTask>& iter);
     void do_shutdown(); //Closure* done);
     void do_committed(int64_t committed_index);
     void do_cleared(int64_t log_index, Closure* done, int error_code);

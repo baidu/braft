@@ -362,11 +362,23 @@ int NodeImpl::init(const NodeOptions& options) {
 }
 
 int NodeImpl::execute_applying_tasks(
-        void* meta, LogEntryAndClosure* const tasks[], size_t size) {
-    if (size == 0) {
+        void* meta, bthread::TaskIterator<LogEntryAndClosure>& iter) {
+    if (iter.is_queue_stopped()) {
         return 0;
     }
-    ((NodeImpl*)meta)->apply(tasks, size);
+    LogEntryAndClosure tasks[8/*FIXME*/];
+    size_t cur_size = 0;
+    NodeImpl* m = (NodeImpl*)meta;
+    for (; iter; ++iter) {
+        if (cur_size == ARRAY_SIZE(tasks)) {
+            m->apply(tasks, cur_size);
+            cur_size = 0;
+        }
+        tasks[cur_size++] = *iter;
+    }
+    if (cur_size > 0) {
+        m->apply(tasks, cur_size);
+    }
     return 0;
 }
 
@@ -376,7 +388,7 @@ void NodeImpl::apply(const Task& task) {
     LogEntryAndClosure m;
     m.entry = entry;
     m.done = task.done;
-    if (_apply_queue->execute(m, &bthread::TASK_OPTIONS_INPLACE) != 0) {
+    if (_apply_queue->execute(m, &bthread::TASK_OPTIONS_INPLACE, NULL) != 0) {
         task.done->status().set_error(EINVAL, "Node is down");
         entry->Release();
         return run_closure_in_bthread(task.done);
@@ -1319,11 +1331,11 @@ void LeaderStableClosure::Run() {
     delete this;
 }
 
-void NodeImpl::apply(LogEntryAndClosure* const tasks[], size_t size) {
+void NodeImpl::apply(LogEntryAndClosure tasks[], size_t size) {
     std::vector<LogEntry*> entries;
     entries.reserve(size);
     for (size_t i = 0; i < size; ++i) {
-        entries.push_back(tasks[i]->entry);
+        entries.push_back(tasks[i].entry);
     }
     std::unique_lock<raft_mutex_t> lck(_mutex);
     if (_state != LEADER) {
@@ -1331,9 +1343,9 @@ void NodeImpl::apply(LogEntryAndClosure* const tasks[], size_t size) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id << " can't apply not in LEADER";
         for (size_t i = 0; i < entries.size(); ++i) {
             entries[i]->Release();
-            if (tasks[i]->done) {
-                tasks[i]->done->status().set_error(EPERM, "Not leader");
-                run_closure_in_bthread(tasks[i]->done);
+            if (tasks[i].done) {
+                tasks[i].done->status().set_error(EPERM, "Not leader");
+                run_closure_in_bthread(tasks[i].done);
             }
         }
         return;
@@ -1341,7 +1353,7 @@ void NodeImpl::apply(LogEntryAndClosure* const tasks[], size_t size) {
     for (size_t i = 0; i < size; ++i) {
         entries[i]->id.term = _current_term;
         entries[i]->type = ENTRY_TYPE_DATA;
-        _commit_manager->append_pending_task(_conf.second, tasks[i]->done);
+        _commit_manager->append_pending_task(_conf.second, tasks[i].done);
     }
     _log_manager->append_entries(&entries, 
                                new LeaderStableClosure(

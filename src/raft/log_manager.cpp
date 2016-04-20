@@ -434,31 +434,76 @@ void LogManager::append_to_storage(std::vector<LogEntry*>* to_append,
     }
 }
 
+DEFINE_int32(raft_max_append_buffer_size, 256 * 1024, 
+             "Flush buffer to LogStorage if the buffer size reaches the limit");
+
+class AppendBatcher {
+public:
+    AppendBatcher(LogManager::StableClosure* storage[], size_t cap, LogId* last_id, 
+                 LogManager* lm)
+        : _storage(storage)
+        , _cap(cap)
+        , _size(0)
+        , _buffer_size(0)
+        , _last_id(last_id)
+        , _lm(lm)
+    {
+        _to_append.reserve(1024);
+    }
+    ~AppendBatcher() { flush(); }
+
+    void flush() {
+        if (_size > 0) {
+            _lm->append_to_storage(&_to_append, _last_id);
+            for (size_t i = 0; i < _size; ++i) {
+                _storage[i]->_entries.clear();
+                _storage[i]->Run();
+            }
+            _to_append.clear();
+        }
+        _size = 0;
+        _buffer_size = 0;
+    }
+    void append(LogManager::StableClosure* done) {
+        if (_size == _cap || 
+                _buffer_size >= (size_t)FLAGS_raft_max_append_buffer_size) {
+            flush();
+        }
+        _storage[_size++] = done;
+        _to_append.insert(_to_append.end(), 
+                         done->_entries.begin(), done->_entries.end());
+        for (size_t i = 0; i < done->_entries.size(); ++i) {
+            _buffer_size += done->_entries[i]->data.length();
+        }
+    }
+
+private:
+    LogManager::StableClosure** _storage;
+    size_t _cap;
+    size_t _size;
+    size_t _buffer_size;
+    std::vector<LogEntry*> _to_append;
+    LogId *_last_id;
+    LogManager* _lm;
+};
+
 int LogManager::disk_thread(void* meta,
-                            StableClosure** const tasks[], size_t tasks_size) {
-    if (tasks_size == 0) {
+                            bthread::TaskIterator<StableClosure*>& iter) {
+    if (iter.is_queue_stopped()) {
         return 0;
     }
 
     LogManager* log_manager = static_cast<LogManager*>(meta);
     LogId last_id;
-    std::vector<LogEntry*> to_append;
-    to_append.reserve(1024);
-    size_t first_index = 0;
-    for (size_t i = 0; i < tasks_size; i++) {
-        StableClosure* done = *tasks[i];
+    StableClosure* storage[256];
+    AppendBatcher ab(storage, ARRAY_SIZE(storage), &last_id, log_manager);
+    
+    for (; iter; ++iter) {
+        StableClosure* done = *iter;
         if (!done->_entries.empty()) {
-            to_append.insert(to_append.end(), 
-                             done->_entries.begin(), done->_entries.end());
+            ab.append(done);
         } else {
-            // Flush to_append before execute barrier task
-            if (!to_append.empty()) {
-                log_manager->append_to_storage(&to_append, &last_id);
-            }
-            for (size_t j = first_index; j < i; ++j) {
-                (*tasks[j])->_entries.clear();
-                (*tasks[j])->Run();
-            }
+            ab.flush();
             int ret = 0;
             do {
                 LastLogIdClosure* llic =
@@ -505,16 +550,9 @@ int LogManager::disk_thread(void* meta,
                 abort();
             }
             done->Run();
-            first_index = i + 1;
         }
     }
-    if (!to_append.empty()) {
-        log_manager->append_to_storage(&to_append, &last_id);
-    }
-    for (size_t j = first_index; j < tasks_size; ++j) {
-        (*tasks[j])->_entries.clear();
-        (*tasks[j])->Run();
-    }
+    ab.flush();
     log_manager->set_disk_id(last_id);
     return 0;
 }

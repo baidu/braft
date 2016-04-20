@@ -608,10 +608,10 @@ int SegmentLogStorage::init(ConfigurationManager* configuration_manager) {
 
     if (base::crc32c::IsFastCrc32Supported()) {
         _checksum_type = CHECKSUM_CRC32;
-        LOG(INFO) << "Use crc32c as the checksum type of appending entries";
+        LOG_ONCE(INFO) << "Use crc32c as the checksum type of appending entries";
     } else {
         _checksum_type = CHECKSUM_MURMURHASH32;
-        LOG(INFO) << "Use murmurhash32 as the checksum type of appending entries";
+        LOG_ONCE(INFO) << "Use murmurhash32 as the checksum type of appending entries";
     }
 
     int ret = 0;

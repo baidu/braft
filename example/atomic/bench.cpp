@@ -104,8 +104,7 @@ static void* sender(void* arg) {
                         exit(-1);
                     }
                 } else {
-                    CHECK(false) << "Impossible";
-                    exit(-1);
+                    break;
                 }
                 if (FLAGS_num_requests > 0 && 
                         nsent.fetch_add(1, boost::memory_order_relaxed) 

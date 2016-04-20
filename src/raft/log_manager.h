@@ -39,6 +39,7 @@ public:
         int64_t _first_log_index;
     private:
     friend class LogManager;
+    friend class AppendBatcher;
         std::vector<LogEntry*> _entries;
     };
 
@@ -116,10 +117,11 @@ public:
     void describe(std::ostream& os, bool use_html);
 
 private:
+friend class AppendBatcher;
     void append_to_storage(std::vector<LogEntry*>* to_append, LogId* last_id);
 
     static int disk_thread(void* meta,
-                           StableClosure** const tasks[], size_t tasks_size);
+                           bthread::TaskIterator<StableClosure*>& iter);
     
     // delete logs from storage's head, [1, first_index_kept) will be discarded
     // Returns:
