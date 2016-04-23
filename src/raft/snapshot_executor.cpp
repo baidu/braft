@@ -356,6 +356,7 @@ void SnapshotExecutor::install_snapshot(baidu::rpc::Controller* cntl,
     //    ^^^ DON'T access request, response, done and cntl after this point
     //        as the retry snapshot will replace this one.
     if (ret != 0) {
+        LOG(WARNING) << "Fail to register_downloading_snapshot";
         // This RPC will be responded by the previous session
         if (ret > 0) {
             done_guard.release();
@@ -369,12 +370,14 @@ void SnapshotExecutor::install_snapshot(baidu::rpc::Controller* cntl,
     SnapshotWriter* writer = NULL;
     writer = _snapshot_storage->create();
     if (NULL == writer) {
+        LOG(WARNING) << "Fail to create writer";
         ret = EINVAL;
     } else {
         ret = writer->copy(request->uri());
     }
     if (ret != 0 && writer != NULL && writer->ok()) {
         writer->set_error(ret, berror(ret));
+        LOG(WARNING) << "Fail to copy, " << berror(ret);
     }
     return load_downloading_snapshot(ds.release(), meta, saved_version, writer);
 }

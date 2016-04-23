@@ -1207,12 +1207,12 @@ void NodeImpl::step_down(const int64_t term) {
     _leader_id.reset();
     _conf_ctx.reset();
 
+    if (_snapshot_executor) {
+        _snapshot_executor->interrupt_downloading_snapshot(term);
+    }
+
     // stable state
     if (term > _current_term) {
-        if (_snapshot_executor) {
-            _snapshot_executor->interrupt_downloading_snapshot(term);
-        }
-
         _current_term = term;
         _voted_id.reset();
         //TODO: outof lock
@@ -1565,7 +1565,7 @@ private:
             //    peer and they will be eventually committed when the new leader
             //    found that quorum of the cluster have stored.
             //  - If they will be truncated and we responed success to the old
-            //    leader: the old leader would possibly regard thos entries as
+            //    leader: the old leader would possibly regard those entries as
             //    committed (very likely in a 3-nodes cluster) and respond
             //    success to the clients, which would break the rule that
             //    committed entries would never be truncated.
@@ -1657,6 +1657,7 @@ void NodeImpl::handle_append_entries_request(baidu::rpc::Controller* cntl,
             << _leader_id;
 
     _last_leader_timestamp = base::monotonic_time_ms();
+
     if (request->entries_size() > 0 && 
             (_snapshot_executor 
                 && _snapshot_executor->is_installing_snapshot())) {
@@ -1803,7 +1804,7 @@ void NodeImpl::handle_install_snapshot_request(baidu::rpc::Controller* controlle
             << _leader_id;
     lck.unlock();
     LOG(INFO) << "node " << _group_id << ":" << _server_id
-              << "received InstallSnapshotRequest"
+              << " received InstallSnapshotRequest"
               << " last_included_log_index=" << request->last_included_log_index()
               << " last_include_log_term=" << request->last_included_log_term()
               << " from " << server_id

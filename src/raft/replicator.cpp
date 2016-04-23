@@ -25,8 +25,8 @@ DEFINE_int32(raft_max_entries_size, 1024,
              "The max number of entries in AppendEntriesRequest");
 BAIDU_RPC_VALIDATE_GFLAG(raft_max_entries_size, ::baidu::rpc::PositiveInteger);
 
-DEFINE_int32(raft_max_body_size, 8 * 1024 * 1024,
-             "The max number of entries in AppendEntriesRequest");
+DEFINE_int32(raft_max_body_size, 512 * 1024,
+             "The max byte size of AppendEntriesRequest");
 BAIDU_RPC_VALIDATE_GFLAG(raft_max_body_size, ::baidu::rpc::PositiveInteger);
 
 bvar::LatencyRecorder g_send_entries_latency("raft_send_entries");
@@ -47,10 +47,11 @@ Replicator::Replicator()
     : _next_index(0)
     , _catchup_closure(NULL)
     , _last_response_timestamp(0)
-    , _installing_snapshot(false)
     , _consecutive_error_times(0)
-
-{}
+{
+    _rpc_in_fly.value = 0;
+    _heartbeat_in_fly.value = 0;
+}
 
 Replicator::~Replicator() {
     // bind lifecycle with node, Release
@@ -86,19 +87,19 @@ int Replicator::start(const ReplicatorOptions& options, ReplicatorId *id) {
 
     r->_options = options;
     r->_next_index = r->_options.log_manager->last_log_index() + 1;
-    if (bthread_id_create(&r->_id, r.get(), _on_failed) != 0) {
+    if (bthread_id_create(&r->_id, r.get(), _on_error) != 0) {
         LOG(ERROR) << "Fail to create bthread_id";
         return -1;
     }
     bthread_id_lock(r->_id, NULL);
-    // _id is unlock in _send_heartbeat
-    r->_send_heartbeat();
     if (id) {
         *id = r->_id.value;
     }
     r->_catchup_closure = NULL;
     r->_last_response_timestamp = base::monotonic_time_ms();
-    LOG(INFO) << "Replicator=" << r->_id << " is started";
+    r->_start_heartbeat_timer(base::gettimeofday_us());
+    r->_send_empty_entries(false);
+    LOG(INFO) << "Replicator=" << r->_id << "@" << r->_options.peer_id << " is started";
     r.release();
     return 0;
 }
@@ -188,9 +189,63 @@ void Replicator::_block(long start_time_us, int /*error_code NOTE*/) {
         return;
     } else {
         LOG(ERROR) << "Fail to add timer, " << berror(rc);
-        // _id is unlock in _send_heartbeat
-        return _send_heartbeat();
+        // _id is unlock in _send_empty_entries
+        return _send_empty_entries(false);
     }
+}
+
+void Replicator::_on_heartbeat_returned(
+        ReplicatorId id, baidu::rpc::Controller* cntl,
+        AppendEntriesRequest* request, 
+        AppendEntriesResponse* response) {
+    std::unique_ptr<baidu::rpc::Controller> cntl_gurad(cntl);
+    std::unique_ptr<AppendEntriesRequest>  req_gurad(request);
+    std::unique_ptr<AppendEntriesResponse> res_gurad(response);
+    Replicator *r = NULL;
+    bthread_id_t dummy_id = { id };
+    const long start_time_us = base::gettimeofday_us();
+    if (bthread_id_lock(dummy_id, (void**)&r) != 0) {
+        return;
+    }
+
+    RAFT_VLOG << "node " << r->_options.group_id << ":" << r->_options.server_id 
+        << " received HeartbeatResponse from "
+        << r->_options.peer_id << " prev_log_index " << request->prev_log_index()
+        << " prev_log_term " << request->prev_log_term()
+        << noflush;
+    if (cntl->Failed()) {
+        RAFT_VLOG << " fail, sleep.";
+
+        // TODO: Should it be VLOG?
+        LOG_IF(WARNING, (r->_consecutive_error_times++) % 10 == 0) 
+                        << "Fail to issue RPC to " << r->_options.peer_id
+                        << " _consecutive_error_times=" << r->_consecutive_error_times
+                        << ", " << cntl->ErrorText();
+        r->_start_heartbeat_timer(start_time_us);
+        CHECK_EQ(0, bthread_id_unlock(dummy_id)) << "Fail to unlock " << dummy_id;
+        return;
+    }
+    r->_consecutive_error_times = 0;
+    if (response->term() > r->_options.term) {
+        RAFT_VLOG << " fail, greater term " << response->term()
+            << " expect term " << r->_options.term;
+
+        NodeImpl *node_impl = r->_options.node;
+        // Acquire a reference of Node here in case that Node is detroyed
+        // after _notify_on_caught_up.
+        node_impl->AddRef();
+        r->_notify_on_caught_up(EPERM, true);
+        LOG(INFO) << "Replicator=" << dummy_id << " is going to quit";
+        bthread_id_unlock_and_destroy(dummy_id);
+        node_impl->increase_term_to(response->term());
+        node_impl->Release();
+        return;
+    }
+    RAFT_VLOG;
+    r->_last_response_timestamp = base::monotonic_time_ms();
+    r->_start_heartbeat_timer(start_time_us);
+    CHECK_EQ(0, bthread_id_unlock(dummy_id)) << "Fail to unlock " << dummy_id;
+    return;
 }
 
 void Replicator::_on_rpc_returned(ReplicatorId id, baidu::rpc::Controller* cntl,
@@ -206,9 +261,9 @@ void Replicator::_on_rpc_returned(ReplicatorId id, baidu::rpc::Controller* cntl,
         return;
     }
 
-    RAFT_VLOG << "node " << r->_options.group_id << ":" << r->_options.server_id << " received "
-        << ((request->entries_size() != 0) ? "AppendEntriesResponse" : "HeartbeatResponse")
-        << " from " << r->_options.peer_id << " prev_log_index " << request->prev_log_index()
+    RAFT_VLOG << "node " << r->_options.group_id << ":" << r->_options.server_id 
+        << " received AppendEntriesResponse from "
+        << r->_options.peer_id << " prev_log_index " << request->prev_log_index()
         << " prev_log_term " << request->prev_log_term() << " count " << request->entries_size()
         << noflush;
 
@@ -265,7 +320,7 @@ void Replicator::_on_rpc_returned(ReplicatorId id, baidu::rpc::Controller* cntl,
             }
         }
         // dummy_id is unlock in _send_heartbeat
-        r->_send_heartbeat();
+        r->_send_empty_entries(false);
         return;
     }
 
@@ -273,11 +328,6 @@ void Replicator::_on_rpc_returned(ReplicatorId id, baidu::rpc::Controller* cntl,
 
     CHECK_EQ(response->term(), r->_options.term);
     r->_last_response_timestamp = base::monotonic_time_ms();
-    if (r->_installing_snapshot) {
-        CHECK_EQ(0, request->entries_size());
-        return r->_block(start_time_us, 0);
-    }
-    // FIXME: move committing out of the critical section
     const int entries_size = request->entries_size();
     RAFT_VLOG_IF(entries_size > 0) << "Replicated logs in [" 
                                    << r->_next_index << ", " 
@@ -301,12 +351,22 @@ void Replicator::_on_rpc_returned(ReplicatorId id, baidu::rpc::Controller* cntl,
 }
 
 int Replicator::_fill_common_fields(AppendEntriesRequest* request, 
-                                    int64_t prev_log_index) {
+                                    int64_t prev_log_index,
+                                    bool is_heartbeat) {
     const int64_t prev_log_term = _options.log_manager->get_term(prev_log_index);
     if (prev_log_term == 0 && prev_log_index != 0) {
-        CHECK_LT(prev_log_index, _options.log_manager->first_log_index());
-        RAFT_VLOG << "log_index=" << prev_log_index << " was compacted";
-        return -1;
+        if (!is_heartbeat) {
+            CHECK_LT(prev_log_index, _options.log_manager->first_log_index());
+            RAFT_VLOG << "log_index=" << prev_log_index << " was compacted";
+            return -1;
+        } else {
+            // The log at prev_log_index has been compacted, which indicates 
+            // we is or is going to install snapshot to the follower. So we let 
+            // both prev_log_index and prev_log_term be 0 in the heartbeat 
+            // request so that follower would do nothing besides updating its 
+            // leader timestamp.
+            prev_log_index = 0;
+        }
     }
     request->set_term(_options.term);
     request->set_group_id(_options.group_id);
@@ -318,18 +378,21 @@ int Replicator::_fill_common_fields(AppendEntriesRequest* request,
     return 0;
 }
 
-void Replicator::_send_heartbeat() {
+void Replicator::_send_empty_entries(bool is_heartbeat) {
     std::unique_ptr<baidu::rpc::Controller> cntl(new baidu::rpc::Controller);
     std::unique_ptr<AppendEntriesRequest> request(new AppendEntriesRequest);
     std::unique_ptr<AppendEntriesResponse> response(new AppendEntriesResponse);
-    // When the peer is installing snapshot, the _next_index is invalid as the
-    // logs were compacted, so we let the prev_log_index be 0 which will not be
-    // rejected by the peer at the same term to maintain leadership
     if (_fill_common_fields(
-                request.get(), _installing_snapshot ? 0 : _next_index - 1) != 0) {
+                request.get(), _next_index - 1, is_heartbeat) != 0) {
+        CHECK(!is_heartbeat);
+        // _id is unlock in _install_snapshot
         return _install_snapshot();
     }
-    _rpc_in_fly = cntl->call_id();
+    if (is_heartbeat) {
+        _heartbeat_in_fly = cntl->call_id();
+    } else {
+        _rpc_in_fly = cntl->call_id();
+    }
 
     RAFT_VLOG << "node " << _options.group_id << ":" << _options.server_id
         << " send HeartbeatRequest to " << _options.peer_id 
@@ -339,8 +402,9 @@ void Replicator::_send_heartbeat() {
     google::protobuf::Closure* done = baidu::rpc::NewCallback<
         ReplicatorId, baidu::rpc::Controller*, AppendEntriesRequest*,
         AppendEntriesResponse*>(
-                _on_rpc_returned, _id.value, cntl.get(), 
-                request.get(), response.get());
+                is_heartbeat ? _on_heartbeat_returned :  _on_rpc_returned, 
+                _id.value, cntl.get(), request.get(), response.get());
+
     RaftService_Stub stub(&_sending_channel);
     stub.append_entries(cntl.release(), request.release(), 
                         response.release(), done);
@@ -348,18 +412,16 @@ void Replicator::_send_heartbeat() {
 }
 
 int Replicator::_prepare_entry(int offset, EntryMeta* em, base::IOBuf *data) {
+    if (data->length() >= (size_t)FLAGS_raft_max_body_size) {
+        return -1;
+    }
     const size_t log_index = _next_index + offset;
     LogEntry *entry = _options.log_manager->get_entry(log_index);
     if (entry == NULL) {
         return -1;
     }
-    if (entry->data.length() + data->length() > (size_t)FLAGS_raft_max_body_size) {
-        entry->Release();
-        return -1;
-    }
     em->set_term(entry->id.term);
     em->set_type(entry->type);
-    // FIXME: why don't put peers in data?
     if (entry->peers != NULL) {
         CHECK(!entry->peers->empty()) << "log_index=" << log_index;
         for (size_t i = 0; i < entry->peers->size(); ++i) {
@@ -378,7 +440,7 @@ void Replicator::_send_entries(long start_time_us) {
     std::unique_ptr<baidu::rpc::Controller> cntl(new baidu::rpc::Controller);
     std::unique_ptr<AppendEntriesRequest> request(new AppendEntriesRequest);
     std::unique_ptr<AppendEntriesResponse> response(new AppendEntriesResponse);
-    if (_fill_common_fields(request.get(), _next_index - 1) != 0) {
+    if (_fill_common_fields(request.get(), _next_index - 1, false) != 0) {
         return _install_snapshot();
     }
     EntryMeta em;
@@ -417,22 +479,14 @@ void Replicator::_send_entries(long start_time_us) {
     CHECK_EQ(0, bthread_id_unlock(_id)) << "Fail to unlock " << _id;
 }
 
-int Replicator::_continue_sending(void* arg, int error_code) {
+int Replicator::_continue_sending(void* arg, int /*error_code*/) {
     long start_time_us = base::gettimeofday_us();
     Replicator* r = NULL;
     bthread_id_t id = { (uint64_t)arg };
     if (bthread_id_lock(id, (void**)&r) != 0) {
         return -1;
     }
-    // id is unlock in _send_entries or _send_heartbeat
-    if (error_code == ETIMEDOUT) {
-        // If timedout occurs, we don't check whether there are new entries
-        // because it's urgent to send a heartbeat to maintain leadership so that
-        // we don't want to waste any time in sending log entries, which migth
-        // be very costly when it contains large user data
-        r->_send_heartbeat();
-        return 0;
-    }
+    // id is unlock in _send_entries
     r->_send_entries(start_time_us);
     return 0;
 }
@@ -441,6 +495,7 @@ void Replicator::_wait_more_entries(long start_time_us) {
     const timespec due_time = base::milliseconds_from(
             base::microseconds_to_timespec(start_time_us), 
             _options.heartbeat_timeout_ms);
+    // TODO(chenzhangyi01): Remove due_time in LogManager
     _options.log_manager->wait(_next_index - 1, &due_time, 
                        _continue_sending, (void*)_id.value);
     CHECK_EQ(0, bthread_id_unlock(_id)) << "Fail to unlock " << _id;
@@ -475,11 +530,12 @@ void Replicator::_install_snapshot() {
     }
     request->set_uri(uri);
 
-    LOG(INFO) << "node " << _options.group_id << ":" << _options.server_id
+    RAFT_VLOG << "node " << _options.group_id << ":" << _options.server_id
         << " send InstallSnapshotRequest to " << _options.peer_id
         << " term " << _options.term << " last_included_term " << meta.last_included_term
         << " last_included_index " << meta.last_included_index << " uri " << uri;
 
+    _rpc_in_fly = cntl->call_id();
     google::protobuf::Closure* done = baidu::rpc::NewCallback<
                 ReplicatorId, baidu::rpc::Controller*,
                 InstallSnapshotRequest*, InstallSnapshotResponse*>(
@@ -487,10 +543,7 @@ void Replicator::_install_snapshot() {
                     cntl, request, response);
     RaftService_Stub stub(&_sending_channel);
     stub.install_snapshot(cntl, request, response, done);
-    _installing_snapshot = true;
-    // During installing snapshot, we should send heartbeat to maintain
-    // leadership
-    return _send_heartbeat();
+    CHECK_EQ(0, bthread_id_unlock(_id)) << "Fail to unlock " << _id;
 }
 
 void Replicator::_on_install_snapshot_returned(
@@ -502,6 +555,7 @@ void Replicator::_on_install_snapshot_returned(
     std::unique_ptr<InstallSnapshotResponse> response_guard(response);
     Replicator *r = NULL;
     bthread_id_t dummy_id = { id };
+    bool succ = true;
     if (bthread_id_lock(dummy_id, (void**)&r) != 0) {
         return;
     }
@@ -512,27 +566,32 @@ void Replicator::_on_install_snapshot_returned(
         << noflush;
     do {
         if (cntl->Failed()) {
-            LOG(WARNING) << "Fail to install snapshot at peer=" 
-                         << r->_options.peer_id
-                         <<", " << cntl->ErrorText();
-            RAFT_VLOG << " error: " << cntl->ErrorText() << noflush;
+            RAFT_VLOG << " error: " << cntl->ErrorText();
+            LOG_IF(WARNING, (r->_consecutive_error_times++) % 10 == 0) 
+                            << "Fail to install snapshot at peer=" 
+                            << r->_options.peer_id
+                            <<", " << cntl->ErrorText();
+            succ = false;
             break;
         }
         if (!response->success()) {
-            RAFT_VLOG << " fail." << noflush;
+            succ = false;
+            RAFT_VLOG << " fail.";
             // Let hearbeat do step down
             break;
         }
         // Success 
         r->_next_index = request->last_included_log_index() + 1;
-        RAFT_VLOG << " success." << noflush;
+        RAFT_VLOG << " success.";
     } while (0);
 
-    RAFT_VLOG;
     // We don't retry installing the snapshot explicitly. 
-    r->_installing_snapshot = false;
-    CHECK_EQ(0, bthread_id_unlock(dummy_id)) 
-            << "Fail to unlock" << dummy_id;
+    // dummy_id is unlock in _send_entries
+    if (succ) {
+        r->_send_entries(base::gettimeofday_us());
+    } else {
+        r->_block(base::gettimeofday_us(), cntl->ErrorCode());
+    }
 }
 
 void Replicator::_notify_on_caught_up(int error_code, bool before_destory) {
@@ -568,15 +627,42 @@ void Replicator::_notify_on_caught_up(int error_code, bool before_destory) {
     return run_closure_in_bthread(saved_catchup_closure);
 }
 
-int Replicator::_on_failed(bthread_id_t id, void* arg, int error_code) {
+void Replicator::_on_timedout(void* arg) {
+    bthread_id_t id = { (uint64_t)arg };
+    bthread_id_error(id, ETIMEDOUT);
+}
+
+void Replicator::_start_heartbeat_timer(long start_time_us) {
+    const timespec due_time = base::milliseconds_from(
+            base::microseconds_to_timespec(start_time_us), 
+            _options.heartbeat_timeout_ms);
+    if (raft_timer_add(&_heartbeat_timer, due_time,
+                       _on_timedout, (void*)_id.value) != 0) {
+        _on_timedout((void*)_id.value);
+    }
+}
+
+int Replicator::_on_error(bthread_id_t id, void* arg, int error_code) {
     Replicator* r = (Replicator*)arg;
-    baidu::rpc::StartCancel(r->_rpc_in_fly);
-    r->_notify_on_caught_up(error_code, true);
-    LOG(INFO) << "Replicator=" << id << " is going to quit";
-    const int rc = bthread_id_unlock_and_destroy(id);
-    CHECK_EQ(0, rc) << "Fail to unlock " << id;
-    delete r;
-    return rc;
+    if (error_code == ESTOP) {
+        baidu::rpc::StartCancel(r->_rpc_in_fly);
+        baidu::rpc::StartCancel(r->_heartbeat_in_fly);
+        raft_timer_del(r->_heartbeat_timer);
+        r->_notify_on_caught_up(error_code, true);
+        LOG(INFO) << "Replicator=" << id << " is going to quit";
+        const int rc = bthread_id_unlock_and_destroy(id);
+        CHECK_EQ(0, rc) << "Fail to unlock " << id;
+        delete r;
+        return rc;
+    } else if (error_code == ETIMEDOUT) {
+        // id is unlock in _send_empty_entries
+        r->_send_empty_entries(true);
+        return 0;
+    } else {
+        CHECK(false) << "Unknown error_code=" << error_code;
+        CHECK_EQ(0, bthread_id_unlock(id)) << "Fail to unlock " << id;
+        return -1;
+    }
 }
 
 void Replicator::_on_catch_up_timedout(void* arg) {

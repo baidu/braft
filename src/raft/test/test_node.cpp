@@ -18,22 +18,24 @@ class MockFSM : public raft::StateMachine {
 public:
     MockFSM(const base::EndPoint& address_)
         : address(address_), applied_index(0), snapshot_index(0) {
+            pthread_mutex_init(&mutex, NULL);
     }
     virtual ~MockFSM() {
+        pthread_mutex_destroy(&mutex);
     }
 
     base::EndPoint address;
     std::vector<base::IOBuf> logs;
-    raft_mutex_t mutex;
+    pthread_mutex_t mutex;
     int64_t applied_index;
     int64_t snapshot_index;
 
     void lock() {
-        raft_mutex_lock(mutex.native_handler());
+        pthread_mutex_lock(&mutex);
     }
 
     void unlock() {
-        raft_mutex_unlock(mutex.native_handler());
+        pthread_mutex_unlock(&mutex);
     }
 
     virtual void on_apply(const int64_t index, const raft::Task& task) {
@@ -65,10 +67,10 @@ public:
             done->status().set_error(EIO, "Fail to create file");
             return;
         }
-
+        lock();
         // write snapshot and log to file
         for (size_t i = 0; i < logs.size(); i++) {
-            base::IOBuf& data = logs[i];
+            base::IOBuf data = logs[i];
             int len = data.size();
             int ret = write(fd, &len, sizeof(int));
             CHECK_EQ(ret, 4);
@@ -76,6 +78,7 @@ public:
         }
         ::close(fd);
         snapshot_index = applied_index;
+        unlock();
     }
 
     int on_snapshot_load(raft::SnapshotReader* reader) {
@@ -84,13 +87,14 @@ public:
 
         LOG(INFO) << "on_snapshot_load from " << file_path;
 
-        logs.clear();
         int fd = ::open(file_path.c_str(), O_RDONLY);
         if (fd < 0) {
             LOG(ERROR) << "creat file failed, path: " << file_path << " err: " << berror();
             return EIO;
         }
 
+        lock();
+        logs.clear();
         while (true) {
             int len = 0;
             int ret = read(fd, &len, sizeof(int));
@@ -104,6 +108,7 @@ public:
         }
 
         ::close(fd);
+        unlock();
         return 0;
     }
 };
@@ -157,7 +162,8 @@ public:
         stop_all();
     }
 
-    int start(const base::EndPoint& listen_addr, bool empty_peers = false) {
+    int start(const base::EndPoint& listen_addr, bool empty_peers = false,
+              int snapshot_interval = 30) {
         if (_server_map[listen_addr] == NULL) {
             baidu::rpc::Server* server = new baidu::rpc::Server();
             if (raft::add_service(server, listen_addr) != 0 
@@ -171,10 +177,12 @@ public:
 
         raft::NodeOptions options;
         options.election_timeout = 300;
+        options.snapshot_interval = snapshot_interval;
         if (!empty_peers) {
             options.conf = raft::Configuration(_peers);
         }
-        options.fsm = new MockFSM(listen_addr);
+        MockFSM* fsm = new MockFSM(listen_addr);
+        options.fsm = fsm;
         base::string_printf(&options.log_uri, "local://./data/%s/log",
                             base::endpoint2str(listen_addr).c_str());
         base::string_printf(&options.stable_uri, "local://./data/%s/stable",
@@ -194,6 +202,7 @@ public:
         {
             std::lock_guard<raft_mutex_t> guard(_mutex);
             _nodes.push_back(node);
+            _fsms.push_back(fsm);
         }
         return 0;
     }
@@ -205,7 +214,6 @@ public:
         cond.Init(1);
         node->shutdown(NEW_SHUTDOWNCLOSURE(&cond));
         cond.Wait();
-        delete node;
 
         if (_server_map[listen_addr] != NULL) {
             delete _server_map[listen_addr];
@@ -284,12 +292,14 @@ WAIT:
         goto CHECK;
     }
 
-    void ensure_same() {
+    bool ensure_same(int wait_time_s = -1) {
         std::lock_guard<raft_mutex_t> guard(_mutex);
         if (_fsms.size() <= 1) {
-            return;
+            return true;
         }
+        LOG(INFO) << "_fsms.size()=" << _fsms.size();
 
+        int nround = 0;
         MockFSM* first = _fsms[0];
 CHECK:
         first->lock();
@@ -297,16 +307,15 @@ CHECK:
             MockFSM* fsm = _fsms[i];
             fsm->lock();
 
-            if (first->logs.size() != _fsms[i]->logs.size()) {
+            if (first->logs.size() != fsm->logs.size()) {
                 fsm->unlock();
                 goto WAIT;
             }
 
-            for (size_t i = 0; i < first->logs.size(); i++) {
-                base::IOBuf& first_data = first->logs[i];
-                base::IOBuf& fsm_data = _fsms[i]->logs[i];
-                if (first_data.size() != fsm_data.size() ||
-                    raft::murmurhash32(first_data) != raft::murmurhash32(fsm_data)) {
+            for (size_t j = 0; j < first->logs.size(); j++) {
+                base::IOBuf& first_data = first->logs[j];
+                base::IOBuf& fsm_data = fsm->logs[j];
+                if (first_data.to_string() != fsm_data.to_string()) {
                     fsm->unlock();
                     goto WAIT;
                 }
@@ -316,10 +325,14 @@ CHECK:
         }
         first->unlock();
 
-        return;
+        return true;
 WAIT:
         first->unlock();
         sleep(1);
+        ++nround;
+        if (wait_time_s > 0 && nround > wait_time_s) {
+            return false;
+        }
         goto CHECK;
     }
 
@@ -1628,4 +1641,100 @@ TEST_F(RaftTestSuits, AutoSnapshot) {
     // stop
     server.Stop(200);
     server.Join();
+}
+
+TEST_F(RaftTestSuits, LeaderShouldNotChange) {
+    std::vector<raft::PeerId> peers;
+    for (int i = 0; i < 3; i++) {
+        raft::PeerId peer;
+        peer.addr.ip = base::get_host_ip();
+        peer.addr.port = 60006 + i;
+        peer.idx = 0;
+
+        peers.push_back(peer);
+    }
+
+    // start cluster
+    Cluster cluster("unittest", peers);
+    for (size_t i = 0; i < peers.size(); i++) {
+        ASSERT_EQ(0, cluster.start(peers[i].addr));
+    }
+
+    // elect leader
+    cluster.wait_leader();
+    raft::Node* leader0 = cluster.leader();
+    ASSERT_TRUE(leader0 != NULL);
+    LOG(WARNING) << "leader is " << leader0->node_id();
+    const int64_t saved_term = leader0->_impl->_current_term;
+    usleep(5000 * 1000);
+    cluster.wait_leader();
+    raft::Node* leader1 = cluster.leader();
+    LOG(WARNING) << "leader is " << leader1->node_id();
+    ASSERT_EQ(leader0, leader1);
+    ASSERT_EQ(saved_term, leader1->_impl->_current_term);
+    cluster.stop_all();
+}
+
+TEST_F(RaftTestSuits, RecoverFollower) {
+    std::vector<raft::PeerId> peers;
+    for (int i = 0; i < 3; i++) {
+        raft::PeerId peer;
+        peer.addr.ip = base::get_host_ip();
+        peer.addr.port = 60006 + i;
+        peer.idx = 0;
+
+        peers.push_back(peer);
+    }
+
+    // start cluster
+    Cluster cluster("unittest", peers);
+    for (size_t i = 0; i < peers.size(); i++) {
+        ASSERT_EQ(0, cluster.start(peers[i].addr, false, 1));
+    }
+
+    // elect leader
+    cluster.wait_leader();
+    raft::Node* leader = cluster.leader();
+    ASSERT_TRUE(leader != NULL);
+    LOG(WARNING) << "leader is " << leader->node_id();
+
+    usleep(1000 * 1000);
+    std::vector<raft::Node*> nodes;
+    cluster.followers(&nodes);
+    ASSERT_FALSE(nodes.empty());
+    const base::EndPoint follower_addr = nodes[0]->_impl->_server_id.addr;
+    cluster.stop(follower_addr);
+
+    // apply something
+    BthreadCond cond;
+    cond.Init(10);
+    for (int i = 0; i < 10; i++) {
+        base::IOBuf data;
+        char data_buf[128];
+        snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
+        data.append(data_buf);
+
+        raft::Task task;
+        task.data = &data;
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
+        leader->apply(task);
+    }
+    cond.Wait();
+    {
+        base::IOBuf data;
+        char data_buf[128];
+        snprintf(data_buf, sizeof(data_buf), "no closure");
+        data.append(data_buf);
+        raft::Task task;
+        task.data = &data;
+        leader->apply(task);
+    }
+    // wait leader to compact logs
+    usleep(5000 * 1000);
+
+    // Start the stopped follower, expecting that leader would recover it
+    cluster.start(follower_addr);
+    LOG(INFO) << "here";
+    ASSERT_TRUE(cluster.ensure_same(5));
+    cluster.stop_all();
 }

@@ -83,17 +83,27 @@ private:
 
     int _prepare_entry(int offset, EntryMeta* em, base::IOBuf* data);
     void _wait_more_entries(long start_time_us);
-    void _send_heartbeat();
+    void _send_empty_entries(bool is_hearbeat);
     void _send_entries(long start_time_us);
     void _notify_on_caught_up(int error_code, bool);
-    int _fill_common_fields(AppendEntriesRequest* request, int64_t prev_log_index);
+    int _fill_common_fields(AppendEntriesRequest* request, int64_t prev_log_index,
+                            bool is_heartbeat);
     void _block(long start_time_us, int error_code);
     void _install_snapshot();
+    void _start_heartbeat_timer(long start_time_us);
 
-    static void _on_rpc_returned(ReplicatorId id, baidu::rpc::Controller* cntl,
-                                 AppendEntriesRequest* request, 
-                                 AppendEntriesResponse* response);
-    static int _on_failed(bthread_id_t id, void* arg, int error_code);
+    static void _on_rpc_returned(
+                ReplicatorId id, baidu::rpc::Controller* cntl,
+                AppendEntriesRequest* request, 
+                AppendEntriesResponse* response);
+
+    static void _on_heartbeat_returned(
+                ReplicatorId id, baidu::rpc::Controller* cntl,
+                AppendEntriesRequest* request, 
+                AppendEntriesResponse* response);
+    static void _on_timedout(void* arg);
+
+    static int _on_error(bthread_id_t id, void* arg, int error_code);
     static int _continue_sending(void* arg, int error_code);
     static void* _run_on_caught_up(void*);
     static void _on_catch_up_timedout(void*);
@@ -108,12 +118,13 @@ private:
     baidu::rpc::Channel _sending_channel;
     int64_t _next_index;
     baidu::rpc::CallId _rpc_in_fly;
+    baidu::rpc::CallId _heartbeat_in_fly;
     bthread_id_t _id;
     ReplicatorOptions _options;
     CatchupClosure *_catchup_closure;
     int64_t _last_response_timestamp;
-    bool _installing_snapshot;
     int _consecutive_error_times;
+    raft_timer_t _heartbeat_timer;
 };
 
 struct ReplicatorGroupOptions {
@@ -125,9 +136,14 @@ struct ReplicatorGroupOptions {
     SnapshotStorage* snapshot_storage;
 };
 
-// Create a ReplicatorGroup when a candidate becomes leader and delete when it
-// steps down.
-// The methods of ReplicatorGroup are NOT thread-safe
+// Maintains the replicators attached to followers
+//  - Invoke reset_term when term changes, which affects the term in the RPC to
+//    the adding replicators
+//  - Invoke add_replicator for every single followers the the candidate
+//    becomes the leader
+//  - Invoke stop_all when the leader steps down.
+//
+// Note: The methods of ReplicatorGroup are NOT thread-safe
 class ReplicatorGroup {
 public:
     ReplicatorGroup();
