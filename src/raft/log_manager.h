@@ -7,19 +7,20 @@
 #ifndef  PUBLIC_RAFT_LOG_MANAGER_H
 #define  PUBLIC_RAFT_LOG_MANAGER_H
 
-#include <base/macros.h>
-#include <deque>
-#include <bthread.h>
-#include <bthread/execution_queue.h>
+#include <base/macros.h>                        // BAIDU_CACHELINE_ALIGNMENT
+#include <base/containers/flat_map.h>           // base::FlatMap
+#include <deque>                                // std::deque
+#include <bthread/execution_queue.h>            // bthread::ExecutionQueueId
 
-#include "raft/raft.h"
-#include "raft/util.h"
-#include "raft/log_entry.h"
-#include "raft/configuration_manager.h"
+#include "raft/raft.h"                          // Closure
+#include "raft/util.h"                          // raft_mutex_t
+#include "raft/log_entry.h"                     // LogEntry
+#include "raft/configuration_manager.h"         // ConfigurationManager
 
 namespace raft {
 
 class LogStorage;
+
 struct LogManagerOptions {
     LogManagerOptions();
     LogStorage* log_storage;
@@ -31,6 +32,7 @@ class SnapshotMeta;
 
 class BAIDU_CACHELINE_ALIGNMENT LogManager {
 public:
+    typedef int64_t WaitId;
 
     class StableClosure : public Closure {
     public:
@@ -93,18 +95,16 @@ public:
     // FIXME: It's not ABA free
     bool check_and_set_configuration(ConfigurationPair* current);
 
-    // Wait until there are more logs since |last_log_index| or error occurs
-    // Returns:
-    //  0: success, indicating that there are more logs
-    //  ETIMEDOUT: time expires
-    int wait(int64_t expected_last_log_index,
-             const timespec* due_time);
+    // Wait until there are more logs since |last_log_index| and |on_new_log| 
+    // would be called after there are new logs or error occurs
+    WaitId wait(int64_t expected_last_log_index,
+                int (*on_new_log)(void *arg, int error_code), void *arg);
 
-    // Like the previous method, except that this method returns immediately and
-    // |on_writable| would be called after there are new logs or error occurs
-    void wait(int64_t expected_last_log_index,
-              const timespec *due_time,
-              int (*on_new_log)(void *arg, int error_code), void *arg);
+    // Remove a waiter
+    // Returns:
+    //  - 0: success
+    //  - -1: id is Invalid
+    int remove_waiter(WaitId id);
     
     
     // Set the applied id, indicating that the log and all the previose ones
@@ -118,6 +118,12 @@ public:
 
 private:
 friend class AppendBatcher;
+    struct WaitMeta {
+        int (*on_new_log)(void *arg, int error_code);
+        void* arg;
+        int error_code;
+    };
+
     void append_to_storage(std::vector<LogEntry*>* to_append, LogId* last_id);
 
     static int disk_thread(void* meta,
@@ -138,7 +144,7 @@ friend class AppendBatcher;
 
     LogEntry* get_entry_from_memory(const int64_t index);
 
-    void notify_on_new_log(int64_t expected_last_log_index, bthread_id_t wait_id);
+    WaitId notify_on_new_log(int64_t expected_last_log_index, WaitMeta* wm);
 
     int check_and_resolve_confliction(std::vector<LogEntry*>* entries, 
                                       StableClosure* done);
@@ -154,13 +160,18 @@ friend class AppendBatcher;
     int start_disk_thread();
     int stop_disk_thread();
 
+    void wakeup_all_waiter(std::unique_lock<raft_mutex_t>& lck);
+    static void *run_on_new_log(void* arg);
+
     // Fast implementation with one lock
     // TODO(chenzhangyi01): reduce the critical section
     LogStorage* _log_storage;
     ConfigurationManager* _config_manager;
 
     raft_mutex_t _mutex;
-    bthread_id_list_t _wait_list;
+    base::FlatMap<int64_t, WaitMeta*> _wait_map;
+    bool _stopped;
+    WaitId _next_wait_id;
 
     LogId _disk_id;
     LogId _applied_id;
@@ -171,7 +182,6 @@ friend class AppendBatcher;
     LogId _last_snapshot_id;
 
     bthread::ExecutionQueueId<StableClosure*> _disk_queue;
-    bool _stopped;
 };
 
 }  // namespace raft

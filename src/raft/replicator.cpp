@@ -6,18 +6,15 @@
 
 #include "raft/replicator.h"
 
-#include <gflags/gflags.h>
-#include <base/unique_ptr.h>                // std::unique_ptr
-#include <base/time.h>      
-#include <bthread_unstable.h>
-#include <baidu/rpc/controller.h>
-#include <baidu/rpc/reloadable_flags.h>
-#include "raft/raft.pb.h"
-#include "raft/raft.h"
-#include "raft/node.h"
-#include "raft/log_manager.h"
-#include "raft/commitment_manager.h"
-#include "raft/log_entry.h"
+#include <gflags/gflags.h>                      // DEFINE_int32
+#include <base/unique_ptr.h>                    // std::unique_ptr
+#include <base/time.h>                          // base::gettimeofday_us
+#include <baidu/rpc/controller.h>               // baidu::rpc::Controller
+#include <baidu/rpc/reloadable_flags.h>         // BAIDU_RPC_VALIDATE_GFLAG
+
+#include "raft/node.h"                          // NodeImpl
+#include "raft/commitment_manager.h"            // CommitmentManager
+#include "raft/log_entry.h"                     // LogEntry
 
 namespace raft {
 
@@ -45,6 +42,7 @@ const int ERROR_CODE_UNSET_MAGIC = 0x1234;
 
 Replicator::Replicator() 
     : _next_index(0)
+    , _wait_id(0)
     , _catchup_closure(NULL)
     , _last_response_timestamp(0)
     , _consecutive_error_times(0)
@@ -346,7 +344,7 @@ void Replicator::_on_rpc_returned(ReplicatorId id, baidu::rpc::Controller* cntl,
     r->_next_index += entries_size;
     r->_notify_on_caught_up(0, false);
     // dummy_id is unlock in _send_entries
-    r->_send_entries(start_time_us);
+    r->_send_entries();
     return;
 }
 
@@ -436,7 +434,7 @@ int Replicator::_prepare_entry(int offset, EntryMeta* em, base::IOBuf *data) {
     return 0;
 }
 
-void Replicator::_send_entries(long start_time_us) {
+void Replicator::_send_entries() {
     std::unique_ptr<baidu::rpc::Controller> cntl(new baidu::rpc::Controller);
     std::unique_ptr<AppendEntriesRequest> request(new AppendEntriesRequest);
     std::unique_ptr<AppendEntriesResponse> response(new AppendEntriesResponse);
@@ -456,7 +454,7 @@ void Replicator::_send_entries(long start_time_us) {
         if (_next_index < _options.log_manager->first_log_index()) {
             return _install_snapshot();
         }
-        return _wait_more_entries(start_time_us);
+        return _wait_more_entries();
     }
 
     _rpc_in_fly = cntl->call_id();
@@ -479,25 +477,24 @@ void Replicator::_send_entries(long start_time_us) {
     CHECK_EQ(0, bthread_id_unlock(_id)) << "Fail to unlock " << _id;
 }
 
-int Replicator::_continue_sending(void* arg, int /*error_code*/) {
-    long start_time_us = base::gettimeofday_us();
+int Replicator::_continue_sending(void* arg, int error_code) {
     Replicator* r = NULL;
     bthread_id_t id = { (uint64_t)arg };
     if (bthread_id_lock(id, (void**)&r) != 0) {
         return -1;
     }
-    // id is unlock in _send_entries
-    r->_send_entries(start_time_us);
+    if (error_code != ESTOP) {
+        // id is unlock in _send_entries
+        r->_send_entries();
+    } else {
+        LOG(INFO) << "Replicator=" << id << " stops sending entries";
+    }
     return 0;
 }
 
-void Replicator::_wait_more_entries(long start_time_us) {
-    const timespec due_time = base::milliseconds_from(
-            base::microseconds_to_timespec(start_time_us), 
-            _options.heartbeat_timeout_ms);
-    // TODO(chenzhangyi01): Remove due_time in LogManager
-    _options.log_manager->wait(_next_index - 1, &due_time, 
-                       _continue_sending, (void*)_id.value);
+void Replicator::_wait_more_entries() {
+    _wait_id = _options.log_manager->wait(
+            _next_index - 1, _continue_sending, (void*)_id.value);
     CHECK_EQ(0, bthread_id_unlock(_id)) << "Fail to unlock " << _id;
     RAFT_VLOG << "node " << _options.group_id << ":" << _options.peer_id
         << " wait more entries";
@@ -588,7 +585,7 @@ void Replicator::_on_install_snapshot_returned(
     // We don't retry installing the snapshot explicitly. 
     // dummy_id is unlock in _send_entries
     if (succ) {
-        r->_send_entries(base::gettimeofday_us());
+        r->_send_entries();
     } else {
         r->_block(base::gettimeofday_us(), cntl->ErrorCode());
     }
@@ -648,6 +645,7 @@ int Replicator::_on_error(bthread_id_t id, void* arg, int error_code) {
         baidu::rpc::StartCancel(r->_rpc_in_fly);
         baidu::rpc::StartCancel(r->_heartbeat_in_fly);
         raft_timer_del(r->_heartbeat_timer);
+        r->_options.log_manager->remove_waiter(r->_wait_id);
         r->_notify_on_caught_up(error_code, true);
         LOG(INFO) << "Replicator=" << id << " is going to quit";
         const int rc = bthread_id_unlock_and_destroy(id);

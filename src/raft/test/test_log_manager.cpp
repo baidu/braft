@@ -65,6 +65,9 @@ public:
             bthread::butex_wait(_butex, 0, NULL);
         }
     }
+    bool has_run() {
+        return *_butex == 1;
+    }
 private:
     char _butex_memory[BUTEX_MEMORY_SIZE];
     boost::atomic<int> *_butex;
@@ -484,4 +487,52 @@ TEST_F(LogManagerTest, set_snapshot) {
     meta.last_included_term = 2;
     lm->set_snapshot(&meta);
     ASSERT_EQ(raft::LogId(1000, 2), lm->last_log_id(false));
+}
+
+int on_new_log(void* arg, int /*error_code*/) {
+    SyncClosure* sc = (SyncClosure*)arg;
+    sc->Run();
+    return 0;
+}
+
+int append_entry(raft::LogManager* lm, base::StringPiece data, int64_t index) {
+    raft::LogEntry* entry = new raft::LogEntry;
+    entry->type = raft::ENTRY_TYPE_DATA;
+    entry->data.append(data.data(), data.size());
+    entry->id = raft::LogId(index, 1);
+    SyncClosure sc;
+    std::vector<raft::LogEntry*> entries;
+    entries.push_back(entry);
+    lm->append_entries(&entries, &sc);
+    sc.join();
+    return sc.status().error_code();
+}
+
+TEST_F(LogManagerTest, wait) {
+    system("rm -rf ./data");
+    scoped_ptr<raft::ConfigurationManager> cm(
+                                new raft::ConfigurationManager);
+    scoped_ptr<raft::SegmentLogStorage> storage(
+                                new raft::SegmentLogStorage("./data"));
+    scoped_ptr<raft::LogManager> lm(new raft::LogManager());
+    raft::LogManagerOptions opt;
+    opt.log_storage = storage.get();
+    opt.configuration_manager = cm.get();
+    ASSERT_EQ(0, lm->init(opt));
+    SyncClosure sc;   
+    raft::LogManager::WaitId wait_id = 
+            lm->wait(lm->last_log_index(), on_new_log, &sc);
+    ASSERT_NE(0, wait_id);
+    ASSERT_EQ(0, lm->remove_waiter(wait_id));
+    ASSERT_FALSE(sc.has_run());
+    ASSERT_EQ(0, append_entry(lm.get(), "hello", 1));
+    wait_id = lm->wait(0, on_new_log, &sc);
+    ASSERT_EQ(0, wait_id);
+    sc.join();
+    sc.reset();
+    wait_id = lm->wait(lm->last_log_index(), on_new_log, &sc);
+    ASSERT_NE(0, wait_id);
+    ASSERT_EQ(0, append_entry(lm.get(), "hello", 2));
+    sc.join();
+    ASSERT_NE(0, lm->remove_waiter(wait_id));
 }

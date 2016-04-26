@@ -7,15 +7,15 @@
 #ifndef  PUBLIC_RAFT_REPLICATOR_H
 #define  PUBLIC_RAFT_REPLICATOR_H
 
-#include <stdint.h>
-#include <bthread.h>
+#include <bthread.h>                            // bthread_id
 #include <baidu/rpc/channel.h>                  // baidu::rpc::Channel
-#include <baidu/rpc/controller.h>               // baidu::rpc::Controller
-#include "raft/raft.h"
-#include "raft/configuration.h"
-#include "raft/raft.pb.h"
-#include "raft/storage.h"
-#include "raft/timer.h"
+
+#include "raft/storage.h"                       // SnapshotStorage
+#include "raft/raft.h"                          // Closure
+#include "raft/configuration.h"                 // Configuration
+#include "raft/raft.pb.h"                       // AppendEntriesRequest
+#include "raft/log_manager.h"                   // LogManager
+#include "raft/timer.h"                         // raft_time_t
 
 namespace raft {
 
@@ -82,9 +82,9 @@ public:
 private:
 
     int _prepare_entry(int offset, EntryMeta* em, base::IOBuf* data);
-    void _wait_more_entries(long start_time_us);
+    void _wait_more_entries();
     void _send_empty_entries(bool is_hearbeat);
-    void _send_entries(long start_time_us);
+    void _send_entries();
     void _notify_on_caught_up(int error_code, bool);
     int _fill_common_fields(AppendEntriesRequest* request, int64_t prev_log_index,
                             bool is_heartbeat);
@@ -119,6 +119,7 @@ private:
     int64_t _next_index;
     baidu::rpc::CallId _rpc_in_fly;
     baidu::rpc::CallId _heartbeat_in_fly;
+    LogManager::WaitId _wait_id;
     bthread_id_t _id;
     ReplicatorOptions _options;
     CatchupClosure *_catchup_closure;

@@ -784,7 +784,7 @@ void NodeImpl::shutdown(Closure* done) {
             // step_down will call _commitment_manager->clear_pending_applications(),
             // this can avoid send LogEntry with closure to fsm_caller.
             // fsm_caller shutdown will not leak user's closure.
-            _fsm_caller->shutdown();//done);
+            _fsm_caller->shutdown();
         }
         if (_state != SHUTDOWN) {
             _shutdown_continuations.push_back(done);

@@ -6,16 +6,13 @@
 
 #include "raft/log_manager.h"
 
-#include <base/logging.h>
-#include <bthread.h>
-#include <bthread_unstable.h>
-#include <baidu/rpc/reloadable_flags.h>
-#include "raft/log_entry.h"
-#include "raft/util.h"
-#include "raft/storage.h"
-#include "raft/node.h"
-#include "raft/util.h"
-#include "raft/bthread_support.h"
+#include <base/logging.h>                       // LOG
+#include <base/object_pool.h>                   // base::get_object
+#include <bthread_unstable.h>                   // bthread_flush
+#include <baidu/rpc/reloadable_flags.h>         // BAIDU_RPC_VALIDATE_GFLAG
+#include "raft/storage.h"                       // LogStorage
+#include "raft/node.h"                          // NodeImpl
+#include "raft/bthread_support.h"               // BthreadCond
 
 namespace raft {
 
@@ -42,11 +39,11 @@ LogManagerOptions::LogManagerOptions()
 LogManager::LogManager()
     : _log_storage(NULL)
     , _config_manager(NULL)
+    , _stopped(false)
+    , _next_wait_id(0)
     , _first_log_index(0)
     , _last_log_index(0)
-    , _stopped(false)
 {
-    CHECK_EQ(0, bthread_id_list_init(&_wait_list, 16/*FIXME*/, 16));
     CHECK_EQ(0, start_disk_thread());
 }
 
@@ -54,6 +51,10 @@ int LogManager::init(const LogManagerOptions &options) {
     BAIDU_SCOPED_LOCK(_mutex);
     if (options.log_storage == NULL) {
         return EINVAL;
+    }
+    if (_wait_map.init(16) != 0) {
+        PLOG(ERROR) << "Fail to init _wait_map";
+        return ENOMEM;
     }
     _log_storage = options.log_storage;
     _config_manager = options.configuration_manager;
@@ -74,7 +75,6 @@ LogManager::~LogManager() {
         _logs_in_memory[i]->Release();
     }
     _logs_in_memory.clear();
-    bthread_id_list_destroy(&_wait_list);
 }
 
 int LogManager::start_disk_thread() {
@@ -401,8 +401,7 @@ void LogManager::append_entries(
     done->_entries.swap(*entries);
     int ret = bthread::execution_queue_execute(_disk_queue, done);
     CHECK_EQ(0, ret) << "execq execute failed, ret: " << ret << " err: " << berror();
-
-    bthread_id_list_reset(&_wait_list, 0);
+    wakeup_all_waiter(lck);
 }
 
 void LogManager::append_to_storage(std::vector<LogEntry*>* to_append, 
@@ -725,115 +724,93 @@ void LogManager::set_applied_id(const LogId& applied_id) {
     return clear_memory_logs(clear_id);
 }
 
-//////////////////////////////////////////
-//
-void on_timed_out(void *arg) {
-    bthread_id_t id;
-    id.value = reinterpret_cast<int64_t>(arg);
-    bthread_id_error(id, ETIMEDOUT);
-}
-
-int on_notified(bthread_id_t id, void *arg, int rc) {
-    *(int*)arg = rc;
-    return bthread_id_unlock_and_destroy(id);
-}
-
 void LogManager::shutdown() {
-    BAIDU_SCOPED_LOCK(_mutex);
+    std::unique_lock<raft_mutex_t> lck(_mutex);
     _stopped = true;
-    bthread_id_list_reset(&_wait_list, ESTOP);
+    wakeup_all_waiter(lck);
 }
 
-int LogManager::wait(int64_t expected_last_log_index,
-                     const timespec *due_time) {
-    int return_code = 0;
-    bthread_id_t wait_id;
-    int rc = bthread_id_create(&wait_id, &return_code, on_notified);
-    if (rc != 0) {
-        return -1;
-    }
-    raft_timer_t timer_id;
-    if (due_time) {
-        CHECK_EQ(0, raft_timer_add(&timer_id, *due_time, on_timed_out,
-                                      reinterpret_cast<void*>(wait_id.value)));
-    }
-    notify_on_new_log(expected_last_log_index, wait_id);
-    bthread_id_join(wait_id);
-    if (due_time) {
-        raft_timer_del(timer_id);
-    }
-    return return_code;
-}
-
-struct WaitMeta {
-    WaitMeta()
-        : on_new_log(NULL)
-        , arg(NULL)
-        , has_timer(false)
-        , error_code(0)
-    {}
-    int (*on_new_log)(void *arg, int error_code);
-    void *arg;
-    raft_timer_t timer_id;
-    bool has_timer;
-    int error_code;
-};
-
-void* run_on_new_log(void *arg) {
+void* LogManager::run_on_new_log(void *arg) {
     WaitMeta* wm = (WaitMeta*)arg;
-    if (wm->has_timer) {
-        raft_timer_del(wm->timer_id);
-    }
     wm->on_new_log(wm->arg, wm->error_code);
-    delete wm;
+    base::return_object(wm);
     return NULL;
 }
 
-int on_wait_notified(bthread_id_t id, void *arg, int error_code) {
-    WaitMeta* wm = (WaitMeta*)arg;
-    wm->error_code = error_code;
-    bthread_t tid;
-    if (bthread_start_background(&tid, &BTHREAD_ATTR_NORMAL, run_on_new_log, wm) != 0) {
-        run_on_new_log(wm);
+LogManager::WaitId LogManager::wait(
+        int64_t expected_last_log_index, 
+        int (*on_new_log)(void *arg, int error_code), void *arg) {
+    WaitMeta* wm = base::get_object<WaitMeta>();
+    if (BAIDU_UNLIKELY(wm == NULL)) {
+        PLOG(FATAL) << "Fail to new WaitMeta";
+        abort();
+        return -1;
     }
-    return bthread_id_unlock_and_destroy(id);
-}
-
-void LogManager::wait(int64_t expected_last_log_index, 
-                      const timespec *due_time,
-                      int (*on_new_log)(void *arg, int error_code), void *arg) {
-    WaitMeta *wm = new WaitMeta();
     wm->on_new_log = on_new_log;
     wm->arg = arg;
-    bthread_id_t wait_id;
-    int rc = bthread_id_create(&wait_id, wm, on_wait_notified);
-    if (rc != 0) {
-        on_new_log(arg, rc);
-        return;
-    }
-    CHECK_EQ(0, bthread_id_lock(wait_id, NULL));
-    raft_timer_t timer_id;
-    if (due_time) {
-        CHECK_EQ(0, raft_timer_add(&timer_id, *due_time, on_timed_out,
-                                      reinterpret_cast<void*>(wait_id.value)));
-        wm->timer_id = timer_id;
-        wm->has_timer = true;
-    }
-    notify_on_new_log(expected_last_log_index, wait_id);
-    CHECK_EQ(0, bthread_id_unlock(wait_id));
+    wm->error_code = 0;
+    return notify_on_new_log(expected_last_log_index, wm);
 }
 
-void LogManager::notify_on_new_log(int64_t expected_last_log_index,
-                                   bthread_id_t wait_id) {
-    BAIDU_SCOPED_LOCK(_mutex);
-    if (expected_last_log_index != _last_log_index && _stopped) {
-        bthread_id_error(wait_id, 0);
-        return;
+LogManager::WaitId LogManager::notify_on_new_log(
+        int64_t expected_last_log_index, WaitMeta* wm) {
+    std::unique_lock<raft_mutex_t> lck(_mutex);
+    if (expected_last_log_index != _last_log_index || _stopped) {
+        wm->error_code = _stopped ? ESTOP : 0;
+        lck.unlock();
+        bthread_t tid;
+        if (bthread_start_urgent(&tid, NULL, run_on_new_log, wm) != 0) {
+            PLOG(ERROR) << "Fail to start bthread";
+            run_on_new_log(wm);
+        }
+        return 0;  // Not pushed into _wait_map
     }
-    if (bthread_id_list_add(&_wait_list, wait_id) != 0) {
-        bthread_id_error(wait_id, EAGAIN);
-        return;
+    if (_next_wait_id == 0) {  // skip 0
+        ++_next_wait_id;
     }
+    const int wait_id = _next_wait_id++;
+    _wait_map[wait_id] = wm;
+    return wait_id;
+}
+
+int LogManager::remove_waiter(WaitId id) {
+    WaitMeta* wm = NULL;
+    {
+        BAIDU_SCOPED_LOCK(_mutex);
+        WaitMeta** pwm = _wait_map.seek(id);
+        if (pwm) {
+            wm = *pwm;
+            _wait_map.erase(id);
+        }
+    }
+    if (wm) {
+        base::return_object(wm);
+    }
+    return wm ? 0 : -1;
+}
+
+void LogManager::wakeup_all_waiter(std::unique_lock<raft_mutex_t>& lck) {
+    WaitMeta* wm[_wait_map.size()];
+    size_t nwm = 0;
+    for (base::FlatMap<int64_t, WaitMeta*>::const_iterator
+            iter = _wait_map.begin(); iter != _wait_map.end(); ++iter) {
+        wm[nwm++] = iter->second;
+    }
+    _wait_map.clear();
+    const int error_code = _stopped ? ESTOP : 0;
+    lck.unlock();
+    for (size_t i = 0; i < nwm; ++i) {
+        wm[i]->error_code = error_code;
+        bthread_t tid;
+        bthread_attr_t attr = BTHREAD_ATTR_NORMAL | BTHREAD_NOSIGNAL;
+        if (bthread_start_background(
+                    &tid, &attr,
+                    run_on_new_log, wm[i]) != 0) {
+            PLOG(ERROR) << "Fail to start bthread";
+            run_on_new_log(wm[i]);
+        }
+    }
+    bthread_flush();
 }
 
 void LogManager::describe(std::ostream& os, bool use_html) {
