@@ -121,7 +121,7 @@ TEST_F(LogManagerTest, get_should_be_ok_when_disk_thread_stucks) {
     // After clear all the memory logs, all the saved entries should have no
     // other reference
     for (size_t i = 0; i < N; ++i) {
-        ASSERT_EQ(1u, saved_entries[i]->ref);
+        ASSERT_EQ(1u, saved_entries[i]->ref_count_);
         saved_entries[i]->Release();
     }
 }
@@ -169,7 +169,7 @@ TEST_F(LogManagerTest, configuration_changes) {
     // After clear all the memory logs, all the saved entries should have no
     // other reference
     for (size_t i = 0; i < N; ++i) {
-        ASSERT_EQ(1u, saved_entries[i]->ref) << "i=" << i;
+        ASSERT_EQ(1u, saved_entries[i]->ref_count_) << "i=" << i;
         saved_entries[i]->Release();
     }
 }
@@ -222,7 +222,7 @@ TEST_F(LogManagerTest, truncate_suffix_also_revert_configuration) {
     // After clear all the memory logs, all the saved entries should have no
     // other reference
     for (size_t i = 0; i < N; ++i) {
-        ASSERT_EQ(1u, saved_entries[i]->ref) << "i=" << i;
+        ASSERT_EQ(1u, saved_entries[i]->ref_count_) << "i=" << i;
         saved_entries[i]->Release();
     }
 }
@@ -277,7 +277,7 @@ TEST_F(LogManagerTest, append_with_the_same_index) {
     ASSERT_TRUE(sc.status().ok()) << sc.status();
     ASSERT_EQ(N, lm->last_log_index());
     for (size_t i = 0; i < N; ++i) {
-        ASSERT_EQ(3u, saved_entries0[i]->ref + saved_entries1[i]->ref);
+        ASSERT_EQ(3u, saved_entries0[i]->ref_count_ + saved_entries1[i]->ref_count_);
     }
 
     // new term should overwrite the old ones
@@ -300,9 +300,9 @@ TEST_F(LogManagerTest, append_with_the_same_index) {
     ASSERT_EQ(N, lm->last_log_index());
 
     for (size_t i = 0; i < N; ++i) {
-        ASSERT_EQ(1u, saved_entries0[i]->ref);
-        ASSERT_EQ(1u, saved_entries1[i]->ref);
-        ASSERT_EQ(2u, saved_entries2[i]->ref);
+        ASSERT_EQ(1u, saved_entries0[i]->ref_count_);
+        ASSERT_EQ(1u, saved_entries1[i]->ref_count_);
+        ASSERT_EQ(2u, saved_entries2[i]->ref_count_);
     }
 
     for (size_t i = 0; i < N; ++i) {
@@ -317,9 +317,9 @@ TEST_F(LogManagerTest, append_with_the_same_index) {
     lm->set_applied_id(raft::LogId(N, 2));
 
     for (size_t i = 0; i < N; ++i) {
-        ASSERT_EQ(1u, saved_entries0[i]->ref);
-        ASSERT_EQ(1u, saved_entries1[i]->ref);
-        ASSERT_EQ(1u, saved_entries2[i]->ref);
+        ASSERT_EQ(1u, saved_entries0[i]->ref_count_);
+        ASSERT_EQ(1u, saved_entries1[i]->ref_count_);
+        ASSERT_EQ(1u, saved_entries2[i]->ref_count_);
     }
 
     for (size_t i = 0; i < N; ++i) {

@@ -27,14 +27,14 @@ struct LogId {
 };
 
 // term start from 1, log index start from 1
-struct LogEntry {
+struct LogEntry : public base::RefCountedThreadSafe<LogEntry> {
 public:
     EntryType type; // log type
     LogId id;
     std::vector<PeerId>* peers; // peers
     base::IOBuf data;
 
-    LogEntry(): type(ENTRY_TYPE_UNKNOWN), peers(NULL), ref(0) {
+    LogEntry(): type(ENTRY_TYPE_UNKNOWN), peers(NULL) {
         // FIXME: Use log entry in the RAII way
         g_nentries << 1;
         AddRef();
@@ -50,26 +50,9 @@ public:
         }
     }
 
-    void AddRef() {
-        AddRef(1);
-    }
-    int Release() {
-        return Release(1);
-    }
-    void AddRef(int val) {
-        base::subtle::NoBarrier_AtomicIncrement(&ref, val);
-    }
-    int Release(int val) {
-        int ret = base::subtle::Barrier_AtomicIncrement(&ref, -val);
-        if (ret == 0) {
-            delete this;
-        }
-        return ret;
-    }
 private:
     DISALLOW_COPY_AND_ASSIGN(LogEntry);
-
-    mutable base::subtle::Atomic32 ref;
+    friend class base::RefCountedThreadSafe<LogEntry>;
     // FIXME: Temporarily make dctor public to make it compilied
     virtual ~LogEntry() {
         g_nentries << -1;

@@ -747,7 +747,7 @@ void* write_thread_routine(void* arg) {
             entry->data.append(data);
             ++next_log_index;
             EXPECT_EQ(0, storage->append_entry(entry));
-            EXPECT_EQ(0, entry->Release());
+            entry->Release();
         }
     }
     return NULL;
@@ -773,7 +773,7 @@ TEST_F(TestUsageSuits, multi_read_single_modify_thread_safe) {
         base::string_printf(&data, "hello_%d", i);
         entry->data.append(data);
         ASSERT_EQ(0, storage->append_entry(entry));
-        ASSERT_EQ(0, entry->Release());
+        entry->Release();
     }
     ASSERT_EQ(N, storage->last_log_index());
     g_stop = false;
@@ -812,10 +812,10 @@ TEST_F(TestUsageSuits, large_entry) {
     data.resize(512 * 1024 * 1024, 'a');
     entry->data.append(data);
     ASSERT_EQ(0, storage->append_entry(entry));
-    ASSERT_EQ(0, entry->Release());
+    entry->Release();
     entry = storage->get_entry(1);
     ASSERT_EQ(data, entry->data.to_string());
-    ASSERT_EQ(0, entry->Release());
+    entry->Release();
 }
 
 TEST_F(TestUsageSuits, reboot_with_checksum_type_changed) {

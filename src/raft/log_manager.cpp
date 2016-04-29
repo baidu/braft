@@ -790,6 +790,9 @@ int LogManager::remove_waiter(WaitId id) {
 }
 
 void LogManager::wakeup_all_waiter(std::unique_lock<raft_mutex_t>& lck) {
+    if (_wait_map.empty()) {
+        return;
+    }
     WaitMeta* wm[_wait_map.size()];
     size_t nwm = 0;
     for (base::FlatMap<int64_t, WaitMeta*>::const_iterator
