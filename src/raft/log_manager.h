@@ -20,14 +20,15 @@
 namespace raft {
 
 class LogStorage;
+class FSMCaller;
 
 struct LogManagerOptions {
     LogManagerOptions();
     LogStorage* log_storage;
     ConfigurationManager* configuration_manager;
+    FSMCaller* fsm_caller;  // To report log error
 };
 
-class NodeImpl;
 class SnapshotMeta;
 
 class BAIDU_CACHELINE_ALIGNMENT LogManager {
@@ -107,12 +108,9 @@ public:
     int remove_waiter(WaitId id);
     
     
-    // Set the applied id, indicating that the log and all the previose ones
+    // Set the applied id, indicating that the log before applied_id (inclded)
     // can be droped from memory logs
     void set_applied_id(const LogId& applied_id);
-
-    // get disk id, call some case need sync log_id, e.g. pre_vote/vote request and response
-    LogId get_disk_id();
 
     void describe(std::ostream& os, bool use_html);
 
@@ -163,14 +161,18 @@ friend class AppendBatcher;
     void wakeup_all_waiter(std::unique_lock<raft_mutex_t>& lck);
     static void *run_on_new_log(void* arg);
 
+    void report_error(int error_code, const char* fmt, ...);
+
     // Fast implementation with one lock
     // TODO(chenzhangyi01): reduce the critical section
     LogStorage* _log_storage;
     ConfigurationManager* _config_manager;
+    FSMCaller* _fsm_caller;
 
     raft_mutex_t _mutex;
     base::FlatMap<int64_t, WaitMeta*> _wait_map;
     bool _stopped;
+    boost::atomic<bool> _has_error;
     WaitId _next_wait_id;
 
     LogId _disk_id;

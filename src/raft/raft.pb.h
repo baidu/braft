@@ -24,6 +24,7 @@
 #include <google/protobuf/extension_set.h>
 #include <google/protobuf/generated_message_reflection.h>
 #include <google/protobuf/service.h>
+#include "raft/enum.pb.h"
 // @@protoc_insertion_point(includes)
 
 namespace raft {
@@ -41,27 +42,6 @@ class AppendEntriesResponse;
 class InstallSnapshotRequest;
 class InstallSnapshotResponse;
 
-enum EntryType {
-  ENTRY_TYPE_UNKNOWN = 0,
-  ENTRY_TYPE_NO_OP = 1,
-  ENTRY_TYPE_DATA = 2,
-  ENTRY_TYPE_CONFIGURATION = 3
-};
-bool EntryType_IsValid(int value);
-const EntryType EntryType_MIN = ENTRY_TYPE_UNKNOWN;
-const EntryType EntryType_MAX = ENTRY_TYPE_CONFIGURATION;
-const int EntryType_ARRAYSIZE = EntryType_MAX + 1;
-
-const ::google::protobuf::EnumDescriptor* EntryType_descriptor();
-inline const ::std::string& EntryType_Name(EntryType value) {
-  return ::google::protobuf::internal::NameOfEnum(
-    EntryType_descriptor(), value);
-}
-inline bool EntryType_Parse(
-    const ::std::string& name, EntryType* value) {
-  return ::google::protobuf::internal::ParseNamedEnum<EntryType>(
-    EntryType_descriptor(), name, value);
-}
 // ===================================================================
 
 class EntryMeta : public ::google::protobuf::Message {
@@ -2210,10 +2190,6 @@ inline void InstallSnapshotResponse::set_success(bool value) {
 namespace google {
 namespace protobuf {
 
-template <>
-inline const EnumDescriptor* GetEnumDescriptor< raft::EntryType>() {
-  return raft::EntryType_descriptor();
-}
 
 }  // namespace google
 }  // namespace protobuf

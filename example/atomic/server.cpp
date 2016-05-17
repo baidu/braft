@@ -68,38 +68,29 @@ public:
     }
 
     // FSM method
-    void on_apply(const int64_t index,
-                  const raft::Task& task) {
-        raft::Closure* done = task.done;
-        baidu::rpc::ClosureGuard done_guard(done);
+    void on_apply(raft::Iterator& iter) {
+        for (; iter.valid(); iter.next()) {
+            raft::Closure* done = iter.done();
+            baidu::rpc::ClosureGuard done_guard(done);
+            base::IOBuf data = iter.data();
+            AtomicOpType type;
+            data.cutn(&type, sizeof(type));
+            //LOG(INFO) << "on_apply index: " << index;
 
-        AtomicOpType type;
-        task.data->cutn(&type, sizeof(type));
+            if (type == ATOMIC_OP_SET) {
+                fsm_set(done, &data);
+            } else if (type == ATOMIC_OP_CAS) {
+                fsm_cas(done, &data);
+            } else if (type == ATOMIC_OP_GET) {
+                fsm_get(done, &data);
+            } else {
+                CHECK(false) << "bad log format, type: " << type;
+            }
 
-        //LOG(INFO) << "on_apply index: " << index;
-
-        if (type == ATOMIC_OP_SET) {
-            fsm_set(done, task.data);
-        } else if (type == ATOMIC_OP_CAS) {
-            fsm_cas(done, task.data);
-        } else if (type == ATOMIC_OP_GET) {
-            fsm_get(done, task.data);
-        } else {
-            CHECK(false) << "bad log format, type: " << type;
+            if (done) {
+                return raft::run_closure_in_bthread(done_guard.release());
+            }
         }
-
-        if (done) {
-            return raft::run_closure_in_bthread(done_guard.release());
-        }
-    }
-
-    void on_apply_in_batch(const int64_t first_index, 
-                           const raft::Task tasks[],
-                           size_t size) {
-        for (size_t i = 0; i < size; ++i) {
-            on_apply(first_index + i, tasks[i]);
-        }
-        bthread_flush();
     }
 
     void on_shutdown() {
@@ -410,10 +401,10 @@ int main(int argc, char* argv[]) {
     // init counter
     example::Atomic* atomic = new example::Atomic(FLAGS_name, raft::PeerId(addr, 0));
     raft::NodeOptions node_options;
-    node_options.election_timeout = FLAGS_election_timeout_ms;
+    node_options.election_timeout_ms = FLAGS_election_timeout_ms;
     node_options.fsm = atomic;
-    node_options.conf = raft::Configuration(peers); // bootstrap need
-    node_options.snapshot_interval = FLAGS_snapshot_interval;
+    node_options.initial_conf = raft::Configuration(peers); // bootstrap need
+    node_options.snapshot_interval_s = FLAGS_snapshot_interval;
     // TODO: should be options
     node_options.log_uri = "local://./data/log";
     node_options.stable_uri = "local://./data/stable";

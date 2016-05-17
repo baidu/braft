@@ -34,11 +34,12 @@ void protobuf_ShutdownFile_raft_2ferrno_2eproto();
 
 
 enum RaftError {
-  ETERM = 10001
+  ETERM = 10001,
+  ESTATEMACHINE = 10002
 };
 bool RaftError_IsValid(int value);
 const RaftError RaftError_MIN = ETERM;
-const RaftError RaftError_MAX = ETERM;
+const RaftError RaftError_MAX = ESTATEMACHINE;
 const int RaftError_ARRAYSIZE = RaftError_MAX + 1;
 
 const ::google::protobuf::EnumDescriptor* RaftError_descriptor();

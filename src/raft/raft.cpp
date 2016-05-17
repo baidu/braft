@@ -14,6 +14,7 @@
 #include "raft/log.h"
 #include "raft/stable.h"
 #include "raft/snapshot.h"
+#include "raft/fsm_caller.h"            // IteratorImpl
 
 namespace raft {
 
@@ -125,6 +126,27 @@ void Node::snapshot(Closure* done) {
 
 void Node::vote(int election_timeout) {
     _impl->vote(election_timeout);
+}
+
+// ------------- Iterator
+void Iterator::next() { _impl->next(); }
+
+bool Iterator::valid() const { 
+    return _impl->is_good() && _impl->entry()->type == ENTRY_TYPE_DATA; 
+}
+
+int64_t Iterator::index() const { return _impl->index(); }
+
+const base::IOBuf& Iterator::data() const {
+    return _impl->entry()->data;
+}
+
+Closure* Iterator::done() const {
+    return _impl->done();
+}
+
+void Iterator::set_error_and_rollback(size_t ntail, const base::Status* st) {
+    return _impl->set_error_and_rollback(ntail, st);
 }
 
 }

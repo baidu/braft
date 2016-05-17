@@ -119,55 +119,49 @@ int Block::read(int64_t offset, int32_t size, base::IOBuf* data, int64_t index) 
     return 0;
 }
 
-void Block::on_apply(const int64_t index, const raft::Task& task) {
-    base::Timer timer;
-    timer.start();
-    raft::Closure* done = task.done;
-    baidu::rpc::ClosureGuard done_guard(done);
+void Block::on_apply(raft::Iterator& iter) {
+    for (; iter.valid(); iter.next()) {
+        base::Timer timer;
+        timer.start();
+        raft::Closure* done = iter.done();
+        baidu::rpc::ClosureGuard done_guard(done);
 
-    base::IOBuf log_data(*task.data);
-    LogHeader header;
-    log_data.cutn(&header, sizeof(header));
+        base::IOBuf log_data(iter.data());
+        LogHeader header;
+        log_data.cutn(&header, sizeof(header));
 
-    base::IOBuf log_meta;
-    log_data.cutn(&log_meta, header.meta_len);
+        base::IOBuf log_meta;
+        log_data.cutn(&log_meta, header.meta_len);
 
-    base::IOBuf log_body;
-    log_data.cutn(&log_body, header.body_len);
+        base::IOBuf log_body;
+        log_data.cutn(&log_body, header.body_len);
 
-    WriteRequest request;
-    base::IOBufAsZeroCopyInputStream wrapper(log_meta);
-    bool ok = request.ParseFromZeroCopyStream(&wrapper);
-    CHECK(ok);
+        WriteRequest request;
+        base::IOBufAsZeroCopyInputStream wrapper(log_meta);
+        bool ok = request.ParseFromZeroCopyStream(&wrapper);
+        CHECK(ok);
 
-    int64_t offset = request.offset();
-    int32_t size = request.size();
-    CHECK(static_cast<size_t>(size) == log_body.size())
-        << "size: " << size << " data_size: " << log_body.size();
+        int64_t offset = request.offset();
+        int32_t size = request.size();
+        CHECK(static_cast<size_t>(size) == log_body.size())
+            << "size: " << size << " data_size: " << log_body.size();
 
-    int fd = get_fd();
-    raft::file_pwrite(log_body, fd, offset);
-    put_fd(fd);
+        int fd = get_fd();
+        raft::file_pwrite(log_body, fd, offset);
+        put_fd(fd);
 
-    timer.stop();
-    VLOG(9) << "write success, index: " << index
-            << " offset: " << offset << " size: " << size << " time: " << timer.u_elapsed();
+        timer.stop();
+        VLOG(9) << "write success, index: " << iter.index()
+                << " offset: " << offset << " size: " << size << " time: " 
+                << timer.u_elapsed();
 
-    _applied_index = index;
-    if (done) {
-        return raft::run_closure_in_bthread_nosig(done_guard.release());
-    }
-}
-
-void Block::on_apply_in_batch(const int64_t first_index, 
-                               const raft::Task tasks[],
-                               size_t size) {
-    for (size_t i = 0; i < size; ++i) {
-        on_apply(first_index + i, tasks[i]);
+        _applied_index = iter.index();
+        if (done) {
+            return raft::run_closure_in_bthread_nosig(done_guard.release());
+        }
     }
     bthread_flush();
 }
-
 
 void Block::on_shutdown() {
     //TODO:

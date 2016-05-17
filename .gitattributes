@@ -226,6 +226,7 @@ jepsen.atomic/project.clj -text
 jepsen.atomic/src/jepsen/atomic.clj -text
 jepsen.atomic/test/jepsen/atomic_test.clj -text
 protocol/raft/builtin_service.proto -text
+protocol/raft/enum.proto -text
 protocol/raft/errno.proto -text
 protocol/raft/file_service.proto -text
 protocol/raft/local_storage.proto -text
@@ -243,6 +244,8 @@ src/raft/configuration.cpp -text
 src/raft/configuration.h -text
 src/raft/configuration_manager.cpp -text
 src/raft/configuration_manager.h -text
+src/raft/enum.pb.cc -text
+src/raft/enum.pb.h -text
 src/raft/errno.pb.cc -text
 src/raft/errno.pb.h -text
 src/raft/file_service.cpp -text

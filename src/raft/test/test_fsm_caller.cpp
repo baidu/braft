@@ -28,13 +28,15 @@ public:
         , _on_snapshot_save_times(0)
         , _on_snapshot_load_times(0)
     {}
-    void on_apply(const int64_t index, const raft::Task& task) {
-        std::string expected;
-        base::string_printf(&expected, "hello_%lu", _expected_next++);
-        ASSERT_EQ(expected, task.data->to_string());
-        if (task.done) {
-            ASSERT_TRUE(task.done->status().ok()) << "index=" << index;
-            task.done->Run();
+    void on_apply(raft::Iterator& iter) {
+        for (; iter.valid(); iter.next()) {
+            std::string expected;
+            base::string_printf(&expected, "hello_%lu", _expected_next++);
+            ASSERT_EQ(expected, iter.data().to_string());
+            if (iter.done()) {
+                ASSERT_TRUE(iter.done()->status().ok()) << "index=" << iter.index();
+                iter.done()->Run();
+            }
         }
     }
     void on_shutdown() {

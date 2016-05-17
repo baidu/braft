@@ -846,7 +846,7 @@ int SegmentLogStorage::reset(const int64_t next_log_index) {
     _last_log_index.store(next_log_index - 1, boost::memory_order_relaxed);
     lck.unlock();
     // NOTE: see the comments in truncate_prefix
-    if (!save_meta(next_log_index)) {
+    if (save_meta(next_log_index) != 0) {
         PLOG(ERROR) << "Fail to save meta";
         return -1;
     }
@@ -1021,6 +1021,7 @@ int SegmentLogStorage::save_meta(const int64_t log_index) {
     int ret = pb_file.save(&meta, FLAGS_raft_sync);
 
     timer.stop();
+    LOG_IF(ERROR, ret != 0) << "Fail to save meta to " << meta_path;
     RAFT_VLOG << "log save_meta " << meta_path << " time: " << timer.u_elapsed();
     return ret;
 }

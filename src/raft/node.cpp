@@ -73,7 +73,7 @@ static inline int vote_timeout(int election_timeout) {
 }
 
 NodeImpl::NodeImpl(const GroupId& group_id, const PeerId& peer_id)
-    : _state(SHUTDOWN)
+    : _state(STATE_SHUTDOWN)
     , _current_term(0)
     , _last_leader_timestamp(base::monotonic_time_ms())
     , _group_id(group_id)
@@ -132,6 +132,10 @@ NodeImpl::~NodeImpl() {
         delete _snapshot_executor;
         _snapshot_executor = NULL;
     }
+    if (_options.node_owns_fsm) {
+        _options.node_owns_fsm = false;
+        delete _options.fsm;
+    }
 }
 
 int NodeImpl::init_snapshot_storage() {
@@ -148,6 +152,7 @@ int NodeImpl::init_snapshot_storage() {
 }
 
 int NodeImpl::init_log_storage() {
+    CHECK(_fsm_caller);
     _log_storage = LogStorage::create(_options.log_uri);
     if (!_log_storage) {
         LOG(ERROR) << "Fail to find log storage of `" << _options.log_uri
@@ -158,6 +163,7 @@ int NodeImpl::init_log_storage() {
     LogManagerOptions log_manager_options;
     log_manager_options.log_storage = _log_storage;
     log_manager_options.configuration_manager = _config_manager;
+    log_manager_options.fsm_caller = _fsm_caller;
     return _log_manager->init(log_manager_options);
 }
 
@@ -213,7 +219,7 @@ void NodeImpl::handle_snapshot_timeout() {
 
     AddRef();
     raft_timer_add(&_snapshot_timer,
-                      base::milliseconds_from_now(_options.snapshot_interval * 1000),
+                      base::milliseconds_from_now(_options.snapshot_interval_s * 1000L),
                       on_snapshot_timer, this);
     RAFT_VLOG << "node " << _group_id << ":" << _server_id
         << " term " << _current_term << " restart snapshot_timer";
@@ -253,6 +259,9 @@ int NodeImpl::init(const NodeOptions& options) {
     }
 
     do {
+        // Create _fsm_caller first as log_manager needs it to report error
+        _fsm_caller = new FSMCaller();
+
         // log storage and log manager init
         ret = init_log_storage();
         if (0 != ret) {
@@ -272,7 +281,6 @@ int NodeImpl::init(const NodeOptions& options) {
         _closure_queue = new ClosureQueue();
 
         // fsm caller init, node AddRef in init
-        _fsm_caller = new FSMCaller();
         FSMCallerOptions fsm_caller_options;
         this->AddRef();
         fsm_caller_options.after_shutdown = 
@@ -280,6 +288,7 @@ int NodeImpl::init(const NodeOptions& options) {
         fsm_caller_options.log_manager = _log_manager;
         fsm_caller_options.fsm = _options.fsm;
         fsm_caller_options.closure_queue = _closure_queue;
+        fsm_caller_options.node = this;
         ret = _fsm_caller->init(fsm_caller_options);
         if (ret != 0) {
             delete fsm_caller_options.after_shutdown;
@@ -315,13 +324,13 @@ int NodeImpl::init(const NodeOptions& options) {
         if (_log_manager->last_log_index() > 0) {
             _log_manager->check_and_set_configuration(&_conf);
         } else {
-            _conf.second = _options.conf;
+            _conf.second = _options.initial_conf;
         }
 
         //TODO: call fsm on_apply (_last_snapshot_index + 1, last_committed_index]
         // init replicator
         ReplicatorGroupOptions options;
-        options.heartbeat_timeout_ms = heartbeat_timeout(_options.election_timeout);
+        options.heartbeat_timeout_ms = heartbeat_timeout(_options.election_timeout_ms);
         options.log_manager = _log_manager;
         options.commit_manager = _commit_manager;
         options.node = this;
@@ -331,7 +340,7 @@ int NodeImpl::init(const NodeOptions& options) {
         _replicator_group.init(NodeId(_group_id, _server_id), options);
 
         // set state to follower
-        _state = FOLLOWER;
+        _state = STATE_FOLLOWER;
 
         // add node to NodeManager
         if (!NodeManager::GetInstance()->add(this)) {
@@ -348,10 +357,10 @@ int NodeImpl::init(const NodeOptions& options) {
         }
 
         // start snapshot timer
-        if (_snapshot_executor && _options.snapshot_interval > 0) {
+        if (_snapshot_executor && _options.snapshot_interval_s > 0) {
             AddRef();
             raft_timer_add(&_snapshot_timer,
-                              base::milliseconds_from_now(_options.snapshot_interval * 1000),
+                              base::milliseconds_from_now(_options.snapshot_interval_s * 1000L),
                               on_snapshot_timer, this);
             RAFT_VLOG << "node " << _group_id << ":" << _server_id
                 << " term " << _current_term << " start snapshot_timer";
@@ -399,7 +408,7 @@ void NodeImpl::on_configuration_change_done(int64_t term) {
     Configuration removed;
     Configuration added;
     BAIDU_SCOPED_LOCK(_mutex);
-    if (_state != LEADER || term != _current_term) {
+    if (_state != STATE_LEADER || term != _current_term) {
         // Callback from older version
         return;
     }
@@ -461,7 +470,7 @@ void NodeImpl::on_caughtup(const PeerId& peer, int64_t term,
     do {
         BAIDU_SCOPED_LOCK(_mutex);
         // CHECK term and status to avoid ABA problem
-        if (_state != LEADER || term != _current_term) {
+        if (_state != STATE_LEADER || term != _current_term) {
             // Reset error code if this was a successful callback.
             if (error_code == 0) {
                 error_code = EINVAL;
@@ -485,12 +494,12 @@ void NodeImpl::on_caughtup(const PeerId& peer, int64_t term,
         // Retry if the node doesn't step down
         if (error_code == ETIMEDOUT &&
             (base::monotonic_time_ms() -  _replicator_group.last_response_timestamp(peer)) <=
-            _options.election_timeout) {
+            _options.election_timeout_ms) {
 
             LOG(INFO) << "node " << _group_id << ":" << _server_id << " catching up " << peer;
 
             OnCaughtUp* caught_up = new OnCaughtUp(this, _current_term, peer, done);
-            timespec due_time = base::milliseconds_from_now(_options.election_timeout);
+            timespec due_time = base::milliseconds_from_now(_options.election_timeout_ms);
 
             if (0 == _replicator_group.wait_caughtup(
                         peer, _options.catchup_margin, &due_time, caught_up)) {
@@ -527,10 +536,10 @@ void NodeImpl::handle_stepdown_timeout() {
     BAIDU_SCOPED_LOCK(_mutex);
 
     // check state
-    if (_state != LEADER) {
+    if (_state != STATE_LEADER) {
         RAFT_VLOG << "node " << _group_id << ":" << _server_id
             << " term " << _current_term << " stop stepdown_timer"
-            << " state not in LEADER but " << state2str(_state);
+            << " state not in STATE_LEADER but " << state2str(_state);
         return;
     }
 
@@ -544,13 +553,13 @@ void NodeImpl::handle_stepdown_timeout() {
         }
 
         if (now_timestamp - _replicator_group.last_response_timestamp(peers[i]) >
-            _options.election_timeout) {
+            _options.election_timeout_ms) {
             dead_count++;
         }
     }
     if (dead_count < (peers.size() / 2 + 1)) {
         AddRef();
-        int stepdown_timeout = _options.election_timeout;
+        int stepdown_timeout = _options.election_timeout_ms;
         raft_timer_add(&_stepdown_timer, base::milliseconds_from_now(stepdown_timeout),
                           on_stepdown_timer, this);
         RAFT_VLOG << "node " << _group_id << ":" << _server_id
@@ -565,7 +574,7 @@ void NodeImpl::handle_stepdown_timeout() {
 bool NodeImpl::unsafe_register_conf_change(const std::vector<PeerId>& old_peers,
                                            const std::vector<PeerId>& new_peers,
                                            Closure* done) {
-    if (_state != LEADER) {
+    if (_state != STATE_LEADER) {
         LOG(WARNING) << "[" << node_id()
                      << "] Refusing configuration changing because the state is "
                      << state2str(_state);
@@ -631,7 +640,7 @@ void NodeImpl::add_peer(const std::vector<PeerId>& old_peers, const PeerId& peer
 
     // catch up new peer
     OnCaughtUp* caught_up = new OnCaughtUp(this, _current_term, peer, done);
-    timespec due_time = base::milliseconds_from_now(_options.election_timeout);
+    timespec due_time = base::milliseconds_from_now(_options.election_timeout_ms);
 
     if (0 != _replicator_group.wait_caughtup(
                 peer, _options.catchup_margin, &due_time, caught_up)) {
@@ -674,8 +683,10 @@ int NodeImpl::set_peer(const std::vector<PeerId>& old_peers, const std::vector<P
     BAIDU_SCOPED_LOCK(_mutex);
 
     // check state
-    CHECK(is_active_state(_state))
-        << "node " << _group_id << ":" << _server_id << " shutdown, can't set_peer";
+    if (!is_active_state(_state)) {
+        LOG(WARNING) << "node " << _group_id << ":" << _server_id << " shutdown, can't set_peer";
+        return -1;
+    }
     // check bootstrap
     if (_conf.second.empty()) {
         if (old_peers.size() == 0 && new_peers.size() > 0) {
@@ -692,7 +703,7 @@ int NodeImpl::set_peer(const std::vector<PeerId>& old_peers, const std::vector<P
         }
     }
     // check concurrent conf change
-    if (_state == LEADER && !_conf_ctx.empty()) {
+    if (_state == STATE_LEADER && !_conf_ctx.empty()) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id << " set_peer need wait "
             "current conf change";
         return EINVAL;
@@ -753,14 +764,14 @@ void NodeImpl::shutdown(Closure* done) {
         LOG(INFO) << "node " << _group_id << ":" << _server_id << " shutdown,"
             " current_term " << _current_term << " state " << state2str(_state);
 
-        if (is_active_state(_state)) {
-            // leader stop disk thread and replicator, stop stepdown timer, change state to FOLLOWER
-            // candidate stop vote timer, change state to FOLLOWER
-            if (_state != FOLLOWER) {
+        if (_state < STATE_SHUTTING) {
+            // leader stop disk thread and replicator, stop stepdown timer, change state to STATE_FOLLOWER
+            // candidate stop vote timer, change state to STATE_FOLLOWER
+            if (_state < STATE_FOLLOWER) {
                 step_down(_current_term);
             }
             // change state to shutdown
-            _state = SHUTTING;
+            _state = STATE_SHUTTING;
 
             // follower stop election timer
             RAFT_VLOG << "node " << _group_id << ":" << _server_id
@@ -786,7 +797,7 @@ void NodeImpl::shutdown(Closure* done) {
             // fsm_caller shutdown will not leak user's closure.
             _fsm_caller->shutdown();
         }
-        if (_state != SHUTDOWN) {
+        if (_state != STATE_SHUTDOWN) {
             _shutdown_continuations.push_back(done);
             return;
         }
@@ -806,14 +817,14 @@ void NodeImpl::handle_election_timeout() {
     std::unique_lock<raft_mutex_t> lck(_mutex);
 
     // check state
-    if (_state != FOLLOWER) {
+    if (_state != STATE_FOLLOWER) {
         return;
     }
     // check timestamp, skip one cycle check when trigger vote
     if (!_vote_triggered &&
-        base::monotonic_time_ms() - _last_leader_timestamp < _options.election_timeout) {
+        base::monotonic_time_ms() - _last_leader_timestamp < _options.election_timeout_ms) {
         AddRef();
-        int election_timeout = random_timeout(_options.election_timeout);
+        int election_timeout = random_timeout(_options.election_timeout_ms);
         raft_timer_add(&_election_timer, base::milliseconds_from_now(election_timeout),
                           on_election_timer, this);
         RAFT_VLOG << "node " << _group_id << ":" << _server_id
@@ -825,16 +836,14 @@ void NodeImpl::handle_election_timeout() {
 
     // start pre_vote, need restart election_timer
     AddRef();
-    int election_timeout = random_timeout(_options.election_timeout);
+    int election_timeout = random_timeout(_options.election_timeout_ms);
     raft_timer_add(&_election_timer, base::milliseconds_from_now(election_timeout),
                       on_election_timer, this);
     RAFT_VLOG << "node " << _group_id << ":" << _server_id
         << " term " << _current_term << " restart election_timer";
 
-    pre_vote(&lck);
-
-    // first vote
-    //elect_self();
+    return pre_vote(&lck);
+    // Don't touch any thing of *this ever after
 }
 
 void NodeImpl::vote(int election_timeout) {
@@ -845,21 +854,29 @@ void NodeImpl::vote(int election_timeout) {
         " election_timeout " << election_timeout;
 
     _vote_triggered = true;
-    _options.election_timeout = election_timeout;
-    //if (_state == LEADER) {
-    //    step_down(_current_term);
-    //} else {
-    //    _leader_id.reset();
-    //}
+    _options.election_timeout_ms = election_timeout;
 
     int ret = raft_timer_del(_election_timer);
     if (ret == 0) {
-        int new_election_timeout = random_timeout(_options.election_timeout);
+        int new_election_timeout = random_timeout(_options.election_timeout_ms);
         raft_timer_add(&_election_timer, base::milliseconds_from_now(new_election_timeout),
                           on_election_timer, this);
         RAFT_VLOG << "node " << _group_id << ":" << _server_id
             << " term " << _current_term << " restart election_timer";
     }
+}
+
+void NodeImpl::on_error(const Error& e) {
+    LOG(WARNING) << "node " << _group_id << ":" << _server_id
+                 << " got error=" << e;
+    std::unique_lock<raft_mutex_t> lck(_mutex);
+    if (_state < STATE_FOLLOWER) {
+        step_down(_current_term);
+    }
+    if (_state < STATE_ERROR) {
+        _state = STATE_ERROR;
+    }
+    lck.unlock();
 }
 
 static void on_vote_timer(void* arg) {
@@ -873,7 +890,7 @@ void NodeImpl::handle_vote_timeout() {
     std::unique_lock<raft_mutex_t> lck(_mutex);
 
     // check state
-    if (_state == CANDIDATE) {
+    if (_state == STATE_CANDIDATE) {
         // retry vote
         RAFT_VLOG << "node " << _group_id << ":" << _server_id
             << " term " << _current_term << " retry elect";
@@ -886,7 +903,7 @@ void NodeImpl::handle_request_vote_response(const PeerId& peer_id, const int64_t
     BAIDU_SCOPED_LOCK(_mutex);
 
     // check state
-    if (_state != CANDIDATE) {
+    if (_state != STATE_CANDIDATE) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
             << " received invalid RequestVoteResponse from " << peer_id
             << " state not in CANDIDATE but " << state2str(_state);
@@ -953,10 +970,10 @@ void NodeImpl::handle_pre_vote_response(const PeerId& peer_id, const int64_t ter
     std::unique_lock<raft_mutex_t> lck(_mutex);
 
     // check state
-    if (_state != FOLLOWER) {
+    if (_state != STATE_FOLLOWER) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
             << " received invalid PreVoteResponse from " << peer_id
-            << " state not in FOLLOWER but " << state2str(_state);
+            << " state not in STATE_FOLLOWER but " << state2str(_state);
         return;
     }
     // check stale response
@@ -1087,7 +1104,7 @@ void NodeImpl::elect_self(std::unique_lock<raft_mutex_t>* lck) {
         << " term " << _current_term
         << " start vote and grant vote self";
     // cancel follower election timer
-    if (_state == FOLLOWER) {
+    if (_state == STATE_FOLLOWER) {
         RAFT_VLOG << "node " << _group_id << ":" << _server_id
             << " term " << _current_term << " stop election_timer";
         int ret = raft_timer_del(_election_timer);
@@ -1101,14 +1118,14 @@ void NodeImpl::elect_self(std::unique_lock<raft_mutex_t>* lck) {
     // reset leader_id before vote
     _leader_id.reset();
 
-    _state = CANDIDATE;
+    _state = STATE_CANDIDATE;
     _current_term++;
     _voted_id = _server_id;
     _vote_ctx.reset();
 
     AddRef();
     raft_timer_add(&_vote_timer,
-                      base::milliseconds_from_now(vote_timeout(_options.election_timeout)),
+                      base::milliseconds_from_now(vote_timeout(_options.election_timeout_ms)),
                       on_vote_timer, this);
     RAFT_VLOG << "node " << _group_id << ":" << _server_id
         << " term " << _current_term << " start vote_timer";
@@ -1171,7 +1188,7 @@ void NodeImpl::step_down(const int64_t term) {
         << " new_term " << term;
 
     // delete timer and something else
-    if (_state == CANDIDATE) {
+    if (_state == STATE_CANDIDATE) {
         RAFT_VLOG << "node " << _group_id << ":" << _server_id
             << " term " << _current_term << " stop vote_timer";
         int ret = raft_timer_del(_vote_timer);
@@ -1180,7 +1197,7 @@ void NodeImpl::step_down(const int64_t term) {
         } else {
             CHECK(ret == 1);
         }
-    } else if (_state == LEADER) {
+    } else if (_state == STATE_LEADER) {
         RAFT_VLOG << "node " << _group_id << ":" << _server_id
             << " term " << _current_term << " stop stepdown_timer";
         int ret = raft_timer_del(_stepdown_timer);
@@ -1203,7 +1220,7 @@ void NodeImpl::step_down(const int64_t term) {
     }
 
     // soft state in memory
-    _state = FOLLOWER;
+    _state = STATE_FOLLOWER;
     _leader_id.reset();
     _conf_ctx.reset();
 
@@ -1225,7 +1242,7 @@ void NodeImpl::step_down(const int64_t term) {
     // no empty configuration, start election timer
     if (!_conf.second.empty() && _conf.second.contains(_server_id)) {
         AddRef();
-        int election_timeout = random_timeout(_options.election_timeout);
+        int election_timeout = random_timeout(_options.election_timeout_ms);
         raft_timer_add(&_election_timer, base::milliseconds_from_now(election_timeout),
                           on_election_timer, this);
         RAFT_VLOG << "node " << _group_id << ":" << _server_id
@@ -1249,7 +1266,7 @@ private:
 
 // in lock
 void NodeImpl::become_leader() {
-    CHECK(_state == CANDIDATE);
+    CHECK(_state == STATE_CANDIDATE);
     LOG(INFO) << "node " << _group_id << ":" << _server_id
         << " term " << _current_term << " become leader, and stop vote_timer";
     // cancel candidate vote timer
@@ -1260,11 +1277,11 @@ void NodeImpl::become_leader() {
         CHECK(ret == 1);
     }
 
-    _state = LEADER;
+    _state = STATE_LEADER;
     _leader_id = _server_id;
 
     _replicator_group.reset_term(_current_term);
-    _replicator_group.reset_heartbeat_interval(heartbeat_timeout(_options.election_timeout));
+    _replicator_group.reset_heartbeat_interval(heartbeat_timeout(_options.election_timeout_ms));
 
     std::vector<PeerId> peers;
     _conf.second.list_peers(&peers);
@@ -1291,7 +1308,7 @@ void NodeImpl::become_leader() {
                                new LeaderStartClosure(_options.fsm));
 
     AddRef();
-    int stepdown_timeout = _options.election_timeout;
+    int stepdown_timeout = _options.election_timeout_ms;
     raft_timer_add(&_stepdown_timer, base::milliseconds_from_now(stepdown_timeout),
                       on_stepdown_timer, this);
     RAFT_VLOG << "node " << _group_id << ":" << _server_id
@@ -1338,9 +1355,9 @@ void NodeImpl::apply(LogEntryAndClosure tasks[], size_t size) {
         entries.push_back(tasks[i].entry);
     }
     std::unique_lock<raft_mutex_t> lck(_mutex);
-    if (_state != LEADER) {
+    if (_state != STATE_LEADER) {
         lck.unlock();
-        LOG(WARNING) << "node " << _group_id << ":" << _server_id << " can't apply not in LEADER";
+        LOG(WARNING) << "node " << _group_id << ":" << _server_id << " can't apply not in STATE_LEADER";
         for (size_t i = 0; i < entries.size(); ++i) {
             entries[i]->Release();
             if (tasks[i].done) {
@@ -1561,16 +1578,16 @@ private:
             // because we are not sure if the appended logs would be truncated
             // by the new leader:
             //  - If they won't be truncated and we respond failure to the old
-            //    leader: the new leader would know that they are stored in this
+            //    leader, the new leader would know that they are stored in this
             //    peer and they will be eventually committed when the new leader
             //    found that quorum of the cluster have stored.
-            //  - If they will be truncated and we responed success to the old
-            //    leader: the old leader would possibly regard those entries as
+            //  - If they will be truncated and we responded success to the old
+            //    leader, the old leader would possibly regard those entries as
             //    committed (very likely in a 3-nodes cluster) and respond
             //    success to the clients, which would break the rule that
             //    committed entries would never be truncated.
             // So we have to respond failure to the old leader and set the new
-            // term to make it stepped down if it did't.
+            // term to make it stepped down if it didn't.
             _response->set_success(false);
             _response->set_term(_node->_current_term);
             return;
@@ -1640,7 +1657,7 @@ void NodeImpl::handle_append_entries_request(baidu::rpc::Controller* cntl,
     }
 
     // check term and state to step down
-    if (request->term() > _current_term || _state != FOLLOWER) {
+    if (request->term() > _current_term || _state != STATE_FOLLOWER) {
         step_down(request->term());
     }
 
@@ -1746,8 +1763,8 @@ void NodeImpl::after_shutdown() {
     std::vector<Closure*> saved_done;
     {
         BAIDU_SCOPED_LOCK(_mutex);
-        CHECK_EQ(SHUTTING, _state);
-        _state = SHUTDOWN;
+        CHECK_EQ(STATE_SHUTTING, _state);
+        _state = STATE_SHUTDOWN;
         std::swap(saved_done, _shutdown_continuations);
     }
     Release();
@@ -1786,7 +1803,7 @@ void NodeImpl::handle_install_snapshot_request(baidu::rpc::Controller* controlle
         response->set_success(false);
         return;
     }
-    if (request->term() > _current_term || _state != FOLLOWER) {
+    if (request->term() > _current_term || _state != STATE_FOLLOWER) {
         step_down(request->term());
         response->set_term(request->term());
     }
@@ -1822,7 +1839,7 @@ void NodeImpl::describe(std::ostream& os, bool use_html) {
     PeerId leader;
     std::unique_lock<raft_mutex_t> lck(_mutex);
     const State st = _state;
-    if (st == FOLLOWER) {
+    if (st == STATE_FOLLOWER) {
         leader = _leader_id;
     }
     const int64_t term = _current_term;
@@ -1851,7 +1868,7 @@ void NodeImpl::describe(std::ostream& os, bool use_html) {
     }
     os << newline;  // newline for peers
 
-    if (st == FOLLOWER) {
+    if (st == STATE_FOLLOWER) {
         os << "leader: ";
         if (use_html) {
             os << "<a href=\"http://" << leader.addr

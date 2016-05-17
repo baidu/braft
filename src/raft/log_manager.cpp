@@ -11,8 +11,8 @@
 #include <bthread_unstable.h>                   // bthread_flush
 #include <baidu/rpc/reloadable_flags.h>         // BAIDU_RPC_VALIDATE_GFLAG
 #include "raft/storage.h"                       // LogStorage
-#include "raft/node.h"                          // NodeImpl
 #include "raft/bthread_support.h"               // BthreadCond
+#include "raft/fsm_caller.h"                    // FSMCaller
 
 namespace raft {
 
@@ -33,13 +33,16 @@ static bvar::LatencyRecorder g_storage_append_entries_latency("raft_storage_appe
 static bvar::LatencyRecorder g_nomralized_append_entries_latency("raft_storage_append_entries_normalized");
 
 LogManagerOptions::LogManagerOptions()
-    : log_storage(NULL), configuration_manager(NULL)
+    : log_storage(NULL)
+    , configuration_manager(NULL)
+    , fsm_caller(NULL)
 {}
 
 LogManager::LogManager()
     : _log_storage(NULL)
     , _config_manager(NULL)
     , _stopped(false)
+    , _has_error(false)
     , _next_wait_id(0)
     , _first_log_index(0)
     , _last_log_index(0)
@@ -66,6 +69,7 @@ int LogManager::init(const LogManagerOptions &options) {
     _last_log_index = _log_storage->last_log_index();
     _disk_id.index = _last_log_index;
     _disk_id.term = _log_storage->get_term(_last_log_index);
+    _fsm_caller = options.fsm_caller;
     return 0;
 }
 
@@ -165,6 +169,7 @@ LogId LogManager::last_log_id(bool is_flush) {
         }
         return _last_snapshot_id;
     } else {
+        // FIXME(chenzhangyi01): it's buggy
         BthreadCond cond;
         LogId last_id;
         LastLogIdClosure* c = new LastLogIdClosure(&cond, &last_id);
@@ -373,6 +378,14 @@ int LogManager::check_and_resolve_confliction(
 void LogManager::append_entries(
             std::vector<LogEntry*> *entries, StableClosure* done) {
     CHECK(done);
+    if (_has_error.load(boost::memory_order_relaxed)) {
+        for (size_t i = 0; i < entries->size(); ++i) {
+            (*entries)[i]->Release();
+        }
+        entries->clear();
+        done->status().set_error(EIO, "Corrupted LogStorage");
+        return run_closure_in_bthread(done);
+    }
     std::unique_lock<raft_mutex_t> lck(_mutex);
     if (!entries->empty() && check_and_resolve_confliction(entries, done) != 0) {
         lck.unlock();
@@ -406,31 +419,34 @@ void LogManager::append_entries(
 
 void LogManager::append_to_storage(std::vector<LogEntry*>* to_append, 
                                    LogId* last_id) {
-    size_t written_size = 0;
-    for (size_t i = 0; i < to_append->size(); ++i) {
-        written_size += (*to_append)[i]->data.size();
+    if (!_has_error.load(boost::memory_order_relaxed)) {
+        size_t written_size = 0;
+        for (size_t i = 0; i < to_append->size(); ++i) {
+            written_size += (*to_append)[i]->data.size();
+        }
+        base::Timer timer;
+        timer.start();
+        int nappent = _log_storage->append_entries(*to_append);
+        timer.stop();
+        if (nappent != (int)to_append->size()) {
+            // FIXME
+            LOG(ERROR) << "Fail to append_entries, "
+                << "nappent=" << nappent 
+                << ", to_append=" << to_append->size();
+            report_error(EIO, "Fail to append entries");
+        }
+        if (nappent > 0) { 
+            *last_id = (*to_append)[nappent - 1]->id;
+        }
+        g_storage_append_entries_latency << timer.u_elapsed();
+        if (written_size) {
+            g_nomralized_append_entries_latency << timer.u_elapsed() * 1024 / written_size;
+        }
     }
-    base::Timer timer;
-    timer.start();
-    int nappent = _log_storage->append_entries(*to_append);
-    timer.stop();
-    if (nappent != (int)to_append->size()) {
-        // FIXME
-        LOG(FATAL) << "We cannot tolerate the fault caused by log_storage, "
-            << "nappent=" << nappent 
-            << ", to_append=" << to_append->size()
-            << ", abort";
-        abort();
-    }
-    *last_id = to_append->back()->id;
     for (size_t j = 0; j < to_append->size(); ++j) {
         (*to_append)[j]->Release();
     }
     to_append->clear();
-    g_storage_append_entries_latency << timer.u_elapsed();
-    if (written_size) {
-        g_nomralized_append_entries_latency << timer.u_elapsed() * 1024 / written_size;
-    }
 }
 
 DEFINE_int32(raft_max_append_buffer_size, 256 * 1024, 
@@ -456,6 +472,10 @@ public:
             _lm->append_to_storage(&_to_append, _last_id);
             for (size_t i = 0; i < _size; ++i) {
                 _storage[i]->_entries.clear();
+                if (_lm->_has_error.load(boost::memory_order_relaxed)) {
+                    _storage[i]->status().set_error(
+                            EIO, "Corrupted LogStorage");
+                }
                 _storage[i]->Run();
             }
             _to_append.clear();
@@ -493,11 +513,14 @@ int LogManager::disk_thread(void* meta,
     }
 
     LogManager* log_manager = static_cast<LogManager*>(meta);
-    LogId last_id;
+    // FXIME(chenzhangyi01): it's buggy
+    LogId last_id = log_manager->_disk_id;
     StableClosure* storage[256];
     AppendBatcher ab(storage, ARRAY_SIZE(storage), &last_id, log_manager);
     
     for (; iter; ++iter) {
+                // ^^^ Must iterate to the end to release to corresponding
+                //     even if some error has ocurred
         StableClosure* done = *iter;
         if (!done->_entries.empty()) {
             ab.append(done);
@@ -508,7 +531,10 @@ int LogManager::disk_thread(void* meta,
                 LastLogIdClosure* llic =
                         dynamic_cast<LastLogIdClosure*>(done);
                 if (llic) {
-                    llic->set_last_log_id(log_manager->get_disk_id());
+                    // Not used log_manager->get_disk_id() as it might be out of
+                    // date
+                    // FIXME: it's buggy
+                    llic->set_last_log_id(last_id);
                     break;
                 }
                 TruncatePrefixClosure* tpc = 
@@ -542,15 +568,14 @@ int LogManager::disk_thread(void* meta,
                     break;
                 }
             } while (0);
+
             if (ret != 0) {
-                // FIXME
-                LOG(FATAL) << "We cannot tolerate the fault caused by log_storage, "
-                    << "ret=" << ret << ", abort";
-                abort();
+                log_manager->report_error(ret, "Failed operation on LogStorage");
             }
             done->Run();
         }
     }
+    CHECK(!iter) << "Must iterate to the end";
     ab.flush();
     log_manager->set_disk_id(last_id);
     return 0;
@@ -663,7 +688,7 @@ LogEntry* LogManager::get_entry(const int64_t index) {
     std::unique_lock<raft_mutex_t> lck(_mutex);
 
     // out of range, direct return NULL
-    if (index > _last_log_index) {
+    if (index > _last_log_index || index < _first_log_index) {
         return NULL;
     }
 
@@ -674,7 +699,11 @@ LogEntry* LogManager::get_entry(const int64_t index) {
     }
     lck.unlock();
     g_read_entry_from_storage << 1;
-    return _log_storage->get_entry(index);
+    entry = _log_storage->get_entry(index);
+    if (!entry) {
+        report_error(EIO, "Corrupted entry at index=%ld", index);
+    }
+    return entry;
 }
 
 void LogManager::get_configuration(const int64_t index, ConfigurationPair* conf) {
@@ -697,13 +726,8 @@ bool LogManager::check_and_set_configuration(ConfigurationPair* current) {
     return false;
 }
 
-LogId LogManager::get_disk_id() {
-    std::unique_lock<raft_mutex_t> lck(_mutex);
-    return _disk_id;
-}
-
 void LogManager::set_disk_id(const LogId& disk_id) {
-    std::unique_lock<raft_mutex_t> lck(_mutex);
+    std::unique_lock<raft_mutex_t> lck(_mutex);  // Race with set_applied_id
     if (disk_id < _disk_id) {
         return;
     }
@@ -714,7 +738,7 @@ void LogManager::set_disk_id(const LogId& disk_id) {
 }
 
 void LogManager::set_applied_id(const LogId& applied_id) {
-    std::unique_lock<raft_mutex_t> lck(_mutex);
+    std::unique_lock<raft_mutex_t> lck(_mutex);  // Race with set_disk_id
     if (applied_id < _applied_id) {
         return;
     }
@@ -824,6 +848,17 @@ void LogManager::describe(std::ostream& os, bool use_html) {
     os << "disk_index: " << _disk_id.index << newline;
     os << "known_applied_index: " << _applied_id.index << newline;
     os << "last_log_id: " << last_log_id() << newline;
+}
+
+void LogManager::report_error(int error_code, const char* fmt, ...) {
+    _has_error.store(true, boost::memory_order_relaxed);
+    va_list ap;
+    va_start(ap, fmt);
+    Error e;
+    e.set_type(ERROR_TYPE_LOG);
+    e.status().set_error(error_code, fmt, ap);
+    va_end(ap);
+    _fsm_caller->on_error(e);
 }
 
 }  // namespace raft

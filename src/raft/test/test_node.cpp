@@ -38,15 +38,15 @@ public:
         pthread_mutex_unlock(&mutex);
     }
 
-    virtual void on_apply(const int64_t index, const raft::Task& task) {
-        LOG(TRACE) << "addr " << address << " apply " << index;
-        ::baidu::rpc::ClosureGuard guard(task.done);
-
-        lock();
-        logs.push_back(*task.data);
-        unlock();
-
-        applied_index = index;
+    virtual void on_apply(raft::Iterator& iter) {
+        for (; iter.valid(); iter.next()) {
+            LOG(TRACE) << "addr " << address << " apply " << iter.index();
+            ::baidu::rpc::ClosureGuard guard(iter.done());
+            lock();
+            logs.push_back(iter.data());
+            unlock();
+            applied_index = iter.index();
+        }
     }
 
     virtual void on_shutdown() {
@@ -163,7 +163,7 @@ public:
     }
 
     int start(const base::EndPoint& listen_addr, bool empty_peers = false,
-              int snapshot_interval = 30) {
+              int snapshot_interval_s = 30) {
         if (_server_map[listen_addr] == NULL) {
             baidu::rpc::Server* server = new baidu::rpc::Server();
             if (raft::add_service(server, listen_addr) != 0 
@@ -176,10 +176,10 @@ public:
         }
 
         raft::NodeOptions options;
-        options.election_timeout = 300;
-        options.snapshot_interval = snapshot_interval;
+        options.election_timeout_ms = 300;
+        options.snapshot_interval_s = snapshot_interval_s;
         if (!empty_peers) {
-            options.conf = raft::Configuration(_peers);
+            options.initial_conf = raft::Configuration(_peers);
         }
         MockFSM* fsm = new MockFSM(listen_addr);
         options.fsm = fsm;
@@ -447,8 +447,8 @@ TEST_F(RaftTestSuits, SingleNode) {
     peers.push_back(peer);
 
     raft::NodeOptions options;
-    options.election_timeout = 300;
-    options.conf = raft::Configuration(peers);
+    options.election_timeout_ms = 300;
+    options.initial_conf = raft::Configuration(peers);
     options.fsm = new MockFSM(base::EndPoint());
     options.log_uri = "local://./data/log";
     options.stable_uri = "local://./data/stable";
@@ -1542,8 +1542,8 @@ TEST_F(RaftTestSuits, NoSnapshot) {
     peers.push_back(peer);
 
     raft::NodeOptions options;
-    options.election_timeout = 300;
-    options.conf = raft::Configuration(peers);
+    options.election_timeout_ms = 300;
+    options.initial_conf = raft::Configuration(peers);
     options.fsm = new MockFSM(base::EndPoint());
     options.log_uri = "local://./data/log";
     options.stable_uri = "local://./data/stable";
@@ -1600,13 +1600,13 @@ TEST_F(RaftTestSuits, AutoSnapshot) {
     peers.push_back(peer);
 
     raft::NodeOptions options;
-    options.election_timeout = 300;
-    options.conf = raft::Configuration(peers);
+    options.election_timeout_ms = 300;
+    options.initial_conf = raft::Configuration(peers);
     options.fsm = new MockFSM(base::EndPoint());
     options.log_uri = "local://./data/log";
     options.stable_uri = "local://./data/stable";
     options.snapshot_uri = "local://./data/snapshot";
-    options.snapshot_interval = 10;
+    options.snapshot_interval_s = 10;
 
     raft::Node node("unittest", peer);
     ASSERT_EQ(0, node.init(options));

@@ -238,43 +238,45 @@ public:
     }
 
     // FSM method
-    void on_apply(const int64_t index,
-                  const raft::Task& task) {
-        char tmp[8];
-        base::IOBuf data(*task.data);
-        const void* head = data.fetch(tmp, 8);
-        uint32_t meta_size;
-        uint32_t data_size;
-        base::RawUnpacker(head).unpack32(meta_size).unpack32(data_size);
-        data.pop_front(8);
-        base::IOBuf meta_buf;
-        data.cutn(&meta_buf, meta_size);
-        WriteRequest meta;
-        base::IOBufAsZeroCopyInputStream wrapper(meta_buf);
-        CHECK_GT(meta_size, 0u);
-        CHECK_EQ(8ul + meta_size + data_size, task.data->length());
-        if (!meta.ParseFromZeroCopyStream(&wrapper)) {
-            LOG(FATAL) << "Fail to parse meta";
-            if (task.done) {
-                task.done->status().set_error(EINVAL, "Fail to prase meta");
-                return raft::run_closure_in_bthread(task.done);
+    void on_apply(raft::Iterator& iter) {
+        for (; iter.valid(); iter.next()) {
+            char tmp[8];
+            base::IOBuf data(iter.data());
+            const void* head = data.fetch(tmp, 8);
+            uint32_t meta_size;
+            uint32_t data_size;
+            base::RawUnpacker(head).unpack32(meta_size).unpack32(data_size);
+            data.pop_front(8);
+            base::IOBuf meta_buf;
+            data.cutn(&meta_buf, meta_size);
+            WriteRequest meta;
+            base::IOBufAsZeroCopyInputStream wrapper(meta_buf);
+            CHECK_GT(meta_size, 0u);
+            CHECK_EQ(8ul + meta_size + data_size, iter.data().length());
+            if (!meta.ParseFromZeroCopyStream(&wrapper)) {
+                LOG(FATAL) << "Fail to parse meta";
+                if (iter.done()) {
+                    iter.done()->status().set_error(EINVAL, "Fail to prase meta");
+                    raft::run_closure_in_bthread(iter.done());
+                    continue;
+                }
             }
+            base::Timer timer;
+            timer.start();
+            const ssize_t towrite = data.length();
+            CHECK_EQ(towrite, raft::file_pwrite(data, _fd->fd(), meta.offset()));
+            timer.stop();
+            if (iter.done()) {
+                ((WriteClosure*)iter.done())->set_log_index(iter.index());
+                raft::run_closure_in_bthread(iter.done());
+            }
+            if (FLAGS_sync_data) {
+                _fd->AddRef();
+                CHECK_EQ(0, bthread::execution_queue_execute(_sync_queue, _fd));
+            }
+            g_write_file_latency << timer.u_elapsed();
+            g_normalized_write_file_latency << timer.u_elapsed() * 1024 / data.length();
         }
-        base::Timer timer;
-        timer.start();
-        const ssize_t towrite = data.length();
-        CHECK_EQ(towrite, raft::file_pwrite(data, _fd->fd(), meta.offset()));
-        timer.stop();
-        if (task.done) {
-            ((WriteClosure*)task.done)->set_log_index(index);
-            raft::run_closure_in_bthread(task.done);
-        }
-        if (FLAGS_sync_data) {
-            _fd->AddRef();
-            CHECK_EQ(0, bthread::execution_queue_execute(_sync_queue, _fd));
-        }
-        g_write_file_latency << timer.u_elapsed();
-        g_normalized_write_file_latency << timer.u_elapsed() * 1024 / data.length();
     }
 
     void on_shutdown() {
@@ -404,10 +406,10 @@ public:
             std::string prefix;
             base::string_printf(&prefix, "local://data/block_%d", i);
             raft::NodeOptions node_options;
-            node_options.election_timeout = base::fast_rand_in(5000, 20000);
+            node_options.election_timeout_ms = base::fast_rand_in(5000, 20000);
             node_options.fsm = block;
-            node_options.conf = raft::Configuration(peers); // bootstrap need
-            node_options.snapshot_interval = 
+            node_options.initial_conf = raft::Configuration(peers); // bootstrap need
+            node_options.snapshot_interval_s = 
                     base::fast_rand_in(FLAGS_snapshot_interval, 
                                        FLAGS_snapshot_interval * 2);
             std::string log_uri;

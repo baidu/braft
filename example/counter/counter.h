@@ -58,10 +58,7 @@ public:
     Counter(const raft::GroupId& group_id, const raft::PeerId& peer_id);
 
     // FSM method
-    virtual void on_apply(const int64_t index, const raft::Task& task);
-    virtual void on_apply_in_batch(const int64_t first_index, 
-                                   const raft::Task tasks[],
-                                   size_t size);
+    virtual void on_apply(raft::Iterator& iter);
     virtual void on_shutdown();
     virtual void on_snapshot_save(raft::SnapshotWriter* writer, raft::Closure* done);
     virtual int on_snapshot_load(raft::SnapshotReader* reader);

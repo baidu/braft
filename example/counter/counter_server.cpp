@@ -58,10 +58,10 @@ int main(int argc, char* argv[]) {
     // init counter
     counter::Counter* counter = new counter::Counter(FLAGS_name, raft::PeerId(addr, 0));
     raft::NodeOptions node_options;
-    node_options.election_timeout = 5000;
+    node_options.election_timeout_ms = 5000;
     node_options.fsm = counter;
-    node_options.conf = raft::Configuration(peers); // bootstrap need
-    node_options.snapshot_interval = 30;
+    node_options.initial_conf = raft::Configuration(peers); // bootstrap need
+    node_options.snapshot_interval_s = 30;
     node_options.log_uri = "local://./data/log";
     node_options.stable_uri = "local://./data/stable";
     node_options.snapshot_uri = "local://./data/snapshot";

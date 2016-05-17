@@ -118,6 +118,7 @@ friend class InstallSnapshotDone;
                                   const SnapshotMeta& meta,
                                   int64_t expected_version,
                                   SnapshotWriter* writer);
+    void report_error(int error_code, const char* fmt, ...);
 
     raft_mutex_t _mutex;
     int64_t _last_snapshot_term;

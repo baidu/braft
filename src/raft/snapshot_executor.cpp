@@ -132,6 +132,7 @@ void SnapshotExecutor::do_snapshot(Closure* done) {
             done->status().set_error(EIO, "Fail to create writer");
             run_closure_in_bthread(done);
         }
+        report_error(EIO, "Fail to create SnapshotWriter");
         return;
     }
     _saving_snapshot = true;
@@ -182,6 +183,9 @@ int SnapshotExecutor::on_snapshot_save_done(
         lck.unlock();
         _log_manager->set_snapshot(&meta);
         lck.lock();
+    }
+    if (ret == EIO) {
+        report_error(EIO, "Fail to save snapshot");
     }
     _saving_snapshot = false;
     return ret;
@@ -371,13 +375,16 @@ void SnapshotExecutor::install_snapshot(baidu::rpc::Controller* cntl,
     writer = _snapshot_storage->create();
     if (NULL == writer) {
         LOG(WARNING) << "Fail to create writer";
-        ret = EINVAL;
+        ret = EIO;
     } else {
         ret = writer->copy(request->uri());
     }
     if (ret != 0 && writer != NULL && writer->ok()) {
         writer->set_error(ret, berror(ret));
         LOG(WARNING) << "Fail to copy, " << berror(ret);
+    }
+    if (ret == EIO) {
+        report_error(EIO, "Fail to create or copy snapshot");
     }
     return load_downloading_snapshot(ds.release(), meta, saved_version, writer);
 }
@@ -480,8 +487,8 @@ int SnapshotExecutor::register_downloading_snapshot(DownloadingSnapshot* ds,
     DownloadingSnapshot saved;
     bool has_saved = false;
     // A previouse snapshot is under installing, check if this is the same
-    // snapshot and resume it, otherwise drop previous snapshot as this is a
-    // new one
+    // snapshot and resume it, otherwise drop previous snapshot as this one is
+    // newer
     if (m->request->last_included_log_index() 
             == ds->request->last_included_log_index()) {
         // m is a retry
@@ -538,6 +545,16 @@ void SnapshotExecutor::interrupt_downloading_snapshot(int64_t new_term) {
     saved.response->set_term(new_term);
     saved.response->set_success(false);
     saved.done->Run();
+}
+
+void SnapshotExecutor::report_error(int error_code, const char* fmt, ...) {
+    va_list ap;
+    va_start(ap, fmt);
+    Error e;
+    e.set_type(ERROR_TYPE_SNAPSHOT);
+    e.status().set_error(error_code, fmt, ap);
+    va_end(ap);
+    _fsm_caller->on_error(e);
 }
 
 void SnapshotExecutor::describe(std::ostream&os, bool use_html) {

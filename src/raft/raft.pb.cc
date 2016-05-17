@@ -38,7 +38,6 @@ const ::google::protobuf::internal::GeneratedMessageReflection*
 const ::google::protobuf::Descriptor* InstallSnapshotResponse_descriptor_ = NULL;
 const ::google::protobuf::internal::GeneratedMessageReflection*
   InstallSnapshotResponse_reflection_ = NULL;
-const ::google::protobuf::EnumDescriptor* EntryType_descriptor_ = NULL;
 const ::google::protobuf::ServiceDescriptor* RaftService_descriptor_ = NULL;
 
 }  // namespace
@@ -181,7 +180,6 @@ void protobuf_AssignDesc_raft_2fraft_2eproto() {
       ::google::protobuf::DescriptorPool::generated_pool(),
       ::google::protobuf::MessageFactory::generated_factory(),
       sizeof(InstallSnapshotResponse));
-  EntryType_descriptor_ = file->enum_type(0);
   RaftService_descriptor_ = file->service(0);
 }
 
@@ -236,39 +234,37 @@ void protobuf_AddDesc_raft_2fraft_2eproto() {
   already_here = true;
   GOOGLE_PROTOBUF_VERIFY_VERSION;
 
+  ::raft::protobuf_AddDesc_raft_2fenum_2eproto();
   ::google::protobuf::DescriptorPool::InternalAddGeneratedFile(
-    "\n\017raft/raft.proto\022\004raft\"Y\n\tEntryMeta\022\014\n\004"
-    "term\030\001 \002(\003\022\035\n\004type\030\002 \002(\0162\017.raft.EntryTyp"
-    "e\022\r\n\005peers\030\003 \003(\t\022\020\n\010data_len\030\004 \001(\003\"\207\001\n\022R"
-    "equestVoteRequest\022\020\n\010group_id\030\001 \002(\t\022\021\n\ts"
-    "erver_id\030\002 \002(\t\022\017\n\007peer_id\030\003 \002(\t\022\014\n\004term\030"
-    "\004 \002(\003\022\025\n\rlast_log_term\030\005 \002(\003\022\026\n\016last_log"
-    "_index\030\006 \002(\003\"4\n\023RequestVoteResponse\022\014\n\004t"
-    "erm\030\001 \002(\003\022\017\n\007granted\030\002 \002(\010\"\304\001\n\024AppendEnt"
-    "riesRequest\022\020\n\010group_id\030\001 \002(\t\022\021\n\tserver_"
-    "id\030\002 \002(\t\022\017\n\007peer_id\030\003 \002(\t\022\014\n\004term\030\004 \002(\003\022"
-    "\025\n\rprev_log_term\030\005 \002(\003\022\026\n\016prev_log_index"
-    "\030\006 \002(\003\022 \n\007entries\030\007 \003(\0132\017.raft.EntryMeta"
-    "\022\027\n\017committed_index\030\010 \002(\003\"N\n\025AppendEntri"
-    "esResponse\022\014\n\004term\030\001 \002(\003\022\017\n\007success\030\002 \002("
-    "\010\022\026\n\016last_log_index\030\003 \001(\003\"\271\001\n\026InstallSna"
-    "pshotRequest\022\020\n\010group_id\030\001 \002(\t\022\021\n\tserver"
-    "_id\030\002 \002(\t\022\017\n\007peer_id\030\003 \002(\t\022\014\n\004term\030\004 \002(\003"
-    "\022\036\n\026last_included_log_term\030\005 \002(\003\022\037\n\027last"
-    "_included_log_index\030\006 \002(\003\022\r\n\005peers\030\007 \003(\t"
-    "\022\013\n\003uri\030\010 \002(\t\"8\n\027InstallSnapshotResponse"
-    "\022\014\n\004term\030\001 \002(\003\022\017\n\007success\030\002 \002(\010*l\n\tEntry"
-    "Type\022\026\n\022ENTRY_TYPE_UNKNOWN\020\000\022\024\n\020ENTRY_TY"
-    "PE_NO_OP\020\001\022\023\n\017ENTRY_TYPE_DATA\020\002\022\034\n\030ENTRY"
-    "_TYPE_CONFIGURATION\020\0032\257\002\n\013RaftService\022\?\n"
-    "\010pre_vote\022\030.raft.RequestVoteRequest\032\031.ra"
-    "ft.RequestVoteResponse\022C\n\014request_vote\022\030"
-    ".raft.RequestVoteRequest\032\031.raft.RequestV"
-    "oteResponse\022I\n\016append_entries\022\032.raft.App"
-    "endEntriesRequest\032\033.raft.AppendEntriesRe"
-    "sponse\022O\n\020install_snapshot\022\034.raft.Instal"
-    "lSnapshotRequest\032\035.raft.InstallSnapshotR"
-    "esponseB\003\200\001\001", 1252);
+    "\n\017raft/raft.proto\022\004raft\032\017raft/enum.proto"
+    "\"Y\n\tEntryMeta\022\014\n\004term\030\001 \002(\003\022\035\n\004type\030\002 \002("
+    "\0162\017.raft.EntryType\022\r\n\005peers\030\003 \003(\t\022\020\n\010dat"
+    "a_len\030\004 \001(\003\"\207\001\n\022RequestVoteRequest\022\020\n\010gr"
+    "oup_id\030\001 \002(\t\022\021\n\tserver_id\030\002 \002(\t\022\017\n\007peer_"
+    "id\030\003 \002(\t\022\014\n\004term\030\004 \002(\003\022\025\n\rlast_log_term\030"
+    "\005 \002(\003\022\026\n\016last_log_index\030\006 \002(\003\"4\n\023Request"
+    "VoteResponse\022\014\n\004term\030\001 \002(\003\022\017\n\007granted\030\002 "
+    "\002(\010\"\304\001\n\024AppendEntriesRequest\022\020\n\010group_id"
+    "\030\001 \002(\t\022\021\n\tserver_id\030\002 \002(\t\022\017\n\007peer_id\030\003 \002"
+    "(\t\022\014\n\004term\030\004 \002(\003\022\025\n\rprev_log_term\030\005 \002(\003\022"
+    "\026\n\016prev_log_index\030\006 \002(\003\022 \n\007entries\030\007 \003(\013"
+    "2\017.raft.EntryMeta\022\027\n\017committed_index\030\010 \002"
+    "(\003\"N\n\025AppendEntriesResponse\022\014\n\004term\030\001 \002("
+    "\003\022\017\n\007success\030\002 \002(\010\022\026\n\016last_log_index\030\003 \001"
+    "(\003\"\271\001\n\026InstallSnapshotRequest\022\020\n\010group_i"
+    "d\030\001 \002(\t\022\021\n\tserver_id\030\002 \002(\t\022\017\n\007peer_id\030\003 "
+    "\002(\t\022\014\n\004term\030\004 \002(\003\022\036\n\026last_included_log_t"
+    "erm\030\005 \002(\003\022\037\n\027last_included_log_index\030\006 \002"
+    "(\003\022\r\n\005peers\030\007 \003(\t\022\013\n\003uri\030\010 \002(\t\"8\n\027Instal"
+    "lSnapshotResponse\022\014\n\004term\030\001 \002(\003\022\017\n\007succe"
+    "ss\030\002 \002(\0102\257\002\n\013RaftService\022\?\n\010pre_vote\022\030.r"
+    "aft.RequestVoteRequest\032\031.raft.RequestVot"
+    "eResponse\022C\n\014request_vote\022\030.raft.Request"
+    "VoteRequest\032\031.raft.RequestVoteResponse\022I"
+    "\n\016append_entries\022\032.raft.AppendEntriesReq"
+    "uest\032\033.raft.AppendEntriesResponse\022O\n\020ins"
+    "tall_snapshot\022\034.raft.InstallSnapshotRequ"
+    "est\032\035.raft.InstallSnapshotResponseB\003\200\001\001", 1159);
   ::google::protobuf::MessageFactory::InternalRegisterGeneratedFile(
     "raft/raft.proto", &protobuf_RegisterTypes);
   EntryMeta::default_instance_ = new EntryMeta();
@@ -294,22 +290,6 @@ struct StaticDescriptorInitializer_raft_2fraft_2eproto {
     protobuf_AddDesc_raft_2fraft_2eproto();
   }
 } static_descriptor_initializer_raft_2fraft_2eproto_;
-
-const ::google::protobuf::EnumDescriptor* EntryType_descriptor() {
-  protobuf_AssignDescriptorsOnce();
-  return EntryType_descriptor_;
-}
-bool EntryType_IsValid(int value) {
-  switch(value) {
-    case 0:
-    case 1:
-    case 2:
-    case 3:
-      return true;
-    default:
-      return false;
-  }
-}
 
 
 // ===================================================================

@@ -54,54 +54,48 @@ int Counter::get(int64_t* value_ptr, const int64_t index) {
     }
 }
 
-void Counter::on_apply(const int64_t index, const raft::Task& task) {
-    raft::Closure* done = task.done;
-    baidu::rpc::ClosureGuard done_guard(done);
+void Counter::on_apply(raft::Iterator& iter) {
+    for (; iter.valid(); iter.next()) {
+        raft::Closure* done = iter.done();
+        baidu::rpc::ClosureGuard done_guard(done);
 
-    FetchAndAddRequest request;
-    base::IOBufAsZeroCopyInputStream wrapper(*task.data);
-    request.ParseFromZeroCopyStream(&wrapper);
-    if (FLAGS_reject_duplicated_request) {
-        ClientRequestId client_req_id(request.ip(), request.pid(), request.req_id());
-        CounterDuplicatedRequestCache::iterator iter = _duplicated_request_cache.Get(client_req_id);
-        if (iter != _duplicated_request_cache.end()) {
-            FetchAndAddResult& result = iter->second;
-            LOG(WARNING) << "find duplicated request from cache, ip: " 
-                << base::EndPoint(base::int2ip(request.ip()), 0)
-                << " pid: " << request.pid() << " req_id: " << request.req_id() << " value: " 
-                << request.value()
-                << " return " << result.value << " at index: " << result.index;
-            if (done) {
-                ((FetchAndAddDone*)done)->set_result(result.value, result.index);
+        FetchAndAddRequest request;
+        base::IOBufAsZeroCopyInputStream wrapper(iter.data());
+        request.ParseFromZeroCopyStream(&wrapper);
+        if (FLAGS_reject_duplicated_request) {
+            ClientRequestId client_req_id(request.ip(), request.pid(), request.req_id());
+            CounterDuplicatedRequestCache::iterator ci = _duplicated_request_cache.Get(client_req_id);
+            if (ci != _duplicated_request_cache.end()) {
+                FetchAndAddResult& result = ci->second;
+                LOG(WARNING) << "find duplicated request from cache, ip: " 
+                    << base::EndPoint(base::int2ip(request.ip()), 0)
+                    << " pid: " << request.pid() << " req_id: " << request.req_id() << " value: " 
+                    << request.value()
+                    << " return " << result.value << " at index: " << result.index;
+                if (done) {
+                    ((FetchAndAddDone*)done)->set_result(result.value, result.index);
+                }
+                continue;
             }
-            return;
         }
-    }
-    const int64_t prev_value = _value.load(boost::memory_order_relaxed);
-    // fetch
-    if (done) {
-        //FetchAndAddDone* fetch_and_add_done = dynamic_cast<FetchAndAddDone*>(done);
-        FetchAndAddDone* fetch_and_add_done = (FetchAndAddDone*)done;
-        fetch_and_add_done->set_result(prev_value, index);
-    }
-    // add
-    _value.store(prev_value + request.value(), boost::memory_order_relaxed);
-    _applied_index.store(index, boost::memory_order_release);
-    if (FLAGS_reject_duplicated_request) {
-        ClientRequestId client_req_id(request.ip(), request.pid(), request.req_id());
-        _duplicated_request_cache.Put(client_req_id, 
-                FetchAndAddResult(prev_value + request.value(),index));
-    }
-    if (done) {
-        return raft::run_closure_in_bthread_nosig(done_guard.release());
-    }
-}
-
-void Counter::on_apply_in_batch(const int64_t first_index, 
-                               const raft::Task tasks[],
-                               size_t size) {
-    for (size_t i = 0; i < size; ++i) {
-        on_apply(first_index + i, tasks[i]);
+        const int64_t prev_value = _value.load(boost::memory_order_relaxed);
+        // fetch
+        if (done) {
+            //FetchAndAddDone* fetch_and_add_done = dynamic_cast<FetchAndAddDone*>(done);
+            FetchAndAddDone* fetch_and_add_done = (FetchAndAddDone*)done;
+            fetch_and_add_done->set_result(prev_value, iter.index());
+        }
+        // add
+        _value.store(prev_value + request.value(), boost::memory_order_relaxed);
+        _applied_index.store(iter.index(), boost::memory_order_release);
+        if (FLAGS_reject_duplicated_request) {
+            ClientRequestId client_req_id(request.ip(), request.pid(), request.req_id());
+            _duplicated_request_cache.Put(client_req_id, 
+                    FetchAndAddResult(prev_value + request.value(), iter.index()));
+        }
+        if (done) {
+            raft::run_closure_in_bthread_nosig(done_guard.release());
+        }
     }
     bthread_flush();
 }

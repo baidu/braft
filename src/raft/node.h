@@ -51,7 +51,7 @@ public:
 
     bool is_leader() {
         BAIDU_SCOPED_LOCK(_mutex);
-        return _state == LEADER;
+        return _state == STATE_LEADER;
     }
 
     // public user api
@@ -145,6 +145,13 @@ public:
     void update_configuration_after_installing_snapshot();
 
     void describe(std::ostream& os, bool use_html);
+
+    // Call on_error when some error happens, after this is called.
+    // After this point:
+    //  - This node is to step down immediately if it was the leader.
+    //  - Any futuer operation except shutdown would fail, including any RPC
+    //    request.
+    void on_error(const Error& e);
 
 private:
     friend class base::RefCountedThreadSafe<NodeImpl>;
