@@ -13,7 +13,7 @@ if COMPILER_VERSION() == 'gcc482':
 if COMPILER_VERSION() == 'gcc446' or COMPILER_VERSION() == 'gcc482':
     CXXFLAGS('-Wno-unused-result')
 
-INCPATHS('src')
+INCPATHS('$OUT_ROOT/public/raft/src src')
 
 CONFIGS('public/baidu-rpc@ci-base')
 

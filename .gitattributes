@@ -225,6 +225,7 @@ jepsen.atomic/doc/intro.md -text
 jepsen.atomic/project.clj -text
 jepsen.atomic/src/jepsen/atomic.clj -text
 jepsen.atomic/test/jepsen/atomic_test.clj -text
+/module_info -text
 protocol/raft/builtin_service.proto -text
 protocol/raft/enum.proto -text
 protocol/raft/errno.proto -text
