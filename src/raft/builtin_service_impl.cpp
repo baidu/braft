@@ -42,16 +42,19 @@ void RaftStatImpl::default_method(::google::protobuf::RpcController* controller,
     } else {
         cntl->http_response().set_content_type("text/plain");
     }
-    if (nodes.empty()) {
-        cntl->http_response().set_status_code(baidu::rpc::HTTP_STATUS_NO_CONTENT);
-        return;
-    }
     base::IOBufBuilder os;
     if (html) {
         os << "<!DOCTYPE html><html><head>\n"
            << "<script language=\"javascript\" type=\"text/javascript\" src=\"/js/jquery_min\"></script>\n"
            << baidu::rpc::TabsHead() << "</head><body>";
         cntl->server()->PrintTabsBody(os, "raft");
+    }
+    if (nodes.empty()) {
+        if (html) {
+            os << "</body></html>";
+        }
+        os.move_to(cntl->response_attachment());
+        return;
     }
 
     std::string prev_group_id;
