@@ -42,7 +42,7 @@ int Block::get_fd() {
     std::lock_guard<bthread_mutex_t> guard(_mutex);
     if (_fd < 0) {
         _fd = ::open(_path.c_str(), O_CREAT | O_RDWR, 0644);
-        CHECK(_fd >= 0) << "open block failed: " << berror();
+        CHECK(_fd >= 0) << "open block " << _path << " failed: " << berror();
     }
     return _fd;
 }
@@ -70,7 +70,8 @@ int Block::init(const raft::NodeOptions& options) {
 
     // after node.init to create the directory
     _path.clear();
-    _path = raft::fileuri2path(options.snapshot_uri);
+    _path = "./data/snapshot";
+    //_path = raft::fileuri2path(options.snapshot_uri);
     _path.append("/data");
     get_fd();
 
