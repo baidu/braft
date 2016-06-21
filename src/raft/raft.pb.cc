@@ -32,6 +32,9 @@ const ::google::protobuf::internal::GeneratedMessageReflection*
 const ::google::protobuf::Descriptor* AppendEntriesResponse_descriptor_ = NULL;
 const ::google::protobuf::internal::GeneratedMessageReflection*
   AppendEntriesResponse_reflection_ = NULL;
+const ::google::protobuf::Descriptor* SnapshotMeta_descriptor_ = NULL;
+const ::google::protobuf::internal::GeneratedMessageReflection*
+  SnapshotMeta_reflection_ = NULL;
 const ::google::protobuf::Descriptor* InstallSnapshotRequest_descriptor_ = NULL;
 const ::google::protobuf::internal::GeneratedMessageReflection*
   InstallSnapshotRequest_reflection_ = NULL;
@@ -142,15 +145,30 @@ void protobuf_AssignDesc_raft_2fraft_2eproto() {
       ::google::protobuf::DescriptorPool::generated_pool(),
       ::google::protobuf::MessageFactory::generated_factory(),
       sizeof(AppendEntriesResponse));
-  InstallSnapshotRequest_descriptor_ = file->message_type(5);
-  static const int InstallSnapshotRequest_offsets_[8] = {
+  SnapshotMeta_descriptor_ = file->message_type(5);
+  static const int SnapshotMeta_offsets_[3] = {
+    GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(SnapshotMeta, last_included_index_),
+    GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(SnapshotMeta, last_included_term_),
+    GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(SnapshotMeta, peers_),
+  };
+  SnapshotMeta_reflection_ =
+    new ::google::protobuf::internal::GeneratedMessageReflection(
+      SnapshotMeta_descriptor_,
+      SnapshotMeta::default_instance_,
+      SnapshotMeta_offsets_,
+      GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(SnapshotMeta, _has_bits_[0]),
+      GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(SnapshotMeta, _unknown_fields_),
+      -1,
+      ::google::protobuf::DescriptorPool::generated_pool(),
+      ::google::protobuf::MessageFactory::generated_factory(),
+      sizeof(SnapshotMeta));
+  InstallSnapshotRequest_descriptor_ = file->message_type(6);
+  static const int InstallSnapshotRequest_offsets_[6] = {
     GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(InstallSnapshotRequest, group_id_),
     GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(InstallSnapshotRequest, server_id_),
     GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(InstallSnapshotRequest, peer_id_),
     GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(InstallSnapshotRequest, term_),
-    GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(InstallSnapshotRequest, last_included_log_term_),
-    GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(InstallSnapshotRequest, last_included_log_index_),
-    GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(InstallSnapshotRequest, peers_),
+    GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(InstallSnapshotRequest, meta_),
     GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(InstallSnapshotRequest, uri_),
   };
   InstallSnapshotRequest_reflection_ =
@@ -164,7 +182,7 @@ void protobuf_AssignDesc_raft_2fraft_2eproto() {
       ::google::protobuf::DescriptorPool::generated_pool(),
       ::google::protobuf::MessageFactory::generated_factory(),
       sizeof(InstallSnapshotRequest));
-  InstallSnapshotResponse_descriptor_ = file->message_type(6);
+  InstallSnapshotResponse_descriptor_ = file->message_type(7);
   static const int InstallSnapshotResponse_offsets_[2] = {
     GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(InstallSnapshotResponse, term_),
     GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(InstallSnapshotResponse, success_),
@@ -204,6 +222,8 @@ void protobuf_RegisterTypes(const ::std::string&) {
   ::google::protobuf::MessageFactory::InternalRegisterGeneratedMessage(
     AppendEntriesResponse_descriptor_, &AppendEntriesResponse::default_instance());
   ::google::protobuf::MessageFactory::InternalRegisterGeneratedMessage(
+    SnapshotMeta_descriptor_, &SnapshotMeta::default_instance());
+  ::google::protobuf::MessageFactory::InternalRegisterGeneratedMessage(
     InstallSnapshotRequest_descriptor_, &InstallSnapshotRequest::default_instance());
   ::google::protobuf::MessageFactory::InternalRegisterGeneratedMessage(
     InstallSnapshotResponse_descriptor_, &InstallSnapshotResponse::default_instance());
@@ -222,6 +242,8 @@ void protobuf_ShutdownFile_raft_2fraft_2eproto() {
   delete AppendEntriesRequest_reflection_;
   delete AppendEntriesResponse::default_instance_;
   delete AppendEntriesResponse_reflection_;
+  delete SnapshotMeta::default_instance_;
+  delete SnapshotMeta_reflection_;
   delete InstallSnapshotRequest::default_instance_;
   delete InstallSnapshotRequest_reflection_;
   delete InstallSnapshotResponse::default_instance_;
@@ -251,20 +273,22 @@ void protobuf_AddDesc_raft_2fraft_2eproto() {
     "2\017.raft.EntryMeta\022\027\n\017committed_index\030\010 \002"
     "(\003\"N\n\025AppendEntriesResponse\022\014\n\004term\030\001 \002("
     "\003\022\017\n\007success\030\002 \002(\010\022\026\n\016last_log_index\030\003 \001"
-    "(\003\"\271\001\n\026InstallSnapshotRequest\022\020\n\010group_i"
-    "d\030\001 \002(\t\022\021\n\tserver_id\030\002 \002(\t\022\017\n\007peer_id\030\003 "
-    "\002(\t\022\014\n\004term\030\004 \002(\003\022\036\n\026last_included_log_t"
-    "erm\030\005 \002(\003\022\037\n\027last_included_log_index\030\006 \002"
-    "(\003\022\r\n\005peers\030\007 \003(\t\022\013\n\003uri\030\010 \002(\t\"8\n\027Instal"
-    "lSnapshotResponse\022\014\n\004term\030\001 \002(\003\022\017\n\007succe"
-    "ss\030\002 \002(\0102\257\002\n\013RaftService\022\?\n\010pre_vote\022\030.r"
-    "aft.RequestVoteRequest\032\031.raft.RequestVot"
-    "eResponse\022C\n\014request_vote\022\030.raft.Request"
-    "VoteRequest\032\031.raft.RequestVoteResponse\022I"
-    "\n\016append_entries\022\032.raft.AppendEntriesReq"
-    "uest\032\033.raft.AppendEntriesResponse\022O\n\020ins"
-    "tall_snapshot\022\034.raft.InstallSnapshotRequ"
-    "est\032\035.raft.InstallSnapshotResponseB\003\200\001\001", 1159);
+    "(\003\"V\n\014SnapshotMeta\022\033\n\023last_included_inde"
+    "x\030\001 \002(\003\022\032\n\022last_included_term\030\002 \002(\003\022\r\n\005p"
+    "eers\030\003 \003(\t\"\213\001\n\026InstallSnapshotRequest\022\020\n"
+    "\010group_id\030\001 \002(\t\022\021\n\tserver_id\030\002 \002(\t\022\017\n\007pe"
+    "er_id\030\003 \002(\t\022\014\n\004term\030\004 \002(\003\022 \n\004meta\030\005 \002(\0132"
+    "\022.raft.SnapshotMeta\022\013\n\003uri\030\006 \002(\t\"8\n\027Inst"
+    "allSnapshotResponse\022\014\n\004term\030\001 \002(\003\022\017\n\007suc"
+    "cess\030\002 \002(\0102\257\002\n\013RaftService\022\?\n\010pre_vote\022\030"
+    ".raft.RequestVoteRequest\032\031.raft.RequestV"
+    "oteResponse\022C\n\014request_vote\022\030.raft.Reque"
+    "stVoteRequest\032\031.raft.RequestVoteResponse"
+    "\022I\n\016append_entries\022\032.raft.AppendEntriesR"
+    "equest\032\033.raft.AppendEntriesResponse\022O\n\020i"
+    "nstall_snapshot\022\034.raft.InstallSnapshotRe"
+    "quest\032\035.raft.InstallSnapshotResponseB\003\200\001"
+    "\001", 1201);
   ::google::protobuf::MessageFactory::InternalRegisterGeneratedFile(
     "raft/raft.proto", &protobuf_RegisterTypes);
   EntryMeta::default_instance_ = new EntryMeta();
@@ -272,6 +296,7 @@ void protobuf_AddDesc_raft_2fraft_2eproto() {
   RequestVoteResponse::default_instance_ = new RequestVoteResponse();
   AppendEntriesRequest::default_instance_ = new AppendEntriesRequest();
   AppendEntriesResponse::default_instance_ = new AppendEntriesResponse();
+  SnapshotMeta::default_instance_ = new SnapshotMeta();
   InstallSnapshotRequest::default_instance_ = new InstallSnapshotRequest();
   InstallSnapshotResponse::default_instance_ = new InstallSnapshotResponse();
   EntryMeta::default_instance_->InitAsDefaultInstance();
@@ -279,6 +304,7 @@ void protobuf_AddDesc_raft_2fraft_2eproto() {
   RequestVoteResponse::default_instance_->InitAsDefaultInstance();
   AppendEntriesRequest::default_instance_->InitAsDefaultInstance();
   AppendEntriesResponse::default_instance_->InitAsDefaultInstance();
+  SnapshotMeta::default_instance_->InitAsDefaultInstance();
   InstallSnapshotRequest::default_instance_->InitAsDefaultInstance();
   InstallSnapshotResponse::default_instance_->InitAsDefaultInstance();
   ::google::protobuf::internal::OnShutdown(&protobuf_ShutdownFile_raft_2fraft_2eproto);
@@ -2169,13 +2195,306 @@ void AppendEntriesResponse::Swap(AppendEntriesResponse* other) {
 // ===================================================================
 
 #ifndef _MSC_VER
+const int SnapshotMeta::kLastIncludedIndexFieldNumber;
+const int SnapshotMeta::kLastIncludedTermFieldNumber;
+const int SnapshotMeta::kPeersFieldNumber;
+#endif  // !_MSC_VER
+
+SnapshotMeta::SnapshotMeta()
+  : ::google::protobuf::Message() {
+  SharedCtor();
+}
+
+void SnapshotMeta::InitAsDefaultInstance() {
+}
+
+SnapshotMeta::SnapshotMeta(const SnapshotMeta& from)
+  : ::google::protobuf::Message() {
+  SharedCtor();
+  MergeFrom(from);
+}
+
+void SnapshotMeta::SharedCtor() {
+  _cached_size_ = 0;
+  last_included_index_ = GOOGLE_LONGLONG(0);
+  last_included_term_ = GOOGLE_LONGLONG(0);
+  ::memset(_has_bits_, 0, sizeof(_has_bits_));
+}
+
+SnapshotMeta::~SnapshotMeta() {
+  SharedDtor();
+}
+
+void SnapshotMeta::SharedDtor() {
+  if (this != default_instance_) {
+  }
+}
+
+void SnapshotMeta::SetCachedSize(int size) const {
+  GOOGLE_SAFE_CONCURRENT_WRITES_BEGIN();
+  _cached_size_ = size;
+  GOOGLE_SAFE_CONCURRENT_WRITES_END();
+}
+const ::google::protobuf::Descriptor* SnapshotMeta::descriptor() {
+  protobuf_AssignDescriptorsOnce();
+  return SnapshotMeta_descriptor_;
+}
+
+const SnapshotMeta& SnapshotMeta::default_instance() {
+  if (default_instance_ == NULL) protobuf_AddDesc_raft_2fraft_2eproto();  return *default_instance_;
+}
+
+SnapshotMeta* SnapshotMeta::default_instance_ = NULL;
+
+SnapshotMeta* SnapshotMeta::New() const {
+  return new SnapshotMeta;
+}
+
+void SnapshotMeta::Clear() {
+  if (_has_bits_[0 / 32] & (0xffu << (0 % 32))) {
+    last_included_index_ = GOOGLE_LONGLONG(0);
+    last_included_term_ = GOOGLE_LONGLONG(0);
+  }
+  peers_.Clear();
+  ::memset(_has_bits_, 0, sizeof(_has_bits_));
+  mutable_unknown_fields()->Clear();
+}
+
+bool SnapshotMeta::MergePartialFromCodedStream(
+    ::google::protobuf::io::CodedInputStream* input) {
+#define DO_(EXPRESSION) if (!(EXPRESSION)) return false
+  ::google::protobuf::uint32 tag;
+  while ((tag = input->ReadTag()) != 0) {
+    switch (::google::protobuf::internal::WireFormatLite::GetTagFieldNumber(tag)) {
+      // required int64 last_included_index = 1;
+      case 1: {
+        if (::google::protobuf::internal::WireFormatLite::GetTagWireType(tag) ==
+            ::google::protobuf::internal::WireFormatLite::WIRETYPE_VARINT) {
+          DO_((::google::protobuf::internal::WireFormatLite::ReadPrimitive<
+                   ::google::protobuf::int64, ::google::protobuf::internal::WireFormatLite::TYPE_INT64>(
+                 input, &last_included_index_)));
+          set_has_last_included_index();
+        } else {
+          goto handle_uninterpreted;
+        }
+        if (input->ExpectTag(16)) goto parse_last_included_term;
+        break;
+      }
+      
+      // required int64 last_included_term = 2;
+      case 2: {
+        if (::google::protobuf::internal::WireFormatLite::GetTagWireType(tag) ==
+            ::google::protobuf::internal::WireFormatLite::WIRETYPE_VARINT) {
+         parse_last_included_term:
+          DO_((::google::protobuf::internal::WireFormatLite::ReadPrimitive<
+                   ::google::protobuf::int64, ::google::protobuf::internal::WireFormatLite::TYPE_INT64>(
+                 input, &last_included_term_)));
+          set_has_last_included_term();
+        } else {
+          goto handle_uninterpreted;
+        }
+        if (input->ExpectTag(26)) goto parse_peers;
+        break;
+      }
+      
+      // repeated string peers = 3;
+      case 3: {
+        if (::google::protobuf::internal::WireFormatLite::GetTagWireType(tag) ==
+            ::google::protobuf::internal::WireFormatLite::WIRETYPE_LENGTH_DELIMITED) {
+         parse_peers:
+          DO_(::google::protobuf::internal::WireFormatLite::ReadString(
+                input, this->add_peers()));
+          ::google::protobuf::internal::WireFormat::VerifyUTF8String(
+            this->peers(0).data(), this->peers(0).length(),
+            ::google::protobuf::internal::WireFormat::PARSE);
+        } else {
+          goto handle_uninterpreted;
+        }
+        if (input->ExpectTag(26)) goto parse_peers;
+        if (input->ExpectAtEnd()) return true;
+        break;
+      }
+      
+      default: {
+      handle_uninterpreted:
+        if (::google::protobuf::internal::WireFormatLite::GetTagWireType(tag) ==
+            ::google::protobuf::internal::WireFormatLite::WIRETYPE_END_GROUP) {
+          return true;
+        }
+        DO_(::google::protobuf::internal::WireFormat::SkipField(
+              input, tag, mutable_unknown_fields()));
+        break;
+      }
+    }
+  }
+  return true;
+#undef DO_
+}
+
+void SnapshotMeta::SerializeWithCachedSizes(
+    ::google::protobuf::io::CodedOutputStream* output) const {
+  // required int64 last_included_index = 1;
+  if (has_last_included_index()) {
+    ::google::protobuf::internal::WireFormatLite::WriteInt64(1, this->last_included_index(), output);
+  }
+  
+  // required int64 last_included_term = 2;
+  if (has_last_included_term()) {
+    ::google::protobuf::internal::WireFormatLite::WriteInt64(2, this->last_included_term(), output);
+  }
+  
+  // repeated string peers = 3;
+  for (int i = 0; i < this->peers_size(); i++) {
+  ::google::protobuf::internal::WireFormat::VerifyUTF8String(
+    this->peers(i).data(), this->peers(i).length(),
+    ::google::protobuf::internal::WireFormat::SERIALIZE);
+    ::google::protobuf::internal::WireFormatLite::WriteString(
+      3, this->peers(i), output);
+  }
+  
+  if (!unknown_fields().empty()) {
+    ::google::protobuf::internal::WireFormat::SerializeUnknownFields(
+        unknown_fields(), output);
+  }
+}
+
+::google::protobuf::uint8* SnapshotMeta::SerializeWithCachedSizesToArray(
+    ::google::protobuf::uint8* target) const {
+  // required int64 last_included_index = 1;
+  if (has_last_included_index()) {
+    target = ::google::protobuf::internal::WireFormatLite::WriteInt64ToArray(1, this->last_included_index(), target);
+  }
+  
+  // required int64 last_included_term = 2;
+  if (has_last_included_term()) {
+    target = ::google::protobuf::internal::WireFormatLite::WriteInt64ToArray(2, this->last_included_term(), target);
+  }
+  
+  // repeated string peers = 3;
+  for (int i = 0; i < this->peers_size(); i++) {
+    ::google::protobuf::internal::WireFormat::VerifyUTF8String(
+      this->peers(i).data(), this->peers(i).length(),
+      ::google::protobuf::internal::WireFormat::SERIALIZE);
+    target = ::google::protobuf::internal::WireFormatLite::
+      WriteStringToArray(3, this->peers(i), target);
+  }
+  
+  if (!unknown_fields().empty()) {
+    target = ::google::protobuf::internal::WireFormat::SerializeUnknownFieldsToArray(
+        unknown_fields(), target);
+  }
+  return target;
+}
+
+int SnapshotMeta::ByteSize() const {
+  int total_size = 0;
+  
+  if (_has_bits_[0 / 32] & (0xffu << (0 % 32))) {
+    // required int64 last_included_index = 1;
+    if (has_last_included_index()) {
+      total_size += 1 +
+        ::google::protobuf::internal::WireFormatLite::Int64Size(
+          this->last_included_index());
+    }
+    
+    // required int64 last_included_term = 2;
+    if (has_last_included_term()) {
+      total_size += 1 +
+        ::google::protobuf::internal::WireFormatLite::Int64Size(
+          this->last_included_term());
+    }
+    
+  }
+  // repeated string peers = 3;
+  total_size += 1 * this->peers_size();
+  for (int i = 0; i < this->peers_size(); i++) {
+    total_size += ::google::protobuf::internal::WireFormatLite::StringSize(
+      this->peers(i));
+  }
+  
+  if (!unknown_fields().empty()) {
+    total_size +=
+      ::google::protobuf::internal::WireFormat::ComputeUnknownFieldsSize(
+        unknown_fields());
+  }
+  GOOGLE_SAFE_CONCURRENT_WRITES_BEGIN();
+  _cached_size_ = total_size;
+  GOOGLE_SAFE_CONCURRENT_WRITES_END();
+  return total_size;
+}
+
+void SnapshotMeta::MergeFrom(const ::google::protobuf::Message& from) {
+  GOOGLE_CHECK_NE(&from, this);
+  const SnapshotMeta* source =
+    ::google::protobuf::internal::dynamic_cast_if_available<const SnapshotMeta*>(
+      &from);
+  if (source == NULL) {
+    ::google::protobuf::internal::ReflectionOps::Merge(from, this);
+  } else {
+    MergeFrom(*source);
+  }
+}
+
+void SnapshotMeta::MergeFrom(const SnapshotMeta& from) {
+  GOOGLE_CHECK_NE(&from, this);
+  peers_.MergeFrom(from.peers_);
+  if (from._has_bits_[0 / 32] & (0xffu << (0 % 32))) {
+    if (from.has_last_included_index()) {
+      set_last_included_index(from.last_included_index());
+    }
+    if (from.has_last_included_term()) {
+      set_last_included_term(from.last_included_term());
+    }
+  }
+  mutable_unknown_fields()->MergeFrom(from.unknown_fields());
+}
+
+void SnapshotMeta::CopyFrom(const ::google::protobuf::Message& from) {
+  if (&from == this) return;
+  Clear();
+  MergeFrom(from);
+}
+
+void SnapshotMeta::CopyFrom(const SnapshotMeta& from) {
+  if (&from == this) return;
+  Clear();
+  MergeFrom(from);
+}
+
+bool SnapshotMeta::IsInitialized() const {
+  if ((_has_bits_[0] & 0x00000003) != 0x00000003) return false;
+  
+  return true;
+}
+
+void SnapshotMeta::Swap(SnapshotMeta* other) {
+  if (other != this) {
+    std::swap(last_included_index_, other->last_included_index_);
+    std::swap(last_included_term_, other->last_included_term_);
+    peers_.Swap(&other->peers_);
+    std::swap(_has_bits_[0], other->_has_bits_[0]);
+    _unknown_fields_.Swap(&other->_unknown_fields_);
+    std::swap(_cached_size_, other->_cached_size_);
+  }
+}
+
+::google::protobuf::Metadata SnapshotMeta::GetMetadata() const {
+  protobuf_AssignDescriptorsOnce();
+  ::google::protobuf::Metadata metadata;
+  metadata.descriptor = SnapshotMeta_descriptor_;
+  metadata.reflection = SnapshotMeta_reflection_;
+  return metadata;
+}
+
+
+// ===================================================================
+
+#ifndef _MSC_VER
 const int InstallSnapshotRequest::kGroupIdFieldNumber;
 const int InstallSnapshotRequest::kServerIdFieldNumber;
 const int InstallSnapshotRequest::kPeerIdFieldNumber;
 const int InstallSnapshotRequest::kTermFieldNumber;
-const int InstallSnapshotRequest::kLastIncludedLogTermFieldNumber;
-const int InstallSnapshotRequest::kLastIncludedLogIndexFieldNumber;
-const int InstallSnapshotRequest::kPeersFieldNumber;
+const int InstallSnapshotRequest::kMetaFieldNumber;
 const int InstallSnapshotRequest::kUriFieldNumber;
 #endif  // !_MSC_VER
 
@@ -2185,6 +2504,7 @@ InstallSnapshotRequest::InstallSnapshotRequest()
 }
 
 void InstallSnapshotRequest::InitAsDefaultInstance() {
+  meta_ = const_cast< ::raft::SnapshotMeta*>(&::raft::SnapshotMeta::default_instance());
 }
 
 InstallSnapshotRequest::InstallSnapshotRequest(const InstallSnapshotRequest& from)
@@ -2199,8 +2519,7 @@ void InstallSnapshotRequest::SharedCtor() {
   server_id_ = const_cast< ::std::string*>(&::google::protobuf::internal::kEmptyString);
   peer_id_ = const_cast< ::std::string*>(&::google::protobuf::internal::kEmptyString);
   term_ = GOOGLE_LONGLONG(0);
-  last_included_log_term_ = GOOGLE_LONGLONG(0);
-  last_included_log_index_ = GOOGLE_LONGLONG(0);
+  meta_ = NULL;
   uri_ = const_cast< ::std::string*>(&::google::protobuf::internal::kEmptyString);
   ::memset(_has_bits_, 0, sizeof(_has_bits_));
 }
@@ -2223,6 +2542,7 @@ void InstallSnapshotRequest::SharedDtor() {
     delete uri_;
   }
   if (this != default_instance_) {
+    delete meta_;
   }
 }
 
@@ -2264,15 +2584,15 @@ void InstallSnapshotRequest::Clear() {
       }
     }
     term_ = GOOGLE_LONGLONG(0);
-    last_included_log_term_ = GOOGLE_LONGLONG(0);
-    last_included_log_index_ = GOOGLE_LONGLONG(0);
+    if (has_meta()) {
+      if (meta_ != NULL) meta_->::raft::SnapshotMeta::Clear();
+    }
     if (has_uri()) {
       if (uri_ != &::google::protobuf::internal::kEmptyString) {
         uri_->clear();
       }
     }
   }
-  peers_.Clear();
   ::memset(_has_bits_, 0, sizeof(_has_bits_));
   mutable_unknown_fields()->Clear();
 }
@@ -2345,62 +2665,26 @@ bool InstallSnapshotRequest::MergePartialFromCodedStream(
         } else {
           goto handle_uninterpreted;
         }
-        if (input->ExpectTag(40)) goto parse_last_included_log_term;
+        if (input->ExpectTag(42)) goto parse_meta;
         break;
       }
       
-      // required int64 last_included_log_term = 5;
+      // required .raft.SnapshotMeta meta = 5;
       case 5: {
         if (::google::protobuf::internal::WireFormatLite::GetTagWireType(tag) ==
-            ::google::protobuf::internal::WireFormatLite::WIRETYPE_VARINT) {
-         parse_last_included_log_term:
-          DO_((::google::protobuf::internal::WireFormatLite::ReadPrimitive<
-                   ::google::protobuf::int64, ::google::protobuf::internal::WireFormatLite::TYPE_INT64>(
-                 input, &last_included_log_term_)));
-          set_has_last_included_log_term();
-        } else {
-          goto handle_uninterpreted;
-        }
-        if (input->ExpectTag(48)) goto parse_last_included_log_index;
-        break;
-      }
-      
-      // required int64 last_included_log_index = 6;
-      case 6: {
-        if (::google::protobuf::internal::WireFormatLite::GetTagWireType(tag) ==
-            ::google::protobuf::internal::WireFormatLite::WIRETYPE_VARINT) {
-         parse_last_included_log_index:
-          DO_((::google::protobuf::internal::WireFormatLite::ReadPrimitive<
-                   ::google::protobuf::int64, ::google::protobuf::internal::WireFormatLite::TYPE_INT64>(
-                 input, &last_included_log_index_)));
-          set_has_last_included_log_index();
-        } else {
-          goto handle_uninterpreted;
-        }
-        if (input->ExpectTag(58)) goto parse_peers;
-        break;
-      }
-      
-      // repeated string peers = 7;
-      case 7: {
-        if (::google::protobuf::internal::WireFormatLite::GetTagWireType(tag) ==
             ::google::protobuf::internal::WireFormatLite::WIRETYPE_LENGTH_DELIMITED) {
-         parse_peers:
-          DO_(::google::protobuf::internal::WireFormatLite::ReadString(
-                input, this->add_peers()));
-          ::google::protobuf::internal::WireFormat::VerifyUTF8String(
-            this->peers(0).data(), this->peers(0).length(),
-            ::google::protobuf::internal::WireFormat::PARSE);
+         parse_meta:
+          DO_(::google::protobuf::internal::WireFormatLite::ReadMessageNoVirtual(
+               input, mutable_meta()));
         } else {
           goto handle_uninterpreted;
         }
-        if (input->ExpectTag(58)) goto parse_peers;
-        if (input->ExpectTag(66)) goto parse_uri;
+        if (input->ExpectTag(50)) goto parse_uri;
         break;
       }
       
-      // required string uri = 8;
-      case 8: {
+      // required string uri = 6;
+      case 6: {
         if (::google::protobuf::internal::WireFormatLite::GetTagWireType(tag) ==
             ::google::protobuf::internal::WireFormatLite::WIRETYPE_LENGTH_DELIMITED) {
          parse_uri:
@@ -2466,32 +2750,19 @@ void InstallSnapshotRequest::SerializeWithCachedSizes(
     ::google::protobuf::internal::WireFormatLite::WriteInt64(4, this->term(), output);
   }
   
-  // required int64 last_included_log_term = 5;
-  if (has_last_included_log_term()) {
-    ::google::protobuf::internal::WireFormatLite::WriteInt64(5, this->last_included_log_term(), output);
+  // required .raft.SnapshotMeta meta = 5;
+  if (has_meta()) {
+    ::google::protobuf::internal::WireFormatLite::WriteMessageMaybeToArray(
+      5, this->meta(), output);
   }
   
-  // required int64 last_included_log_index = 6;
-  if (has_last_included_log_index()) {
-    ::google::protobuf::internal::WireFormatLite::WriteInt64(6, this->last_included_log_index(), output);
-  }
-  
-  // repeated string peers = 7;
-  for (int i = 0; i < this->peers_size(); i++) {
-  ::google::protobuf::internal::WireFormat::VerifyUTF8String(
-    this->peers(i).data(), this->peers(i).length(),
-    ::google::protobuf::internal::WireFormat::SERIALIZE);
-    ::google::protobuf::internal::WireFormatLite::WriteString(
-      7, this->peers(i), output);
-  }
-  
-  // required string uri = 8;
+  // required string uri = 6;
   if (has_uri()) {
     ::google::protobuf::internal::WireFormat::VerifyUTF8String(
       this->uri().data(), this->uri().length(),
       ::google::protobuf::internal::WireFormat::SERIALIZE);
     ::google::protobuf::internal::WireFormatLite::WriteString(
-      8, this->uri(), output);
+      6, this->uri(), output);
   }
   
   if (!unknown_fields().empty()) {
@@ -2537,33 +2808,21 @@ void InstallSnapshotRequest::SerializeWithCachedSizes(
     target = ::google::protobuf::internal::WireFormatLite::WriteInt64ToArray(4, this->term(), target);
   }
   
-  // required int64 last_included_log_term = 5;
-  if (has_last_included_log_term()) {
-    target = ::google::protobuf::internal::WireFormatLite::WriteInt64ToArray(5, this->last_included_log_term(), target);
-  }
-  
-  // required int64 last_included_log_index = 6;
-  if (has_last_included_log_index()) {
-    target = ::google::protobuf::internal::WireFormatLite::WriteInt64ToArray(6, this->last_included_log_index(), target);
-  }
-  
-  // repeated string peers = 7;
-  for (int i = 0; i < this->peers_size(); i++) {
-    ::google::protobuf::internal::WireFormat::VerifyUTF8String(
-      this->peers(i).data(), this->peers(i).length(),
-      ::google::protobuf::internal::WireFormat::SERIALIZE);
+  // required .raft.SnapshotMeta meta = 5;
+  if (has_meta()) {
     target = ::google::protobuf::internal::WireFormatLite::
-      WriteStringToArray(7, this->peers(i), target);
+      WriteMessageNoVirtualToArray(
+        5, this->meta(), target);
   }
   
-  // required string uri = 8;
+  // required string uri = 6;
   if (has_uri()) {
     ::google::protobuf::internal::WireFormat::VerifyUTF8String(
       this->uri().data(), this->uri().length(),
       ::google::protobuf::internal::WireFormat::SERIALIZE);
     target =
       ::google::protobuf::internal::WireFormatLite::WriteStringToArray(
-        8, this->uri(), target);
+        6, this->uri(), target);
   }
   
   if (!unknown_fields().empty()) {
@@ -2605,21 +2864,14 @@ int InstallSnapshotRequest::ByteSize() const {
           this->term());
     }
     
-    // required int64 last_included_log_term = 5;
-    if (has_last_included_log_term()) {
+    // required .raft.SnapshotMeta meta = 5;
+    if (has_meta()) {
       total_size += 1 +
-        ::google::protobuf::internal::WireFormatLite::Int64Size(
-          this->last_included_log_term());
+        ::google::protobuf::internal::WireFormatLite::MessageSizeNoVirtual(
+          this->meta());
     }
     
-    // required int64 last_included_log_index = 6;
-    if (has_last_included_log_index()) {
-      total_size += 1 +
-        ::google::protobuf::internal::WireFormatLite::Int64Size(
-          this->last_included_log_index());
-    }
-    
-    // required string uri = 8;
+    // required string uri = 6;
     if (has_uri()) {
       total_size += 1 +
         ::google::protobuf::internal::WireFormatLite::StringSize(
@@ -2627,13 +2879,6 @@ int InstallSnapshotRequest::ByteSize() const {
     }
     
   }
-  // repeated string peers = 7;
-  total_size += 1 * this->peers_size();
-  for (int i = 0; i < this->peers_size(); i++) {
-    total_size += ::google::protobuf::internal::WireFormatLite::StringSize(
-      this->peers(i));
-  }
-  
   if (!unknown_fields().empty()) {
     total_size +=
       ::google::protobuf::internal::WireFormat::ComputeUnknownFieldsSize(
@@ -2659,7 +2904,6 @@ void InstallSnapshotRequest::MergeFrom(const ::google::protobuf::Message& from) 
 
 void InstallSnapshotRequest::MergeFrom(const InstallSnapshotRequest& from) {
   GOOGLE_CHECK_NE(&from, this);
-  peers_.MergeFrom(from.peers_);
   if (from._has_bits_[0 / 32] & (0xffu << (0 % 32))) {
     if (from.has_group_id()) {
       set_group_id(from.group_id());
@@ -2673,11 +2917,8 @@ void InstallSnapshotRequest::MergeFrom(const InstallSnapshotRequest& from) {
     if (from.has_term()) {
       set_term(from.term());
     }
-    if (from.has_last_included_log_term()) {
-      set_last_included_log_term(from.last_included_log_term());
-    }
-    if (from.has_last_included_log_index()) {
-      set_last_included_log_index(from.last_included_log_index());
+    if (from.has_meta()) {
+      mutable_meta()->::raft::SnapshotMeta::MergeFrom(from.meta());
     }
     if (from.has_uri()) {
       set_uri(from.uri());
@@ -2699,8 +2940,11 @@ void InstallSnapshotRequest::CopyFrom(const InstallSnapshotRequest& from) {
 }
 
 bool InstallSnapshotRequest::IsInitialized() const {
-  if ((_has_bits_[0] & 0x000000bf) != 0x000000bf) return false;
+  if ((_has_bits_[0] & 0x0000003f) != 0x0000003f) return false;
   
+  if (has_meta()) {
+    if (!this->meta().IsInitialized()) return false;
+  }
   return true;
 }
 
@@ -2710,9 +2954,7 @@ void InstallSnapshotRequest::Swap(InstallSnapshotRequest* other) {
     std::swap(server_id_, other->server_id_);
     std::swap(peer_id_, other->peer_id_);
     std::swap(term_, other->term_);
-    std::swap(last_included_log_term_, other->last_included_log_term_);
-    std::swap(last_included_log_index_, other->last_included_log_index_);
-    peers_.Swap(&other->peers_);
+    std::swap(meta_, other->meta_);
     std::swap(uri_, other->uri_);
     std::swap(_has_bits_[0], other->_has_bits_[0]);
     _unknown_fields_.Swap(&other->_unknown_fields_);

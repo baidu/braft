@@ -23,6 +23,8 @@
 #include <google/protobuf/repeated_field.h>
 #include <google/protobuf/extension_set.h>
 #include <google/protobuf/generated_message_reflection.h>
+#include "raft/raft.pb.h"
+#include "raft/local_file_meta.pb.h"
 // @@protoc_insertion_point(includes)
 
 namespace raft {
@@ -35,7 +37,8 @@ void protobuf_ShutdownFile_raft_2flocal_5fstorage_2eproto();
 class ConfigurationPBMeta;
 class LogPBMeta;
 class StablePBMeta;
-class SnapshotPBMeta;
+class LocalSnapshotPbMeta;
+class LocalSnapshotPbMeta_File;
 
 // ===================================================================
 
@@ -306,14 +309,14 @@ class StablePBMeta : public ::google::protobuf::Message {
 };
 // -------------------------------------------------------------------
 
-class SnapshotPBMeta : public ::google::protobuf::Message {
+class LocalSnapshotPbMeta_File : public ::google::protobuf::Message {
  public:
-  SnapshotPBMeta();
-  virtual ~SnapshotPBMeta();
+  LocalSnapshotPbMeta_File();
+  virtual ~LocalSnapshotPbMeta_File();
   
-  SnapshotPBMeta(const SnapshotPBMeta& from);
+  LocalSnapshotPbMeta_File(const LocalSnapshotPbMeta_File& from);
   
-  inline SnapshotPBMeta& operator=(const SnapshotPBMeta& from) {
+  inline LocalSnapshotPbMeta_File& operator=(const LocalSnapshotPbMeta_File& from) {
     CopyFrom(from);
     return *this;
   }
@@ -327,17 +330,17 @@ class SnapshotPBMeta : public ::google::protobuf::Message {
   }
   
   static const ::google::protobuf::Descriptor* descriptor();
-  static const SnapshotPBMeta& default_instance();
+  static const LocalSnapshotPbMeta_File& default_instance();
   
-  void Swap(SnapshotPBMeta* other);
+  void Swap(LocalSnapshotPbMeta_File* other);
   
   // implements Message ----------------------------------------------
   
-  SnapshotPBMeta* New() const;
+  LocalSnapshotPbMeta_File* New() const;
   void CopyFrom(const ::google::protobuf::Message& from);
   void MergeFrom(const ::google::protobuf::Message& from);
-  void CopyFrom(const SnapshotPBMeta& from);
-  void MergeFrom(const SnapshotPBMeta& from);
+  void CopyFrom(const LocalSnapshotPbMeta_File& from);
+  void MergeFrom(const LocalSnapshotPbMeta_File& from);
   void Clear();
   bool IsInitialized() const;
   
@@ -360,58 +363,144 @@ class SnapshotPBMeta : public ::google::protobuf::Message {
   
   // accessors -------------------------------------------------------
   
-  // required int64 last_included_term = 1;
-  inline bool has_last_included_term() const;
-  inline void clear_last_included_term();
-  static const int kLastIncludedTermFieldNumber = 1;
-  inline ::google::protobuf::int64 last_included_term() const;
-  inline void set_last_included_term(::google::protobuf::int64 value);
+  // required string name = 1;
+  inline bool has_name() const;
+  inline void clear_name();
+  static const int kNameFieldNumber = 1;
+  inline const ::std::string& name() const;
+  inline void set_name(const ::std::string& value);
+  inline void set_name(const char* value);
+  inline void set_name(const char* value, size_t size);
+  inline ::std::string* mutable_name();
+  inline ::std::string* release_name();
   
-  // required int64 last_included_index = 2;
-  inline bool has_last_included_index() const;
-  inline void clear_last_included_index();
-  static const int kLastIncludedIndexFieldNumber = 2;
-  inline ::google::protobuf::int64 last_included_index() const;
-  inline void set_last_included_index(::google::protobuf::int64 value);
+  // optional .LocalFileMeta meta = 2;
+  inline bool has_meta() const;
+  inline void clear_meta();
+  static const int kMetaFieldNumber = 2;
+  inline const ::LocalFileMeta& meta() const;
+  inline ::LocalFileMeta* mutable_meta();
+  inline ::LocalFileMeta* release_meta();
   
-  // repeated string peers = 3;
-  inline int peers_size() const;
-  inline void clear_peers();
-  static const int kPeersFieldNumber = 3;
-  inline const ::std::string& peers(int index) const;
-  inline ::std::string* mutable_peers(int index);
-  inline void set_peers(int index, const ::std::string& value);
-  inline void set_peers(int index, const char* value);
-  inline void set_peers(int index, const char* value, size_t size);
-  inline ::std::string* add_peers();
-  inline void add_peers(const ::std::string& value);
-  inline void add_peers(const char* value);
-  inline void add_peers(const char* value, size_t size);
-  inline const ::google::protobuf::RepeatedPtrField< ::std::string>& peers() const;
-  inline ::google::protobuf::RepeatedPtrField< ::std::string>* mutable_peers();
-  
-  // @@protoc_insertion_point(class_scope:raft.SnapshotPBMeta)
+  // @@protoc_insertion_point(class_scope:raft.LocalSnapshotPbMeta.File)
  private:
-  inline void set_has_last_included_term();
-  inline void clear_has_last_included_term();
-  inline void set_has_last_included_index();
-  inline void clear_has_last_included_index();
+  inline void set_has_name();
+  inline void clear_has_name();
+  inline void set_has_meta();
+  inline void clear_has_meta();
   
   ::google::protobuf::UnknownFieldSet _unknown_fields_;
   
-  ::google::protobuf::int64 last_included_term_;
-  ::google::protobuf::int64 last_included_index_;
-  ::google::protobuf::RepeatedPtrField< ::std::string> peers_;
+  ::std::string* name_;
+  ::LocalFileMeta* meta_;
   
   mutable int _cached_size_;
-  ::google::protobuf::uint32 _has_bits_[(3 + 31) / 32];
+  ::google::protobuf::uint32 _has_bits_[(2 + 31) / 32];
   
   friend void  protobuf_AddDesc_raft_2flocal_5fstorage_2eproto();
   friend void protobuf_AssignDesc_raft_2flocal_5fstorage_2eproto();
   friend void protobuf_ShutdownFile_raft_2flocal_5fstorage_2eproto();
   
   void InitAsDefaultInstance();
-  static SnapshotPBMeta* default_instance_;
+  static LocalSnapshotPbMeta_File* default_instance_;
+};
+// -------------------------------------------------------------------
+
+class LocalSnapshotPbMeta : public ::google::protobuf::Message {
+ public:
+  LocalSnapshotPbMeta();
+  virtual ~LocalSnapshotPbMeta();
+  
+  LocalSnapshotPbMeta(const LocalSnapshotPbMeta& from);
+  
+  inline LocalSnapshotPbMeta& operator=(const LocalSnapshotPbMeta& from) {
+    CopyFrom(from);
+    return *this;
+  }
+  
+  inline const ::google::protobuf::UnknownFieldSet& unknown_fields() const {
+    return _unknown_fields_;
+  }
+  
+  inline ::google::protobuf::UnknownFieldSet* mutable_unknown_fields() {
+    return &_unknown_fields_;
+  }
+  
+  static const ::google::protobuf::Descriptor* descriptor();
+  static const LocalSnapshotPbMeta& default_instance();
+  
+  void Swap(LocalSnapshotPbMeta* other);
+  
+  // implements Message ----------------------------------------------
+  
+  LocalSnapshotPbMeta* New() const;
+  void CopyFrom(const ::google::protobuf::Message& from);
+  void MergeFrom(const ::google::protobuf::Message& from);
+  void CopyFrom(const LocalSnapshotPbMeta& from);
+  void MergeFrom(const LocalSnapshotPbMeta& from);
+  void Clear();
+  bool IsInitialized() const;
+  
+  int ByteSize() const;
+  bool MergePartialFromCodedStream(
+      ::google::protobuf::io::CodedInputStream* input);
+  void SerializeWithCachedSizes(
+      ::google::protobuf::io::CodedOutputStream* output) const;
+  ::google::protobuf::uint8* SerializeWithCachedSizesToArray(::google::protobuf::uint8* output) const;
+  int GetCachedSize() const { return _cached_size_; }
+  private:
+  void SharedCtor();
+  void SharedDtor();
+  void SetCachedSize(int size) const;
+  public:
+  
+  ::google::protobuf::Metadata GetMetadata() const;
+  
+  // nested types ----------------------------------------------------
+  
+  typedef LocalSnapshotPbMeta_File File;
+  
+  // accessors -------------------------------------------------------
+  
+  // optional .raft.SnapshotMeta meta = 1;
+  inline bool has_meta() const;
+  inline void clear_meta();
+  static const int kMetaFieldNumber = 1;
+  inline const ::raft::SnapshotMeta& meta() const;
+  inline ::raft::SnapshotMeta* mutable_meta();
+  inline ::raft::SnapshotMeta* release_meta();
+  
+  // repeated .raft.LocalSnapshotPbMeta.File files = 2;
+  inline int files_size() const;
+  inline void clear_files();
+  static const int kFilesFieldNumber = 2;
+  inline const ::raft::LocalSnapshotPbMeta_File& files(int index) const;
+  inline ::raft::LocalSnapshotPbMeta_File* mutable_files(int index);
+  inline ::raft::LocalSnapshotPbMeta_File* add_files();
+  inline const ::google::protobuf::RepeatedPtrField< ::raft::LocalSnapshotPbMeta_File >&
+      files() const;
+  inline ::google::protobuf::RepeatedPtrField< ::raft::LocalSnapshotPbMeta_File >*
+      mutable_files();
+  
+  // @@protoc_insertion_point(class_scope:raft.LocalSnapshotPbMeta)
+ private:
+  inline void set_has_meta();
+  inline void clear_has_meta();
+  
+  ::google::protobuf::UnknownFieldSet _unknown_fields_;
+  
+  ::raft::SnapshotMeta* meta_;
+  ::google::protobuf::RepeatedPtrField< ::raft::LocalSnapshotPbMeta_File > files_;
+  
+  mutable int _cached_size_;
+  ::google::protobuf::uint32 _has_bits_[(2 + 31) / 32];
+  
+  friend void  protobuf_AddDesc_raft_2flocal_5fstorage_2eproto();
+  friend void protobuf_AssignDesc_raft_2flocal_5fstorage_2eproto();
+  friend void protobuf_ShutdownFile_raft_2flocal_5fstorage_2eproto();
+  
+  void InitAsDefaultInstance();
+  static LocalSnapshotPbMeta* default_instance_;
 };
 // ===================================================================
 
@@ -576,94 +665,151 @@ inline ::std::string* StablePBMeta::release_votedfor() {
 
 // -------------------------------------------------------------------
 
-// SnapshotPBMeta
+// LocalSnapshotPbMeta_File
 
-// required int64 last_included_term = 1;
-inline bool SnapshotPBMeta::has_last_included_term() const {
+// required string name = 1;
+inline bool LocalSnapshotPbMeta_File::has_name() const {
   return (_has_bits_[0] & 0x00000001u) != 0;
 }
-inline void SnapshotPBMeta::set_has_last_included_term() {
+inline void LocalSnapshotPbMeta_File::set_has_name() {
   _has_bits_[0] |= 0x00000001u;
 }
-inline void SnapshotPBMeta::clear_has_last_included_term() {
+inline void LocalSnapshotPbMeta_File::clear_has_name() {
   _has_bits_[0] &= ~0x00000001u;
 }
-inline void SnapshotPBMeta::clear_last_included_term() {
-  last_included_term_ = GOOGLE_LONGLONG(0);
-  clear_has_last_included_term();
+inline void LocalSnapshotPbMeta_File::clear_name() {
+  if (name_ != &::google::protobuf::internal::kEmptyString) {
+    name_->clear();
+  }
+  clear_has_name();
 }
-inline ::google::protobuf::int64 SnapshotPBMeta::last_included_term() const {
-  return last_included_term_;
+inline const ::std::string& LocalSnapshotPbMeta_File::name() const {
+  return *name_;
 }
-inline void SnapshotPBMeta::set_last_included_term(::google::protobuf::int64 value) {
-  set_has_last_included_term();
-  last_included_term_ = value;
+inline void LocalSnapshotPbMeta_File::set_name(const ::std::string& value) {
+  set_has_name();
+  if (name_ == &::google::protobuf::internal::kEmptyString) {
+    name_ = new ::std::string;
+  }
+  name_->assign(value);
+}
+inline void LocalSnapshotPbMeta_File::set_name(const char* value) {
+  set_has_name();
+  if (name_ == &::google::protobuf::internal::kEmptyString) {
+    name_ = new ::std::string;
+  }
+  name_->assign(value);
+}
+inline void LocalSnapshotPbMeta_File::set_name(const char* value, size_t size) {
+  set_has_name();
+  if (name_ == &::google::protobuf::internal::kEmptyString) {
+    name_ = new ::std::string;
+  }
+  name_->assign(reinterpret_cast<const char*>(value), size);
+}
+inline ::std::string* LocalSnapshotPbMeta_File::mutable_name() {
+  set_has_name();
+  if (name_ == &::google::protobuf::internal::kEmptyString) {
+    name_ = new ::std::string;
+  }
+  return name_;
+}
+inline ::std::string* LocalSnapshotPbMeta_File::release_name() {
+  clear_has_name();
+  if (name_ == &::google::protobuf::internal::kEmptyString) {
+    return NULL;
+  } else {
+    ::std::string* temp = name_;
+    name_ = const_cast< ::std::string*>(&::google::protobuf::internal::kEmptyString);
+    return temp;
+  }
 }
 
-// required int64 last_included_index = 2;
-inline bool SnapshotPBMeta::has_last_included_index() const {
+// optional .LocalFileMeta meta = 2;
+inline bool LocalSnapshotPbMeta_File::has_meta() const {
   return (_has_bits_[0] & 0x00000002u) != 0;
 }
-inline void SnapshotPBMeta::set_has_last_included_index() {
+inline void LocalSnapshotPbMeta_File::set_has_meta() {
   _has_bits_[0] |= 0x00000002u;
 }
-inline void SnapshotPBMeta::clear_has_last_included_index() {
+inline void LocalSnapshotPbMeta_File::clear_has_meta() {
   _has_bits_[0] &= ~0x00000002u;
 }
-inline void SnapshotPBMeta::clear_last_included_index() {
-  last_included_index_ = GOOGLE_LONGLONG(0);
-  clear_has_last_included_index();
+inline void LocalSnapshotPbMeta_File::clear_meta() {
+  if (meta_ != NULL) meta_->::LocalFileMeta::Clear();
+  clear_has_meta();
 }
-inline ::google::protobuf::int64 SnapshotPBMeta::last_included_index() const {
-  return last_included_index_;
+inline const ::LocalFileMeta& LocalSnapshotPbMeta_File::meta() const {
+  return meta_ != NULL ? *meta_ : *default_instance_->meta_;
 }
-inline void SnapshotPBMeta::set_last_included_index(::google::protobuf::int64 value) {
-  set_has_last_included_index();
-  last_included_index_ = value;
+inline ::LocalFileMeta* LocalSnapshotPbMeta_File::mutable_meta() {
+  set_has_meta();
+  if (meta_ == NULL) meta_ = new ::LocalFileMeta;
+  return meta_;
+}
+inline ::LocalFileMeta* LocalSnapshotPbMeta_File::release_meta() {
+  clear_has_meta();
+  ::LocalFileMeta* temp = meta_;
+  meta_ = NULL;
+  return temp;
 }
 
-// repeated string peers = 3;
-inline int SnapshotPBMeta::peers_size() const {
-  return peers_.size();
+// -------------------------------------------------------------------
+
+// LocalSnapshotPbMeta
+
+// optional .raft.SnapshotMeta meta = 1;
+inline bool LocalSnapshotPbMeta::has_meta() const {
+  return (_has_bits_[0] & 0x00000001u) != 0;
 }
-inline void SnapshotPBMeta::clear_peers() {
-  peers_.Clear();
+inline void LocalSnapshotPbMeta::set_has_meta() {
+  _has_bits_[0] |= 0x00000001u;
 }
-inline const ::std::string& SnapshotPBMeta::peers(int index) const {
-  return peers_.Get(index);
+inline void LocalSnapshotPbMeta::clear_has_meta() {
+  _has_bits_[0] &= ~0x00000001u;
 }
-inline ::std::string* SnapshotPBMeta::mutable_peers(int index) {
-  return peers_.Mutable(index);
+inline void LocalSnapshotPbMeta::clear_meta() {
+  if (meta_ != NULL) meta_->::raft::SnapshotMeta::Clear();
+  clear_has_meta();
 }
-inline void SnapshotPBMeta::set_peers(int index, const ::std::string& value) {
-  peers_.Mutable(index)->assign(value);
+inline const ::raft::SnapshotMeta& LocalSnapshotPbMeta::meta() const {
+  return meta_ != NULL ? *meta_ : *default_instance_->meta_;
 }
-inline void SnapshotPBMeta::set_peers(int index, const char* value) {
-  peers_.Mutable(index)->assign(value);
+inline ::raft::SnapshotMeta* LocalSnapshotPbMeta::mutable_meta() {
+  set_has_meta();
+  if (meta_ == NULL) meta_ = new ::raft::SnapshotMeta;
+  return meta_;
 }
-inline void SnapshotPBMeta::set_peers(int index, const char* value, size_t size) {
-  peers_.Mutable(index)->assign(
-    reinterpret_cast<const char*>(value), size);
+inline ::raft::SnapshotMeta* LocalSnapshotPbMeta::release_meta() {
+  clear_has_meta();
+  ::raft::SnapshotMeta* temp = meta_;
+  meta_ = NULL;
+  return temp;
 }
-inline ::std::string* SnapshotPBMeta::add_peers() {
-  return peers_.Add();
+
+// repeated .raft.LocalSnapshotPbMeta.File files = 2;
+inline int LocalSnapshotPbMeta::files_size() const {
+  return files_.size();
 }
-inline void SnapshotPBMeta::add_peers(const ::std::string& value) {
-  peers_.Add()->assign(value);
+inline void LocalSnapshotPbMeta::clear_files() {
+  files_.Clear();
 }
-inline void SnapshotPBMeta::add_peers(const char* value) {
-  peers_.Add()->assign(value);
+inline const ::raft::LocalSnapshotPbMeta_File& LocalSnapshotPbMeta::files(int index) const {
+  return files_.Get(index);
 }
-inline void SnapshotPBMeta::add_peers(const char* value, size_t size) {
-  peers_.Add()->assign(reinterpret_cast<const char*>(value), size);
+inline ::raft::LocalSnapshotPbMeta_File* LocalSnapshotPbMeta::mutable_files(int index) {
+  return files_.Mutable(index);
 }
-inline const ::google::protobuf::RepeatedPtrField< ::std::string>&
-SnapshotPBMeta::peers() const {
-  return peers_;
+inline ::raft::LocalSnapshotPbMeta_File* LocalSnapshotPbMeta::add_files() {
+  return files_.Add();
 }
-inline ::google::protobuf::RepeatedPtrField< ::std::string>*
-SnapshotPBMeta::mutable_peers() {
-  return &peers_;
+inline const ::google::protobuf::RepeatedPtrField< ::raft::LocalSnapshotPbMeta_File >&
+LocalSnapshotPbMeta::files() const {
+  return files_;
+}
+inline ::google::protobuf::RepeatedPtrField< ::raft::LocalSnapshotPbMeta_File >*
+LocalSnapshotPbMeta::mutable_files() {
+  return &files_;
 }
 
 

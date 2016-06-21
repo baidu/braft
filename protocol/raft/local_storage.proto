@@ -1,5 +1,8 @@
 syntax="proto2";
 
+import "raft/raft.proto";
+import "raft/local_file_meta.proto";
+
 package raft;
 
 message ConfigurationPBMeta {
@@ -15,8 +18,12 @@ message StablePBMeta {
     required string votedfor = 2;
 };
 
-message SnapshotPBMeta {
-    required int64 last_included_term = 1;
-    required int64 last_included_index = 2;
-    repeated string peers = 3;
-};
+message LocalSnapshotPbMeta {
+    message File {
+        required string name = 1;
+        optional LocalFileMeta meta = 2;
+    };
+    optional SnapshotMeta meta = 1;
+    repeated File files = 2;
+}
+

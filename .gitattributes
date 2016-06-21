@@ -230,6 +230,7 @@ protocol/raft/builtin_service.proto -text
 protocol/raft/enum.proto -text
 protocol/raft/errno.proto -text
 protocol/raft/file_service.proto -text
+protocol/raft/local_file_meta.proto -text
 protocol/raft/local_storage.proto -text
 protocol/raft/raft.proto -text
 src/raft/bthread_support.h -text
@@ -249,6 +250,8 @@ src/raft/enum.pb.cc -text
 src/raft/enum.pb.h -text
 src/raft/errno.pb.cc -text
 src/raft/errno.pb.h -text
+src/raft/file_reader.cpp -text
+src/raft/file_reader.h -text
 src/raft/file_service.cpp -text
 src/raft/file_service.h -text
 src/raft/file_service.pb.cc -text

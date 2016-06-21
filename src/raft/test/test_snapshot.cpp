@@ -46,9 +46,9 @@ TEST_F(TestUsageSuits, writer_and_reader) {
     peers.push_back(raft::PeerId("1.2.3.4:3000"));
 
     raft::SnapshotMeta meta;
-    meta.last_included_index = 1000;
-    meta.last_included_term = 2;
-    meta.last_configuration = raft::Configuration(peers);
+    meta.set_last_included_index(1000);
+    meta.set_last_included_term(2);
+    //meta.last_configuration = raft::Configuration(peers);
 
     // normal create writer
     raft::SnapshotWriter* writer = storage->create();
@@ -57,8 +57,8 @@ TEST_F(TestUsageSuits, writer_and_reader) {
     ASSERT_EQ(0, storage->close(writer));
 
     // normal create writer again
-    meta.last_included_index = 2000;
-    meta.last_included_term = 2;
+    meta.set_last_included_index(2000);
+    meta.set_last_included_term(2);
     writer = storage->create();
     ASSERT_TRUE(writer != NULL);
 
@@ -75,8 +75,8 @@ TEST_F(TestUsageSuits, writer_and_reader) {
     ASSERT_TRUE(reader != NULL);
     raft::SnapshotMeta new_meta;
     ASSERT_EQ(0, reader->load_meta(&new_meta));
-    ASSERT_EQ(meta.last_included_index, new_meta.last_included_index);
-    ASSERT_EQ(meta.last_included_term, new_meta.last_included_term);
+    ASSERT_EQ(meta.last_included_index(), new_meta.last_included_index());
+    ASSERT_EQ(meta.last_included_term(), new_meta.last_included_term());
     reader->set_error(EIO, "read failed");
     storage->close(reader);
 
@@ -88,12 +88,12 @@ TEST_F(TestUsageSuits, writer_and_reader) {
     ASSERT_EQ(0, storage->init());
 
     // normal create writer after reinit
-    meta.last_included_index = 3000;
-    meta.last_included_term = 3;
+    meta.set_last_included_index(3000);
+    meta.set_last_included_term(3);
     writer = storage->create();
     ASSERT_TRUE(writer != NULL);
     ASSERT_EQ(0, writer->save_meta(meta));
-    ASSERT_EQ("file://0.0.0.0:0/./data/temp", writer->get_uri(base::EndPoint()));
+    ASSERT_EQ("./data/temp", writer->get_path());
     ASSERT_EQ(0, storage->close(writer));
 
     // normal open reader after reinit
@@ -101,8 +101,8 @@ TEST_F(TestUsageSuits, writer_and_reader) {
     ASSERT_TRUE(reader != NULL);
     raft::SnapshotMeta new_meta2;
     ASSERT_EQ(0, reader->load_meta(&new_meta2));
-    ASSERT_EQ(meta.last_included_index, new_meta2.last_included_index);
-    ASSERT_EQ(meta.last_included_term, new_meta2.last_included_term);
+    ASSERT_EQ(meta.last_included_index(), new_meta2.last_included_index());
+    ASSERT_EQ(meta.last_included_term(), new_meta2.last_included_term());
     storage->close(reader);
 
     delete storage;
@@ -121,15 +121,17 @@ TEST_F(TestUsageSuits, copy) {
     peers.push_back(raft::PeerId("1.2.3.4:3000"));
 
     raft::SnapshotMeta meta;
-    meta.last_included_index = 1000;
-    meta.last_included_term = 2;
-    meta.last_configuration = raft::Configuration(peers);
+    meta.set_last_included_index(1000);
+    meta.set_last_included_term(2);
+    for (size_t i = 0; i < peers.size(); ++i) {
+        *meta.add_peers() = peers[i].to_string();
+    }
 
     // storage1
-    raft::SnapshotStorage* storage1 = new raft::LocalSnapshotStorage("./data");
+    raft::LocalSnapshotStorage* storage1 = new raft::LocalSnapshotStorage("./data");
     ASSERT_TRUE(storage1);
     ASSERT_EQ(0, storage1->init());
-
+    storage1->set_server_addr(base::EndPoint(base::get_host_ip(), 60006));
     // normal create writer
     raft::SnapshotWriter* writer1 = storage1->create();
     ASSERT_TRUE(writer1 != NULL);
@@ -138,23 +140,15 @@ TEST_F(TestUsageSuits, copy) {
 
     raft::SnapshotReader* reader1 = storage1->open();
     ASSERT_TRUE(reader1 != NULL);
-    std::string uri = reader1->get_uri(base::EndPoint(base::get_host_ip(), 60006));
-    ASSERT_EQ(0, storage1->close(reader1));
+    std::string uri = reader1->generate_uri_for_copy();
 
     // storage2
     ::system("rm -rf data2");
     raft::SnapshotStorage* storage2 = new raft::LocalSnapshotStorage("./data2");
-    raft::SnapshotWriter* writer2 = storage2->create();
-    ASSERT_TRUE(writer2 != NULL);
-    ASSERT_EQ(0, writer2->save_meta(meta));
-    ASSERT_NE(0, writer2->copy(""));
-    ASSERT_EQ(0, writer2->copy(uri));
-    uri.assign("file://127.0.0.1:60006/./data_noexist");
-    ASSERT_NE(0, writer2->copy(uri));
-    writer2->set_error(EIO, "writer failed");
-    ASSERT_NE(0, storage2->close(writer2));
-
-    ASSERT_EQ(0, ((raft::LocalSnapshotStorage*)storage2)->_last_snapshot_index);
+    raft::SnapshotReader* reader2 = storage2->copy_from(uri);
+    ASSERT_TRUE(reader2 != NULL);
+    ASSERT_EQ(0, storage1->close(reader1));
+    ASSERT_EQ(0, storage2->close(reader2));
 }
 
 struct Arg {
@@ -191,9 +185,8 @@ void *write_thread(void* arg) {
     peers.push_back(raft::PeerId("1.2.3.4:3000"));
 
     raft::SnapshotMeta meta;
-    meta.last_included_index = 1000;
-    meta.last_included_term = 2;
-    meta.last_configuration = raft::Configuration(peers);
+    meta.set_last_included_index(1000);
+    meta.set_last_included_term(2);
 
     while (!a->stopped) {
         // normal create writer

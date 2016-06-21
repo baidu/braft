@@ -46,6 +46,7 @@ Replicator::Replicator()
     , _catchup_closure(NULL)
     , _last_response_timestamp(0)
     , _consecutive_error_times(0)
+    , _reader(NULL)
 {
     _rpc_in_fly.value = 0;
     _heartbeat_in_fly.value = 0;
@@ -54,6 +55,10 @@ Replicator::Replicator()
 Replicator::~Replicator() {
     // bind lifecycle with node, Release
     // Replicator stop is async
+    if (_reader) {
+        _options.snapshot_storage->close(_reader);
+        _reader = NULL;
+    }
     if (_options.node) {
         _options.node->Release();
         _options.node = NULL;
@@ -237,6 +242,7 @@ void Replicator::_on_heartbeat_returned(
         bthread_id_unlock_and_destroy(dummy_id);
         node_impl->increase_term_to(response->term());
         node_impl->Release();
+        delete r;
         return;
     }
     RAFT_VLOG;
@@ -294,6 +300,7 @@ void Replicator::_on_rpc_returned(ReplicatorId id, baidu::rpc::Controller* cntl,
             bthread_id_unlock_and_destroy(dummy_id);
             node_impl->increase_term_to(response->term());
             node_impl->Release();
+            delete r;
             return;
         }
         RAFT_VLOG << " fail, find next_index remote last_log_index " << response->last_log_index()
@@ -501,13 +508,13 @@ void Replicator::_wait_more_entries() {
 }
 
 void Replicator::_install_snapshot() {
-    SnapshotReader* reader = _options.snapshot_storage->open();
-    CHECK(reader);
-    std::string uri = reader->get_uri(_options.server_id.addr);
+    CHECK(!_reader);
+    _reader = _options.snapshot_storage->open();
+    CHECK(_reader);
+    std::string uri = _reader->generate_uri_for_copy();
     SnapshotMeta meta;
-    // TODO: shutdown on failure
-    CHECK_EQ(0, reader->load_meta(&meta));
-    _options.snapshot_storage->close(reader);
+    // TODO: report error on failure
+    CHECK_EQ(0, _reader->load_meta(&meta));
     baidu::rpc::Controller* cntl = new baidu::rpc::Controller;
     cntl->set_max_retry(0);
     cntl->set_timeout_ms(-1);
@@ -517,20 +524,13 @@ void Replicator::_install_snapshot() {
     request->set_group_id(_options.group_id);
     request->set_server_id(_options.server_id.to_string());
     request->set_peer_id(_options.peer_id.to_string());
-    request->set_last_included_log_term(meta.last_included_term);
-    request->set_last_included_log_index(meta.last_included_index);
-    std::vector<PeerId> peers;
-    meta.last_configuration.list_peers(&peers);
-    for (std::vector<PeerId>::const_iterator 
-            iter = peers.begin(); iter != peers.end(); ++iter) {
-        request->add_peers(iter->to_string());
-    }
+    request->mutable_meta()->CopyFrom(meta);
     request->set_uri(uri);
 
     RAFT_VLOG << "node " << _options.group_id << ":" << _options.server_id
         << " send InstallSnapshotRequest to " << _options.peer_id
-        << " term " << _options.term << " last_included_term " << meta.last_included_term
-        << " last_included_index " << meta.last_included_index << " uri " << uri;
+        << " term " << _options.term << " last_included_term " << meta.last_included_term()
+        << " last_included_index " << meta.last_included_index() << " uri " << uri;
 
     _rpc_in_fly = cntl->call_id();
     google::protobuf::Closure* done = baidu::rpc::NewCallback<
@@ -556,10 +556,14 @@ void Replicator::_on_install_snapshot_returned(
     if (bthread_id_lock(dummy_id, (void**)&r) != 0) {
         return;
     }
+    if (r->_reader) {
+        r->_options.snapshot_storage->close(r->_reader);
+        r->_reader = NULL;
+    }
     RAFT_VLOG << "received InstallSnapshotResponse from "
         << r->_options.group_id << ":" << r->_options.peer_id
-        << " last_included_index " << request->last_included_log_index()
-        << " last_included_term " << request->last_included_log_term()
+        << " last_included_index " << request->meta().last_included_index()
+        << " last_included_term " << request->meta().last_included_term()
         << noflush;
     do {
         if (cntl->Failed()) {
@@ -578,7 +582,7 @@ void Replicator::_on_install_snapshot_returned(
             break;
         }
         // Success 
-        r->_next_index = request->last_included_log_index() + 1;
+        r->_next_index = request->meta().last_included_index() + 1;
         RAFT_VLOG << " success.";
     } while (0);
 

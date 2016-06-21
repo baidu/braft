@@ -15,85 +15,69 @@ class FileServiceTest : public testing::Test {
 protected:
     void SetUp() {
         logging::FLAGS_verbose = 90;
-        ASSERT_EQ(0, _server.AddService(&_service, baidu::rpc::SERVER_DOESNT_OWN_SERVICE));
+        ASSERT_EQ(0, _server.AddService(raft::file_service(), 
+                                        baidu::rpc::SERVER_DOESNT_OWN_SERVICE));
         ASSERT_EQ(0, _server.Start(60006, NULL));
     }
     void TearDown() {
-        _server.Stop(200);
+        _server.Stop(0);
         _server.Join();
     }
-
-    raft::FileServiceImpl _service;
     baidu::rpc::Server _server;
 };
 
 TEST_F(FileServiceTest, sanity) {
+    scoped_refptr<raft::LocalDirReader> reader(new raft::LocalDirReader("a"));
+    int64_t reader_id = 0;
+    ASSERT_EQ(0, raft::file_service_add(reader.get(), &reader_id));
+    std::string uri;
+    base::string_printf(&uri, "remote://127.0.0.1:60006/%ld", reader_id);
     raft::RemotePathCopier copier;
-    base::EndPoint point;
-    // bad addr init
-    point.port = 65536;
-    ASSERT_NE(0, copier.init(point));
-    // normal init
-    ASSERT_EQ(0, str2endpoint("127.0.0.1:60006", &point));
-    ASSERT_EQ(0, copier.init(point));
-
-    raft::PathACL::GetInstance()->add("./a");
+    ASSERT_NE(0, copier.init("local://127.0.0.1:60006/123456"));
+    ASSERT_NE(0, copier.init("remote://127.0.0.1:60006//123456"));
+    ASSERT_NE(0, copier.init("remote://127.0.1:60006//123456"));
+    ASSERT_NE(0, copier.init("remote://127.0.0.1//123456"));
+    ASSERT_EQ(0, copier.init(uri));
 
     // normal copy dir
     system("chmod -R 755 ./a; chmod -R 755 ./b");
     ASSERT_EQ(0, system("rm -rf a; rm -rf b; mkdir a; mkdir a/b; echo '123' > a/c"));
-    ASSERT_EQ(0, copier.copy("./a", "./b", NULL));
+    ASSERT_EQ(0, copier.copy_to_file("c", "./b/c", NULL));
+    base::IOBuf c_data;
+    ASSERT_EQ(0, copier.copy_to_iobuf("c", &c_data, NULL));
+    ASSERT_TRUE(c_data.equals("123\n")) << c_data.to_string();
+    // Copy Directory is not allowed
+    ASSERT_NE(0, copier.copy_to_file("b", "./b/b", NULL));
 
-    // normal copy dir and options;
-    raft::CopyOptions options;
-    ASSERT_EQ(0, copier.copy("./a", "./b", &options));
-
-    // noent copy
-    ASSERT_NE(0, copier.copy("./c", "./d", NULL));
+    // Copy non-existed file
+    ASSERT_NE(0, copier.copy_to_file("d", "./b/d", NULL));
 
     // src no permission read
     ASSERT_EQ(0, system("chmod 000 a/c"));
-    ASSERT_NE(0, copier.copy("./a", "./b", NULL));
+    ASSERT_NE(0, copier.copy_to_file("c", "./b/cc", NULL));
     ASSERT_EQ(0, system("chmod -R 755 ./a"));
 
-    // dest no permisson delete
-    ASSERT_EQ(0, system("chmod -R 555 ./b"));
-    ASSERT_NE(0, copier.copy("./a", "./b", NULL));
-    ASSERT_EQ(0, system("chmod -R 755 ./b"));
+    // Add white list
+    reader->add_white_list("d");
+    ASSERT_NE(0, copier.copy_to_file("c", "./b/cc", NULL));
+    reader->add_white_list("c");
+    ASSERT_EQ(0, copier.copy_to_file("c", "./b/cc", NULL));
 
-    // remove dir before copy
+    ASSERT_EQ(0, system("dd if=/dev/zero of=./a/1M.data bs=1024 count=1024"));
+    reader->add_white_list("1M.data");
+    ASSERT_EQ(0, copier.copy_to_file("1M.data", "./b/1M.data", NULL));
+
+    ASSERT_EQ(0, raft::file_service_remove(reader_id));
+
+    // Copy after reader is remove
+    ASSERT_NE(0, copier.copy_to_file("c", "./b/d", NULL));
     ASSERT_EQ(0, system("rm -rf a; rm -rf b;"));
-    ASSERT_NE(0, copier.copy("./a", "./b", NULL));
-
-    // bigfile copy dir
-    ASSERT_EQ(0, system("rm -rf a; rm -rf b; mkdir a; mkdir a/b;"
-                        "dd if=/dev/zero of=./a/1M.data bs=1024 count=1024"));
-    ASSERT_EQ(0, copier.copy("./a", "./b", NULL));
-
-    raft::PathACL::GetInstance()->add("./1M.data");
-    // normal copy file
-    ASSERT_EQ(0, system("rm -rf a; rm -rf b; mkdir a;"
-                        "dd if=/dev/zero of=./1M.data bs=1024 count=1024"));
-    ASSERT_EQ(0, copier.copy("./1M.data", "./b", NULL));
-
-    // dest exist, copy file
-    ASSERT_EQ(0, system("rm -rf b; mkdir b;"));
-    ASSERT_EQ(0, copier.copy("./1M.data", "./b", NULL));
-
-    // remove file before copy
-    ASSERT_EQ(0, system("rm -rf b; rm -rf 1M.data;"));
-    ASSERT_NE(0, copier.copy("./1M.data", "./b", NULL));
-
-    ASSERT_EQ(0, system("rm -rf a; rm -rf b;"));
-
-    raft::PathACL::GetInstance()->remove("./a");
-    raft::PathACL::GetInstance()->remove("./1M.data");
 }
 
 TEST_F(FileServiceTest, hole_file) {
     ASSERT_EQ(0, system("rm -rf a; rm -rf b; mkdir a;"));
 
-    LOG(NOTICE) << "build hole file";
+    LOG(INFO) << "build hole file";
     int fd = ::open("./a/hole.data", O_CREAT | O_TRUNC | O_WRONLY, 0644);
     ASSERT_GE(fd, 0);
     for (int i = 0; i < 10; i++) {
@@ -103,15 +87,14 @@ TEST_F(FileServiceTest, hole_file) {
         ASSERT_EQ(static_cast<size_t>(nwriten), strlen(buf));
     }
     ::close(fd);
-
-    raft::PathACL::GetInstance()->add("./a");
+    scoped_refptr<raft::LocalDirReader> reader(new raft::LocalDirReader("a"));
+    int64_t reader_id = 0;
+    ASSERT_EQ(0, raft::file_service_add(reader.get(), &reader_id));
 
     raft::RemotePathCopier copier;
-    base::EndPoint point;
+    std::string uri;
+    base::string_printf(&uri, "remote://127.0.0.1:60006/%ld", reader_id);
     // normal init
-    ASSERT_EQ(0, str2endpoint("127.0.0.1:60006", &point));
-    ASSERT_EQ(0, copier.init(point));
-    ASSERT_EQ(0, copier.copy("./a", "./b", NULL));
-
-    raft::PathACL::GetInstance()->remove("./a");
+    ASSERT_EQ(0, copier.init(uri));
+    ASSERT_EQ(0, copier.copy_to_file("hole.data", "./b/hole.data", NULL));
 }

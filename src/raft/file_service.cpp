@@ -16,92 +16,41 @@
 
 namespace raft {
 
-void FileServiceImpl::list_path(::google::protobuf::RpcController* controller,
-                               const ::raft::ListPathRequest* request,
-                               ::raft::ListPathResponse* response,
-                               ::google::protobuf::Closure* done) {
-    baidu::rpc::ClosureGuard done_gurad(done);
-    baidu::rpc::Controller* cntl = (baidu::rpc::Controller*)controller;
-
-    //check path acl
-    if (!PathACL::GetInstance()->check(request->path())) {
-        cntl->SetFailed(ENOENT, "Fail to get info of path=%s",
-                        request->path().c_str());
-        return;
-    }
-
-    std::stack<base::FilePath> st;
-    st.push(base::FilePath(request->path()));
-    while (!st.empty()) {
-        base::FilePath path = st.top();
-        st.pop();
-        base::File::Info info;
-        if (!base::GetFileInfo(path, &info)) {
-            cntl->SetFailed(ENOENT, "Fail to get info of path=%s",
-                            path.AsUTF8Unsafe().c_str());
-            return;
-        }
-        PathInfo* path_info = response->add_path_info();
-        path_info->set_path(path.AsUTF8Unsafe());
-        path_info->set_is_directory(info.is_directory);
-        if (info.is_directory) {
-            base::FileEnumerator dir(path, false, 
-                                     base::FileEnumerator::FILES 
-                                            | base::FileEnumerator::DIRECTORIES);
-            for (base::FilePath sub_path = dir.Next(); !sub_path.empty();
-                                                       sub_path = dir.Next()) {
-                st.push(sub_path);
-            }
-        }
-    }
-    return;
-}
-
 void FileServiceImpl::get_file(::google::protobuf::RpcController* controller,
                                const ::raft::GetFileRequest* request,
                                ::raft::GetFileResponse* response,
                                ::google::protobuf::Closure* done) {
-
-    RAFT_VLOG << "get_file path " << request->file_path()
-         << " offset " << request->offset() << " count " << request->count();
+    scoped_refptr<FileReader> reader;
     baidu::rpc::ClosureGuard done_gurad(done);
     baidu::rpc::Controller* cntl = (baidu::rpc::Controller*)controller;
-
-    //check path acl
-    if (!PathACL::GetInstance()->check(request->file_path())) {
-        cntl->SetFailed(ENOENT, "Fail to get info of path=%s",
-                        request->file_path().c_str());
+    std::unique_lock<raft_mutex_t> lck(_mutex);
+    Map::const_iterator iter = _reader_map.find(request->reader_id());
+    if (iter == _reader_map.end()) {
+        lck.unlock();
+        cntl->SetFailed(ENOENT, "Fail to find reader=%ld", request->reader_id());
         return;
     }
+    // Don't touch iter ever after
+    reader = iter->second;
+    lck.unlock();
+    RAFT_VLOG << "get_file path=" << reader->path() 
+         << " filename=" << request->filename()
+         << " offset=" << request->offset() << " count=" << request->count();
 
     if (request->count() <= 0 || request->offset() < 0) {
         cntl->SetFailed(baidu::rpc::EREQUEST, "Invalid request=%s",
                         request->ShortDebugString().c_str());
         return;
     }
-    base::File::Info info;
-    if (!base::GetFileInfo(base::FilePath(request->file_path()), &info)) {
-        cntl->SetFailed(ENOENT, "Fail to get info of path=%s",
-                        request->file_path().c_str());
-        return;
-    }
-    if (info.is_directory) {
-        cntl->SetFailed(EPERM, "path=%s is a directory", 
-                        request->file_path().c_str());
-        return;
-    }
 
-    base::fd_guard fd(open(request->file_path().c_str(), O_RDONLY));
-    if (fd < 0) {
-        cntl->SetFailed(errno, "Fail to open %s, %m", 
-                               request->file_path().c_str());
-        return;
-    }
-    base::IOPortal buf;
-    ssize_t nread = file_pread(&buf, fd, request->offset(), request->count());
-    if (nread < 0) {
-        cntl->SetFailed(errno, "Fail to read from %s, %m",
-                        request->file_path().c_str());
+    base::IOBuf buf;
+    bool is_eof = false;
+    const int rc = reader->read_file(
+                            &buf, request->filename(), 
+                            request->offset(), request->count(), &is_eof);
+    if (rc != 0) {
+        cntl->SetFailed(rc, "Fail to read from path=%s filename=%s : %s",
+                        reader->path(), request->filename().c_str(), berror(rc));
         return;
     }
 
@@ -109,6 +58,7 @@ void FileServiceImpl::get_file(::google::protobuf::RpcController* controller,
     uint64_t nparse = 0;
     uint64_t data_len = buf.size();
     while (nparse < data_len) {
+        // TODO: optimize the performance:
         char data_buf[4096];
         size_t copy_len = buf.copy_to(data_buf, sizeof(data_buf), 0);
         buf.pop_front(copy_len); // release orig iobuf as early
@@ -131,15 +81,23 @@ void FileServiceImpl::get_file(::google::protobuf::RpcController* controller,
     }
     cntl->response_attachment().swap(seg_data.data());
 
-    response->set_eof(false);
-    if (nread < request->count()) {
-        response->set_eof(true);
-    } else {
-        // if file size is offset + count, set eof reduce next request
-        if (lseek(fd, 0, SEEK_END) == (request->offset() + request->count())) {
-            response->set_eof(true);
-        }
-    }
+    response->set_eof(is_eof);
+}
+
+FileServiceImpl::FileServiceImpl() {
+    _next_id = ((int64_t)getpid() << 45) | (base::gettimeofday_us() << 17 >> 17);
+}
+
+int FileServiceImpl::add_reader(FileReader* reader, int64_t* reader_id) {
+    BAIDU_SCOPED_LOCK(_mutex);
+    *reader_id = _next_id++;
+    _reader_map[*reader_id] = reader;
+    return 0;
+}
+
+int FileServiceImpl::remove_reader(int64_t reader_id) {
+    BAIDU_SCOPED_LOCK(_mutex);
+    return _reader_map.erase(reader_id) == 1 ? 0 : -1;
 }
 
 }  // namespace raft

@@ -39,6 +39,7 @@ class RequestVoteRequest;
 class RequestVoteResponse;
 class AppendEntriesRequest;
 class AppendEntriesResponse;
+class SnapshotMeta;
 class InstallSnapshotRequest;
 class InstallSnapshotResponse;
 
@@ -668,6 +669,115 @@ class AppendEntriesResponse : public ::google::protobuf::Message {
 };
 // -------------------------------------------------------------------
 
+class SnapshotMeta : public ::google::protobuf::Message {
+ public:
+  SnapshotMeta();
+  virtual ~SnapshotMeta();
+  
+  SnapshotMeta(const SnapshotMeta& from);
+  
+  inline SnapshotMeta& operator=(const SnapshotMeta& from) {
+    CopyFrom(from);
+    return *this;
+  }
+  
+  inline const ::google::protobuf::UnknownFieldSet& unknown_fields() const {
+    return _unknown_fields_;
+  }
+  
+  inline ::google::protobuf::UnknownFieldSet* mutable_unknown_fields() {
+    return &_unknown_fields_;
+  }
+  
+  static const ::google::protobuf::Descriptor* descriptor();
+  static const SnapshotMeta& default_instance();
+  
+  void Swap(SnapshotMeta* other);
+  
+  // implements Message ----------------------------------------------
+  
+  SnapshotMeta* New() const;
+  void CopyFrom(const ::google::protobuf::Message& from);
+  void MergeFrom(const ::google::protobuf::Message& from);
+  void CopyFrom(const SnapshotMeta& from);
+  void MergeFrom(const SnapshotMeta& from);
+  void Clear();
+  bool IsInitialized() const;
+  
+  int ByteSize() const;
+  bool MergePartialFromCodedStream(
+      ::google::protobuf::io::CodedInputStream* input);
+  void SerializeWithCachedSizes(
+      ::google::protobuf::io::CodedOutputStream* output) const;
+  ::google::protobuf::uint8* SerializeWithCachedSizesToArray(::google::protobuf::uint8* output) const;
+  int GetCachedSize() const { return _cached_size_; }
+  private:
+  void SharedCtor();
+  void SharedDtor();
+  void SetCachedSize(int size) const;
+  public:
+  
+  ::google::protobuf::Metadata GetMetadata() const;
+  
+  // nested types ----------------------------------------------------
+  
+  // accessors -------------------------------------------------------
+  
+  // required int64 last_included_index = 1;
+  inline bool has_last_included_index() const;
+  inline void clear_last_included_index();
+  static const int kLastIncludedIndexFieldNumber = 1;
+  inline ::google::protobuf::int64 last_included_index() const;
+  inline void set_last_included_index(::google::protobuf::int64 value);
+  
+  // required int64 last_included_term = 2;
+  inline bool has_last_included_term() const;
+  inline void clear_last_included_term();
+  static const int kLastIncludedTermFieldNumber = 2;
+  inline ::google::protobuf::int64 last_included_term() const;
+  inline void set_last_included_term(::google::protobuf::int64 value);
+  
+  // repeated string peers = 3;
+  inline int peers_size() const;
+  inline void clear_peers();
+  static const int kPeersFieldNumber = 3;
+  inline const ::std::string& peers(int index) const;
+  inline ::std::string* mutable_peers(int index);
+  inline void set_peers(int index, const ::std::string& value);
+  inline void set_peers(int index, const char* value);
+  inline void set_peers(int index, const char* value, size_t size);
+  inline ::std::string* add_peers();
+  inline void add_peers(const ::std::string& value);
+  inline void add_peers(const char* value);
+  inline void add_peers(const char* value, size_t size);
+  inline const ::google::protobuf::RepeatedPtrField< ::std::string>& peers() const;
+  inline ::google::protobuf::RepeatedPtrField< ::std::string>* mutable_peers();
+  
+  // @@protoc_insertion_point(class_scope:raft.SnapshotMeta)
+ private:
+  inline void set_has_last_included_index();
+  inline void clear_has_last_included_index();
+  inline void set_has_last_included_term();
+  inline void clear_has_last_included_term();
+  
+  ::google::protobuf::UnknownFieldSet _unknown_fields_;
+  
+  ::google::protobuf::int64 last_included_index_;
+  ::google::protobuf::int64 last_included_term_;
+  ::google::protobuf::RepeatedPtrField< ::std::string> peers_;
+  
+  mutable int _cached_size_;
+  ::google::protobuf::uint32 _has_bits_[(3 + 31) / 32];
+  
+  friend void  protobuf_AddDesc_raft_2fraft_2eproto();
+  friend void protobuf_AssignDesc_raft_2fraft_2eproto();
+  friend void protobuf_ShutdownFile_raft_2fraft_2eproto();
+  
+  void InitAsDefaultInstance();
+  static SnapshotMeta* default_instance_;
+};
+// -------------------------------------------------------------------
+
 class InstallSnapshotRequest : public ::google::protobuf::Message {
  public:
   InstallSnapshotRequest();
@@ -762,40 +872,18 @@ class InstallSnapshotRequest : public ::google::protobuf::Message {
   inline ::google::protobuf::int64 term() const;
   inline void set_term(::google::protobuf::int64 value);
   
-  // required int64 last_included_log_term = 5;
-  inline bool has_last_included_log_term() const;
-  inline void clear_last_included_log_term();
-  static const int kLastIncludedLogTermFieldNumber = 5;
-  inline ::google::protobuf::int64 last_included_log_term() const;
-  inline void set_last_included_log_term(::google::protobuf::int64 value);
+  // required .raft.SnapshotMeta meta = 5;
+  inline bool has_meta() const;
+  inline void clear_meta();
+  static const int kMetaFieldNumber = 5;
+  inline const ::raft::SnapshotMeta& meta() const;
+  inline ::raft::SnapshotMeta* mutable_meta();
+  inline ::raft::SnapshotMeta* release_meta();
   
-  // required int64 last_included_log_index = 6;
-  inline bool has_last_included_log_index() const;
-  inline void clear_last_included_log_index();
-  static const int kLastIncludedLogIndexFieldNumber = 6;
-  inline ::google::protobuf::int64 last_included_log_index() const;
-  inline void set_last_included_log_index(::google::protobuf::int64 value);
-  
-  // repeated string peers = 7;
-  inline int peers_size() const;
-  inline void clear_peers();
-  static const int kPeersFieldNumber = 7;
-  inline const ::std::string& peers(int index) const;
-  inline ::std::string* mutable_peers(int index);
-  inline void set_peers(int index, const ::std::string& value);
-  inline void set_peers(int index, const char* value);
-  inline void set_peers(int index, const char* value, size_t size);
-  inline ::std::string* add_peers();
-  inline void add_peers(const ::std::string& value);
-  inline void add_peers(const char* value);
-  inline void add_peers(const char* value, size_t size);
-  inline const ::google::protobuf::RepeatedPtrField< ::std::string>& peers() const;
-  inline ::google::protobuf::RepeatedPtrField< ::std::string>* mutable_peers();
-  
-  // required string uri = 8;
+  // required string uri = 6;
   inline bool has_uri() const;
   inline void clear_uri();
-  static const int kUriFieldNumber = 8;
+  static const int kUriFieldNumber = 6;
   inline const ::std::string& uri() const;
   inline void set_uri(const ::std::string& value);
   inline void set_uri(const char* value);
@@ -813,10 +901,8 @@ class InstallSnapshotRequest : public ::google::protobuf::Message {
   inline void clear_has_peer_id();
   inline void set_has_term();
   inline void clear_has_term();
-  inline void set_has_last_included_log_term();
-  inline void clear_has_last_included_log_term();
-  inline void set_has_last_included_log_index();
-  inline void clear_has_last_included_log_index();
+  inline void set_has_meta();
+  inline void clear_has_meta();
   inline void set_has_uri();
   inline void clear_has_uri();
   
@@ -826,13 +912,11 @@ class InstallSnapshotRequest : public ::google::protobuf::Message {
   ::std::string* server_id_;
   ::std::string* peer_id_;
   ::google::protobuf::int64 term_;
-  ::google::protobuf::int64 last_included_log_term_;
-  ::google::protobuf::int64 last_included_log_index_;
-  ::google::protobuf::RepeatedPtrField< ::std::string> peers_;
+  ::raft::SnapshotMeta* meta_;
   ::std::string* uri_;
   
   mutable int _cached_size_;
-  ::google::protobuf::uint32 _has_bits_[(8 + 31) / 32];
+  ::google::protobuf::uint32 _has_bits_[(6 + 31) / 32];
   
   friend void  protobuf_AddDesc_raft_2fraft_2eproto();
   friend void protobuf_AssignDesc_raft_2fraft_2eproto();
@@ -1789,6 +1873,98 @@ inline void AppendEntriesResponse::set_last_log_index(::google::protobuf::int64 
 
 // -------------------------------------------------------------------
 
+// SnapshotMeta
+
+// required int64 last_included_index = 1;
+inline bool SnapshotMeta::has_last_included_index() const {
+  return (_has_bits_[0] & 0x00000001u) != 0;
+}
+inline void SnapshotMeta::set_has_last_included_index() {
+  _has_bits_[0] |= 0x00000001u;
+}
+inline void SnapshotMeta::clear_has_last_included_index() {
+  _has_bits_[0] &= ~0x00000001u;
+}
+inline void SnapshotMeta::clear_last_included_index() {
+  last_included_index_ = GOOGLE_LONGLONG(0);
+  clear_has_last_included_index();
+}
+inline ::google::protobuf::int64 SnapshotMeta::last_included_index() const {
+  return last_included_index_;
+}
+inline void SnapshotMeta::set_last_included_index(::google::protobuf::int64 value) {
+  set_has_last_included_index();
+  last_included_index_ = value;
+}
+
+// required int64 last_included_term = 2;
+inline bool SnapshotMeta::has_last_included_term() const {
+  return (_has_bits_[0] & 0x00000002u) != 0;
+}
+inline void SnapshotMeta::set_has_last_included_term() {
+  _has_bits_[0] |= 0x00000002u;
+}
+inline void SnapshotMeta::clear_has_last_included_term() {
+  _has_bits_[0] &= ~0x00000002u;
+}
+inline void SnapshotMeta::clear_last_included_term() {
+  last_included_term_ = GOOGLE_LONGLONG(0);
+  clear_has_last_included_term();
+}
+inline ::google::protobuf::int64 SnapshotMeta::last_included_term() const {
+  return last_included_term_;
+}
+inline void SnapshotMeta::set_last_included_term(::google::protobuf::int64 value) {
+  set_has_last_included_term();
+  last_included_term_ = value;
+}
+
+// repeated string peers = 3;
+inline int SnapshotMeta::peers_size() const {
+  return peers_.size();
+}
+inline void SnapshotMeta::clear_peers() {
+  peers_.Clear();
+}
+inline const ::std::string& SnapshotMeta::peers(int index) const {
+  return peers_.Get(index);
+}
+inline ::std::string* SnapshotMeta::mutable_peers(int index) {
+  return peers_.Mutable(index);
+}
+inline void SnapshotMeta::set_peers(int index, const ::std::string& value) {
+  peers_.Mutable(index)->assign(value);
+}
+inline void SnapshotMeta::set_peers(int index, const char* value) {
+  peers_.Mutable(index)->assign(value);
+}
+inline void SnapshotMeta::set_peers(int index, const char* value, size_t size) {
+  peers_.Mutable(index)->assign(
+    reinterpret_cast<const char*>(value), size);
+}
+inline ::std::string* SnapshotMeta::add_peers() {
+  return peers_.Add();
+}
+inline void SnapshotMeta::add_peers(const ::std::string& value) {
+  peers_.Add()->assign(value);
+}
+inline void SnapshotMeta::add_peers(const char* value) {
+  peers_.Add()->assign(value);
+}
+inline void SnapshotMeta::add_peers(const char* value, size_t size) {
+  peers_.Add()->assign(reinterpret_cast<const char*>(value), size);
+}
+inline const ::google::protobuf::RepeatedPtrField< ::std::string>&
+SnapshotMeta::peers() const {
+  return peers_;
+}
+inline ::google::protobuf::RepeatedPtrField< ::std::string>*
+SnapshotMeta::mutable_peers() {
+  return &peers_;
+}
+
+// -------------------------------------------------------------------
+
 // InstallSnapshotRequest
 
 // required string group_id = 1;
@@ -1987,103 +2163,44 @@ inline void InstallSnapshotRequest::set_term(::google::protobuf::int64 value) {
   term_ = value;
 }
 
-// required int64 last_included_log_term = 5;
-inline bool InstallSnapshotRequest::has_last_included_log_term() const {
+// required .raft.SnapshotMeta meta = 5;
+inline bool InstallSnapshotRequest::has_meta() const {
   return (_has_bits_[0] & 0x00000010u) != 0;
 }
-inline void InstallSnapshotRequest::set_has_last_included_log_term() {
+inline void InstallSnapshotRequest::set_has_meta() {
   _has_bits_[0] |= 0x00000010u;
 }
-inline void InstallSnapshotRequest::clear_has_last_included_log_term() {
+inline void InstallSnapshotRequest::clear_has_meta() {
   _has_bits_[0] &= ~0x00000010u;
 }
-inline void InstallSnapshotRequest::clear_last_included_log_term() {
-  last_included_log_term_ = GOOGLE_LONGLONG(0);
-  clear_has_last_included_log_term();
+inline void InstallSnapshotRequest::clear_meta() {
+  if (meta_ != NULL) meta_->::raft::SnapshotMeta::Clear();
+  clear_has_meta();
 }
-inline ::google::protobuf::int64 InstallSnapshotRequest::last_included_log_term() const {
-  return last_included_log_term_;
+inline const ::raft::SnapshotMeta& InstallSnapshotRequest::meta() const {
+  return meta_ != NULL ? *meta_ : *default_instance_->meta_;
 }
-inline void InstallSnapshotRequest::set_last_included_log_term(::google::protobuf::int64 value) {
-  set_has_last_included_log_term();
-  last_included_log_term_ = value;
+inline ::raft::SnapshotMeta* InstallSnapshotRequest::mutable_meta() {
+  set_has_meta();
+  if (meta_ == NULL) meta_ = new ::raft::SnapshotMeta;
+  return meta_;
+}
+inline ::raft::SnapshotMeta* InstallSnapshotRequest::release_meta() {
+  clear_has_meta();
+  ::raft::SnapshotMeta* temp = meta_;
+  meta_ = NULL;
+  return temp;
 }
 
-// required int64 last_included_log_index = 6;
-inline bool InstallSnapshotRequest::has_last_included_log_index() const {
+// required string uri = 6;
+inline bool InstallSnapshotRequest::has_uri() const {
   return (_has_bits_[0] & 0x00000020u) != 0;
 }
-inline void InstallSnapshotRequest::set_has_last_included_log_index() {
+inline void InstallSnapshotRequest::set_has_uri() {
   _has_bits_[0] |= 0x00000020u;
 }
-inline void InstallSnapshotRequest::clear_has_last_included_log_index() {
-  _has_bits_[0] &= ~0x00000020u;
-}
-inline void InstallSnapshotRequest::clear_last_included_log_index() {
-  last_included_log_index_ = GOOGLE_LONGLONG(0);
-  clear_has_last_included_log_index();
-}
-inline ::google::protobuf::int64 InstallSnapshotRequest::last_included_log_index() const {
-  return last_included_log_index_;
-}
-inline void InstallSnapshotRequest::set_last_included_log_index(::google::protobuf::int64 value) {
-  set_has_last_included_log_index();
-  last_included_log_index_ = value;
-}
-
-// repeated string peers = 7;
-inline int InstallSnapshotRequest::peers_size() const {
-  return peers_.size();
-}
-inline void InstallSnapshotRequest::clear_peers() {
-  peers_.Clear();
-}
-inline const ::std::string& InstallSnapshotRequest::peers(int index) const {
-  return peers_.Get(index);
-}
-inline ::std::string* InstallSnapshotRequest::mutable_peers(int index) {
-  return peers_.Mutable(index);
-}
-inline void InstallSnapshotRequest::set_peers(int index, const ::std::string& value) {
-  peers_.Mutable(index)->assign(value);
-}
-inline void InstallSnapshotRequest::set_peers(int index, const char* value) {
-  peers_.Mutable(index)->assign(value);
-}
-inline void InstallSnapshotRequest::set_peers(int index, const char* value, size_t size) {
-  peers_.Mutable(index)->assign(
-    reinterpret_cast<const char*>(value), size);
-}
-inline ::std::string* InstallSnapshotRequest::add_peers() {
-  return peers_.Add();
-}
-inline void InstallSnapshotRequest::add_peers(const ::std::string& value) {
-  peers_.Add()->assign(value);
-}
-inline void InstallSnapshotRequest::add_peers(const char* value) {
-  peers_.Add()->assign(value);
-}
-inline void InstallSnapshotRequest::add_peers(const char* value, size_t size) {
-  peers_.Add()->assign(reinterpret_cast<const char*>(value), size);
-}
-inline const ::google::protobuf::RepeatedPtrField< ::std::string>&
-InstallSnapshotRequest::peers() const {
-  return peers_;
-}
-inline ::google::protobuf::RepeatedPtrField< ::std::string>*
-InstallSnapshotRequest::mutable_peers() {
-  return &peers_;
-}
-
-// required string uri = 8;
-inline bool InstallSnapshotRequest::has_uri() const {
-  return (_has_bits_[0] & 0x00000080u) != 0;
-}
-inline void InstallSnapshotRequest::set_has_uri() {
-  _has_bits_[0] |= 0x00000080u;
-}
 inline void InstallSnapshotRequest::clear_has_uri() {
-  _has_bits_[0] &= ~0x00000080u;
+  _has_bits_[0] &= ~0x00000020u;
 }
 inline void InstallSnapshotRequest::clear_uri() {
   if (uri_ != &::google::protobuf::internal::kEmptyString) {

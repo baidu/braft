@@ -95,35 +95,44 @@ class GetFileRequest : public ::google::protobuf::Message {
   
   // accessors -------------------------------------------------------
   
-  // required string file_path = 1;
-  inline bool has_file_path() const;
-  inline void clear_file_path();
-  static const int kFilePathFieldNumber = 1;
-  inline const ::std::string& file_path() const;
-  inline void set_file_path(const ::std::string& value);
-  inline void set_file_path(const char* value);
-  inline void set_file_path(const char* value, size_t size);
-  inline ::std::string* mutable_file_path();
-  inline ::std::string* release_file_path();
+  // required int64 reader_id = 1;
+  inline bool has_reader_id() const;
+  inline void clear_reader_id();
+  static const int kReaderIdFieldNumber = 1;
+  inline ::google::protobuf::int64 reader_id() const;
+  inline void set_reader_id(::google::protobuf::int64 value);
   
-  // required int64 count = 2;
+  // required string filename = 2;
+  inline bool has_filename() const;
+  inline void clear_filename();
+  static const int kFilenameFieldNumber = 2;
+  inline const ::std::string& filename() const;
+  inline void set_filename(const ::std::string& value);
+  inline void set_filename(const char* value);
+  inline void set_filename(const char* value, size_t size);
+  inline ::std::string* mutable_filename();
+  inline ::std::string* release_filename();
+  
+  // required int64 count = 3;
   inline bool has_count() const;
   inline void clear_count();
-  static const int kCountFieldNumber = 2;
+  static const int kCountFieldNumber = 3;
   inline ::google::protobuf::int64 count() const;
   inline void set_count(::google::protobuf::int64 value);
   
-  // required int64 offset = 3;
+  // required int64 offset = 4;
   inline bool has_offset() const;
   inline void clear_offset();
-  static const int kOffsetFieldNumber = 3;
+  static const int kOffsetFieldNumber = 4;
   inline ::google::protobuf::int64 offset() const;
   inline void set_offset(::google::protobuf::int64 value);
   
   // @@protoc_insertion_point(class_scope:raft.GetFileRequest)
  private:
-  inline void set_has_file_path();
-  inline void clear_has_file_path();
+  inline void set_has_reader_id();
+  inline void clear_has_reader_id();
+  inline void set_has_filename();
+  inline void clear_has_filename();
   inline void set_has_count();
   inline void clear_has_count();
   inline void set_has_offset();
@@ -131,12 +140,13 @@ class GetFileRequest : public ::google::protobuf::Message {
   
   ::google::protobuf::UnknownFieldSet _unknown_fields_;
   
-  ::std::string* file_path_;
+  ::google::protobuf::int64 reader_id_;
+  ::std::string* filename_;
   ::google::protobuf::int64 count_;
   ::google::protobuf::int64 offset_;
   
   mutable int _cached_size_;
-  ::google::protobuf::uint32 _has_bits_[(3 + 31) / 32];
+  ::google::protobuf::uint32 _has_bits_[(4 + 31) / 32];
   
   friend void  protobuf_AddDesc_raft_2ffile_5fservice_2eproto();
   friend void protobuf_AssignDesc_raft_2ffile_5fservice_2eproto();
@@ -568,73 +578,95 @@ class FileService_Stub : public FileService {
 
 // GetFileRequest
 
-// required string file_path = 1;
-inline bool GetFileRequest::has_file_path() const {
+// required int64 reader_id = 1;
+inline bool GetFileRequest::has_reader_id() const {
   return (_has_bits_[0] & 0x00000001u) != 0;
 }
-inline void GetFileRequest::set_has_file_path() {
+inline void GetFileRequest::set_has_reader_id() {
   _has_bits_[0] |= 0x00000001u;
 }
-inline void GetFileRequest::clear_has_file_path() {
+inline void GetFileRequest::clear_has_reader_id() {
   _has_bits_[0] &= ~0x00000001u;
 }
-inline void GetFileRequest::clear_file_path() {
-  if (file_path_ != &::google::protobuf::internal::kEmptyString) {
-    file_path_->clear();
+inline void GetFileRequest::clear_reader_id() {
+  reader_id_ = GOOGLE_LONGLONG(0);
+  clear_has_reader_id();
+}
+inline ::google::protobuf::int64 GetFileRequest::reader_id() const {
+  return reader_id_;
+}
+inline void GetFileRequest::set_reader_id(::google::protobuf::int64 value) {
+  set_has_reader_id();
+  reader_id_ = value;
+}
+
+// required string filename = 2;
+inline bool GetFileRequest::has_filename() const {
+  return (_has_bits_[0] & 0x00000002u) != 0;
+}
+inline void GetFileRequest::set_has_filename() {
+  _has_bits_[0] |= 0x00000002u;
+}
+inline void GetFileRequest::clear_has_filename() {
+  _has_bits_[0] &= ~0x00000002u;
+}
+inline void GetFileRequest::clear_filename() {
+  if (filename_ != &::google::protobuf::internal::kEmptyString) {
+    filename_->clear();
   }
-  clear_has_file_path();
+  clear_has_filename();
 }
-inline const ::std::string& GetFileRequest::file_path() const {
-  return *file_path_;
+inline const ::std::string& GetFileRequest::filename() const {
+  return *filename_;
 }
-inline void GetFileRequest::set_file_path(const ::std::string& value) {
-  set_has_file_path();
-  if (file_path_ == &::google::protobuf::internal::kEmptyString) {
-    file_path_ = new ::std::string;
+inline void GetFileRequest::set_filename(const ::std::string& value) {
+  set_has_filename();
+  if (filename_ == &::google::protobuf::internal::kEmptyString) {
+    filename_ = new ::std::string;
   }
-  file_path_->assign(value);
+  filename_->assign(value);
 }
-inline void GetFileRequest::set_file_path(const char* value) {
-  set_has_file_path();
-  if (file_path_ == &::google::protobuf::internal::kEmptyString) {
-    file_path_ = new ::std::string;
+inline void GetFileRequest::set_filename(const char* value) {
+  set_has_filename();
+  if (filename_ == &::google::protobuf::internal::kEmptyString) {
+    filename_ = new ::std::string;
   }
-  file_path_->assign(value);
+  filename_->assign(value);
 }
-inline void GetFileRequest::set_file_path(const char* value, size_t size) {
-  set_has_file_path();
-  if (file_path_ == &::google::protobuf::internal::kEmptyString) {
-    file_path_ = new ::std::string;
+inline void GetFileRequest::set_filename(const char* value, size_t size) {
+  set_has_filename();
+  if (filename_ == &::google::protobuf::internal::kEmptyString) {
+    filename_ = new ::std::string;
   }
-  file_path_->assign(reinterpret_cast<const char*>(value), size);
+  filename_->assign(reinterpret_cast<const char*>(value), size);
 }
-inline ::std::string* GetFileRequest::mutable_file_path() {
-  set_has_file_path();
-  if (file_path_ == &::google::protobuf::internal::kEmptyString) {
-    file_path_ = new ::std::string;
+inline ::std::string* GetFileRequest::mutable_filename() {
+  set_has_filename();
+  if (filename_ == &::google::protobuf::internal::kEmptyString) {
+    filename_ = new ::std::string;
   }
-  return file_path_;
+  return filename_;
 }
-inline ::std::string* GetFileRequest::release_file_path() {
-  clear_has_file_path();
-  if (file_path_ == &::google::protobuf::internal::kEmptyString) {
+inline ::std::string* GetFileRequest::release_filename() {
+  clear_has_filename();
+  if (filename_ == &::google::protobuf::internal::kEmptyString) {
     return NULL;
   } else {
-    ::std::string* temp = file_path_;
-    file_path_ = const_cast< ::std::string*>(&::google::protobuf::internal::kEmptyString);
+    ::std::string* temp = filename_;
+    filename_ = const_cast< ::std::string*>(&::google::protobuf::internal::kEmptyString);
     return temp;
   }
 }
 
-// required int64 count = 2;
+// required int64 count = 3;
 inline bool GetFileRequest::has_count() const {
-  return (_has_bits_[0] & 0x00000002u) != 0;
+  return (_has_bits_[0] & 0x00000004u) != 0;
 }
 inline void GetFileRequest::set_has_count() {
-  _has_bits_[0] |= 0x00000002u;
+  _has_bits_[0] |= 0x00000004u;
 }
 inline void GetFileRequest::clear_has_count() {
-  _has_bits_[0] &= ~0x00000002u;
+  _has_bits_[0] &= ~0x00000004u;
 }
 inline void GetFileRequest::clear_count() {
   count_ = GOOGLE_LONGLONG(0);
@@ -648,15 +680,15 @@ inline void GetFileRequest::set_count(::google::protobuf::int64 value) {
   count_ = value;
 }
 
-// required int64 offset = 3;
+// required int64 offset = 4;
 inline bool GetFileRequest::has_offset() const {
-  return (_has_bits_[0] & 0x00000004u) != 0;
+  return (_has_bits_[0] & 0x00000008u) != 0;
 }
 inline void GetFileRequest::set_has_offset() {
-  _has_bits_[0] |= 0x00000004u;
+  _has_bits_[0] |= 0x00000008u;
 }
 inline void GetFileRequest::clear_has_offset() {
-  _has_bits_[0] &= ~0x00000004u;
+  _has_bits_[0] &= ~0x00000008u;
 }
 inline void GetFileRequest::clear_offset() {
   offset_ = GOOGLE_LONGLONG(0);

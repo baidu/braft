@@ -44,8 +44,9 @@ void protobuf_AssignDesc_raft_2ffile_5fservice_2eproto() {
       "raft/file_service.proto");
   GOOGLE_CHECK(file != NULL);
   GetFileRequest_descriptor_ = file->message_type(0);
-  static const int GetFileRequest_offsets_[3] = {
-    GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(GetFileRequest, file_path_),
+  static const int GetFileRequest_offsets_[4] = {
+    GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(GetFileRequest, reader_id_),
+    GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(GetFileRequest, filename_),
     GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(GetFileRequest, count_),
     GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(GetFileRequest, offset_),
   };
@@ -168,17 +169,17 @@ void protobuf_AddDesc_raft_2ffile_5fservice_2eproto() {
   GOOGLE_PROTOBUF_VERIFY_VERSION;
 
   ::google::protobuf::DescriptorPool::InternalAddGeneratedFile(
-    "\n\027raft/file_service.proto\022\004raft\"B\n\016GetFi"
-    "leRequest\022\021\n\tfile_path\030\001 \002(\t\022\r\n\005count\030\002 "
-    "\002(\003\022\016\n\006offset\030\003 \002(\003\"\036\n\017GetFileResponse\022\013"
-    "\n\003eof\030\001 \002(\010\".\n\010PathInfo\022\014\n\004path\030\001 \002(\t\022\024\n"
-    "\014is_directory\030\002 \002(\010\"\037\n\017ListPathRequest\022\014"
-    "\n\004path\030\001 \002(\t\"5\n\020ListPathResponse\022!\n\tpath"
-    "_info\030\001 \003(\0132\016.raft.PathInfo2\202\001\n\013FileServ"
-    "ice\022:\n\tlist_path\022\025.raft.ListPathRequest\032"
-    "\026.raft.ListPathResponse\0227\n\010get_file\022\024.ra"
-    "ft.GetFileRequest\032\025.raft.GetFileResponse"
-    "B\003\200\001\001", 405);
+    "\n\027raft/file_service.proto\022\004raft\"T\n\016GetFi"
+    "leRequest\022\021\n\treader_id\030\001 \002(\003\022\020\n\010filename"
+    "\030\002 \002(\t\022\r\n\005count\030\003 \002(\003\022\016\n\006offset\030\004 \002(\003\"\036\n"
+    "\017GetFileResponse\022\013\n\003eof\030\001 \002(\010\".\n\010PathInf"
+    "o\022\014\n\004path\030\001 \002(\t\022\024\n\014is_directory\030\002 \002(\010\"\037\n"
+    "\017ListPathRequest\022\014\n\004path\030\001 \002(\t\"5\n\020ListPa"
+    "thResponse\022!\n\tpath_info\030\001 \003(\0132\016.raft.Pat"
+    "hInfo2\202\001\n\013FileService\022:\n\tlist_path\022\025.raf"
+    "t.ListPathRequest\032\026.raft.ListPathRespons"
+    "e\0227\n\010get_file\022\024.raft.GetFileRequest\032\025.ra"
+    "ft.GetFileResponseB\003\200\001\001", 423);
   ::google::protobuf::MessageFactory::InternalRegisterGeneratedFile(
     "raft/file_service.proto", &protobuf_RegisterTypes);
   GetFileRequest::default_instance_ = new GetFileRequest();
@@ -205,7 +206,8 @@ struct StaticDescriptorInitializer_raft_2ffile_5fservice_2eproto {
 // ===================================================================
 
 #ifndef _MSC_VER
-const int GetFileRequest::kFilePathFieldNumber;
+const int GetFileRequest::kReaderIdFieldNumber;
+const int GetFileRequest::kFilenameFieldNumber;
 const int GetFileRequest::kCountFieldNumber;
 const int GetFileRequest::kOffsetFieldNumber;
 #endif  // !_MSC_VER
@@ -226,7 +228,8 @@ GetFileRequest::GetFileRequest(const GetFileRequest& from)
 
 void GetFileRequest::SharedCtor() {
   _cached_size_ = 0;
-  file_path_ = const_cast< ::std::string*>(&::google::protobuf::internal::kEmptyString);
+  reader_id_ = GOOGLE_LONGLONG(0);
+  filename_ = const_cast< ::std::string*>(&::google::protobuf::internal::kEmptyString);
   count_ = GOOGLE_LONGLONG(0);
   offset_ = GOOGLE_LONGLONG(0);
   ::memset(_has_bits_, 0, sizeof(_has_bits_));
@@ -237,8 +240,8 @@ GetFileRequest::~GetFileRequest() {
 }
 
 void GetFileRequest::SharedDtor() {
-  if (file_path_ != &::google::protobuf::internal::kEmptyString) {
-    delete file_path_;
+  if (filename_ != &::google::protobuf::internal::kEmptyString) {
+    delete filename_;
   }
   if (this != default_instance_) {
   }
@@ -266,9 +269,10 @@ GetFileRequest* GetFileRequest::New() const {
 
 void GetFileRequest::Clear() {
   if (_has_bits_[0 / 32] & (0xffu << (0 % 32))) {
-    if (has_file_path()) {
-      if (file_path_ != &::google::protobuf::internal::kEmptyString) {
-        file_path_->clear();
+    reader_id_ = GOOGLE_LONGLONG(0);
+    if (has_filename()) {
+      if (filename_ != &::google::protobuf::internal::kEmptyString) {
+        filename_->clear();
       }
     }
     count_ = GOOGLE_LONGLONG(0);
@@ -284,24 +288,40 @@ bool GetFileRequest::MergePartialFromCodedStream(
   ::google::protobuf::uint32 tag;
   while ((tag = input->ReadTag()) != 0) {
     switch (::google::protobuf::internal::WireFormatLite::GetTagFieldNumber(tag)) {
-      // required string file_path = 1;
+      // required int64 reader_id = 1;
       case 1: {
         if (::google::protobuf::internal::WireFormatLite::GetTagWireType(tag) ==
+            ::google::protobuf::internal::WireFormatLite::WIRETYPE_VARINT) {
+          DO_((::google::protobuf::internal::WireFormatLite::ReadPrimitive<
+                   ::google::protobuf::int64, ::google::protobuf::internal::WireFormatLite::TYPE_INT64>(
+                 input, &reader_id_)));
+          set_has_reader_id();
+        } else {
+          goto handle_uninterpreted;
+        }
+        if (input->ExpectTag(18)) goto parse_filename;
+        break;
+      }
+      
+      // required string filename = 2;
+      case 2: {
+        if (::google::protobuf::internal::WireFormatLite::GetTagWireType(tag) ==
             ::google::protobuf::internal::WireFormatLite::WIRETYPE_LENGTH_DELIMITED) {
+         parse_filename:
           DO_(::google::protobuf::internal::WireFormatLite::ReadString(
-                input, this->mutable_file_path()));
+                input, this->mutable_filename()));
           ::google::protobuf::internal::WireFormat::VerifyUTF8String(
-            this->file_path().data(), this->file_path().length(),
+            this->filename().data(), this->filename().length(),
             ::google::protobuf::internal::WireFormat::PARSE);
         } else {
           goto handle_uninterpreted;
         }
-        if (input->ExpectTag(16)) goto parse_count;
+        if (input->ExpectTag(24)) goto parse_count;
         break;
       }
       
-      // required int64 count = 2;
-      case 2: {
+      // required int64 count = 3;
+      case 3: {
         if (::google::protobuf::internal::WireFormatLite::GetTagWireType(tag) ==
             ::google::protobuf::internal::WireFormatLite::WIRETYPE_VARINT) {
          parse_count:
@@ -312,12 +332,12 @@ bool GetFileRequest::MergePartialFromCodedStream(
         } else {
           goto handle_uninterpreted;
         }
-        if (input->ExpectTag(24)) goto parse_offset;
+        if (input->ExpectTag(32)) goto parse_offset;
         break;
       }
       
-      // required int64 offset = 3;
-      case 3: {
+      // required int64 offset = 4;
+      case 4: {
         if (::google::protobuf::internal::WireFormatLite::GetTagWireType(tag) ==
             ::google::protobuf::internal::WireFormatLite::WIRETYPE_VARINT) {
          parse_offset:
@@ -350,23 +370,28 @@ bool GetFileRequest::MergePartialFromCodedStream(
 
 void GetFileRequest::SerializeWithCachedSizes(
     ::google::protobuf::io::CodedOutputStream* output) const {
-  // required string file_path = 1;
-  if (has_file_path()) {
+  // required int64 reader_id = 1;
+  if (has_reader_id()) {
+    ::google::protobuf::internal::WireFormatLite::WriteInt64(1, this->reader_id(), output);
+  }
+  
+  // required string filename = 2;
+  if (has_filename()) {
     ::google::protobuf::internal::WireFormat::VerifyUTF8String(
-      this->file_path().data(), this->file_path().length(),
+      this->filename().data(), this->filename().length(),
       ::google::protobuf::internal::WireFormat::SERIALIZE);
     ::google::protobuf::internal::WireFormatLite::WriteString(
-      1, this->file_path(), output);
+      2, this->filename(), output);
   }
   
-  // required int64 count = 2;
+  // required int64 count = 3;
   if (has_count()) {
-    ::google::protobuf::internal::WireFormatLite::WriteInt64(2, this->count(), output);
+    ::google::protobuf::internal::WireFormatLite::WriteInt64(3, this->count(), output);
   }
   
-  // required int64 offset = 3;
+  // required int64 offset = 4;
   if (has_offset()) {
-    ::google::protobuf::internal::WireFormatLite::WriteInt64(3, this->offset(), output);
+    ::google::protobuf::internal::WireFormatLite::WriteInt64(4, this->offset(), output);
   }
   
   if (!unknown_fields().empty()) {
@@ -377,24 +402,29 @@ void GetFileRequest::SerializeWithCachedSizes(
 
 ::google::protobuf::uint8* GetFileRequest::SerializeWithCachedSizesToArray(
     ::google::protobuf::uint8* target) const {
-  // required string file_path = 1;
-  if (has_file_path()) {
+  // required int64 reader_id = 1;
+  if (has_reader_id()) {
+    target = ::google::protobuf::internal::WireFormatLite::WriteInt64ToArray(1, this->reader_id(), target);
+  }
+  
+  // required string filename = 2;
+  if (has_filename()) {
     ::google::protobuf::internal::WireFormat::VerifyUTF8String(
-      this->file_path().data(), this->file_path().length(),
+      this->filename().data(), this->filename().length(),
       ::google::protobuf::internal::WireFormat::SERIALIZE);
     target =
       ::google::protobuf::internal::WireFormatLite::WriteStringToArray(
-        1, this->file_path(), target);
+        2, this->filename(), target);
   }
   
-  // required int64 count = 2;
+  // required int64 count = 3;
   if (has_count()) {
-    target = ::google::protobuf::internal::WireFormatLite::WriteInt64ToArray(2, this->count(), target);
+    target = ::google::protobuf::internal::WireFormatLite::WriteInt64ToArray(3, this->count(), target);
   }
   
-  // required int64 offset = 3;
+  // required int64 offset = 4;
   if (has_offset()) {
-    target = ::google::protobuf::internal::WireFormatLite::WriteInt64ToArray(3, this->offset(), target);
+    target = ::google::protobuf::internal::WireFormatLite::WriteInt64ToArray(4, this->offset(), target);
   }
   
   if (!unknown_fields().empty()) {
@@ -408,21 +438,28 @@ int GetFileRequest::ByteSize() const {
   int total_size = 0;
   
   if (_has_bits_[0 / 32] & (0xffu << (0 % 32))) {
-    // required string file_path = 1;
-    if (has_file_path()) {
+    // required int64 reader_id = 1;
+    if (has_reader_id()) {
       total_size += 1 +
-        ::google::protobuf::internal::WireFormatLite::StringSize(
-          this->file_path());
+        ::google::protobuf::internal::WireFormatLite::Int64Size(
+          this->reader_id());
     }
     
-    // required int64 count = 2;
+    // required string filename = 2;
+    if (has_filename()) {
+      total_size += 1 +
+        ::google::protobuf::internal::WireFormatLite::StringSize(
+          this->filename());
+    }
+    
+    // required int64 count = 3;
     if (has_count()) {
       total_size += 1 +
         ::google::protobuf::internal::WireFormatLite::Int64Size(
           this->count());
     }
     
-    // required int64 offset = 3;
+    // required int64 offset = 4;
     if (has_offset()) {
       total_size += 1 +
         ::google::protobuf::internal::WireFormatLite::Int64Size(
@@ -456,8 +493,11 @@ void GetFileRequest::MergeFrom(const ::google::protobuf::Message& from) {
 void GetFileRequest::MergeFrom(const GetFileRequest& from) {
   GOOGLE_CHECK_NE(&from, this);
   if (from._has_bits_[0 / 32] & (0xffu << (0 % 32))) {
-    if (from.has_file_path()) {
-      set_file_path(from.file_path());
+    if (from.has_reader_id()) {
+      set_reader_id(from.reader_id());
+    }
+    if (from.has_filename()) {
+      set_filename(from.filename());
     }
     if (from.has_count()) {
       set_count(from.count());
@@ -482,14 +522,15 @@ void GetFileRequest::CopyFrom(const GetFileRequest& from) {
 }
 
 bool GetFileRequest::IsInitialized() const {
-  if ((_has_bits_[0] & 0x00000007) != 0x00000007) return false;
+  if ((_has_bits_[0] & 0x0000000f) != 0x0000000f) return false;
   
   return true;
 }
 
 void GetFileRequest::Swap(GetFileRequest* other) {
   if (other != this) {
-    std::swap(file_path_, other->file_path_);
+    std::swap(reader_id_, other->reader_id_);
+    std::swap(filename_, other->filename_);
     std::swap(count_, other->count_);
     std::swap(offset_, other->offset_);
     std::swap(_has_bits_[0], other->_has_bits_[0]);

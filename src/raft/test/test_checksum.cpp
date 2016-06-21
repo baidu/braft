@@ -4,9 +4,9 @@
 // Date: 2016/04/11 12:15:37
 
 #include <gtest/gtest.h>
-//#include <util/crc32c.h>
 #include <raft/util.h>
 #include <base/crc32c.h>
+#include <util/crc32c.h>
 
 class ChecksumTest : public testing::Test {
 protected:
@@ -35,17 +35,16 @@ TEST_F(ChecksumTest, benchmark) {
     timer.stop();
     const long crc_elp = timer.u_elapsed();
 
-    //timer.start();
-    //for (size_t i = 0; i < N; ++i) {
-    //    rocksdb::crc32c::Value(data, sizeof(data));
-    //}
-    //timer.stop();
-    //const long rcrc_elp = timer.u_elapsed();
+    timer.start();
+    for (size_t i = 0; i < N; ++i) {
+        leveldb::crc32c::Value(data, sizeof(data));
+    }
+    timer.stop();
+    const long leveldb_crc_elp = timer.u_elapsed();
 
     LOG(INFO) << "murmurhash32_TP=" << sizeof(data) * N / (double)mur_elp << "MB/s"
-              << " base_crc32_TP=" << sizeof(data) * N / (double)crc_elp << "MB/s";
-              //<< " rocksdb_crc32_TP=" << sizeof(data) * N /  (double)rcrc_elp << "MB/s";
-    //LOG(INFO) << "rocksdb_is_fast_crc32_support=" << rocksdb::crc32c::IsFastCrc32Supported();
+              << " base_crc32_TP=" << sizeof(data) * N / (double)crc_elp << "MB/s"
+              << " leveldb_crc32_TP=" << sizeof(data) * N / (double)leveldb_crc_elp << "MB/s";
     LOG(INFO) << "base_is_fast_crc32_support=" << base::crc32c::IsFastCrc32Supported();
 
 }

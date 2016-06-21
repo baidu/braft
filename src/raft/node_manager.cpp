@@ -43,7 +43,7 @@ int NodeManager::add_service(baidu::rpc::Server* server,
         return 0;
     }
 
-    if (0 != server->AddService(new FileServiceImpl, baidu::rpc::SERVER_OWNS_SERVICE)) {
+    if (0 != server->AddService(file_service(), baidu::rpc::SERVER_DOESNT_OWN_SERVICE)) {
         LOG(ERROR) << "Add File Service Failed.";
         return -1;
     }

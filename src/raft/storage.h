@@ -16,6 +16,12 @@
 #include "raft/configuration.h"
 #include "raft/configuration_manager.h"
 
+namespace google {
+namespace protobuf {
+class Message;
+}  // namespace protobuf
+}  // namespace google
+
 namespace raft {
 
 DECLARE_bool(raft_sync);
@@ -95,36 +101,73 @@ public:
     static StableStorage* create(const std::string& uri);
 };
 
-struct SnapshotMeta {
-    int64_t last_included_index;
-    int64_t last_included_term;
-    Configuration last_configuration;
+// Snapshot 
+class Snapshot : public base::Status {
+public:
+    Snapshot() {}
+    virtual ~Snapshot() {}
+
+    // Get the path of the Snapshot
+    virtual std::string get_path() = 0;
+
+    // List all the existing files in the Snapshot currently
+    virtual void list_files(std::vector<std::string> *files) = 0;
+
+    // Get the implementation-defined file_meta
+    virtual int get_file_meta(const std::string& filename, 
+                              ::google::protobuf::Message* file_meta) {
+        (void)filename;
+        file_meta->Clear();
+        return 0;
+    }
 };
 
-class SnapshotWriter : public base::Status {
+class SnapshotWriter : public Snapshot {
 public:
     SnapshotWriter() {}
     virtual ~SnapshotWriter() {}
 
-    virtual int copy(const std::string& uri) = 0;
+    // Save the meta information of the snapshot which is used by the raft
+    // framework.
     virtual int save_meta(const SnapshotMeta& meta) = 0;
-    virtual std::string get_uri(const base::EndPoint& hint_addr) = 0;
+
+    // Add a file to the snapshot.
+    // |file_meta| is an implmentation-defined protobuf message 
+    // All the implementation must handle the case that |file_meta| is NULL and
+    // no error can be raised.
+    // Note that whether the file will be created onto the backing storage is
+    // implementation-defined.
+    virtual int add_file(const std::string& filename) { 
+        return add_file(filename, NULL);
+    }
+
+    virtual int add_file(const std::string& filename, 
+                         const ::google::protobuf::Message* file_meta) = 0;
+
+    // Remove a file from the snapshot
+    // Note that whether the file will be removed from the backing storage is
+    // implementation-defined.
+    virtual int remove_file(const std::string& filename) = 0;
 };
 
-class SnapshotReader : public base::Status {
+class SnapshotReader : public Snapshot {
 public:
     SnapshotReader() {}
     virtual ~SnapshotReader() {}
 
+    // Load meta from 
     virtual int load_meta(SnapshotMeta* meta) = 0;
-    virtual std::string get_uri(const base::EndPoint& hint_addr) = 0;
+
+    // Generate uri for other peers to copy this snapshot.
+    // Return an empty string if some error has occcured
+    virtual std::string generate_uri_for_copy() = 0;
 };
 
 class SnapshotStorage {
 public:
     virtual ~SnapshotStorage() {}
 
-    // init
+    // Initialize
     virtual int init() = 0;
 
     // create new snapshot writer
@@ -139,8 +182,10 @@ public:
     // close snapshot reader
     virtual int close(SnapshotReader* reader) = 0;
 
-    virtual SnapshotStorage* new_instance(const std::string& uri) const = 0;
+    // Copy snapshot from uri and open it as a SnapshotReader
+    virtual SnapshotReader* copy_from(const std::string& uri) WARN_UNUSED_RESULT = 0;
 
+    virtual SnapshotStorage* new_instance(const std::string& uri) const WARN_UNUSED_RESULT = 0;
     static SnapshotStorage* create(const std::string& uri);
 };
 

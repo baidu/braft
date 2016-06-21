@@ -21,7 +21,7 @@ public:
     ProtoBufFile(const std::string& path) : _path(path) {}
     ~ProtoBufFile() {}
 
-    int save(::google::protobuf::Message* message, bool sync);
+    int save(const ::google::protobuf::Message* message, bool sync);
     int load(::google::protobuf::Message* message);
 private:
     std::string _path;

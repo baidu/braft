@@ -29,6 +29,7 @@ struct SnapshotExecutorOptions {
     NodeImpl* node;
     LogManager* log_manager;
     int64_t init_term;
+    base::EndPoint addr;
 };
 
 // Executing Snapshot related stuff
@@ -117,7 +118,7 @@ friend class InstallSnapshotDone;
     void load_downloading_snapshot(DownloadingSnapshot* ds,
                                   const SnapshotMeta& meta,
                                   int64_t expected_version,
-                                  SnapshotWriter* writer);
+                                  SnapshotReader* reader);
     void report_error(int error_code, const char* fmt, ...);
 
     raft_mutex_t _mutex;

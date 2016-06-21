@@ -126,6 +126,7 @@ private:
     int64_t _last_response_timestamp;
     int _consecutive_error_times;
     raft_timer_t _heartbeat_timer;
+    SnapshotReader* _reader;
 };
 
 struct ReplicatorGroupOptions {

@@ -13,7 +13,7 @@ if COMPILER_VERSION() == 'gcc482':
 if COMPILER_VERSION() == 'gcc446' or COMPILER_VERSION() == 'gcc482':
     CXXFLAGS('-Wno-unused-result')
 
-INCPATHS('$OUT_ROOT/public/raft/src src')
+INCPATHS('$OUT_ROOT/public/raft src')
 
 CONFIGS('public/baidu-rpc@ci-base')
 
@@ -23,6 +23,10 @@ for f in GLOB('protocol/raft/*.proto').split():
 
 HEADERS(GLOB_GEN_SRCS('raft/*.pb.h'), '$INC/raft')
 pb_cc_sources = GLOB_GEN_SRCS('raft/*.pb.cc')
-StaticLibrary('raft',Sources(GLOB('src/raft/*.cpp src/raft/*.cc')))
+StaticLibrary('raft',Sources(GLOB('src/raft/*.cpp')) + Sources(pb_cc_sources))
 
+raft_headers = set(GLOB('src/raft/*.h').split()) - set(GLOB('src/raft/*.pb.h').split())
+
+HEADERS(' '.join(raft_headers), '$INC/raft')
 HEADERS(GLOB('src/raft/*.h'), '$INC/raft')
+HEADERS(GLOB_GEN_SRCS('raft/*.pb.h'), '$INC/raft')

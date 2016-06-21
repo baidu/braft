@@ -14,7 +14,7 @@
 
 namespace raft {
 
-int ProtoBufFile::save(google::protobuf::Message* message, bool sync) {
+int ProtoBufFile::save(const google::protobuf::Message* message, bool sync) {
     std::string tmp_path(_path);
     tmp_path.append(".tmp");
 
@@ -47,7 +47,7 @@ int ProtoBufFile::save(google::protobuf::Message* message, bool sync) {
     // write protobuf data
     do {
         ssize_t nw = msg_buf.cut_into_file_descriptor(fd);
-        if (nw < 0) {
+        if (nw < 0 && errno != EINTR) {
             PLOG(WARNING) << "writev failed, path: " << tmp_path;
             return -1;
         }

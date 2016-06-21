@@ -1,0 +1,4 @@
+message LocalFileMeta {
+    optional string tag = 1;
+    optional string reference = 2;
+}

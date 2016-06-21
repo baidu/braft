@@ -583,35 +583,39 @@ int LogManager::disk_thread(void* meta,
 
 void LogManager::set_snapshot(const SnapshotMeta* meta) {
     RAFT_VLOG << "Set snapshot last_included_index="
-              << meta->last_included_index
-              << " last_included_term=" <<  meta->last_included_term;
+              << meta->last_included_index()
+              << " last_included_term=" <<  meta->last_included_term();
     std::unique_lock<raft_mutex_t> lck(_mutex);
-    if (meta->last_included_index <= _last_snapshot_id.index) {
+    if (meta->last_included_index() <= _last_snapshot_id.index) {
         return;
+    }
+    Configuration last_configuration;
+    for (int i = 0; i < meta->peers_size(); ++i) {
+        last_configuration.add_peer(meta->peers(i));
     }
 
     _config_manager->set_snapshot(
-            LogId(meta->last_included_index, meta->last_included_term), 
-            meta->last_configuration);
-    int64_t term = unsafe_get_term(meta->last_included_index);
+            LogId(meta->last_included_index(), meta->last_included_term()), 
+            last_configuration);
+    int64_t term = unsafe_get_term(meta->last_included_index());
 
     const int64_t saved_last_snapshot_index = _last_snapshot_id.index;
-    _last_snapshot_id.index = meta->last_included_index;
-    _last_snapshot_id.term = meta->last_included_term;
+    _last_snapshot_id.index = meta->last_included_index();
+    _last_snapshot_id.term = meta->last_included_term();
     if (_last_snapshot_id > _applied_id) {
         _applied_id = _last_snapshot_id;
     }
     if (term == 0) {
         // last_included_index is larger than last_index
-        truncate_prefix(meta->last_included_index + 1, lck);
+        truncate_prefix(meta->last_included_index() + 1, lck);
         return;
-    } else if (term == meta->last_included_term) {
+    } else if (term == meta->last_included_term()) {
         // Truncating log to the index of the last snapshot.
         truncate_prefix(saved_last_snapshot_index + 1, lck);
         return;
     } else {
         // TODO: check the result of reset.
-        reset(meta->last_included_index + 1, lck);
+        reset(meta->last_included_index() + 1, lck);
         return;
     }
     CHECK(false) << "Cannot reach here";

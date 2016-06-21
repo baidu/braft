@@ -483,8 +483,8 @@ TEST_F(LogManagerTest, set_snapshot) {
     opt.configuration_manager = cm.get();
     ASSERT_EQ(0, lm->init(opt));
     raft::SnapshotMeta meta;
-    meta.last_included_index = 1000;
-    meta.last_included_term = 2;
+    meta.set_last_included_index(1000);
+    meta.set_last_included_term(2);
     lm->set_snapshot(&meta);
     ASSERT_EQ(raft::LogId(1000, 2), lm->last_log_id(false));
 }

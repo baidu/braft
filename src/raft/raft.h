@@ -94,13 +94,20 @@ struct Task {
     base::IOBuf* data;
 
     // Continuation when the data is applied to StateMachine or error occurs.
-    // Only valid when the belonging node is the leader of this group.
     Closure* done;
 };
 
 class IteratorImpl;
 
 // Iterator over a batch of committed tasks
+//
+// Example:
+// void YouStateMachine::on_apply(raft::Iterator& iter) {
+//     for (; iter.valid(); iter.next()) {
+//         baidu::rpc::ClosureGuard done_guard(iter.done());
+//         process(iter.data());
+//     }
+// }
 class Iterator {
     DISALLOW_COPY_AND_ASSIGN(Iterator);
 public:
@@ -121,7 +128,7 @@ public:
     const base::IOBuf& data() const;
 
     // If done() is non-NULL, you must call done()->Run() after applying this
-    // this task no matter this operation succeeds or fails, otherwise the
+    // task no matter this operation succeeds or fails, otherwise the
     // corresponding resources would leak.
     //
     // If this task is propased by this Node when it was the leader of group and

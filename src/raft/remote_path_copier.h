@@ -22,16 +22,21 @@ struct CopyOptions {
 
 class RemotePathCopier {
 public:
-    RemotePathCopier() {}
-    int init(base::EndPoint remote_side);
-    int copy(const std::string& source, const std::string& dest_dir,
-             const CopyOptions* options);
+    RemotePathCopier();
+    int init(const std::string& uri);
+    // Copy `source' from remote to dest
+    int copy_to_file(const std::string& source, const std::string& dest_path,
+                     const CopyOptions* options);
+    int copy_to_iobuf(const std::string& source, base::IOBuf* dest_buf, 
+                      const CopyOptions* options);
+    // TODO: chenzhangyi01: add stop and cancel
 private:
-    int _copy_file(const std::string& source, const std::string& dest, 
-                   const CopyOptions& options);
+    int read_piece_of_file(base::IOBuf* buf, const std::string& source,
+                           off_t offset, size_t max_count,
+                           long timeout_ms, bool* is_eof);
     DISALLOW_COPY_AND_ASSIGN(RemotePathCopier);
     baidu::rpc::Channel _channel;
-    std::string _tmp_dir;
+    int64_t _reader_id;
 };
 
 inline CopyOptions::CopyOptions()

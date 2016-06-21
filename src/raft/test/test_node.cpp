@@ -55,7 +55,7 @@ public:
     }
 
     virtual void on_snapshot_save(raft::SnapshotWriter* writer, raft::Closure* done) {
-        std::string file_path = raft::fileuri2path(writer->get_uri(base::EndPoint()));
+        std::string file_path = writer->get_path();
         file_path.append("/data");
         baidu::rpc::ClosureGuard done_guard(done);
 
@@ -79,10 +79,11 @@ public:
         ::close(fd);
         snapshot_index = applied_index;
         unlock();
+        writer->add_file("data");
     }
 
     int on_snapshot_load(raft::SnapshotReader* reader) {
-        std::string file_path = raft::fileuri2path(reader->get_uri(base::EndPoint()));
+        std::string file_path = reader->get_path();
         file_path.append("/data");
 
         LOG(INFO) << "on_snapshot_load from " << file_path;

@@ -242,11 +242,15 @@ void FSMCaller::do_snapshot_save(SaveSnapshotClosure* done) {
     int64_t last_applied_index = _last_applied_index.load(boost::memory_order_relaxed);
 
     SnapshotMeta meta;
-    meta.last_included_index = last_applied_index;
-    meta.last_included_term = _last_applied_term;
+    meta.set_last_included_index(last_applied_index);
+    meta.set_last_included_term(_last_applied_term);
     ConfigurationPair conf_pair;
     _log_manager->get_configuration(last_applied_index, &conf_pair);
-    meta.last_configuration = conf_pair.second;
+    std::vector<PeerId> peers;
+    conf_pair.second.list_peers(&peers);
+    for (size_t i = 0; i < peers.size(); ++i) {
+        *meta.add_peers() = peers[i].to_string();
+    }
 
     SnapshotWriter* writer = done->start(meta);
     if (!writer) {
@@ -300,8 +304,9 @@ void FSMCaller::do_snapshot_load(LoadSnapshotClosure* done) {
         return;
     }
 
-    _last_applied_index.store(meta.last_included_index, boost::memory_order_release);
-    _last_applied_term = meta.last_included_term;
+    _last_applied_index.store(meta.last_included_index(),
+                              boost::memory_order_release);
+    _last_applied_term = meta.last_included_term();
     done->Run();
 }
 

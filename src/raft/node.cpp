@@ -135,6 +135,7 @@ NodeImpl::~NodeImpl() {
     if (_options.node_owns_fsm) {
         _options.node_owns_fsm = false;
         delete _options.fsm;
+        _options.fsm = NULL;
     }
 }
 
@@ -148,6 +149,7 @@ int NodeImpl::init_snapshot_storage() {
     opt.fsm_caller = _fsm_caller;
     opt.node = this;
     opt.log_manager = _log_manager;
+    opt.addr = _server_id.addr;
     return _snapshot_executor->init(opt);
 }
 
@@ -1822,8 +1824,10 @@ void NodeImpl::handle_install_snapshot_request(baidu::rpc::Controller* controlle
     lck.unlock();
     LOG(INFO) << "node " << _group_id << ":" << _server_id
               << " received InstallSnapshotRequest"
-              << " last_included_log_index=" << request->last_included_log_index()
-              << " last_include_log_term=" << request->last_included_log_term()
+              << " last_included_log_index=" 
+              << request->meta().last_included_index()
+              << " last_include_log_term=" 
+              << request->meta().last_included_term()
               << " from " << server_id
               << " when last_log_id=" << _log_manager->last_log_id();
     return _snapshot_executor->install_snapshot(

@@ -172,7 +172,10 @@ public:
     {
     };
     ~DummySnapshotReader() {}
-    std::string get_uri(const base::EndPoint& /*hint_addr*/) { return std::string(); }
+    std::string generate_uri_for_copy() { return std::string(); }
+    void list_files(std::vector<std::string>*) {}
+    int get_file_meta(const std::string&, google::protobuf::Message*) { return 0; }
+    std::string get_path() { return std::string(); }
     int load_meta(raft::SnapshotMeta* meta) {
         *meta = *_meta;
         return 0;
@@ -189,11 +192,11 @@ public:
         EXPECT_TRUE(false) << "Should never be called";
         return 0;
     }
-    int copy(const std::string&) {
-        EXPECT_TRUE(false) << "Should never be called";
-        return 0;
-    }
-    std::string get_uri(const base::EndPoint& /*hint_addr*/) { return std::string(); }
+    std::string get_path() { return std::string(); }
+    int add_file(const std::string&, const google::protobuf::Message*) { return 0;}
+    int remove_file(const std::string&) { return 0; }
+    void list_files(std::vector<std::string>*) {}
+    int get_file_meta(const std::string&, google::protobuf::Message*) { return 0; }
 private:
 };
 
@@ -211,10 +214,10 @@ public:
         ASSERT_TRUE(status().ok()) << status();
     }
     raft::SnapshotWriter* start(const raft::SnapshotMeta& meta) {
-        EXPECT_EQ(meta.last_included_index, 
-                    _expected_meta->last_included_index);
-        EXPECT_EQ(meta.last_included_term, 
-                    _expected_meta->last_included_term);
+        EXPECT_EQ(meta.last_included_index(), 
+                    _expected_meta->last_included_index());
+        EXPECT_EQ(meta.last_included_term(), 
+                    _expected_meta->last_included_term());
         ++_start_times;
         return _writer;
     }
@@ -245,9 +248,8 @@ private:
 
 TEST_F(FSMCallerTest, snapshot) {
     raft::SnapshotMeta snapshot_meta;
-    snapshot_meta.last_included_index = 0;
-    snapshot_meta.last_included_term = 0;
-    snapshot_meta.last_configuration._peers.clear();
+    snapshot_meta.set_last_included_index(0);
+    snapshot_meta.set_last_included_term(0);
     DummySnapshotReader dummy_reader(&snapshot_meta);
     DummySnapshoWriter dummy_writer;
     MockSaveSnapshotClosure save_snapshot_done(&dummy_writer, &snapshot_meta);

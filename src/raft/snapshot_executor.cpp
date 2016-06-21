@@ -8,6 +8,7 @@
 #include "raft/util.h"
 #include "raft/node.h"
 #include "raft/storage.h"
+#include "raft/snapshot.h"
 
 namespace raft {
 
@@ -154,11 +155,11 @@ int SnapshotExecutor::on_snapshot_save_done(
     // InstallSnapshot can break SaveSnapshot, check InstallSnapshot when SaveSnapshot
     // because upstream Snapshot maybe newer than local Snapshot.
     if (ret == 0) {
-        if (meta.last_included_index <= _last_snapshot_index) {
+        if (meta.last_included_index() <= _last_snapshot_index) {
             ret = ESTALE;
             LOG_IF(WARNING, _node != NULL) << "node " << _node->node_id()
                 << " discard saved snapshot, because has a newer snapshot."
-                << " last_included_index " << meta.last_included_index
+                << " last_included_index " << meta.last_included_index()
                 << " last_snapshot_index " << _last_snapshot_index;
             writer->set_error(ESTALE, "snapshot is staled, maybe InstallSnapshot when snapshot");
         }
@@ -178,8 +179,8 @@ int SnapshotExecutor::on_snapshot_save_done(
 
     lck.lock();
     if (ret == 0) {
-        _last_snapshot_index = meta.last_included_index;
-        _last_snapshot_term = meta.last_included_term;
+        _last_snapshot_index = meta.last_included_index();
+        _last_snapshot_term = meta.last_included_term();
         lck.unlock();
         _log_manager->set_snapshot(&meta);
         lck.lock();
@@ -198,14 +199,12 @@ void SnapshotExecutor::on_snapshot_load_done(const base::Status& st) {
     DownloadingSnapshot* m = _downloading_snapshot.load(boost::memory_order_relaxed);
 
     if (st.ok()) {
-        _last_snapshot_index = _loading_snapshot_meta.last_included_index;
-        _last_snapshot_term = _loading_snapshot_meta.last_included_term;
+        _last_snapshot_index = _loading_snapshot_meta.last_included_index();
+        _last_snapshot_term = _loading_snapshot_meta.last_included_term();
         _log_manager->set_snapshot(&_loading_snapshot_meta);
     }
     LOG(INFO) << "node " << _node->node_id() << " snapshot_load_done,"
-        << " last_included_index " << _loading_snapshot_meta.last_included_index
-        << " last_included_term " << _loading_snapshot_meta.last_included_term
-        << " last_configuration " << _loading_snapshot_meta.last_configuration;
+              << _loading_snapshot_meta.ShortDebugString();
     lck.unlock();
     if (_node) {
         // FIXME: race with set_peer, not sure if this is fine
@@ -298,6 +297,10 @@ int SnapshotExecutor::init(const SnapshotExecutorOptions& options) {
         LOG(ERROR) << "Fail to init snapshot storage";
         return -1;
     }
+    LocalSnapshotStorage* tmp = dynamic_cast<LocalSnapshotStorage*>(_snapshot_storage);
+    if (tmp != NULL && !tmp->has_server_addr()) {
+        tmp->set_server_addr(options.addr);
+    }
     SnapshotReader* reader = _snapshot_storage->open();
     if (reader == NULL) {
         return 0;
@@ -320,30 +323,13 @@ int SnapshotExecutor::init(const SnapshotExecutorOptions& options) {
     return 0;
 }
 
-int SnapshotExecutor::parse_install_snapshot_request(
-            const InstallSnapshotRequest* request,
-            SnapshotMeta* meta) {
-    meta->last_included_index = request->last_included_log_index();
-    meta->last_included_term = request->last_included_log_term();
-    for (int i = 0; i < request->peers_size(); i++) {
-        PeerId peer;
-        if (0 != peer.parse(request->peers(i))) {
-            LOG(WARNING) << "Fail to parse " << request->peers(i);
-            return -1;
-        }
-        meta->last_configuration.add_peer(peer);
-    }
-    return 0;
-}
-
 void SnapshotExecutor::install_snapshot(baidu::rpc::Controller* cntl,
                                         const InstallSnapshotRequest* request,
                                         InstallSnapshotResponse* response,
                                         google::protobuf::Closure* done) {
     int ret = 0;
     baidu::rpc::ClosureGuard done_guard(done);
-    SnapshotMeta meta;
-    ret = parse_install_snapshot_request(request, &meta);
+    SnapshotMeta meta = request->meta();
     if (ret != 0) {
         cntl->SetFailed(baidu::rpc::EREQUEST,
                         "Fail to parse request");
@@ -370,77 +356,36 @@ void SnapshotExecutor::install_snapshot(baidu::rpc::Controller* cntl,
     // Release done first as this RPC might be replaced by the retry one
     done_guard.release();
 
-    // Copy snapshot from remote
-    SnapshotWriter* writer = NULL;
-    writer = _snapshot_storage->create();
-    if (NULL == writer) {
-        LOG(WARNING) << "Fail to create writer";
-        ret = EIO;
-    } else {
-        ret = writer->copy(request->uri());
-    }
-    if (ret != 0 && writer != NULL && writer->ok()) {
-        writer->set_error(ret, berror(ret));
-        LOG(WARNING) << "Fail to copy, " << berror(ret);
-    }
-    if (ret == EIO) {
-        report_error(EIO, "Fail to create or copy snapshot");
-    }
-    return load_downloading_snapshot(ds.release(), meta, saved_version, writer);
+    SnapshotReader* reader = _snapshot_storage->copy_from(request->uri());
+    return load_downloading_snapshot(ds.release(), meta, saved_version, reader);
 }
 
 void SnapshotExecutor::load_downloading_snapshot(DownloadingSnapshot* ds,
                                                 const SnapshotMeta& meta,
                                                 int64_t expected_version,
-                                                SnapshotWriter* writer) {
+                                                SnapshotReader* reader) {
     std::unique_ptr<DownloadingSnapshot> ds_guard(ds);
     std::unique_lock<raft_mutex_t> lck(_mutex);
     if (expected_version != _version) {
         // The RPC was responded where the version changed
-        if (writer) {
-            writer->set_error(EINVAL, "Out of date");
-            _snapshot_storage->close(writer);
+        if (reader) {
+            _snapshot_storage->close(reader);
         }
         return;
     }
     CHECK_EQ(ds, _downloading_snapshot.load(boost::memory_order_relaxed));
     baidu::rpc::ClosureGuard done_guard(ds->done);
-    if (writer == NULL || !writer->ok()) {
-        if (writer) {
-            _snapshot_storage->close(writer);
+    if (reader == NULL || !reader->ok()) {
+        if (reader) {
+            _snapshot_storage->close(reader);
         }
         _downloading_snapshot.store(NULL, boost::memory_order_release);
         lck.unlock();
         ds->cntl->SetFailed(baidu::rpc::EINTERNAL, 
-                           "Fail to create snapshot writer");
+                           "Fail to copy snapshot from %s",
+                            ds->request->uri().c_str());
         return;
     }
-    int ret = writer->save_meta(meta);
-    if (ret == 0) {
-        ret = _snapshot_storage->close(writer);
-    } else {
-        // Don't care close if failing to save meta
-        _snapshot_storage->close(writer);
-    }
-    if (ret) {
-        _downloading_snapshot.store(NULL, boost::memory_order_release);
-        lck.unlock();
-        ds->cntl->SetFailed(baidu::rpc::EINTERNAL, 
-                           "Fail to close _snapshot_storage");
-        return;
-    }
-    // Open the recently closed writer
-    SnapshotReader* reader = _snapshot_storage->open();
-    if (reader == NULL) {
-        _downloading_snapshot.store(NULL, boost::memory_order_release);
-        lck.unlock();
-        LOG(ERROR) << "Fail to open recently closed snapshot";
-        ds->cntl->SetFailed(baidu::rpc::EINTERNAL, 
-                            "Fail to open snapshot to read");
-        return;
-    }
-    // TODO: check if reader is the same as writer.
- 
     // The owner of ds is on_snapshot_load_done
     ds_guard.release();
     done_guard.release();
@@ -450,7 +395,7 @@ void SnapshotExecutor::load_downloading_snapshot(DownloadingSnapshot* ds,
     lck.unlock();
     InstallSnapshotDone* install_snapshot_done =
             new InstallSnapshotDone(this, reader);
-    ret = _fsm_caller->on_snapshot_load(install_snapshot_done);
+    int ret = _fsm_caller->on_snapshot_load(install_snapshot_done);
     if (ret != 0) {
         LOG(WARNING) << "Fail to call on_snapshot_load";
         install_snapshot_done->status().set_error(EHOSTDOWN, "This raft node is down");
@@ -466,7 +411,7 @@ int SnapshotExecutor::register_downloading_snapshot(DownloadingSnapshot* ds,
         ds->response->set_term(_term);
         return -1;
     }
-    if (ds->request->last_included_log_index() <= _last_snapshot_index) {
+    if (ds->request->meta().last_included_index() <= _last_snapshot_index) {
         ds->response->set_term(_term);
         ds->response->set_success(true);
         return -1;
@@ -489,8 +434,8 @@ int SnapshotExecutor::register_downloading_snapshot(DownloadingSnapshot* ds,
     // A previouse snapshot is under installing, check if this is the same
     // snapshot and resume it, otherwise drop previous snapshot as this one is
     // newer
-    if (m->request->last_included_log_index() 
-            == ds->request->last_included_log_index()) {
+    if (m->request->meta().last_included_index() 
+            == ds->request->meta().last_included_index()) {
         // m is a retry
         has_saved = true;
         // Copy |*ds| to |*m| so that the former session would respond
@@ -498,8 +443,8 @@ int SnapshotExecutor::register_downloading_snapshot(DownloadingSnapshot* ds,
         saved = *m;
         *m = *ds;
         rc = 1;
-    } else if (m->request->last_included_log_index() 
-            > ds->request->last_included_log_index()) {
+    } else if (m->request->meta().last_included_index() 
+            > ds->request->meta().last_included_index()) {
         // |is| is older
         ds->cntl->SetFailed(EINVAL, "A newer snapshot is under installing");
         return -1;
@@ -585,18 +530,13 @@ void SnapshotExecutor::describe(std::ostream&os, bool use_html) {
     if (m && is_loading_snapshot) {
         CHECK(!is_saving_snapshot);
         os << "snapshot_status: LOADING" << newline;
-        os << "snapshot_from: " << request.uri();
-        os << "loading_snapshot_index: " << meta.last_included_index << newline;
-        os << "loading_snapshot_term: " << meta.last_included_term << newline;
-        os << "loading_snapshot_configuration: " << meta.last_configuration << newline;
+        os << "snapshot_from: " << request.uri() << newline;
+        os << "snapshot_meta: " << meta.ShortDebugString();
     } else if (m) {
         CHECK(!is_saving_snapshot);
-        parse_install_snapshot_request(&request, &meta);
         os << "snapshot_status: DOWNLOADING" << newline;
-        os << "downloading_snapshot_index: " << meta.last_included_index << newline;
-        os << "downloading_snapshot_term: " << meta.last_included_term << newline;
-        os << "downloading_snapshot_configuration: " << meta.last_configuration << newline;
         os << "downloading_snapshot_from: " << request.uri() << newline;
+        os << "downloading_snapshot_meta: " << request.meta().ShortDebugString();
     } else if (is_saving_snapshot) {
         os << "snapshot_status: SAVING" << newline;
     } else {

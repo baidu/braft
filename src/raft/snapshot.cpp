@@ -15,14 +15,148 @@
 #include "raft/remote_path_copier.h"
 #include "raft/snapshot.h"
 #include "raft/node.h"
+#include "raft/file_service.h"
 
 #define RAFT_SNAPSHOT_PATTERN "snapshot_%020ld"
+#define RAFT_SNAPSHOT_META_FILE "__raft_snapshot_meta"
 
 namespace raft {
 
-const char* LocalSnapshotWriter::_s_snapshot_meta = "snapshot_meta";
-const char* LocalSnapshotReader::_s_snapshot_meta = "snapshot_meta";
 const char* LocalSnapshotStorage::_s_temp_path = "temp";
+
+LocalSnapshotMetaTable::LocalSnapshotMetaTable() {}
+
+LocalSnapshotMetaTable::~LocalSnapshotMetaTable() {}
+
+int LocalSnapshotMetaTable::add_file(const std::string& filename, 
+                                const LocalFileMeta& meta) {
+    Map::value_type value(filename, meta);
+    std::pair<Map::iterator, bool> ret = _file_map.insert(value);
+    LOG_IF(WARNING, !ret.second)
+            << "file=" << filename << " already exists in snapshot";
+    return ret.second ? 0 : -1;
+}
+
+int LocalSnapshotMetaTable::remove_file(const std::string& filename) {
+    Map::iterator iter = _file_map.find(filename);
+    if (iter == _file_map.end()) {
+        return -1;
+    }
+    _file_map.erase(iter);
+    return 0;
+}
+
+int LocalSnapshotMetaTable::save_to_file(const std::string& path) const {
+    LocalSnapshotPbMeta pb_meta;
+    if (_meta.IsInitialized()) {
+        *pb_meta.mutable_meta() = _meta;
+    }
+    for (Map::const_iterator
+            iter = _file_map.begin(); iter != _file_map.end(); ++iter) {
+        LocalSnapshotPbMeta::File *f = pb_meta.add_files();
+        f->set_name(iter->first);
+        *f->mutable_meta() = iter->second;
+    }
+    ProtoBufFile pb_file(path);
+    return pb_file.save(&pb_meta, FLAGS_raft_sync);
+}
+
+int LocalSnapshotMetaTable::load_from_file(const std::string& path) {
+    ProtoBufFile pb_file(path);
+    LocalSnapshotPbMeta pb_meta;
+    if (pb_file.load(&pb_meta) != 0) {
+        return -1;
+    }
+    if (pb_meta.has_meta()) {
+        _meta = pb_meta.meta();
+    } else {
+        _meta.Clear();
+    }
+    _file_map.clear();
+    for (int i = 0; i < pb_meta.files_size(); ++i) {
+        const LocalSnapshotPbMeta::File& f = pb_meta.files(i);
+        _file_map[f.name()] = f.meta();
+    }
+    return 0;
+}
+
+int LocalSnapshotMetaTable::save_to_iobuf_as_remote(base::IOBuf* buf) const {
+    LocalSnapshotPbMeta pb_meta;
+    if (_meta.IsInitialized()) {
+        *pb_meta.mutable_meta() = _meta;
+    }
+    for (Map::const_iterator
+            iter = _file_map.begin(); iter != _file_map.end(); ++iter) {
+        LocalSnapshotPbMeta::File *f = pb_meta.add_files();
+        f->set_name(iter->first);
+        *f->mutable_meta() = iter->second;
+        f->mutable_meta()->clear_reference();
+    }
+    buf->clear();
+    base::IOBufAsZeroCopyOutputStream wrapper(buf);
+    return pb_meta.SerializeToZeroCopyStream(&wrapper) ? 0 : -1;
+}
+
+int LocalSnapshotMetaTable::load_from_iobuf_as_remote(const base::IOBuf& buf) {
+    LocalSnapshotPbMeta pb_meta;
+    base::IOBufAsZeroCopyInputStream wrapper(buf);
+    if (!pb_meta.ParseFromZeroCopyStream(&wrapper)) {
+        return -1;
+    }
+    if (pb_meta.has_meta()) {
+        _meta = pb_meta.meta();
+    } else {
+        _meta.Clear();
+    }
+    _file_map.clear();
+    for (int i = 0; i < pb_meta.files_size(); ++i) {
+        const LocalSnapshotPbMeta::File& f = pb_meta.files(i);
+        _file_map[f.name()] = f.meta();
+    }
+    return 0;
+}
+
+void LocalSnapshotMetaTable::list_files(std::vector<std::string>* files) const {
+    if (!files) {
+        return;
+    }
+    files->clear();
+    files->reserve(_file_map.size());
+    for (Map::const_iterator
+            iter = _file_map.begin(); iter != _file_map.end(); ++iter) {
+        files->push_back(iter->first);
+    }
+}
+
+int LocalSnapshotMetaTable::get_file_meta(const std::string& filename, 
+                                          LocalFileMeta* file_meta) const {
+    Map::const_iterator iter = _file_map.find(filename);
+    if (iter == _file_map.end()) {
+        return -1;
+    }
+    if (file_meta) {
+        *file_meta = iter->second;
+    }
+    return 0;
+}
+
+std::string RemoteSnapshot::get_path() { return std::string(); }
+
+void RemoteSnapshot::list_files(std::vector<std::string> *files) {
+    return _meta_table.list_files(files);
+}
+
+int RemoteSnapshot::get_file_meta(const std::string& filename, 
+                                       ::google::protobuf::Message* file_meta) {
+    LocalFileMeta* meta = NULL;
+    if (file_meta) {
+        meta = dynamic_cast<LocalFileMeta*>(file_meta);
+        if (meta == NULL) {
+            return -1;
+        }
+    }
+    return _meta_table.get_file_meta(filename, meta);
+}
 
 LocalSnapshotWriter::LocalSnapshotWriter(const std::string& path)
     : _path(path) {
@@ -37,90 +171,89 @@ int LocalSnapshotWriter::init() {
         set_error(EIO, "CreateDirectory failed, path: %s %m", _path.c_str());
         return EIO;
     }
-
+    base::FilePath meta_path = dir_path.Append(RAFT_SNAPSHOT_META_FILE);
+    if (base::PathExists(meta_path) && 
+                _meta_table.load_from_file(meta_path.value()) != 0) {
+        set_error(EIO, "Fail to load metatable from %s", meta_path.value().c_str());
+        return EIO;
+    }
     return 0;
 }
 
 int64_t LocalSnapshotWriter::snapshot_index() {
-    return _meta.last_included_index;
+    return _meta_table.has_meta() ? _meta_table.meta().last_included_index() : 0;
 }
 
-int LocalSnapshotWriter::copy(const std::string& uri) {
-    RemotePathCopier copier;
-    int ret = 0;
-    do {
-        base::EndPoint remote_addr;
-        std::string remote_path;
-        ret = fileuri_parse(uri, &remote_addr, &remote_path);
-        if (0 != ret) {
-            LOG(WARNING) << "LocalSnapshotWriter copy failed, path " << _path << " uri " << uri;
-            break;
-        }
+int LocalSnapshotWriter::remove_file(const std::string& filename) {
+    return _meta_table.remove_file(filename);
+}
 
-        ret = copier.init(remote_addr);
-        if (0 != ret) {
-            LOG(WARNING) << "LocalSnapshotWriter copy failed, path " << _path << " uri " << uri;
-            break;
-        }
+int LocalSnapshotWriter::add_file(
+        const std::string& filename, 
+        const ::google::protobuf::Message* file_meta) {
+    LocalFileMeta meta;
+    if (file_meta) {
+        meta.CopyFrom(*file_meta);
+    }
+    // TODO: Check file_meta
+    return _meta_table.add_file(filename, meta);
+}
 
-        LOG(INFO) << "copy from " << remote_addr << " " << remote_path << " to " << _path;
-        ret = copier.copy(remote_path, _path, NULL);
-        if (0 != ret) {
-            LOG(WARNING) << "LocalSnapshotWriter copy failed, path " << _path << " uri " << uri;
-            break;
+void LocalSnapshotWriter::list_files(std::vector<std::string> *files) {
+    return _meta_table.list_files(files);
+}
+
+int LocalSnapshotWriter::get_file_meta(const std::string& filename, 
+                                       ::google::protobuf::Message* file_meta) {
+    LocalFileMeta* meta = NULL;
+    if (file_meta) {
+        meta = dynamic_cast<LocalFileMeta*>(file_meta);
+        if (meta == NULL) {
+            return -1;
         }
-    } while (0);
-    return ret;
+    }
+    return _meta_table.get_file_meta(filename, meta);
 }
 
 int LocalSnapshotWriter::save_meta(const SnapshotMeta& meta) {
-    base::Timer timer;
-    timer.start();
-
-    _meta = meta;
-    std::string meta_path(_path);
-    meta_path.append("/");
-    meta_path.append(_s_snapshot_meta);
-
-    SnapshotPBMeta pb_meta;
-    pb_meta.set_last_included_index(_meta.last_included_index);
-    pb_meta.set_last_included_term(_meta.last_included_term);
-    std::vector<PeerId> peers;
-    _meta.last_configuration.list_peers(&peers);
-    for (size_t i = 0; i < peers.size(); i++) {
-        pb_meta.add_peers(peers[i].to_string());
-    }
-
-    ProtoBufFile pb_file(meta_path);
-    int ret = pb_file.save(&pb_meta, FLAGS_raft_sync /*true*/);
-    if (0 != ret) {
-        set_error(EIO, "PBFile save failed, path: %s %m", meta_path.c_str());
-        ret = EIO;
-    }
-
-    timer.stop();
-    LOG(INFO) << "snapshot save_meta " << meta_path << " time: " << timer.u_elapsed();
-    return ret;
+    _meta_table.set_meta(meta);
+    return 0;
 }
 
-std::string LocalSnapshotWriter::get_uri(const base::EndPoint& hint_addr) {
-    return std::string("file://") + base::endpoint2str(hint_addr).c_str() + '/' + _path;
+int LocalSnapshotWriter::sync() {
+    return _meta_table.save_to_file(_path + "/" + RAFT_SNAPSHOT_META_FILE);
 }
 
-LocalSnapshotReader::LocalSnapshotReader(const std::string& path)
-    : _path(path) {
+LocalSnapshotReader::LocalSnapshotReader(const std::string& path,
+                                         base::EndPoint server_addr)
+    : _path(path)
+    , _addr(server_addr)
+    , _reader_id(0) {
 }
 
 LocalSnapshotReader::~LocalSnapshotReader() {
+    destroy_reader_in_file_service();
 }
 
 int LocalSnapshotReader::init() {
     base::FilePath dir_path(_path);
-    if (!base::CreateDirectory(dir_path)) {
-        set_error(EIO, "CreateDirectory failed, path: %s %m", _path.c_str());
+    if (!base::DirectoryExists(dir_path)) {
+        set_error(ENOENT, "Not such _path : %s", _path.c_str());
+        return ENOENT;
+    }
+    if (_meta_table.load_from_file(
+                dir_path.Append(RAFT_SNAPSHOT_META_FILE).value()) != 0) {
+        set_error(EIO, "Fail to load meta");
         return EIO;
     }
+    return 0;
+}
 
+int LocalSnapshotReader::load_meta(SnapshotMeta* meta) {
+    if (!_meta_table.has_meta()) {
+        return -1;
+    }
+    *meta = _meta_table.meta();
     return 0;
 }
 
@@ -129,43 +262,79 @@ int64_t LocalSnapshotReader::snapshot_index() {
     int64_t index = 0;
     int ret = sscanf(path.BaseName().value().c_str(), RAFT_SNAPSHOT_PATTERN, &index);
     CHECK_EQ(ret, 1);
-
     return index;
 }
 
-int LocalSnapshotReader::load_meta(SnapshotMeta* meta) {
-    base::Timer timer;
-    timer.start();
-
-    std::string meta_path(_path);
-    meta_path.append("/");
-    meta_path.append(_s_snapshot_meta);
-
-    SnapshotPBMeta pb_meta;
-    ProtoBufFile pb_file(meta_path);
-    int ret = pb_file.load(&pb_meta);
-    if (ret == 0) {
-        meta->last_included_index = pb_meta.last_included_index();
-        meta->last_included_term = pb_meta.last_included_term();
-        for (int i = 0; i < pb_meta.peers_size(); i++) {
-            meta->last_configuration.add_peer(PeerId(pb_meta.peers(i)));
-        }
-    } else {
-        set_error(EIO, "PBFile load failed, path: %s %m", meta_path.c_str());
-        ret = EIO;
-    }
-
-    timer.stop();
-    RAFT_VLOG << "snapshot load_meta " << meta_path << " time: " << timer.u_elapsed();
-    return ret;
+void LocalSnapshotReader::list_files(std::vector<std::string> *files) {
+    return _meta_table.list_files(files);
 }
 
-std::string LocalSnapshotReader::get_uri(const base::EndPoint& hint_addr) {
-    std::string snapshot_uri("file://");
-    snapshot_uri.append(base::endpoint2str(hint_addr).c_str());
-    snapshot_uri.append("/");
-    snapshot_uri.append(_path);
-    return snapshot_uri;
+int LocalSnapshotReader::get_file_meta(const std::string& filename, 
+                                       ::google::protobuf::Message* file_meta) {
+    LocalFileMeta* meta = NULL;
+    if (file_meta) {
+        meta = dynamic_cast<LocalFileMeta*>(file_meta);
+        if (meta == NULL) {
+            return -1;
+        }
+    }
+    return _meta_table.get_file_meta(filename, meta);
+}
+
+class SnapshotDirReader : public LocalDirReader {
+public:
+    SnapshotDirReader(const std::string& path)
+            : LocalDirReader(path)
+    {}
+    void set_meta_table(const LocalSnapshotMetaTable &meta_table) {
+        _meta_table = meta_table;
+    }
+    int read_file(base::IOBuf* out,
+                  const std::string &filename,
+                  off_t offset,
+                  size_t max_count,
+                  bool* is_eof) const {
+        if (filename == RAFT_SNAPSHOT_META_FILE) {
+            *is_eof = true;
+            return _meta_table.save_to_iobuf_as_remote(out);
+        }
+        return LocalDirReader::read_file(
+                out, filename, offset, max_count, is_eof);
+    }
+    
+private:
+    LocalSnapshotMetaTable _meta_table;
+};
+
+std::string LocalSnapshotReader::generate_uri_for_copy() {
+    if (_addr == base::EndPoint()) {
+        LOG(ERROR) << "Address is not specified";
+        return std::string();
+    }
+    if (_reader_id == 0) {
+        // TODO: handler referenced files
+        scoped_refptr<SnapshotDirReader> reader(new SnapshotDirReader(_path));
+        reader->set_meta_table(_meta_table);
+        std::vector<std::string> filelist;
+        list_files(&filelist);
+        for (size_t i = 0; i < filelist.size(); ++i) {
+            reader->add_white_list(filelist[i]);
+        }
+        if (file_service_add(reader.get(), &_reader_id) != 0) {
+            LOG(ERROR) << "Fail to add reader to file_service";
+            return std::string();
+        }
+    }
+    std::ostringstream oss;
+    oss << "remote://" << _addr << "/" << _reader_id;
+    return oss.str();
+}
+
+void LocalSnapshotReader::destroy_reader_in_file_service() {
+    if (_reader_id != 0) {
+        CHECK_EQ(0, file_service_remove(_reader_id));
+        _reader_id = 0;
+    }
 }
 
 LocalSnapshotStorage::LocalSnapshotStorage(const std::string& path)
@@ -212,6 +381,8 @@ int LocalSnapshotStorage::init() {
         }
     }
 
+    // TODO: add snapshot watcher
+
     // get last_snapshot_index
     if (snapshots.size() > 0) {
         size_t snapshot_count = snapshots.size();
@@ -222,6 +393,7 @@ int LocalSnapshotStorage::init() {
             std::string snapshot_path(_path);
             base::string_appendf(&snapshot_path, "/" RAFT_SNAPSHOT_PATTERN, index);
             LOG(INFO) << "Deleting snapshot `" << snapshot_path << "'";
+            // TODO: Notify Watcher before delete directories.
             if (!base::DeleteFile(base::FilePath(snapshot_path), true)) {
                 LOG(WARNING) << "delete old snapshot path failed, path " << snapshot_path;
                 return EIO;
@@ -231,7 +403,7 @@ int LocalSnapshotStorage::init() {
         _last_snapshot_index = *snapshots.begin();
         ref(_last_snapshot_index);
     }
-    
+
     return 0;
 }
 
@@ -266,6 +438,7 @@ SnapshotWriter* LocalSnapshotStorage::create() {
         snapshot_path.append(_s_temp_path);
 
         // delete temp
+        // TODO: Notify watcher before deleting
         base::FilePath temp_snapshot_path(snapshot_path);
         LOG(INFO) << "Deleting " << snapshot_path;
         if (!base::DeleteFile(base::FilePath(snapshot_path), true)) {
@@ -290,11 +463,62 @@ SnapshotWriter* LocalSnapshotStorage::create() {
     return writer;
 }
 
+SnapshotReader* LocalSnapshotStorage::copy_from(const std::string& uri) {
+    // TODO: keep temp files and 
+    RemotePathCopier copier;
+    if (copier.init(uri) != 0) {
+        LOG(WARNING) << "Fail to init RemotePathCopier to " << uri;
+        return NULL;
+    }
+    base::IOBuf meta_buf;
+    if (copier.copy_to_iobuf(RAFT_SNAPSHOT_META_FILE, &meta_buf, NULL) != 0) {
+        LOG(WARNING) << "Fail to copy";
+        return NULL;
+    }
+    LocalSnapshotMetaTable meta_table;
+    if (meta_table.load_from_iobuf_as_remote(meta_buf) != 0) {
+        LOG(WARNING) << "Bad meta_table format";
+        return NULL;
+    }
+    std::vector<std::string> files;
+    SnapshotWriter* writer = create();
+    if (meta_table.has_meta()) {
+        writer->save_meta(meta_table.meta());
+    }
+    meta_table.list_files(&files);
+    for (size_t i = 0; i < files.size(); ++i) {
+        std::string file_path = writer->get_path() + '/' + files[i];
+        LocalFileMeta meta;
+        meta_table.get_file_meta(files[i], &meta);
+        if (copier.copy_to_file(files[i], file_path, NULL) != 0) {
+            LOG(WARNING) << "Fail to copy " << files[i];
+            writer->set_error(-1, "Fail to copy %s", files[i].c_str());
+            close(writer);
+            return NULL;
+        }
+        if (writer->add_file(files[i], &meta) != 0) {
+            if (writer->ok()) {
+                writer->set_error(-1, "Fail to add file=", files[i].c_str());
+            }
+            close(writer);
+            return NULL;
+        }
+    }
+    if (close(writer) != 0) {
+        return NULL;
+    }
+    return open();
+}
+
 int LocalSnapshotStorage::close(SnapshotWriter* writer_) {
     LocalSnapshotWriter* writer = dynamic_cast<LocalSnapshotWriter*>(writer_);
     int ret = writer->error_code();
     do {
         if (0 != ret) {
+            break;
+        }
+        ret = writer->sync();
+        if (ret != 0) {
             break;
         }
         int64_t old_index = 0;
@@ -357,7 +581,7 @@ SnapshotReader* LocalSnapshotStorage::open() {
         lck.unlock();
         std::string snapshot_path(_path);
         base::string_appendf(&snapshot_path, "/" RAFT_SNAPSHOT_PATTERN, last_snapshot_index);
-        LocalSnapshotReader* reader = new LocalSnapshotReader(snapshot_path);
+        LocalSnapshotReader* reader = new LocalSnapshotReader(snapshot_path, _addr);
         if (reader->init() != 0) {
             CHECK(!lck.owns_lock());
             unref(last_snapshot_index);
