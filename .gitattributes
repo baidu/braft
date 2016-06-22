@@ -262,6 +262,8 @@ src/raft/fsync.cpp -text
 src/raft/fsync.h -text
 src/raft/io_man.cpp -text
 src/raft/io_man.h -text
+src/raft/local_file_meta.pb.cc -text
+src/raft/local_file_meta.pb.h -text
 src/raft/local_storage.pb.cc -text
 src/raft/local_storage.pb.h -text
 src/raft/log.cpp -text

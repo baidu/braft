@@ -69,16 +69,16 @@ public:
     // happens when receiving RPC from new peer. In this case, it's hard to
     // determine whether to keep downloading snapshot as the new leader
     // possibly contains the missing logs and is going to send AppendEntries. To
-    // make things simplicity and leader changing and snapshot installing are
-    // both very rare. So we interrupt snapshot downloading when leader changes.
-    // And let the new leader decide whether to install a new snapshot or
-    // continue appending log entries.
+    // make things simplicity and leader changing during snapshot installing is 
+    // very rare. So we interrupt snapshot downloading when leader changes, and
+    // let the new leader decide whether to install a new snapshot or continue 
+    // appending log entries.
     //
     // NOTE: we can't interrupt the snapshot insalling which has finsihed
     // downloading and is reseting the State Machine.
     void interrupt_downloading_snapshot(int64_t new_term);
 
-    // Return true is this is currently installing a snapshot, either
+    // Return true if this is currently installing a snapshot, either
     // downloading or loading.
     bool is_installing_snapshot() const { 
         // 1: acquire fence makes this thread sees the latest change when seeing
