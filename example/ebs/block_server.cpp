@@ -294,13 +294,10 @@ public:
         std::unique_ptr<SnapshotSaveMeta> meta_guard(meta);
         baidu::rpc::ClosureGuard done_guard(meta->done);
         base::EndPoint local;
-        base::str2endpoint(FLAGS_ip_and_port.c_str(), &local);
 
-        std::string snapshot_path(raft::fileuri2path(
-                    meta->writer->get_uri(local)));
+        std::string snapshot_path(meta->writer->get_path());
         snapshot_path.append("/../data");
-        std::string data_path(raft::fileuri2path(
-                    meta->writer->get_uri(local)));
+        std::string data_path(meta->writer->get_path());
         data_path.append("/data");
 
         if (FLAGS_sync_data) {
@@ -330,9 +327,9 @@ public:
         base::Timer timer;
         timer.start();
 
-        std::string snapshot_path(raft::fileuri2path(reader->get_uri(base::EndPoint())));
+        std::string snapshot_path(reader->get_path());
         snapshot_path.append("/../data");
-        std::string data_path(raft::fileuri2path(reader->get_uri(base::EndPoint())));
+        std::string data_path(reader->get_path());
         data_path.append("/data");
 
         unlink(snapshot_path.c_str());

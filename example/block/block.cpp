@@ -178,9 +178,9 @@ void Block::on_snapshot_save(raft::SnapshotWriter* writer, raft::Closure* done) 
     baidu::rpc::ClosureGuard done_guard(done);
 
     //raft::LocalSnapshotWriter* local_writer = dynamic_cast<raft::LocalSnapshotWriter*>(writer);
-    std::string snapshot_path(raft::fileuri2path(writer->get_uri(base::EndPoint())));
+    std::string snapshot_path(writer->get_path());
     snapshot_path.append("/../data");
-    std::string data_path(raft::fileuri2path(writer->get_uri(base::EndPoint())));
+    std::string data_path(writer->get_path());
     data_path.append("/data");
 
     CHECK_EQ(0, link(snapshot_path.c_str(),
@@ -191,6 +191,7 @@ void Block::on_snapshot_save(raft::SnapshotWriter* writer, raft::Closure* done) 
 
     LOG(NOTICE) << "on_snapshot_save, time: " << timer.u_elapsed()
         << " link " << snapshot_path << " to " << data_path;
+    CHECK_EQ(0, writer->add_file("data"));
     // snapshot save do nothing
 }
 
@@ -198,9 +199,9 @@ int Block::on_snapshot_load(raft::SnapshotReader* reader) {
     base::Timer timer;
     timer.start();
 
-    std::string snapshot_path(raft::fileuri2path(reader->get_uri(base::EndPoint())));
+    std::string snapshot_path(reader->get_path());
     snapshot_path.append("/../data");
-    std::string data_path(raft::fileuri2path(reader->get_uri(base::EndPoint())));
+    std::string data_path(reader->get_path());
     data_path.append("/data");
 
     unlink(snapshot_path.c_str());

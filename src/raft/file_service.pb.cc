@@ -23,15 +23,6 @@ const ::google::protobuf::internal::GeneratedMessageReflection*
 const ::google::protobuf::Descriptor* GetFileResponse_descriptor_ = NULL;
 const ::google::protobuf::internal::GeneratedMessageReflection*
   GetFileResponse_reflection_ = NULL;
-const ::google::protobuf::Descriptor* PathInfo_descriptor_ = NULL;
-const ::google::protobuf::internal::GeneratedMessageReflection*
-  PathInfo_reflection_ = NULL;
-const ::google::protobuf::Descriptor* ListPathRequest_descriptor_ = NULL;
-const ::google::protobuf::internal::GeneratedMessageReflection*
-  ListPathRequest_reflection_ = NULL;
-const ::google::protobuf::Descriptor* ListPathResponse_descriptor_ = NULL;
-const ::google::protobuf::internal::GeneratedMessageReflection*
-  ListPathResponse_reflection_ = NULL;
 const ::google::protobuf::ServiceDescriptor* FileService_descriptor_ = NULL;
 
 }  // namespace
@@ -76,52 +67,6 @@ void protobuf_AssignDesc_raft_2ffile_5fservice_2eproto() {
       ::google::protobuf::DescriptorPool::generated_pool(),
       ::google::protobuf::MessageFactory::generated_factory(),
       sizeof(GetFileResponse));
-  PathInfo_descriptor_ = file->message_type(2);
-  static const int PathInfo_offsets_[2] = {
-    GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(PathInfo, path_),
-    GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(PathInfo, is_directory_),
-  };
-  PathInfo_reflection_ =
-    new ::google::protobuf::internal::GeneratedMessageReflection(
-      PathInfo_descriptor_,
-      PathInfo::default_instance_,
-      PathInfo_offsets_,
-      GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(PathInfo, _has_bits_[0]),
-      GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(PathInfo, _unknown_fields_),
-      -1,
-      ::google::protobuf::DescriptorPool::generated_pool(),
-      ::google::protobuf::MessageFactory::generated_factory(),
-      sizeof(PathInfo));
-  ListPathRequest_descriptor_ = file->message_type(3);
-  static const int ListPathRequest_offsets_[1] = {
-    GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(ListPathRequest, path_),
-  };
-  ListPathRequest_reflection_ =
-    new ::google::protobuf::internal::GeneratedMessageReflection(
-      ListPathRequest_descriptor_,
-      ListPathRequest::default_instance_,
-      ListPathRequest_offsets_,
-      GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(ListPathRequest, _has_bits_[0]),
-      GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(ListPathRequest, _unknown_fields_),
-      -1,
-      ::google::protobuf::DescriptorPool::generated_pool(),
-      ::google::protobuf::MessageFactory::generated_factory(),
-      sizeof(ListPathRequest));
-  ListPathResponse_descriptor_ = file->message_type(4);
-  static const int ListPathResponse_offsets_[1] = {
-    GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(ListPathResponse, path_info_),
-  };
-  ListPathResponse_reflection_ =
-    new ::google::protobuf::internal::GeneratedMessageReflection(
-      ListPathResponse_descriptor_,
-      ListPathResponse::default_instance_,
-      ListPathResponse_offsets_,
-      GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(ListPathResponse, _has_bits_[0]),
-      GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(ListPathResponse, _unknown_fields_),
-      -1,
-      ::google::protobuf::DescriptorPool::generated_pool(),
-      ::google::protobuf::MessageFactory::generated_factory(),
-      sizeof(ListPathResponse));
   FileService_descriptor_ = file->service(0);
 }
 
@@ -139,12 +84,6 @@ void protobuf_RegisterTypes(const ::std::string&) {
     GetFileRequest_descriptor_, &GetFileRequest::default_instance());
   ::google::protobuf::MessageFactory::InternalRegisterGeneratedMessage(
     GetFileResponse_descriptor_, &GetFileResponse::default_instance());
-  ::google::protobuf::MessageFactory::InternalRegisterGeneratedMessage(
-    PathInfo_descriptor_, &PathInfo::default_instance());
-  ::google::protobuf::MessageFactory::InternalRegisterGeneratedMessage(
-    ListPathRequest_descriptor_, &ListPathRequest::default_instance());
-  ::google::protobuf::MessageFactory::InternalRegisterGeneratedMessage(
-    ListPathResponse_descriptor_, &ListPathResponse::default_instance());
 }
 
 }  // namespace
@@ -154,12 +93,6 @@ void protobuf_ShutdownFile_raft_2ffile_5fservice_2eproto() {
   delete GetFileRequest_reflection_;
   delete GetFileResponse::default_instance_;
   delete GetFileResponse_reflection_;
-  delete PathInfo::default_instance_;
-  delete PathInfo_reflection_;
-  delete ListPathRequest::default_instance_;
-  delete ListPathRequest_reflection_;
-  delete ListPathResponse::default_instance_;
-  delete ListPathResponse_reflection_;
 }
 
 void protobuf_AddDesc_raft_2ffile_5fservice_2eproto() {
@@ -172,26 +105,15 @@ void protobuf_AddDesc_raft_2ffile_5fservice_2eproto() {
     "\n\027raft/file_service.proto\022\004raft\"T\n\016GetFi"
     "leRequest\022\021\n\treader_id\030\001 \002(\003\022\020\n\010filename"
     "\030\002 \002(\t\022\r\n\005count\030\003 \002(\003\022\016\n\006offset\030\004 \002(\003\"\036\n"
-    "\017GetFileResponse\022\013\n\003eof\030\001 \002(\010\".\n\010PathInf"
-    "o\022\014\n\004path\030\001 \002(\t\022\024\n\014is_directory\030\002 \002(\010\"\037\n"
-    "\017ListPathRequest\022\014\n\004path\030\001 \002(\t\"5\n\020ListPa"
-    "thResponse\022!\n\tpath_info\030\001 \003(\0132\016.raft.Pat"
-    "hInfo2\202\001\n\013FileService\022:\n\tlist_path\022\025.raf"
-    "t.ListPathRequest\032\026.raft.ListPathRespons"
-    "e\0227\n\010get_file\022\024.raft.GetFileRequest\032\025.ra"
-    "ft.GetFileResponseB\003\200\001\001", 423);
+    "\017GetFileResponse\022\013\n\003eof\030\001 \002(\0102F\n\013FileSer"
+    "vice\0227\n\010get_file\022\024.raft.GetFileRequest\032\025"
+    ".raft.GetFileResponseB\003\200\001\001", 226);
   ::google::protobuf::MessageFactory::InternalRegisterGeneratedFile(
     "raft/file_service.proto", &protobuf_RegisterTypes);
   GetFileRequest::default_instance_ = new GetFileRequest();
   GetFileResponse::default_instance_ = new GetFileResponse();
-  PathInfo::default_instance_ = new PathInfo();
-  ListPathRequest::default_instance_ = new ListPathRequest();
-  ListPathResponse::default_instance_ = new ListPathResponse();
   GetFileRequest::default_instance_->InitAsDefaultInstance();
   GetFileResponse::default_instance_->InitAsDefaultInstance();
-  PathInfo::default_instance_->InitAsDefaultInstance();
-  ListPathRequest::default_instance_->InitAsDefaultInstance();
-  ListPathResponse::default_instance_->InitAsDefaultInstance();
   ::google::protobuf::internal::OnShutdown(&protobuf_ShutdownFile_raft_2ffile_5fservice_2eproto);
 }
 
@@ -756,699 +678,6 @@ void GetFileResponse::Swap(GetFileResponse* other) {
 
 // ===================================================================
 
-#ifndef _MSC_VER
-const int PathInfo::kPathFieldNumber;
-const int PathInfo::kIsDirectoryFieldNumber;
-#endif  // !_MSC_VER
-
-PathInfo::PathInfo()
-  : ::google::protobuf::Message() {
-  SharedCtor();
-}
-
-void PathInfo::InitAsDefaultInstance() {
-}
-
-PathInfo::PathInfo(const PathInfo& from)
-  : ::google::protobuf::Message() {
-  SharedCtor();
-  MergeFrom(from);
-}
-
-void PathInfo::SharedCtor() {
-  _cached_size_ = 0;
-  path_ = const_cast< ::std::string*>(&::google::protobuf::internal::kEmptyString);
-  is_directory_ = false;
-  ::memset(_has_bits_, 0, sizeof(_has_bits_));
-}
-
-PathInfo::~PathInfo() {
-  SharedDtor();
-}
-
-void PathInfo::SharedDtor() {
-  if (path_ != &::google::protobuf::internal::kEmptyString) {
-    delete path_;
-  }
-  if (this != default_instance_) {
-  }
-}
-
-void PathInfo::SetCachedSize(int size) const {
-  GOOGLE_SAFE_CONCURRENT_WRITES_BEGIN();
-  _cached_size_ = size;
-  GOOGLE_SAFE_CONCURRENT_WRITES_END();
-}
-const ::google::protobuf::Descriptor* PathInfo::descriptor() {
-  protobuf_AssignDescriptorsOnce();
-  return PathInfo_descriptor_;
-}
-
-const PathInfo& PathInfo::default_instance() {
-  if (default_instance_ == NULL) protobuf_AddDesc_raft_2ffile_5fservice_2eproto();  return *default_instance_;
-}
-
-PathInfo* PathInfo::default_instance_ = NULL;
-
-PathInfo* PathInfo::New() const {
-  return new PathInfo;
-}
-
-void PathInfo::Clear() {
-  if (_has_bits_[0 / 32] & (0xffu << (0 % 32))) {
-    if (has_path()) {
-      if (path_ != &::google::protobuf::internal::kEmptyString) {
-        path_->clear();
-      }
-    }
-    is_directory_ = false;
-  }
-  ::memset(_has_bits_, 0, sizeof(_has_bits_));
-  mutable_unknown_fields()->Clear();
-}
-
-bool PathInfo::MergePartialFromCodedStream(
-    ::google::protobuf::io::CodedInputStream* input) {
-#define DO_(EXPRESSION) if (!(EXPRESSION)) return false
-  ::google::protobuf::uint32 tag;
-  while ((tag = input->ReadTag()) != 0) {
-    switch (::google::protobuf::internal::WireFormatLite::GetTagFieldNumber(tag)) {
-      // required string path = 1;
-      case 1: {
-        if (::google::protobuf::internal::WireFormatLite::GetTagWireType(tag) ==
-            ::google::protobuf::internal::WireFormatLite::WIRETYPE_LENGTH_DELIMITED) {
-          DO_(::google::protobuf::internal::WireFormatLite::ReadString(
-                input, this->mutable_path()));
-          ::google::protobuf::internal::WireFormat::VerifyUTF8String(
-            this->path().data(), this->path().length(),
-            ::google::protobuf::internal::WireFormat::PARSE);
-        } else {
-          goto handle_uninterpreted;
-        }
-        if (input->ExpectTag(16)) goto parse_is_directory;
-        break;
-      }
-      
-      // required bool is_directory = 2;
-      case 2: {
-        if (::google::protobuf::internal::WireFormatLite::GetTagWireType(tag) ==
-            ::google::protobuf::internal::WireFormatLite::WIRETYPE_VARINT) {
-         parse_is_directory:
-          DO_((::google::protobuf::internal::WireFormatLite::ReadPrimitive<
-                   bool, ::google::protobuf::internal::WireFormatLite::TYPE_BOOL>(
-                 input, &is_directory_)));
-          set_has_is_directory();
-        } else {
-          goto handle_uninterpreted;
-        }
-        if (input->ExpectAtEnd()) return true;
-        break;
-      }
-      
-      default: {
-      handle_uninterpreted:
-        if (::google::protobuf::internal::WireFormatLite::GetTagWireType(tag) ==
-            ::google::protobuf::internal::WireFormatLite::WIRETYPE_END_GROUP) {
-          return true;
-        }
-        DO_(::google::protobuf::internal::WireFormat::SkipField(
-              input, tag, mutable_unknown_fields()));
-        break;
-      }
-    }
-  }
-  return true;
-#undef DO_
-}
-
-void PathInfo::SerializeWithCachedSizes(
-    ::google::protobuf::io::CodedOutputStream* output) const {
-  // required string path = 1;
-  if (has_path()) {
-    ::google::protobuf::internal::WireFormat::VerifyUTF8String(
-      this->path().data(), this->path().length(),
-      ::google::protobuf::internal::WireFormat::SERIALIZE);
-    ::google::protobuf::internal::WireFormatLite::WriteString(
-      1, this->path(), output);
-  }
-  
-  // required bool is_directory = 2;
-  if (has_is_directory()) {
-    ::google::protobuf::internal::WireFormatLite::WriteBool(2, this->is_directory(), output);
-  }
-  
-  if (!unknown_fields().empty()) {
-    ::google::protobuf::internal::WireFormat::SerializeUnknownFields(
-        unknown_fields(), output);
-  }
-}
-
-::google::protobuf::uint8* PathInfo::SerializeWithCachedSizesToArray(
-    ::google::protobuf::uint8* target) const {
-  // required string path = 1;
-  if (has_path()) {
-    ::google::protobuf::internal::WireFormat::VerifyUTF8String(
-      this->path().data(), this->path().length(),
-      ::google::protobuf::internal::WireFormat::SERIALIZE);
-    target =
-      ::google::protobuf::internal::WireFormatLite::WriteStringToArray(
-        1, this->path(), target);
-  }
-  
-  // required bool is_directory = 2;
-  if (has_is_directory()) {
-    target = ::google::protobuf::internal::WireFormatLite::WriteBoolToArray(2, this->is_directory(), target);
-  }
-  
-  if (!unknown_fields().empty()) {
-    target = ::google::protobuf::internal::WireFormat::SerializeUnknownFieldsToArray(
-        unknown_fields(), target);
-  }
-  return target;
-}
-
-int PathInfo::ByteSize() const {
-  int total_size = 0;
-  
-  if (_has_bits_[0 / 32] & (0xffu << (0 % 32))) {
-    // required string path = 1;
-    if (has_path()) {
-      total_size += 1 +
-        ::google::protobuf::internal::WireFormatLite::StringSize(
-          this->path());
-    }
-    
-    // required bool is_directory = 2;
-    if (has_is_directory()) {
-      total_size += 1 + 1;
-    }
-    
-  }
-  if (!unknown_fields().empty()) {
-    total_size +=
-      ::google::protobuf::internal::WireFormat::ComputeUnknownFieldsSize(
-        unknown_fields());
-  }
-  GOOGLE_SAFE_CONCURRENT_WRITES_BEGIN();
-  _cached_size_ = total_size;
-  GOOGLE_SAFE_CONCURRENT_WRITES_END();
-  return total_size;
-}
-
-void PathInfo::MergeFrom(const ::google::protobuf::Message& from) {
-  GOOGLE_CHECK_NE(&from, this);
-  const PathInfo* source =
-    ::google::protobuf::internal::dynamic_cast_if_available<const PathInfo*>(
-      &from);
-  if (source == NULL) {
-    ::google::protobuf::internal::ReflectionOps::Merge(from, this);
-  } else {
-    MergeFrom(*source);
-  }
-}
-
-void PathInfo::MergeFrom(const PathInfo& from) {
-  GOOGLE_CHECK_NE(&from, this);
-  if (from._has_bits_[0 / 32] & (0xffu << (0 % 32))) {
-    if (from.has_path()) {
-      set_path(from.path());
-    }
-    if (from.has_is_directory()) {
-      set_is_directory(from.is_directory());
-    }
-  }
-  mutable_unknown_fields()->MergeFrom(from.unknown_fields());
-}
-
-void PathInfo::CopyFrom(const ::google::protobuf::Message& from) {
-  if (&from == this) return;
-  Clear();
-  MergeFrom(from);
-}
-
-void PathInfo::CopyFrom(const PathInfo& from) {
-  if (&from == this) return;
-  Clear();
-  MergeFrom(from);
-}
-
-bool PathInfo::IsInitialized() const {
-  if ((_has_bits_[0] & 0x00000003) != 0x00000003) return false;
-  
-  return true;
-}
-
-void PathInfo::Swap(PathInfo* other) {
-  if (other != this) {
-    std::swap(path_, other->path_);
-    std::swap(is_directory_, other->is_directory_);
-    std::swap(_has_bits_[0], other->_has_bits_[0]);
-    _unknown_fields_.Swap(&other->_unknown_fields_);
-    std::swap(_cached_size_, other->_cached_size_);
-  }
-}
-
-::google::protobuf::Metadata PathInfo::GetMetadata() const {
-  protobuf_AssignDescriptorsOnce();
-  ::google::protobuf::Metadata metadata;
-  metadata.descriptor = PathInfo_descriptor_;
-  metadata.reflection = PathInfo_reflection_;
-  return metadata;
-}
-
-
-// ===================================================================
-
-#ifndef _MSC_VER
-const int ListPathRequest::kPathFieldNumber;
-#endif  // !_MSC_VER
-
-ListPathRequest::ListPathRequest()
-  : ::google::protobuf::Message() {
-  SharedCtor();
-}
-
-void ListPathRequest::InitAsDefaultInstance() {
-}
-
-ListPathRequest::ListPathRequest(const ListPathRequest& from)
-  : ::google::protobuf::Message() {
-  SharedCtor();
-  MergeFrom(from);
-}
-
-void ListPathRequest::SharedCtor() {
-  _cached_size_ = 0;
-  path_ = const_cast< ::std::string*>(&::google::protobuf::internal::kEmptyString);
-  ::memset(_has_bits_, 0, sizeof(_has_bits_));
-}
-
-ListPathRequest::~ListPathRequest() {
-  SharedDtor();
-}
-
-void ListPathRequest::SharedDtor() {
-  if (path_ != &::google::protobuf::internal::kEmptyString) {
-    delete path_;
-  }
-  if (this != default_instance_) {
-  }
-}
-
-void ListPathRequest::SetCachedSize(int size) const {
-  GOOGLE_SAFE_CONCURRENT_WRITES_BEGIN();
-  _cached_size_ = size;
-  GOOGLE_SAFE_CONCURRENT_WRITES_END();
-}
-const ::google::protobuf::Descriptor* ListPathRequest::descriptor() {
-  protobuf_AssignDescriptorsOnce();
-  return ListPathRequest_descriptor_;
-}
-
-const ListPathRequest& ListPathRequest::default_instance() {
-  if (default_instance_ == NULL) protobuf_AddDesc_raft_2ffile_5fservice_2eproto();  return *default_instance_;
-}
-
-ListPathRequest* ListPathRequest::default_instance_ = NULL;
-
-ListPathRequest* ListPathRequest::New() const {
-  return new ListPathRequest;
-}
-
-void ListPathRequest::Clear() {
-  if (_has_bits_[0 / 32] & (0xffu << (0 % 32))) {
-    if (has_path()) {
-      if (path_ != &::google::protobuf::internal::kEmptyString) {
-        path_->clear();
-      }
-    }
-  }
-  ::memset(_has_bits_, 0, sizeof(_has_bits_));
-  mutable_unknown_fields()->Clear();
-}
-
-bool ListPathRequest::MergePartialFromCodedStream(
-    ::google::protobuf::io::CodedInputStream* input) {
-#define DO_(EXPRESSION) if (!(EXPRESSION)) return false
-  ::google::protobuf::uint32 tag;
-  while ((tag = input->ReadTag()) != 0) {
-    switch (::google::protobuf::internal::WireFormatLite::GetTagFieldNumber(tag)) {
-      // required string path = 1;
-      case 1: {
-        if (::google::protobuf::internal::WireFormatLite::GetTagWireType(tag) ==
-            ::google::protobuf::internal::WireFormatLite::WIRETYPE_LENGTH_DELIMITED) {
-          DO_(::google::protobuf::internal::WireFormatLite::ReadString(
-                input, this->mutable_path()));
-          ::google::protobuf::internal::WireFormat::VerifyUTF8String(
-            this->path().data(), this->path().length(),
-            ::google::protobuf::internal::WireFormat::PARSE);
-        } else {
-          goto handle_uninterpreted;
-        }
-        if (input->ExpectAtEnd()) return true;
-        break;
-      }
-      
-      default: {
-      handle_uninterpreted:
-        if (::google::protobuf::internal::WireFormatLite::GetTagWireType(tag) ==
-            ::google::protobuf::internal::WireFormatLite::WIRETYPE_END_GROUP) {
-          return true;
-        }
-        DO_(::google::protobuf::internal::WireFormat::SkipField(
-              input, tag, mutable_unknown_fields()));
-        break;
-      }
-    }
-  }
-  return true;
-#undef DO_
-}
-
-void ListPathRequest::SerializeWithCachedSizes(
-    ::google::protobuf::io::CodedOutputStream* output) const {
-  // required string path = 1;
-  if (has_path()) {
-    ::google::protobuf::internal::WireFormat::VerifyUTF8String(
-      this->path().data(), this->path().length(),
-      ::google::protobuf::internal::WireFormat::SERIALIZE);
-    ::google::protobuf::internal::WireFormatLite::WriteString(
-      1, this->path(), output);
-  }
-  
-  if (!unknown_fields().empty()) {
-    ::google::protobuf::internal::WireFormat::SerializeUnknownFields(
-        unknown_fields(), output);
-  }
-}
-
-::google::protobuf::uint8* ListPathRequest::SerializeWithCachedSizesToArray(
-    ::google::protobuf::uint8* target) const {
-  // required string path = 1;
-  if (has_path()) {
-    ::google::protobuf::internal::WireFormat::VerifyUTF8String(
-      this->path().data(), this->path().length(),
-      ::google::protobuf::internal::WireFormat::SERIALIZE);
-    target =
-      ::google::protobuf::internal::WireFormatLite::WriteStringToArray(
-        1, this->path(), target);
-  }
-  
-  if (!unknown_fields().empty()) {
-    target = ::google::protobuf::internal::WireFormat::SerializeUnknownFieldsToArray(
-        unknown_fields(), target);
-  }
-  return target;
-}
-
-int ListPathRequest::ByteSize() const {
-  int total_size = 0;
-  
-  if (_has_bits_[0 / 32] & (0xffu << (0 % 32))) {
-    // required string path = 1;
-    if (has_path()) {
-      total_size += 1 +
-        ::google::protobuf::internal::WireFormatLite::StringSize(
-          this->path());
-    }
-    
-  }
-  if (!unknown_fields().empty()) {
-    total_size +=
-      ::google::protobuf::internal::WireFormat::ComputeUnknownFieldsSize(
-        unknown_fields());
-  }
-  GOOGLE_SAFE_CONCURRENT_WRITES_BEGIN();
-  _cached_size_ = total_size;
-  GOOGLE_SAFE_CONCURRENT_WRITES_END();
-  return total_size;
-}
-
-void ListPathRequest::MergeFrom(const ::google::protobuf::Message& from) {
-  GOOGLE_CHECK_NE(&from, this);
-  const ListPathRequest* source =
-    ::google::protobuf::internal::dynamic_cast_if_available<const ListPathRequest*>(
-      &from);
-  if (source == NULL) {
-    ::google::protobuf::internal::ReflectionOps::Merge(from, this);
-  } else {
-    MergeFrom(*source);
-  }
-}
-
-void ListPathRequest::MergeFrom(const ListPathRequest& from) {
-  GOOGLE_CHECK_NE(&from, this);
-  if (from._has_bits_[0 / 32] & (0xffu << (0 % 32))) {
-    if (from.has_path()) {
-      set_path(from.path());
-    }
-  }
-  mutable_unknown_fields()->MergeFrom(from.unknown_fields());
-}
-
-void ListPathRequest::CopyFrom(const ::google::protobuf::Message& from) {
-  if (&from == this) return;
-  Clear();
-  MergeFrom(from);
-}
-
-void ListPathRequest::CopyFrom(const ListPathRequest& from) {
-  if (&from == this) return;
-  Clear();
-  MergeFrom(from);
-}
-
-bool ListPathRequest::IsInitialized() const {
-  if ((_has_bits_[0] & 0x00000001) != 0x00000001) return false;
-  
-  return true;
-}
-
-void ListPathRequest::Swap(ListPathRequest* other) {
-  if (other != this) {
-    std::swap(path_, other->path_);
-    std::swap(_has_bits_[0], other->_has_bits_[0]);
-    _unknown_fields_.Swap(&other->_unknown_fields_);
-    std::swap(_cached_size_, other->_cached_size_);
-  }
-}
-
-::google::protobuf::Metadata ListPathRequest::GetMetadata() const {
-  protobuf_AssignDescriptorsOnce();
-  ::google::protobuf::Metadata metadata;
-  metadata.descriptor = ListPathRequest_descriptor_;
-  metadata.reflection = ListPathRequest_reflection_;
-  return metadata;
-}
-
-
-// ===================================================================
-
-#ifndef _MSC_VER
-const int ListPathResponse::kPathInfoFieldNumber;
-#endif  // !_MSC_VER
-
-ListPathResponse::ListPathResponse()
-  : ::google::protobuf::Message() {
-  SharedCtor();
-}
-
-void ListPathResponse::InitAsDefaultInstance() {
-}
-
-ListPathResponse::ListPathResponse(const ListPathResponse& from)
-  : ::google::protobuf::Message() {
-  SharedCtor();
-  MergeFrom(from);
-}
-
-void ListPathResponse::SharedCtor() {
-  _cached_size_ = 0;
-  ::memset(_has_bits_, 0, sizeof(_has_bits_));
-}
-
-ListPathResponse::~ListPathResponse() {
-  SharedDtor();
-}
-
-void ListPathResponse::SharedDtor() {
-  if (this != default_instance_) {
-  }
-}
-
-void ListPathResponse::SetCachedSize(int size) const {
-  GOOGLE_SAFE_CONCURRENT_WRITES_BEGIN();
-  _cached_size_ = size;
-  GOOGLE_SAFE_CONCURRENT_WRITES_END();
-}
-const ::google::protobuf::Descriptor* ListPathResponse::descriptor() {
-  protobuf_AssignDescriptorsOnce();
-  return ListPathResponse_descriptor_;
-}
-
-const ListPathResponse& ListPathResponse::default_instance() {
-  if (default_instance_ == NULL) protobuf_AddDesc_raft_2ffile_5fservice_2eproto();  return *default_instance_;
-}
-
-ListPathResponse* ListPathResponse::default_instance_ = NULL;
-
-ListPathResponse* ListPathResponse::New() const {
-  return new ListPathResponse;
-}
-
-void ListPathResponse::Clear() {
-  path_info_.Clear();
-  ::memset(_has_bits_, 0, sizeof(_has_bits_));
-  mutable_unknown_fields()->Clear();
-}
-
-bool ListPathResponse::MergePartialFromCodedStream(
-    ::google::protobuf::io::CodedInputStream* input) {
-#define DO_(EXPRESSION) if (!(EXPRESSION)) return false
-  ::google::protobuf::uint32 tag;
-  while ((tag = input->ReadTag()) != 0) {
-    switch (::google::protobuf::internal::WireFormatLite::GetTagFieldNumber(tag)) {
-      // repeated .raft.PathInfo path_info = 1;
-      case 1: {
-        if (::google::protobuf::internal::WireFormatLite::GetTagWireType(tag) ==
-            ::google::protobuf::internal::WireFormatLite::WIRETYPE_LENGTH_DELIMITED) {
-         parse_path_info:
-          DO_(::google::protobuf::internal::WireFormatLite::ReadMessageNoVirtual(
-                input, add_path_info()));
-        } else {
-          goto handle_uninterpreted;
-        }
-        if (input->ExpectTag(10)) goto parse_path_info;
-        if (input->ExpectAtEnd()) return true;
-        break;
-      }
-      
-      default: {
-      handle_uninterpreted:
-        if (::google::protobuf::internal::WireFormatLite::GetTagWireType(tag) ==
-            ::google::protobuf::internal::WireFormatLite::WIRETYPE_END_GROUP) {
-          return true;
-        }
-        DO_(::google::protobuf::internal::WireFormat::SkipField(
-              input, tag, mutable_unknown_fields()));
-        break;
-      }
-    }
-  }
-  return true;
-#undef DO_
-}
-
-void ListPathResponse::SerializeWithCachedSizes(
-    ::google::protobuf::io::CodedOutputStream* output) const {
-  // repeated .raft.PathInfo path_info = 1;
-  for (int i = 0; i < this->path_info_size(); i++) {
-    ::google::protobuf::internal::WireFormatLite::WriteMessageMaybeToArray(
-      1, this->path_info(i), output);
-  }
-  
-  if (!unknown_fields().empty()) {
-    ::google::protobuf::internal::WireFormat::SerializeUnknownFields(
-        unknown_fields(), output);
-  }
-}
-
-::google::protobuf::uint8* ListPathResponse::SerializeWithCachedSizesToArray(
-    ::google::protobuf::uint8* target) const {
-  // repeated .raft.PathInfo path_info = 1;
-  for (int i = 0; i < this->path_info_size(); i++) {
-    target = ::google::protobuf::internal::WireFormatLite::
-      WriteMessageNoVirtualToArray(
-        1, this->path_info(i), target);
-  }
-  
-  if (!unknown_fields().empty()) {
-    target = ::google::protobuf::internal::WireFormat::SerializeUnknownFieldsToArray(
-        unknown_fields(), target);
-  }
-  return target;
-}
-
-int ListPathResponse::ByteSize() const {
-  int total_size = 0;
-  
-  // repeated .raft.PathInfo path_info = 1;
-  total_size += 1 * this->path_info_size();
-  for (int i = 0; i < this->path_info_size(); i++) {
-    total_size +=
-      ::google::protobuf::internal::WireFormatLite::MessageSizeNoVirtual(
-        this->path_info(i));
-  }
-  
-  if (!unknown_fields().empty()) {
-    total_size +=
-      ::google::protobuf::internal::WireFormat::ComputeUnknownFieldsSize(
-        unknown_fields());
-  }
-  GOOGLE_SAFE_CONCURRENT_WRITES_BEGIN();
-  _cached_size_ = total_size;
-  GOOGLE_SAFE_CONCURRENT_WRITES_END();
-  return total_size;
-}
-
-void ListPathResponse::MergeFrom(const ::google::protobuf::Message& from) {
-  GOOGLE_CHECK_NE(&from, this);
-  const ListPathResponse* source =
-    ::google::protobuf::internal::dynamic_cast_if_available<const ListPathResponse*>(
-      &from);
-  if (source == NULL) {
-    ::google::protobuf::internal::ReflectionOps::Merge(from, this);
-  } else {
-    MergeFrom(*source);
-  }
-}
-
-void ListPathResponse::MergeFrom(const ListPathResponse& from) {
-  GOOGLE_CHECK_NE(&from, this);
-  path_info_.MergeFrom(from.path_info_);
-  mutable_unknown_fields()->MergeFrom(from.unknown_fields());
-}
-
-void ListPathResponse::CopyFrom(const ::google::protobuf::Message& from) {
-  if (&from == this) return;
-  Clear();
-  MergeFrom(from);
-}
-
-void ListPathResponse::CopyFrom(const ListPathResponse& from) {
-  if (&from == this) return;
-  Clear();
-  MergeFrom(from);
-}
-
-bool ListPathResponse::IsInitialized() const {
-  
-  for (int i = 0; i < path_info_size(); i++) {
-    if (!this->path_info(i).IsInitialized()) return false;
-  }
-  return true;
-}
-
-void ListPathResponse::Swap(ListPathResponse* other) {
-  if (other != this) {
-    path_info_.Swap(&other->path_info_);
-    std::swap(_has_bits_[0], other->_has_bits_[0]);
-    _unknown_fields_.Swap(&other->_unknown_fields_);
-    std::swap(_cached_size_, other->_cached_size_);
-  }
-}
-
-::google::protobuf::Metadata ListPathResponse::GetMetadata() const {
-  protobuf_AssignDescriptorsOnce();
-  ::google::protobuf::Metadata metadata;
-  metadata.descriptor = ListPathResponse_descriptor_;
-  metadata.reflection = ListPathResponse_reflection_;
-  return metadata;
-}
-
-
-// ===================================================================
-
 FileService::~FileService() {}
 
 const ::google::protobuf::ServiceDescriptor* FileService::descriptor() {
@@ -1459,14 +688,6 @@ const ::google::protobuf::ServiceDescriptor* FileService::descriptor() {
 const ::google::protobuf::ServiceDescriptor* FileService::GetDescriptor() {
   protobuf_AssignDescriptorsOnce();
   return FileService_descriptor_;
-}
-
-void FileService::list_path(::google::protobuf::RpcController* controller,
-                         const ::raft::ListPathRequest*,
-                         ::raft::ListPathResponse*,
-                         ::google::protobuf::Closure* done) {
-  controller->SetFailed("Method list_path() not implemented.");
-  done->Run();
 }
 
 void FileService::get_file(::google::protobuf::RpcController* controller,
@@ -1485,12 +706,6 @@ void FileService::CallMethod(const ::google::protobuf::MethodDescriptor* method,
   GOOGLE_DCHECK_EQ(method->service(), FileService_descriptor_);
   switch(method->index()) {
     case 0:
-      list_path(controller,
-             ::google::protobuf::down_cast<const ::raft::ListPathRequest*>(request),
-             ::google::protobuf::down_cast< ::raft::ListPathResponse*>(response),
-             done);
-      break;
-    case 1:
       get_file(controller,
              ::google::protobuf::down_cast<const ::raft::GetFileRequest*>(request),
              ::google::protobuf::down_cast< ::raft::GetFileResponse*>(response),
@@ -1507,8 +722,6 @@ const ::google::protobuf::Message& FileService::GetRequestPrototype(
   GOOGLE_DCHECK_EQ(method->service(), descriptor());
   switch(method->index()) {
     case 0:
-      return ::raft::ListPathRequest::default_instance();
-    case 1:
       return ::raft::GetFileRequest::default_instance();
     default:
       GOOGLE_LOG(FATAL) << "Bad method index; this should never happen.";
@@ -1521,8 +734,6 @@ const ::google::protobuf::Message& FileService::GetResponsePrototype(
   GOOGLE_DCHECK_EQ(method->service(), descriptor());
   switch(method->index()) {
     case 0:
-      return ::raft::ListPathResponse::default_instance();
-    case 1:
       return ::raft::GetFileResponse::default_instance();
     default:
       GOOGLE_LOG(FATAL) << "Bad method index; this should never happen.";
@@ -1541,18 +752,11 @@ FileService_Stub::~FileService_Stub() {
   if (owns_channel_) delete channel_;
 }
 
-void FileService_Stub::list_path(::google::protobuf::RpcController* controller,
-                              const ::raft::ListPathRequest* request,
-                              ::raft::ListPathResponse* response,
-                              ::google::protobuf::Closure* done) {
-  channel_->CallMethod(descriptor()->method(0),
-                       controller, request, response, done);
-}
 void FileService_Stub::get_file(::google::protobuf::RpcController* controller,
                               const ::raft::GetFileRequest* request,
                               ::raft::GetFileResponse* response,
                               ::google::protobuf::Closure* done) {
-  channel_->CallMethod(descriptor()->method(1),
+  channel_->CallMethod(descriptor()->method(0),
                        controller, request, response, done);
 }
 

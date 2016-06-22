@@ -26,6 +26,8 @@ DEFINE_string(peers, "", "cluster peer set");
 DEFINE_int32(snapshot_interval, 30, "Interval between each snapshot");
 DEFINE_int32(election_timeout_ms, 5000, 
             "Start election after no message received from leader in such time");
+DEFINE_bool(allow_absent_key, false, "Cas succeeds if the key is absent while "
+                                     " exptected value is exactly 0");
 
 namespace example {
 
@@ -121,8 +123,7 @@ public:
 
         // TODO: verify snapshot
         _value_map.clear();
-        std::string snapshot_path = 
-                raft::fileuri2path(reader->get_uri(base::EndPoint()));
+        std::string snapshot_path = reader->get_path();
         snapshot_path.append("/data");
         std::ifstream is(snapshot_path.c_str());
         int64_t id = 0;
@@ -222,23 +223,27 @@ private:
         const int64_t id = req.id();
         int64_t* val_ptr = _value_map.seek(id);
         if (val_ptr == NULL) {
-            if (done) {
-                res = (CompareExchangeResponse*)((AtomicClosure*)done)->response;
-                res->set_old_value(0);
-                res->set_success(false);
-            }
-        } else {
-            int64_t& cur_val = _value_map[id];
-            if (done) {
-                res = (CompareExchangeResponse*)((AtomicClosure*)done)->response;
-                res->set_old_value(cur_val);
-            }
-            if (cur_val == req.expected_value()) {
-                cur_val = req.new_value();
-                if (res) { res->set_success(true); }
+            if (FLAGS_allow_absent_key) {
+                _value_map[id] = 0;
             } else {
-                if (res) { res->set_success(false); }
+                if (done) {
+                    res = (CompareExchangeResponse*)((AtomicClosure*)done)->response;
+                    res->set_old_value(0);
+                    res->set_success(false);
+                }
+                return;
             }
+        }
+        int64_t& cur_val = _value_map[id];
+        if (done) {
+            res = (CompareExchangeResponse*)((AtomicClosure*)done)->response;
+            res->set_old_value(cur_val);
+        }
+        if (cur_val == req.expected_value()) {
+            cur_val = req.new_value();
+            if (res) { res->set_success(true); }
+        } else {
+            if (res) { res->set_success(false); }
         }
     }
 
@@ -246,13 +251,13 @@ private:
         SnapshotClosure* sc = (SnapshotClosure*)arg;
         std::unique_ptr<SnapshotClosure> sc_guard(sc);
         baidu::rpc::ClosureGuard done_guard(sc->done);
-        std::string snapshot_path = 
-                raft::fileuri2path(sc->writer->get_uri(base::EndPoint()));
+        std::string snapshot_path = sc->writer->get_path();
         snapshot_path.append("/data");
         std::ofstream os(snapshot_path.c_str());
         for (size_t i = 0; i < sc->values.size(); ++i) {
             os << sc->values[i].first << ' ' << sc->values[i].second << '\n';
         }
+        CHECK_EQ(0, sc->writer->add_file("data"));
         return NULL;
     }
 

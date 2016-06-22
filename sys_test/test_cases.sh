@@ -34,7 +34,7 @@ function test_random_kill_server_and_restart_without_snapshot() {
     cleanup_and_start_all_server --snapshot_interval=999999999999
     random_kill_server_and_restart &
     killer_pid=$!
-    start_client_and_wait "--num_requests=200000 --timeout_ms=1000"
+    start_client_and_wait "--num_requests=1000000 --timeout_ms=1000"
     rc=$?
     kill -9 $killer_pid
     sleep 2
@@ -47,7 +47,7 @@ function test_random_kill_server_and_restart_with_snapshot() {
     cleanup_and_start_all_server --snapshot_interval=1
     random_kill_server_and_restart &
     killer_pid=$!
-    start_client_and_wait "--num_requests=200000 --timeout_ms=1000"
+    start_client_and_wait "--num_requests=1000000 --timeout_ms=1000"
     rc=$?
     kill -9 $killer_pid
     sleep 2
@@ -139,6 +139,7 @@ function start_server() {
                 --ip_and_port=$ip_and_port --peers="$PEER_LIST" \
                 --raft_sync=$FLAGS_raft_sync \
                 --election_timeout_ms=$FLAGS_election_timeout_ms \
+                --allow_absent_key \
                 1> server.stdout 2> server.stderr &
     saved_rc=$?
     pid=$!
@@ -163,12 +164,12 @@ function random_kill_server_and_restart() {
     let server_id_max=($FLAGS_num_servers -1)
     while [ true ]; do 
         for (( i=0 ; i < $FLAGS_num_servers; ++i)); do
-            sleep 1
+            sleep 2
             server_dir="server$i"
             cd $server_dir
             server_pid=${SERVER_PIDS[$i]}
             kill -9 $server_pid
-            sleep 1
+            sleep 2
             let port=($FLAGS_start_port + $i)
             server_pid=$(start_server $port)
             SERVER_PIDS[$i]=$server_pid
