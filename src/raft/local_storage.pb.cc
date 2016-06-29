@@ -166,17 +166,18 @@ void protobuf_AddDesc_raft_2flocal_5fstorage_2eproto() {
   GOOGLE_PROTOBUF_VERIFY_VERSION;
 
   ::raft::protobuf_AddDesc_raft_2fraft_2eproto();
-  ::protobuf_AddDesc_raft_2flocal_5ffile_5fmeta_2eproto();
+  ::raft::protobuf_AddDesc_raft_2flocal_5ffile_5fmeta_2eproto();
   ::google::protobuf::DescriptorPool::InternalAddGeneratedFile(
     "\n\030raft/local_storage.proto\022\004raft\032\017raft/r"
     "aft.proto\032\032raft/local_file_meta.proto\"$\n"
     "\023ConfigurationPBMeta\022\r\n\005peers\030\001 \003(\t\"$\n\tL"
     "ogPBMeta\022\027\n\017first_log_index\030\001 \002(\003\".\n\014Sta"
     "blePBMeta\022\014\n\004term\030\001 \002(\003\022\020\n\010votedfor\030\002 \002("
-    "\t\"\232\001\n\023LocalSnapshotPbMeta\022 \n\004meta\030\001 \001(\0132"
+    "\t\"\237\001\n\023LocalSnapshotPbMeta\022 \n\004meta\030\001 \001(\0132"
     "\022.raft.SnapshotMeta\022-\n\005files\030\002 \003(\0132\036.raf"
-    "t.LocalSnapshotPbMeta.File\0322\n\004File\022\014\n\004na"
-    "me\030\001 \002(\t\022\034\n\004meta\030\002 \001(\0132\016.LocalFileMeta", 358);
+    "t.LocalSnapshotPbMeta.File\0327\n\004File\022\014\n\004na"
+    "me\030\001 \002(\t\022!\n\004meta\030\002 \001(\0132\023.raft.LocalFileM"
+    "eta", 363);
   ::google::protobuf::MessageFactory::InternalRegisterGeneratedFile(
     "raft/local_storage.proto", &protobuf_RegisterTypes);
   ConfigurationPBMeta::default_instance_ = new ConfigurationPBMeta();
@@ -895,7 +896,7 @@ LocalSnapshotPbMeta_File::LocalSnapshotPbMeta_File()
 }
 
 void LocalSnapshotPbMeta_File::InitAsDefaultInstance() {
-  meta_ = const_cast< ::LocalFileMeta*>(&::LocalFileMeta::default_instance());
+  meta_ = const_cast< ::raft::LocalFileMeta*>(&::raft::LocalFileMeta::default_instance());
 }
 
 LocalSnapshotPbMeta_File::LocalSnapshotPbMeta_File(const LocalSnapshotPbMeta_File& from)
@@ -952,7 +953,7 @@ void LocalSnapshotPbMeta_File::Clear() {
       }
     }
     if (has_meta()) {
-      if (meta_ != NULL) meta_->::LocalFileMeta::Clear();
+      if (meta_ != NULL) meta_->::raft::LocalFileMeta::Clear();
     }
   }
   ::memset(_has_bits_, 0, sizeof(_has_bits_));
@@ -981,7 +982,7 @@ bool LocalSnapshotPbMeta_File::MergePartialFromCodedStream(
         break;
       }
       
-      // optional .LocalFileMeta meta = 2;
+      // optional .raft.LocalFileMeta meta = 2;
       case 2: {
         if (::google::protobuf::internal::WireFormatLite::GetTagWireType(tag) ==
             ::google::protobuf::internal::WireFormatLite::WIRETYPE_LENGTH_DELIMITED) {
@@ -1022,7 +1023,7 @@ void LocalSnapshotPbMeta_File::SerializeWithCachedSizes(
       1, this->name(), output);
   }
   
-  // optional .LocalFileMeta meta = 2;
+  // optional .raft.LocalFileMeta meta = 2;
   if (has_meta()) {
     ::google::protobuf::internal::WireFormatLite::WriteMessageMaybeToArray(
       2, this->meta(), output);
@@ -1046,7 +1047,7 @@ void LocalSnapshotPbMeta_File::SerializeWithCachedSizes(
         1, this->name(), target);
   }
   
-  // optional .LocalFileMeta meta = 2;
+  // optional .raft.LocalFileMeta meta = 2;
   if (has_meta()) {
     target = ::google::protobuf::internal::WireFormatLite::
       WriteMessageNoVirtualToArray(
@@ -1071,7 +1072,7 @@ int LocalSnapshotPbMeta_File::ByteSize() const {
           this->name());
     }
     
-    // optional .LocalFileMeta meta = 2;
+    // optional .raft.LocalFileMeta meta = 2;
     if (has_meta()) {
       total_size += 1 +
         ::google::protobuf::internal::WireFormatLite::MessageSizeNoVirtual(
@@ -1109,7 +1110,7 @@ void LocalSnapshotPbMeta_File::MergeFrom(const LocalSnapshotPbMeta_File& from) {
       set_name(from.name());
     }
     if (from.has_meta()) {
-      mutable_meta()->::LocalFileMeta::MergeFrom(from.meta());
+      mutable_meta()->::raft::LocalFileMeta::MergeFrom(from.meta());
     }
   }
   mutable_unknown_fields()->MergeFrom(from.unknown_fields());

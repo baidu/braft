@@ -16,9 +16,6 @@ int LocalDirReader::read_file(base::IOBuf* out,
                               off_t offset,
                               size_t max_count,
                               bool* is_eof) const {
-    if (_has_white_list && _white_list.find(filename) == _white_list.end()) {
-        return EPERM;
-    }
     out->clear();
     std::string file_path = _path + "/" + filename;
     base::File::Info info;
@@ -49,11 +46,6 @@ int LocalDirReader::read_file(base::IOBuf* out,
     }
     out->swap(buf);
     return 0;
-}
-
-void LocalDirReader::add_white_list(const std::string &filename) {
-    _has_white_list = true;
-    _white_list.insert(filename);
 }
 
 }  // namespace raft

@@ -129,7 +129,11 @@ void Node::vote(int election_timeout) {
 }
 
 // ------------- Iterator
-void Iterator::next() { _impl->next(); }
+void Iterator::next() { 
+    if (valid()) {
+        _impl->next(); 
+    }
+}
 
 bool Iterator::valid() const { 
     return _impl->is_good() && _impl->entry()->type == ENTRY_TYPE_DATA; 

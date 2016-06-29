@@ -57,16 +57,6 @@ TEST_F(FileServiceTest, sanity) {
     ASSERT_NE(0, copier.copy_to_file("c", "./b/cc", NULL));
     ASSERT_EQ(0, system("chmod -R 755 ./a"));
 
-    // Add white list
-    reader->add_white_list("d");
-    ASSERT_NE(0, copier.copy_to_file("c", "./b/cc", NULL));
-    reader->add_white_list("c");
-    ASSERT_EQ(0, copier.copy_to_file("c", "./b/cc", NULL));
-
-    ASSERT_EQ(0, system("dd if=/dev/zero of=./a/1M.data bs=1024 count=1024"));
-    reader->add_white_list("1M.data");
-    ASSERT_EQ(0, copier.copy_to_file("1M.data", "./b/1M.data", NULL));
-
     ASSERT_EQ(0, raft::file_service_remove(reader_id));
 
     // Copy after reader is remove

@@ -150,6 +150,9 @@ int NodeImpl::init_snapshot_storage() {
     opt.node = this;
     opt.log_manager = _log_manager;
     opt.addr = _server_id.addr;
+    if (_options.snapshot_hook) {
+        opt.snapshot_hook = *_options.snapshot_hook;
+    }
     return _snapshot_executor->init(opt);
 }
 
@@ -210,14 +213,12 @@ static void on_snapshot_timer(void* arg) {
 }
 
 void NodeImpl::handle_snapshot_timeout() {
-    BAIDU_SCOPED_LOCK(_mutex);
+    std::unique_lock<raft_mutex_t> lck(_mutex);
 
     // check state
     if (!is_active_state(_state)) {
         return;
     }
-
-    do_snapshot(NULL);
 
     AddRef();
     raft_timer_add(&_snapshot_timer,
@@ -225,6 +226,10 @@ void NodeImpl::handle_snapshot_timeout() {
                       on_snapshot_timer, this);
     RAFT_VLOG << "node " << _group_id << ":" << _server_id
         << " term " << _current_term << " restart snapshot_timer";
+    lck.unlock();
+    // TODO: do_snapshot in another thread to avoid blocking the timer thread.
+    do_snapshot(NULL);
+
 }
 
 int NodeImpl::init(const NodeOptions& options) {

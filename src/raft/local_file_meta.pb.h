@@ -25,6 +25,8 @@
 #include <google/protobuf/generated_message_reflection.h>
 // @@protoc_insertion_point(includes)
 
+namespace raft {
+
 // Internal implementation detail -- do not call these.
 void  protobuf_AddDesc_raft_2flocal_5ffile_5fmeta_2eproto();
 void protobuf_AssignDesc_raft_2flocal_5ffile_5fmeta_2eproto();
@@ -32,6 +34,25 @@ void protobuf_ShutdownFile_raft_2flocal_5ffile_5fmeta_2eproto();
 
 class LocalFileMeta;
 
+enum FileSource {
+  FILE_SOURCE_LOCAL = 0,
+  FILE_SOURCE_REFERENCE = 1
+};
+bool FileSource_IsValid(int value);
+const FileSource FileSource_MIN = FILE_SOURCE_LOCAL;
+const FileSource FileSource_MAX = FILE_SOURCE_REFERENCE;
+const int FileSource_ARRAYSIZE = FileSource_MAX + 1;
+
+const ::google::protobuf::EnumDescriptor* FileSource_descriptor();
+inline const ::std::string& FileSource_Name(FileSource value) {
+  return ::google::protobuf::internal::NameOfEnum(
+    FileSource_descriptor(), value);
+}
+inline bool FileSource_Parse(
+    const ::std::string& name, FileSource* value) {
+  return ::google::protobuf::internal::ParseNamedEnum<FileSource>(
+    FileSource_descriptor(), name, value);
+}
 // ===================================================================
 
 class LocalFileMeta : public ::google::protobuf::Message {
@@ -88,39 +109,35 @@ class LocalFileMeta : public ::google::protobuf::Message {
   
   // accessors -------------------------------------------------------
   
-  // optional string tag = 1;
-  inline bool has_tag() const;
-  inline void clear_tag();
-  static const int kTagFieldNumber = 1;
-  inline const ::std::string& tag() const;
-  inline void set_tag(const ::std::string& value);
-  inline void set_tag(const char* value);
-  inline void set_tag(const char* value, size_t size);
-  inline ::std::string* mutable_tag();
-  inline ::std::string* release_tag();
+  // optional bytes user_meta = 1;
+  inline bool has_user_meta() const;
+  inline void clear_user_meta();
+  static const int kUserMetaFieldNumber = 1;
+  inline const ::std::string& user_meta() const;
+  inline void set_user_meta(const ::std::string& value);
+  inline void set_user_meta(const char* value);
+  inline void set_user_meta(const void* value, size_t size);
+  inline ::std::string* mutable_user_meta();
+  inline ::std::string* release_user_meta();
   
-  // optional string reference = 2;
-  inline bool has_reference() const;
-  inline void clear_reference();
-  static const int kReferenceFieldNumber = 2;
-  inline const ::std::string& reference() const;
-  inline void set_reference(const ::std::string& value);
-  inline void set_reference(const char* value);
-  inline void set_reference(const char* value, size_t size);
-  inline ::std::string* mutable_reference();
-  inline ::std::string* release_reference();
+  // optional .raft.FileSource source = 2;
+  inline bool has_source() const;
+  inline void clear_source();
+  static const int kSourceFieldNumber = 2;
+  inline raft::FileSource source() const;
+  inline void set_source(raft::FileSource value);
   
-  // @@protoc_insertion_point(class_scope:LocalFileMeta)
+  // @@protoc_insertion_point(class_scope:raft.LocalFileMeta)
  private:
-  inline void set_has_tag();
-  inline void clear_has_tag();
-  inline void set_has_reference();
-  inline void clear_has_reference();
+  inline void set_has_user_meta();
+  inline void clear_has_user_meta();
+  inline void set_has_source();
+  inline void clear_has_source();
   
   ::google::protobuf::UnknownFieldSet _unknown_fields_;
   
-  ::std::string* tag_;
-  ::std::string* reference_;
+  ::std::string* user_meta_;
+  int source_;
   
   mutable int _cached_size_;
   ::google::protobuf::uint32 _has_bits_[(2 + 31) / 32];
@@ -139,129 +156,100 @@ class LocalFileMeta : public ::google::protobuf::Message {
 
 // LocalFileMeta
 
-// optional string tag = 1;
-inline bool LocalFileMeta::has_tag() const {
+// optional bytes user_meta = 1;
+inline bool LocalFileMeta::has_user_meta() const {
   return (_has_bits_[0] & 0x00000001u) != 0;
 }
-inline void LocalFileMeta::set_has_tag() {
+inline void LocalFileMeta::set_has_user_meta() {
   _has_bits_[0] |= 0x00000001u;
 }
-inline void LocalFileMeta::clear_has_tag() {
+inline void LocalFileMeta::clear_has_user_meta() {
   _has_bits_[0] &= ~0x00000001u;
 }
-inline void LocalFileMeta::clear_tag() {
-  if (tag_ != &::google::protobuf::internal::kEmptyString) {
-    tag_->clear();
+inline void LocalFileMeta::clear_user_meta() {
+  if (user_meta_ != &::google::protobuf::internal::kEmptyString) {
+    user_meta_->clear();
   }
-  clear_has_tag();
+  clear_has_user_meta();
 }
-inline const ::std::string& LocalFileMeta::tag() const {
-  return *tag_;
+inline const ::std::string& LocalFileMeta::user_meta() const {
+  return *user_meta_;
 }
-inline void LocalFileMeta::set_tag(const ::std::string& value) {
-  set_has_tag();
-  if (tag_ == &::google::protobuf::internal::kEmptyString) {
-    tag_ = new ::std::string;
+inline void LocalFileMeta::set_user_meta(const ::std::string& value) {
+  set_has_user_meta();
+  if (user_meta_ == &::google::protobuf::internal::kEmptyString) {
+    user_meta_ = new ::std::string;
   }
-  tag_->assign(value);
+  user_meta_->assign(value);
 }
-inline void LocalFileMeta::set_tag(const char* value) {
-  set_has_tag();
-  if (tag_ == &::google::protobuf::internal::kEmptyString) {
-    tag_ = new ::std::string;
+inline void LocalFileMeta::set_user_meta(const char* value) {
+  set_has_user_meta();
+  if (user_meta_ == &::google::protobuf::internal::kEmptyString) {
+    user_meta_ = new ::std::string;
   }
-  tag_->assign(value);
+  user_meta_->assign(value);
 }
-inline void LocalFileMeta::set_tag(const char* value, size_t size) {
-  set_has_tag();
-  if (tag_ == &::google::protobuf::internal::kEmptyString) {
-    tag_ = new ::std::string;
+inline void LocalFileMeta::set_user_meta(const void* value, size_t size) {
+  set_has_user_meta();
+  if (user_meta_ == &::google::protobuf::internal::kEmptyString) {
+    user_meta_ = new ::std::string;
   }
-  tag_->assign(reinterpret_cast<const char*>(value), size);
+  user_meta_->assign(reinterpret_cast<const char*>(value), size);
 }
-inline ::std::string* LocalFileMeta::mutable_tag() {
-  set_has_tag();
-  if (tag_ == &::google::protobuf::internal::kEmptyString) {
-    tag_ = new ::std::string;
+inline ::std::string* LocalFileMeta::mutable_user_meta() {
+  set_has_user_meta();
+  if (user_meta_ == &::google::protobuf::internal::kEmptyString) {
+    user_meta_ = new ::std::string;
   }
-  return tag_;
+  return user_meta_;
 }
-inline ::std::string* LocalFileMeta::release_tag() {
-  clear_has_tag();
-  if (tag_ == &::google::protobuf::internal::kEmptyString) {
+inline ::std::string* LocalFileMeta::release_user_meta() {
+  clear_has_user_meta();
+  if (user_meta_ == &::google::protobuf::internal::kEmptyString) {
     return NULL;
   } else {
-    ::std::string* temp = tag_;
-    tag_ = const_cast< ::std::string*>(&::google::protobuf::internal::kEmptyString);
+    ::std::string* temp = user_meta_;
+    user_meta_ = const_cast< ::std::string*>(&::google::protobuf::internal::kEmptyString);
     return temp;
   }
 }
 
-// optional string reference = 2;
-inline bool LocalFileMeta::has_reference() const {
+// optional .raft.FileSource source = 2;
+inline bool LocalFileMeta::has_source() const {
   return (_has_bits_[0] & 0x00000002u) != 0;
 }
-inline void LocalFileMeta::set_has_reference() {
+inline void LocalFileMeta::set_has_source() {
   _has_bits_[0] |= 0x00000002u;
 }
-inline void LocalFileMeta::clear_has_reference() {
+inline void LocalFileMeta::clear_has_source() {
   _has_bits_[0] &= ~0x00000002u;
 }
-inline void LocalFileMeta::clear_reference() {
-  if (reference_ != &::google::protobuf::internal::kEmptyString) {
-    reference_->clear();
-  }
-  clear_has_reference();
+inline void LocalFileMeta::clear_source() {
+  source_ = 0;
+  clear_has_source();
 }
-inline const ::std::string& LocalFileMeta::reference() const {
-  return *reference_;
+inline raft::FileSource LocalFileMeta::source() const {
+  return static_cast< raft::FileSource >(source_);
 }
-inline void LocalFileMeta::set_reference(const ::std::string& value) {
-  set_has_reference();
-  if (reference_ == &::google::protobuf::internal::kEmptyString) {
-    reference_ = new ::std::string;
-  }
-  reference_->assign(value);
-}
-inline void LocalFileMeta::set_reference(const char* value) {
-  set_has_reference();
-  if (reference_ == &::google::protobuf::internal::kEmptyString) {
-    reference_ = new ::std::string;
-  }
-  reference_->assign(value);
-}
-inline void LocalFileMeta::set_reference(const char* value, size_t size) {
-  set_has_reference();
-  if (reference_ == &::google::protobuf::internal::kEmptyString) {
-    reference_ = new ::std::string;
-  }
-  reference_->assign(reinterpret_cast<const char*>(value), size);
-}
-inline ::std::string* LocalFileMeta::mutable_reference() {
-  set_has_reference();
-  if (reference_ == &::google::protobuf::internal::kEmptyString) {
-    reference_ = new ::std::string;
-  }
-  return reference_;
-}
-inline ::std::string* LocalFileMeta::release_reference() {
-  clear_has_reference();
-  if (reference_ == &::google::protobuf::internal::kEmptyString) {
-    return NULL;
-  } else {
-    ::std::string* temp = reference_;
-    reference_ = const_cast< ::std::string*>(&::google::protobuf::internal::kEmptyString);
-    return temp;
-  }
+inline void LocalFileMeta::set_source(raft::FileSource value) {
+  GOOGLE_DCHECK(raft::FileSource_IsValid(value));
+  set_has_source();
+  source_ = value;
 }
 
 
 // @@protoc_insertion_point(namespace_scope)
 
+}  // namespace raft
+
 #ifndef SWIG
 namespace google {
 namespace protobuf {
 
+template <>
+inline const EnumDescriptor* GetEnumDescriptor< raft::FileSource>() {
+  return raft::FileSource_descriptor();
+}
 
 }  // namespace google
 }  // namespace protobuf

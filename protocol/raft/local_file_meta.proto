@@ -1,4 +1,12 @@
+syntax="proto2";
+package raft;
+
+enum FileSource {
+    FILE_SOURCE_LOCAL = 0;
+    FILE_SOURCE_REFERENCE = 1;
+}
+
 message LocalFileMeta {
-    optional string tag = 1;
-    optional string reference = 2;
+    optional bytes user_meta = 1;
+    optional FileSource source = 2;
 }

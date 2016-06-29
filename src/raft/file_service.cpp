@@ -50,7 +50,7 @@ void FileServiceImpl::get_file(::google::protobuf::RpcController* controller,
                             request->offset(), request->count(), &is_eof);
     if (rc != 0) {
         cntl->SetFailed(rc, "Fail to read from path=%s filename=%s : %s",
-                        reader->path(), request->filename().c_str(), berror(rc));
+                        reader->path().c_str(), request->filename().c_str(), berror(rc));
         return;
     }
 

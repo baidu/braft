@@ -13,11 +13,14 @@
 #include <google/protobuf/wire_format.h>
 // @@protoc_insertion_point(includes)
 
+namespace raft {
+
 namespace {
 
 const ::google::protobuf::Descriptor* LocalFileMeta_descriptor_ = NULL;
 const ::google::protobuf::internal::GeneratedMessageReflection*
   LocalFileMeta_reflection_ = NULL;
+const ::google::protobuf::EnumDescriptor* FileSource_descriptor_ = NULL;
 
 }  // namespace
 
@@ -30,8 +33,8 @@ void protobuf_AssignDesc_raft_2flocal_5ffile_5fmeta_2eproto() {
   GOOGLE_CHECK(file != NULL);
   LocalFileMeta_descriptor_ = file->message_type(0);
   static const int LocalFileMeta_offsets_[2] = {
-    GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(LocalFileMeta, tag_),
-    GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(LocalFileMeta, reference_),
+    GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(LocalFileMeta, user_meta_),
+    GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(LocalFileMeta, source_),
   };
   LocalFileMeta_reflection_ =
     new ::google::protobuf::internal::GeneratedMessageReflection(
@@ -44,6 +47,7 @@ void protobuf_AssignDesc_raft_2flocal_5ffile_5fmeta_2eproto() {
       ::google::protobuf::DescriptorPool::generated_pool(),
       ::google::protobuf::MessageFactory::generated_factory(),
       sizeof(LocalFileMeta));
+  FileSource_descriptor_ = file->enum_type(0);
 }
 
 namespace {
@@ -74,8 +78,11 @@ void protobuf_AddDesc_raft_2flocal_5ffile_5fmeta_2eproto() {
   GOOGLE_PROTOBUF_VERIFY_VERSION;
 
   ::google::protobuf::DescriptorPool::InternalAddGeneratedFile(
-    "\n\032raft/local_file_meta.proto\"/\n\rLocalFil"
-    "eMeta\022\013\n\003tag\030\001 \001(\t\022\021\n\treference\030\002 \001(\t", 77);
+    "\n\032raft/local_file_meta.proto\022\004raft\"D\n\rLo"
+    "calFileMeta\022\021\n\tuser_meta\030\001 \001(\014\022 \n\006source"
+    "\030\002 \001(\0162\020.raft.FileSource*>\n\nFileSource\022\025"
+    "\n\021FILE_SOURCE_LOCAL\020\000\022\031\n\025FILE_SOURCE_REF"
+    "ERENCE\020\001", 168);
   ::google::protobuf::MessageFactory::InternalRegisterGeneratedFile(
     "raft/local_file_meta.proto", &protobuf_RegisterTypes);
   LocalFileMeta::default_instance_ = new LocalFileMeta();
@@ -90,12 +97,26 @@ struct StaticDescriptorInitializer_raft_2flocal_5ffile_5fmeta_2eproto {
   }
 } static_descriptor_initializer_raft_2flocal_5ffile_5fmeta_2eproto_;
 
+const ::google::protobuf::EnumDescriptor* FileSource_descriptor() {
+  protobuf_AssignDescriptorsOnce();
+  return FileSource_descriptor_;
+}
+bool FileSource_IsValid(int value) {
+  switch(value) {
+    case 0:
+    case 1:
+      return true;
+    default:
+      return false;
+  }
+}
+
 
 // ===================================================================
 
 #ifndef _MSC_VER
-const int LocalFileMeta::kTagFieldNumber;
-const int LocalFileMeta::kReferenceFieldNumber;
+const int LocalFileMeta::kUserMetaFieldNumber;
+const int LocalFileMeta::kSourceFieldNumber;
 #endif  // !_MSC_VER
 
 LocalFileMeta::LocalFileMeta()
@@ -114,8 +135,8 @@ LocalFileMeta::LocalFileMeta(const LocalFileMeta& from)
 
 void LocalFileMeta::SharedCtor() {
   _cached_size_ = 0;
-  tag_ = const_cast< ::std::string*>(&::google::protobuf::internal::kEmptyString);
-  reference_ = const_cast< ::std::string*>(&::google::protobuf::internal::kEmptyString);
+  user_meta_ = const_cast< ::std::string*>(&::google::protobuf::internal::kEmptyString);
+  source_ = 0;
   ::memset(_has_bits_, 0, sizeof(_has_bits_));
 }
 
@@ -124,11 +145,8 @@ LocalFileMeta::~LocalFileMeta() {
 }
 
 void LocalFileMeta::SharedDtor() {
-  if (tag_ != &::google::protobuf::internal::kEmptyString) {
-    delete tag_;
-  }
-  if (reference_ != &::google::protobuf::internal::kEmptyString) {
-    delete reference_;
+  if (user_meta_ != &::google::protobuf::internal::kEmptyString) {
+    delete user_meta_;
   }
   if (this != default_instance_) {
   }
@@ -156,16 +174,12 @@ LocalFileMeta* LocalFileMeta::New() const {
 
 void LocalFileMeta::Clear() {
   if (_has_bits_[0 / 32] & (0xffu << (0 % 32))) {
-    if (has_tag()) {
-      if (tag_ != &::google::protobuf::internal::kEmptyString) {
-        tag_->clear();
+    if (has_user_meta()) {
+      if (user_meta_ != &::google::protobuf::internal::kEmptyString) {
+        user_meta_->clear();
       }
     }
-    if (has_reference()) {
-      if (reference_ != &::google::protobuf::internal::kEmptyString) {
-        reference_->clear();
-      }
-    }
+    source_ = 0;
   }
   ::memset(_has_bits_, 0, sizeof(_has_bits_));
   mutable_unknown_fields()->Clear();
@@ -177,32 +191,33 @@ bool LocalFileMeta::MergePartialFromCodedStream(
   ::google::protobuf::uint32 tag;
   while ((tag = input->ReadTag()) != 0) {
     switch (::google::protobuf::internal::WireFormatLite::GetTagFieldNumber(tag)) {
-      // optional string tag = 1;
+      // optional bytes user_meta = 1;
       case 1: {
         if (::google::protobuf::internal::WireFormatLite::GetTagWireType(tag) ==
             ::google::protobuf::internal::WireFormatLite::WIRETYPE_LENGTH_DELIMITED) {
-          DO_(::google::protobuf::internal::WireFormatLite::ReadString(
-                input, this->mutable_tag()));
-          ::google::protobuf::internal::WireFormat::VerifyUTF8String(
-            this->tag().data(), this->tag().length(),
-            ::google::protobuf::internal::WireFormat::PARSE);
+          DO_(::google::protobuf::internal::WireFormatLite::ReadBytes(
+                input, this->mutable_user_meta()));
         } else {
           goto handle_uninterpreted;
         }
-        if (input->ExpectTag(18)) goto parse_reference;
+        if (input->ExpectTag(16)) goto parse_source;
         break;
       }
       
-      // optional string reference = 2;
+      // optional .raft.FileSource source = 2;
       case 2: {
         if (::google::protobuf::internal::WireFormatLite::GetTagWireType(tag) ==
-            ::google::protobuf::internal::WireFormatLite::WIRETYPE_LENGTH_DELIMITED) {
-         parse_reference:
-          DO_(::google::protobuf::internal::WireFormatLite::ReadString(
-                input, this->mutable_reference()));
-          ::google::protobuf::internal::WireFormat::VerifyUTF8String(
-            this->reference().data(), this->reference().length(),
-            ::google::protobuf::internal::WireFormat::PARSE);
+            ::google::protobuf::internal::WireFormatLite::WIRETYPE_VARINT) {
+         parse_source:
+          int value;
+          DO_((::google::protobuf::internal::WireFormatLite::ReadPrimitive<
+                   int, ::google::protobuf::internal::WireFormatLite::TYPE_ENUM>(
+                 input, &value)));
+          if (raft::FileSource_IsValid(value)) {
+            set_source(static_cast< raft::FileSource >(value));
+          } else {
+            mutable_unknown_fields()->AddVarint(2, value);
+          }
         } else {
           goto handle_uninterpreted;
         }
@@ -228,22 +243,16 @@ bool LocalFileMeta::MergePartialFromCodedStream(
 
 void LocalFileMeta::SerializeWithCachedSizes(
     ::google::protobuf::io::CodedOutputStream* output) const {
-  // optional string tag = 1;
-  if (has_tag()) {
-    ::google::protobuf::internal::WireFormat::VerifyUTF8String(
-      this->tag().data(), this->tag().length(),
-      ::google::protobuf::internal::WireFormat::SERIALIZE);
-    ::google::protobuf::internal::WireFormatLite::WriteString(
-      1, this->tag(), output);
+  // optional bytes user_meta = 1;
+  if (has_user_meta()) {
+    ::google::protobuf::internal::WireFormatLite::WriteBytes(
+      1, this->user_meta(), output);
   }
   
-  // optional string reference = 2;
-  if (has_reference()) {
-    ::google::protobuf::internal::WireFormat::VerifyUTF8String(
-      this->reference().data(), this->reference().length(),
-      ::google::protobuf::internal::WireFormat::SERIALIZE);
-    ::google::protobuf::internal::WireFormatLite::WriteString(
-      2, this->reference(), output);
+  // optional .raft.FileSource source = 2;
+  if (has_source()) {
+    ::google::protobuf::internal::WireFormatLite::WriteEnum(
+      2, this->source(), output);
   }
   
   if (!unknown_fields().empty()) {
@@ -254,24 +263,17 @@ void LocalFileMeta::SerializeWithCachedSizes(
 
 ::google::protobuf::uint8* LocalFileMeta::SerializeWithCachedSizesToArray(
     ::google::protobuf::uint8* target) const {
-  // optional string tag = 1;
-  if (has_tag()) {
-    ::google::protobuf::internal::WireFormat::VerifyUTF8String(
-      this->tag().data(), this->tag().length(),
-      ::google::protobuf::internal::WireFormat::SERIALIZE);
+  // optional bytes user_meta = 1;
+  if (has_user_meta()) {
     target =
-      ::google::protobuf::internal::WireFormatLite::WriteStringToArray(
-        1, this->tag(), target);
+      ::google::protobuf::internal::WireFormatLite::WriteBytesToArray(
+        1, this->user_meta(), target);
   }
   
-  // optional string reference = 2;
-  if (has_reference()) {
-    ::google::protobuf::internal::WireFormat::VerifyUTF8String(
-      this->reference().data(), this->reference().length(),
-      ::google::protobuf::internal::WireFormat::SERIALIZE);
-    target =
-      ::google::protobuf::internal::WireFormatLite::WriteStringToArray(
-        2, this->reference(), target);
+  // optional .raft.FileSource source = 2;
+  if (has_source()) {
+    target = ::google::protobuf::internal::WireFormatLite::WriteEnumToArray(
+      2, this->source(), target);
   }
   
   if (!unknown_fields().empty()) {
@@ -285,18 +287,17 @@ int LocalFileMeta::ByteSize() const {
   int total_size = 0;
   
   if (_has_bits_[0 / 32] & (0xffu << (0 % 32))) {
-    // optional string tag = 1;
-    if (has_tag()) {
+    // optional bytes user_meta = 1;
+    if (has_user_meta()) {
       total_size += 1 +
-        ::google::protobuf::internal::WireFormatLite::StringSize(
-          this->tag());
+        ::google::protobuf::internal::WireFormatLite::BytesSize(
+          this->user_meta());
     }
     
-    // optional string reference = 2;
-    if (has_reference()) {
+    // optional .raft.FileSource source = 2;
+    if (has_source()) {
       total_size += 1 +
-        ::google::protobuf::internal::WireFormatLite::StringSize(
-          this->reference());
+        ::google::protobuf::internal::WireFormatLite::EnumSize(this->source());
     }
     
   }
@@ -326,11 +327,11 @@ void LocalFileMeta::MergeFrom(const ::google::protobuf::Message& from) {
 void LocalFileMeta::MergeFrom(const LocalFileMeta& from) {
   GOOGLE_CHECK_NE(&from, this);
   if (from._has_bits_[0 / 32] & (0xffu << (0 % 32))) {
-    if (from.has_tag()) {
-      set_tag(from.tag());
+    if (from.has_user_meta()) {
+      set_user_meta(from.user_meta());
     }
-    if (from.has_reference()) {
-      set_reference(from.reference());
+    if (from.has_source()) {
+      set_source(from.source());
     }
   }
   mutable_unknown_fields()->MergeFrom(from.unknown_fields());
@@ -355,8 +356,8 @@ bool LocalFileMeta::IsInitialized() const {
 
 void LocalFileMeta::Swap(LocalFileMeta* other) {
   if (other != this) {
-    std::swap(tag_, other->tag_);
-    std::swap(reference_, other->reference_);
+    std::swap(user_meta_, other->user_meta_);
+    std::swap(source_, other->source_);
     std::swap(_has_bits_[0], other->_has_bits_[0]);
     _unknown_fields_.Swap(&other->_unknown_fields_);
     std::swap(_cached_size_, other->_cached_size_);
@@ -373,5 +374,7 @@ void LocalFileMeta::Swap(LocalFileMeta* other) {
 
 
 // @@protoc_insertion_point(namespace_scope)
+
+}  // namespace raft
 
 // @@protoc_insertion_point(global_scope)

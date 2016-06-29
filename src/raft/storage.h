@@ -11,6 +11,7 @@
 #include <vector>
 #include <gflags/gflags.h>
 #include <base/status.h>
+#include <base/class_name.h>
 #include <baidu/rpc/extension.h>
 
 #include "raft/configuration.h"
@@ -163,9 +164,17 @@ public:
     virtual std::string generate_uri_for_copy() = 0;
 };
 
+class SnapshotHook;
+
 class SnapshotStorage {
 public:
     virtual ~SnapshotStorage() {}
+
+    virtual int set_hook(SnapshotHook* hook) {
+        (void)hook;
+        CHECK(false) << base::class_name_str(*this) << " doesn't support hook";
+        return -1;
+    }
 
     // Initialize
     virtual int init() = 0;

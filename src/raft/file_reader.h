@@ -28,7 +28,7 @@ public:
                           size_t max_count,
                           bool* is_eof) const = 0;
     // Get the path of this reader
-    virtual const char* path() const = 0;
+    virtual const std::string& path() const = 0;
 protected:
     FileReader() {}
     virtual ~FileReader() {}
@@ -39,7 +39,6 @@ class LocalDirReader : public FileReader {
 public:
     LocalDirReader(const std::string& path) 
         : _path(path)
-        , _has_white_list(false)
     {}
     virtual ~LocalDirReader() {}
     // Read data from filename at |offset| (from the start of the file) for at
@@ -51,16 +50,9 @@ public:
                           off_t offset,
                           size_t max_count,
                           bool* is_eof) const;
-    // Add file to the white list.
-    // After this function is called , no files except the files in the white
-    // list could be read from this Reader.
-    void add_white_list(const std::string& filename);
-
-    virtual const char* path() const { return _path.c_str(); }
+    virtual const std::string& path() const { return _path; }
 private:
     std::string _path;
-    bool _has_white_list;
-    std::set<std::string> _white_list;
 };
 
 }  // namespace raft

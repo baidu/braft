@@ -374,13 +374,13 @@ class LocalSnapshotPbMeta_File : public ::google::protobuf::Message {
   inline ::std::string* mutable_name();
   inline ::std::string* release_name();
   
-  // optional .LocalFileMeta meta = 2;
+  // optional .raft.LocalFileMeta meta = 2;
   inline bool has_meta() const;
   inline void clear_meta();
   static const int kMetaFieldNumber = 2;
-  inline const ::LocalFileMeta& meta() const;
-  inline ::LocalFileMeta* mutable_meta();
-  inline ::LocalFileMeta* release_meta();
+  inline const ::raft::LocalFileMeta& meta() const;
+  inline ::raft::LocalFileMeta* mutable_meta();
+  inline ::raft::LocalFileMeta* release_meta();
   
   // @@protoc_insertion_point(class_scope:raft.LocalSnapshotPbMeta.File)
  private:
@@ -392,7 +392,7 @@ class LocalSnapshotPbMeta_File : public ::google::protobuf::Message {
   ::google::protobuf::UnknownFieldSet _unknown_fields_;
   
   ::std::string* name_;
-  ::LocalFileMeta* meta_;
+  ::raft::LocalFileMeta* meta_;
   
   mutable int _cached_size_;
   ::google::protobuf::uint32 _has_bits_[(2 + 31) / 32];
@@ -725,7 +725,7 @@ inline ::std::string* LocalSnapshotPbMeta_File::release_name() {
   }
 }
 
-// optional .LocalFileMeta meta = 2;
+// optional .raft.LocalFileMeta meta = 2;
 inline bool LocalSnapshotPbMeta_File::has_meta() const {
   return (_has_bits_[0] & 0x00000002u) != 0;
 }
@@ -736,20 +736,20 @@ inline void LocalSnapshotPbMeta_File::clear_has_meta() {
   _has_bits_[0] &= ~0x00000002u;
 }
 inline void LocalSnapshotPbMeta_File::clear_meta() {
-  if (meta_ != NULL) meta_->::LocalFileMeta::Clear();
+  if (meta_ != NULL) meta_->::raft::LocalFileMeta::Clear();
   clear_has_meta();
 }
-inline const ::LocalFileMeta& LocalSnapshotPbMeta_File::meta() const {
+inline const ::raft::LocalFileMeta& LocalSnapshotPbMeta_File::meta() const {
   return meta_ != NULL ? *meta_ : *default_instance_->meta_;
 }
-inline ::LocalFileMeta* LocalSnapshotPbMeta_File::mutable_meta() {
+inline ::raft::LocalFileMeta* LocalSnapshotPbMeta_File::mutable_meta() {
   set_has_meta();
-  if (meta_ == NULL) meta_ = new ::LocalFileMeta;
+  if (meta_ == NULL) meta_ = new ::raft::LocalFileMeta;
   return meta_;
 }
-inline ::LocalFileMeta* LocalSnapshotPbMeta_File::release_meta() {
+inline ::raft::LocalFileMeta* LocalSnapshotPbMeta_File::release_meta() {
   clear_has_meta();
-  ::LocalFileMeta* temp = meta_;
+  ::raft::LocalFileMeta* temp = meta_;
   meta_ = NULL;
   return temp;
 }

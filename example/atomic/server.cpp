@@ -90,7 +90,7 @@ public:
             }
 
             if (done) {
-                return raft::run_closure_in_bthread(done_guard.release());
+                raft::run_closure_in_bthread(done_guard.release());
             }
         }
     }

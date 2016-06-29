@@ -19,6 +19,8 @@
 #include <raft/rocksdb.h>
 #endif // RAFT_ENABLE_ROCKSDB_STORAGE
 
+template <typename T> class scoped_refptr;
+
 namespace baidu {
 namespace rpc {
 class Server;
@@ -29,6 +31,7 @@ namespace raft {
 
 class SnapshotWriter;
 class SnapshotReader;
+class SnapshotHook;
 
 // Raft-specific closure which encloses a base::Status to report if the
 // operation was successful.
@@ -304,6 +307,10 @@ struct NodeOptions {
     // Describe a specific SnapshotStorage in format ${type}://${parameters}
     std::string snapshot_uri;
 
+    // If non-null, we will pass this snapshot_hook to SnapshotStorage
+    // Default: NULL
+    scoped_refptr<SnapshotHook> *snapshot_hook;
+
     // Construct a default instance
     NodeOptions();
 };
@@ -315,6 +322,7 @@ inline NodeOptions::NodeOptions()
     , pipelined_replication(false)
     , fsm(NULL)
     , node_owns_fsm(false)
+    , snapshot_hook(NULL)
 {}
 
 class NodeImpl;

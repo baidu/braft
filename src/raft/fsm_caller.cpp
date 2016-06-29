@@ -204,7 +204,7 @@ void FSMCaller::do_committed(int64_t committed_index) {
 
     IteratorImpl iter_impl(_fsm, _log_manager, &closure, first_closure_index,
                  last_applied_index, committed_index);
-    for (; iter_impl.is_good(); iter_impl.next()) {
+    for (; iter_impl.is_good();) {
         if (iter_impl.entry()->type != ENTRY_TYPE_DATA) {
             // For other entries, we have nothing to do besides flush the
             // pending tasks and run this closure to notify the caller that the
@@ -212,10 +212,16 @@ void FSMCaller::do_committed(int64_t committed_index) {
             if (iter_impl.done()) {
                 iter_impl.done()->Run();
             }
+            iter_impl.next();
             continue;
         }
         Iterator iter(&iter_impl);
         _fsm->on_apply(iter);
+        LOG_IF(ERROR, iter.valid()) 
+                << "Iterator is still valid, did you return before iterator "
+                   " reached the end";
+        // Try move to next in case that we pass the same log twice.
+        iter.next();
     }
     if (iter_impl.has_error()) {
         set_error(iter_impl.error());

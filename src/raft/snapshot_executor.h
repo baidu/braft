@@ -19,6 +19,7 @@
 
 namespace raft {
 class NodeImpl;
+class SnapshotHook;
 
 struct SnapshotExecutorOptions {
     SnapshotExecutorOptions();
@@ -30,6 +31,7 @@ struct SnapshotExecutorOptions {
     LogManager* log_manager;
     int64_t init_term;
     base::EndPoint addr;
+    scoped_refptr<SnapshotHook> snapshot_hook;
 };
 
 // Executing Snapshot related stuff

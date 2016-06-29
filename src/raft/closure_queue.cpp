@@ -49,7 +49,7 @@ void ClosureQueue::append_pending_closure(Closure* c) {
 }
 
 int ClosureQueue::pop_closure_until(int64_t index,
-                                std::vector<Closure*> *out, int64_t *out_first_index) {
+                                    std::vector<Closure*> *out, int64_t *out_first_index) {
     out->clear();
     BAIDU_SCOPED_LOCK(_mutex);
     if (_queue.empty() || index < _first_index) {
