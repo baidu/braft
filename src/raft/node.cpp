@@ -827,6 +827,8 @@ void NodeImpl::handle_election_timeout() {
     if (_state != STATE_FOLLOWER) {
         return;
     }
+    // Reset leader as the leader is uncerntain on election timeout.
+    _leader_id.reset();
     // check timestamp, skip one cycle check when trigger vote
     if (!_vote_triggered &&
         base::monotonic_time_ms() - _last_leader_timestamp < _options.election_timeout_ms) {
