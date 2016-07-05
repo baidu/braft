@@ -30,7 +30,7 @@ bvar::LatencyRecorder g_send_entries_latency("raft_send_entries");
 bvar::LatencyRecorder g_normalized_send_entries_latency("raft_send_entries_normalized");
 
 ReplicatorOptions::ReplicatorOptions()
-    : heartbeat_timeout_ms(-1)
+    : dynamic_heartbeat_timeout_ms(NULL)
     , log_manager(NULL)
     , commit_manager(NULL)
     , node(NULL)
@@ -77,7 +77,7 @@ int Replicator::start(const ReplicatorOptions& options, ReplicatorId *id) {
         return -1;
     }
     baidu::rpc::ChannelOptions channel_opt;
-    channel_opt.connect_timeout_ms = options.heartbeat_timeout_ms;
+    //channel_opt.connect_timeout_ms = *options.heartbeat_timeout_ms;
     channel_opt.timeout_ms = -1; // We don't need RPC timeout
     if (r->_sending_channel.Init(options.peer_id.addr, &channel_opt) != 0) {
         LOG(ERROR) << "Fail to init sending channel";
@@ -181,12 +181,12 @@ void Replicator::_block(long start_time_us, int /*error_code NOTE*/) {
     // fine now.
     const timespec due_time = base::milliseconds_from(
             base::microseconds_to_timespec(start_time_us), 
-            _options.heartbeat_timeout_ms);
+            *_options.dynamic_heartbeat_timeout_ms);
     raft_timer_t timer;
     const int rc = raft_timer_add(&timer, due_time, 
                                      _on_block_timedout, (void*)_id.value);
     RAFT_VLOG << "Blocking " << _options.peer_id << " for " 
-              << _options.heartbeat_timeout_ms << "ms";
+              << *_options.dynamic_heartbeat_timeout_ms << "ms";
     if (rc == 0) {
         CHECK_EQ(0, bthread_id_unlock(_id)) << "Fail to unlock " << _id;
         return;
@@ -636,7 +636,7 @@ void Replicator::_on_timedout(void* arg) {
 void Replicator::_start_heartbeat_timer(long start_time_us) {
     const timespec due_time = base::milliseconds_from(
             base::microseconds_to_timespec(start_time_us), 
-            _options.heartbeat_timeout_ms);
+            *_options.dynamic_heartbeat_timeout_ms);
     if (raft_timer_add(&_heartbeat_timer, due_time,
                        _on_timedout, (void*)_id.value) != 0) {
         _on_timedout((void*)_id.value);
@@ -688,14 +688,18 @@ ReplicatorGroupOptions::ReplicatorGroupOptions()
     , snapshot_storage(NULL)
 {}
 
-ReplicatorGroup::ReplicatorGroup() {}
+ReplicatorGroup::ReplicatorGroup() 
+    : _dynamic_timeout_ms(-1)
+{
+    _common_options.dynamic_heartbeat_timeout_ms = &_dynamic_timeout_ms;
+}
 
 ReplicatorGroup::~ReplicatorGroup() {
     stop_all();
 }
 
 int ReplicatorGroup::init(const NodeId& node_id, const ReplicatorGroupOptions& options) {
-    _common_options.heartbeat_timeout_ms = options.heartbeat_timeout_ms;
+    _dynamic_timeout_ms = options.heartbeat_timeout_ms;
     _common_options.log_manager = options.log_manager;
     _common_options.commit_manager = options.commit_manager;
     _common_options.node = options.node;
@@ -783,7 +787,7 @@ int ReplicatorGroup::reset_term(int64_t new_term) {
 }
 
 int ReplicatorGroup::reset_heartbeat_interval(int new_interval_ms) {
-    _common_options.heartbeat_timeout_ms = new_interval_ms;
+    _dynamic_timeout_ms = new_interval_ms;
     return 0;
 }
 

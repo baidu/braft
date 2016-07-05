@@ -25,7 +25,7 @@ class NodeImpl;
 
 struct ReplicatorOptions {
     ReplicatorOptions();
-    int heartbeat_timeout_ms;
+    int* dynamic_heartbeat_timeout_ms;
     GroupId group_id;
     PeerId server_id;
     PeerId peer_id;
@@ -192,6 +192,7 @@ private:
 
     std::map<PeerId, ReplicatorId> _rmap;
     ReplicatorOptions _common_options;
+    int _dynamic_timeout_ms;
 };
 
 }  // namespace raft

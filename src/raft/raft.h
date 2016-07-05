@@ -381,7 +381,8 @@ public:
     void snapshot(Closure* done);
 
     // user trigger vote
-    // reset election_timeout, suggest some peer to leader
+    // reset election_timeout, suggest some peer to become the leader in a
+    // higher probability
     void vote(int election_timeout);
 private:
     NodeImpl* _impl;

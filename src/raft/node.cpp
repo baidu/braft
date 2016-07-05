@@ -597,7 +597,7 @@ bool NodeImpl::unsafe_register_conf_change(const std::vector<PeerId>& old_peers,
         LOG(WARNING) << "[" << node_id() 
                      << " ] Refusing concurrent configuration changing";
         if (done) {
-            done->status().set_error(EINVAL, "Doing another configuration change");
+            done->status().set_error(EBUSY, "Doing another configuration change");
             run_closure_in_bthread(done);
         }
         return false;
@@ -857,13 +857,18 @@ void NodeImpl::handle_election_timeout() {
 
 void NodeImpl::vote(int election_timeout) {
     BAIDU_SCOPED_LOCK(_mutex);
+    _replicator_group.reset_heartbeat_interval(
+            heartbeat_timeout(_options.election_timeout_ms));
+    _options.election_timeout_ms = election_timeout;
+    if (_state != STATE_FOLLOWER) {
+        return;
+    }
 
     LOG(INFO) << "node " << _group_id << ":" << _server_id << " trigger-vote,"
         " current_term " << _current_term << " state " << state2str(_state) <<
         " election_timeout " << election_timeout;
 
     _vote_triggered = true;
-    _options.election_timeout_ms = election_timeout;
 
     int ret = raft_timer_del(_election_timer);
     if (ret == 0) {
@@ -1290,7 +1295,6 @@ void NodeImpl::become_leader() {
     _leader_id = _server_id;
 
     _replicator_group.reset_term(_current_term);
-    _replicator_group.reset_heartbeat_interval(heartbeat_timeout(_options.election_timeout_ms));
 
     std::vector<PeerId> peers;
     _conf.second.list_peers(&peers);
