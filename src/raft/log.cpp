@@ -12,6 +12,7 @@
 #include <base/string_printf.h>                     // base::string_appendf
 #include <base/time.h>
 #include <base/raw_pack.h>                          // base::RawPacker
+#include <base/fd_utility.h>                        // base::make_close_on_exec
 #include <baidu/rpc/reloadable_flags.h>             // 
 
 #include "raft/local_storage.pb.h"
@@ -84,6 +85,9 @@ int Segment::create() {
     }
 
     _fd = ::open(path.c_str(), O_RDWR | O_CREAT | O_TRUNC, 0644);
+    if (_fd >= 0) {
+        base::make_close_on_exec(_fd);
+    }
     LOG_IF(INFO, _fd >= 0) << "Created new segment `" << path 
                            << "' with fd=" << _fd ;
     return _fd >= 0 ? 0 : -1;
@@ -241,6 +245,7 @@ int Segment::load(ConfigurationManager* configuration_manager) {
         LOG(ERROR) << "Fail to open " << path << ", " << berror();
         return -1;
     }
+    base::make_close_on_exec(_fd);
 
     // get file size
     struct stat st_buf;

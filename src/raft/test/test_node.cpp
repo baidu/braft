@@ -826,9 +826,9 @@ TEST_F(RaftTestSuits, JoinNode) {
     // {peer0,peer1} add peer2
     leader->add_peer(peers, peer2, NEW_ADDPEERCLOSURE(&cond, 0));
     // concurrent configration change
-    leader->add_peer(peers, peer4, NEW_ADDPEERCLOSURE(&cond, EINVAL));
+    leader->add_peer(peers, peer4, NEW_ADDPEERCLOSURE(&cond, EBUSY));
     // new peer equal old configuration
-    leader->add_peer(peers, peer1, NEW_ADDPEERCLOSURE(&cond, EINVAL));
+    leader->add_peer(peers, peer1, NEW_ADDPEERCLOSURE(&cond, EBUSY));
     cond.Wait();
 
     cond.Init(2);

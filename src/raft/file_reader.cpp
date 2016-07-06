@@ -6,6 +6,7 @@
 
 #include "raft/file_reader.h"
 #include <base/fd_guard.h>          // base::fd_guard
+#include <base/fd_utility.h>
 #include <base/file_util.h>
 #include "raft/util.h"
 
@@ -31,6 +32,7 @@ int LocalDirReader::read_file(base::IOBuf* out,
     if (fd < 0) {
         return errno;
     }
+    base::make_close_on_exec(fd);
     base::IOPortal buf;
     ssize_t nread = file_pread(&buf, fd, offset, max_count);
     if (nread < 0) {

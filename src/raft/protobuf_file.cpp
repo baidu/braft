@@ -8,6 +8,7 @@
 #include <base/fd_guard.h>
 #include <base/file_util.h>
 #include <base/sys_byteorder.h>
+#include <base/fd_utility.h>
 
 #include "raft/protobuf_file.h"
 #include "raft/fsync.h"
@@ -29,7 +30,7 @@ int ProtoBufFile::save(const google::protobuf::Message* message, bool sync) {
         PLOG(WARNING) << "create tmp file failed, path: " << tmp_path;
         return -1;
     }
-
+    base::make_close_on_exec(fd);
     base::fd_guard guard(fd);
 
     // serialize msg

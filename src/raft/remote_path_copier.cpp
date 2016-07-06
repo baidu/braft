@@ -91,10 +91,12 @@ int RemotePathCopier::copy_to_file(
     }
     base::fd_guard fd(
             ::open(dest_path.c_str(), O_TRUNC | O_WRONLY | O_CREAT, 0644));
+    
     if (fd < 0) {
         PLOG(WARNING) << "Fail to open " << dest_path;
         return -1;
     }
+    base::make_close_on_exec(fd);
     off_t offset = 0;
     bool is_eof = false;
     while (!is_eof) {
