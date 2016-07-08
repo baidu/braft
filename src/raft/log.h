@@ -87,6 +87,7 @@ public:
         return _last_index.load(boost::memory_order_consume);
     }
 
+    std::string file_name();
 private:
 
     struct LogMeta {
@@ -182,6 +183,7 @@ public:
         return _segments;
     }
 
+    void list_files(std::vector<std::string>* seg_files);
 private:
     Segment* open_segment();
     int save_meta(const int64_t log_index);

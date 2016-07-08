@@ -506,6 +506,14 @@ int Segment::close() {
     return ret;
 }
 
+std::string Segment::file_name() {
+    if (!_is_open) {
+        return base::string_printf(RAFT_SEGMENT_CLOSED_PATTERN, _first_index, _last_index.load());
+    } else {
+        return base::string_printf(RAFT_SEGMENT_OPEN_PATTERN, _first_index);
+    }
+}
+
 static void* run_unlink(void* arg) {
     std::string* file_path = (std::string*) arg;
     base::Timer timer;
@@ -1115,6 +1123,15 @@ int SegmentLogStorage::get_segment(int64_t index, boost::shared_ptr<Segment>* pt
         *ptr = it->second;
     }
     return 0;
+}
+
+void SegmentLogStorage::list_files(std::vector<std::string>* seg_files) {
+    BAIDU_SCOPED_LOCK(_mutex);
+    seg_files->push_back(RAFT_SEGMENT_META_FILE);
+    for (SegmentMap::iterator it = _segments.begin(); it != _segments.end(); ++it) {
+        boost::shared_ptr<Segment>& segment = it->second;
+        seg_files->push_back(segment->file_name());
+    }
 }
 
 LogStorage* SegmentLogStorage::new_instance(const std::string& uri) const {
