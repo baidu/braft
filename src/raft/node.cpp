@@ -847,7 +847,7 @@ void NodeImpl::handle_election_timeout() {
     AddRef();
     int election_timeout = random_timeout(_options.election_timeout_ms);
     raft_timer_add(&_election_timer, base::milliseconds_from_now(election_timeout),
-                      on_election_timer, this);
+                   on_election_timer, this);
     RAFT_VLOG << "node " << _group_id << ":" << _server_id
         << " term " << _current_term << " restart election_timer";
 
@@ -1253,15 +1253,13 @@ void NodeImpl::step_down(const int64_t term) {
     // stop stagging new node
     _replicator_group.stop_all();
 
-    // no empty configuration, start election timer
-    if (!_conf.second.empty() && _conf.second.contains(_server_id)) {
-        AddRef();
-        int election_timeout = random_timeout(_options.election_timeout_ms);
-        raft_timer_add(&_election_timer, base::milliseconds_from_now(election_timeout),
-                          on_election_timer, this);
-        RAFT_VLOG << "node " << _group_id << ":" << _server_id
-            << " term " << _current_term << " start election_timer";
-    }
+    // start election timer
+    AddRef();
+    int election_timeout = random_timeout(_options.election_timeout_ms);
+    raft_timer_add(&_election_timer, base::milliseconds_from_now(election_timeout),
+                      on_election_timer, this);
+    RAFT_VLOG << "node " << _group_id << ":" << _server_id
+        << " term " << _current_term << " start election_timer";
 }
 
 class LeaderStartClosure : public Closure {
@@ -1434,19 +1432,6 @@ int NodeImpl::handle_pre_vote_request(const RequestVoteRequest* request,
 
     bool granted = false;
     do {
-        // check leader to tolerate network partitions:
-        //     1. leader always reject RequstVote
-        //     2. follower reject RequestVote before change to candidate
-        //if (!_leader_id.is_empty()) {
-        //    LOG(WARNING) << "node " << _group_id << ":" << _server_id
-        //        << " reject PreVote from " << request->server_id()
-        //        << " in term " << request->term()
-        //        << " current_term " << _current_term
-        //        << " current_leader " << _leader_id;
-        //    break;
-        //}
-
-        // check next term
         if (request->term() < _current_term) {
             // ignore older term
             LOG(INFO) << "node " << _group_id << ":" << _server_id
