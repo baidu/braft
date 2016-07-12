@@ -16,8 +16,6 @@
 
 namespace raft {
 
-extern bvar::Adder<int64_t> g_nentries;
-
 // Log indentifier
 struct LogId {
     LogId() : index(0), term(0) {}
@@ -34,33 +32,14 @@ public:
     std::vector<PeerId>* peers; // peers
     base::IOBuf data;
 
-    LogEntry(): type(ENTRY_TYPE_UNKNOWN), peers(NULL) {
-        // FIXME: Use log entry in the RAII way
-        g_nentries << 1;
-        AddRef();
-    }
+    LogEntry();
 
-    void add_peer(const std::vector<PeerId>& peers_) {
-        peers = new std::vector<PeerId>(peers_);
-    }
-    void set_data(const base::IOBuf &buf) {
-        if (!data.empty()) {
-            data.clear();
-            data.append(buf);
-        }
-    }
+    void set_data(const base::IOBuf &buf);
 
 private:
     DISALLOW_COPY_AND_ASSIGN(LogEntry);
     friend class base::RefCountedThreadSafe<LogEntry>;
-    // FIXME: Temporarily make dctor public to make it compilied
-    virtual ~LogEntry() {
-        g_nentries << -1;
-        if (peers) {
-            delete peers;
-            peers = NULL;
-        }
-    }
+    virtual ~LogEntry();
 };
 
 // Comparators
