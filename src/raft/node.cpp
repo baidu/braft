@@ -610,8 +610,8 @@ bool NodeImpl::unsafe_register_conf_change(const std::vector<PeerId>& old_peers,
     // check not equal
     if (!_conf.second.equals(old_peers)) {
         LOG(WARNING) << "[" << node_id() 
-                     << "] Refusing configuration changing based on"
-                        " wrong configuraiont";
+                     << "] Refusing configuration changing based on wrong configuraiont,"
+                     << " expect: " << _conf.second << " recv: " << Configuration(old_peers);
         if (done) {
             done->status().set_error(EINVAL, "old_peers dismatch");
             run_closure_in_bthread(done);

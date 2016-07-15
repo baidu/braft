@@ -34,8 +34,6 @@ public:
 
     LogEntry();
 
-    void set_data(const base::IOBuf &buf);
-
 private:
     DISALLOW_COPY_AND_ASSIGN(LogEntry);
     friend class base::RefCountedThreadSafe<LogEntry>;

@@ -24,11 +24,5 @@ LogEntry::~LogEntry() {
         peers = NULL;
     }
 }
-void LogEntry::set_data(const base::IOBuf &buf) {
-    if (!data.empty()) {
-        data.clear();
-        data.append(buf);
-    }
-}
 
 }
