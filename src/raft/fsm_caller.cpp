@@ -27,6 +27,8 @@ FSMCaller::FSMCaller()
     , _last_applied_term(0)
     , _after_shutdown(NULL)
     , _node(NULL)
+    , _cur_task(IDLE)
+    , _applying_index(0)
 {
 }
 
@@ -48,6 +50,7 @@ int FSMCaller::run(void* meta, bthread::TaskIterator<ApplyTask>& iter) {
             }
         } else {
             if (max_committed_index >= 0) {
+                caller->_cur_task = COMMITTED;
                 caller->do_committed(max_committed_index);
                 max_committed_index = -1;
             }
@@ -56,11 +59,13 @@ int FSMCaller::run(void* meta, bthread::TaskIterator<ApplyTask>& iter) {
                 CHECK(false) << "Impossible";
                 break;
             case SNAPSHOT_SAVE:
+                caller->_cur_task = SNAPSHOT_SAVE;
                 if (caller->pass_by_status(iter->done)) {
                     caller->do_snapshot_save((SaveSnapshotClosure*)iter->done);
                 }
                 break;
             case SNAPSHOT_LOAD:
+                caller->_cur_task = SNAPSHOT_LOAD;
                 // TODO: do we need to allow the snapshot loading to recover the
                 // StateMachine if possible?
                 if (caller->pass_by_status(iter->done)) {
@@ -68,18 +73,25 @@ int FSMCaller::run(void* meta, bthread::TaskIterator<ApplyTask>& iter) {
                 }
                 break;
             case LEADER_STOP:
+                caller->_cur_task = LEADER_STOP;
                 CHECK(!iter->done);
                 caller->do_leader_stop();
                 break;
             case ERROR:
+                caller->_cur_task = ERROR;
                 caller->do_on_error((OnErrorClousre*)iter->done);
+                break;
+            case IDLE:
+                CHECK(false) << "Can't reach here";
                 break;
             };
         }
     }
     if (max_committed_index >= 0) {
+        caller->_cur_task = COMMITTED;
         caller->do_committed(max_committed_index);
     }
+    caller->_cur_task = IDLE;
     return 0;
 }
 
@@ -203,7 +215,7 @@ void FSMCaller::do_committed(int64_t committed_index) {
                                                   &first_closure_index));
 
     IteratorImpl iter_impl(_fsm, _log_manager, &closure, first_closure_index,
-                 last_applied_index, committed_index);
+                 last_applied_index, committed_index, &_applying_index);
     for (; iter_impl.is_good();) {
         if (iter_impl.entry()->type != ENTRY_TYPE_DATA) {
             // For other entries, we have nothing to do besides flush the
@@ -327,14 +339,41 @@ void FSMCaller::do_leader_stop() {
     _fsm->on_leader_stop();
 }
 
-void FSMCaller::describe(std::ostream &/*os*/, bool /*use_html*/) {
+void FSMCaller::describe(std::ostream &os, bool use_html) {
+    const char* newline = (use_html) ? "<br>" : "\n";
+    TaskType cur_task = _cur_task;
+    const int64_t applying_index = _applying_index.load(
+                                    boost::memory_order_relaxed);
+    os << "state_machine: ";
+    switch (cur_task) {
+    case IDLE:
+        os << "Idle";
+        break;
+    case COMMITTED:
+        os << "Applying log_index=" << applying_index;
+        break;
+    case SNAPSHOT_SAVE:
+        os << "Saving snapshot";
+        break;
+    case SNAPSHOT_LOAD:
+        os << "Loading snapshot";
+        break;
+    case ERROR:
+        os << "Notifying error";
+        break;
+    case LEADER_STOP:
+        os << "Notifying leader stop";
+        break;
+    }
+    os << newline;
 }
 
 IteratorImpl::IteratorImpl(StateMachine* sm, LogManager* lm,
                           std::vector<Closure*> *closure, 
                           int64_t first_closure_index,
                           int64_t last_applied_index, 
-                          int64_t committed_index)
+                          int64_t committed_index,
+                          boost::atomic<int64_t>* applying_index)
         : _sm(sm)
         , _lm(lm)
         , _closure(closure)
@@ -342,6 +381,7 @@ IteratorImpl::IteratorImpl(StateMachine* sm, LogManager* lm,
         , _cur_index(last_applied_index)
         , _committed_index(committed_index)
         , _cur_entry(NULL)
+        , _applying_index(applying_index)
 { next(); }
 
 void IteratorImpl::next() {
@@ -360,6 +400,7 @@ void IteratorImpl::next() {
                         "while committed_index=%ld",
                         _cur_index, _committed_index);
             }
+            _applying_index->store(_cur_index, boost::memory_order_relaxed);
         }
     }
 }

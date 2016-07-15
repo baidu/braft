@@ -43,7 +43,8 @@ private:
                  std::vector<Closure*> *closure,
                  int64_t first_closure_index,
                  int64_t last_applied_index,
-                 int64_t committed_index);
+                 int64_t committed_index,
+                 boost::atomic<int64_t>* applying_index);
     ~IteratorImpl() {}
 friend class FSMCaller;
     StateMachine* _sm;
@@ -53,6 +54,7 @@ friend class FSMCaller;
     int64_t _cur_index;
     int64_t _committed_index;
     LogEntry* _cur_entry;
+    boost::atomic<int64_t>* _applying_index;
     Error _error;
 };
 
@@ -104,6 +106,7 @@ private:
 friend class IteratorImpl;
 
     enum TaskType {
+        IDLE,
         COMMITTED,
         SNAPSHOT_SAVE,
         SNAPSHOT_LOAD,
@@ -142,6 +145,8 @@ friend class IteratorImpl;
     int64_t _last_applied_term;
     google::protobuf::Closure* _after_shutdown;
     NodeImpl* _node;
+    TaskType _cur_task;
+    boost::atomic<int64_t> _applying_index;
     Error _error;
 };
 

@@ -24,6 +24,18 @@ static const char* s_libraft_version = "libraft_version_" __RAFT_VERSION_ID__;
 static const char* s_libraft_version = "libraft_version_unknown";
 #endif  // __RAFT_VERSION_ID__
 
+static void print_revision(std::ostream& os, void*) {
+#if defined(RAFT_REVISION)
+        os << RAFT_REVISION;
+#else
+        os << "undefined";
+#endif
+}
+
+static bvar::PassiveStatus<std::string> s_raft_revision(
+        "raft_revision", print_revision, NULL);
+
+
 static pthread_once_t global_init_once = PTHREAD_ONCE_INIT;
 
 struct GlobalExtension {
