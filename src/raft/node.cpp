@@ -400,6 +400,7 @@ int NodeImpl::execute_applying_tasks(
 
 void NodeImpl::apply(const Task& task) {
     LogEntry* entry = new LogEntry;
+    entry->AddRef();
     entry->data.swap(*task.data);
     LogEntryAndClosure m;
     m.entry = entry;
@@ -1397,6 +1398,7 @@ void NodeImpl::unsafe_apply_configuration(const Configuration& new_conf,
                                           Closure* done) {
     CHECK(!_conf_ctx.empty());
     LogEntry* entry = new LogEntry();
+    entry->AddRef();
     entry->id.term = _current_term;
     entry->type = ENTRY_TYPE_CONFIGURATION;
     entry->peers = new std::vector<PeerId>;
@@ -1717,6 +1719,7 @@ void NodeImpl::handle_append_entries_request(baidu::rpc::Controller* cntl,
         const EntryMeta& entry = request->entries(i);
         if (entry.type() != ENTRY_TYPE_UNKNOWN) {
             LogEntry* log_entry = new LogEntry();
+            log_entry->AddRef();
             log_entry->id.term = entry.term();
             log_entry->id.index = index;
             log_entry->type = (EntryType)entry.type();

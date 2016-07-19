@@ -433,6 +433,7 @@ LogEntry* Segment::get(const int64_t index) const {
         }
         CHECK_EQ(meta.term, header.term);
         entry = new LogEntry();
+        entry->AddRef();
         switch (header.type) {
         case ENTRY_TYPE_DATA:
             entry->data.swap(data);
