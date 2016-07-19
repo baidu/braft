@@ -220,8 +220,8 @@ int Block::on_snapshot_load(raft::SnapshotReader* reader) {
     return 0;
 }
 
-void Block::on_leader_start() {
-    LOG(INFO) << "on_leader_start, can accept get";
+void Block::on_leader_start(int64_t term) {
+    LOG(INFO) << "on_leader_start at term: " << term << ", can accept get";
     _is_leader = true;
 }
 

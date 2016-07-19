@@ -352,7 +352,8 @@ public:
         return 0;
     }
 
-    void on_leader_start() {
+    void on_leader_start(int64_t term) {
+        LOG(INFO) << "leader start at term: " << term;
         _is_leader.store(true, boost::memory_order_release);
     }
     void on_leader_stop() {

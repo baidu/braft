@@ -1264,16 +1264,17 @@ void NodeImpl::step_down(const int64_t term) {
 
 class LeaderStartClosure : public Closure {
 public:
-    LeaderStartClosure(StateMachine* fsm) : _fsm(fsm) {}
+    LeaderStartClosure(StateMachine* fsm, int64_t term) : _fsm(fsm), _term(term) {}
     ~LeaderStartClosure() {}
     void Run() {
         if (status().ok()) {
-            _fsm->on_leader_start();
+            _fsm->on_leader_start(_term);
         }
         delete this;
     }
 private:
     StateMachine* _fsm;
+    int64_t _term;
 };
 
 // in lock
@@ -1316,7 +1317,7 @@ void NodeImpl::become_leader() {
     CHECK(_conf_ctx.empty());
     _conf.second.list_peers(&_conf_ctx.peers);
     unsafe_apply_configuration(_conf.second, 
-                               new LeaderStartClosure(_options.fsm));
+                               new LeaderStartClosure(_options.fsm, _current_term));
 
     AddRef();
     int stepdown_timeout = _options.election_timeout_ms;

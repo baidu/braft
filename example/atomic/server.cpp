@@ -135,7 +135,8 @@ public:
     }
 
     // Acutally we don't care now
-    void on_leader_start() {
+    void on_leader_start(int64_t term) {
+        LOG(INFO) << "leader start at term: " << term;
         BAIDU_SCOPED_LOCK(_mutex);
         _is_leader = true;
     }

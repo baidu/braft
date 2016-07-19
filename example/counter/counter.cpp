@@ -135,8 +135,8 @@ int Counter::on_snapshot_load(raft::SnapshotReader* reader) {
     return ret;
 }
 
-void Counter::on_leader_start() {
-    LOG(INFO) << "on_leader_start, can accept get";
+void Counter::on_leader_start(int64_t term) {
+    LOG(INFO) << "on_leader_start at term: " << term << ", can accept get";
     _is_leader = true;
 }
 
