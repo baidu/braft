@@ -211,8 +211,10 @@ public:
     // user defined leader start function
     // [NOTE] user can direct append to node ignore this callback.
     //        this callback can sure read consistency, after leader's first NO_OP committed
+    virtual void on_leader_start() {}
     virtual void on_leader_start(int64_t term) {
-        term = term;
+        (void)term;
+        on_leader_start();
     }
 
     // user defined leader start function
