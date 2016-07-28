@@ -22,6 +22,8 @@
 
 namespace raft {
 
+static bvar::Adder<int64_t> g_num_nodes("raft_node_count");
+
 class ConfigurationChangeDone : public Closure {
 public:
     void Run() {
@@ -88,10 +90,10 @@ NodeImpl::NodeImpl(const GroupId& group_id, const PeerId& peer_id)
     , _vote_triggered(false) {
         _server_id = peer_id;
         AddRef();
+    g_num_nodes << 1;
 }
 
 NodeImpl::~NodeImpl() {
-    
     if (_apply_queue) {
         // Wait until no flying task
         _apply_queue->stop();
@@ -137,6 +139,7 @@ NodeImpl::~NodeImpl() {
         delete _options.fsm;
         _options.fsm = NULL;
     }
+    g_num_nodes << -1;
 }
 
 int NodeImpl::init_snapshot_storage() {

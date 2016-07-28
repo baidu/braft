@@ -9,7 +9,7 @@
 #include <baidu/rpc/server.h>
 #include "raft/file_service.h"
 #include "raft/util.h"
-#include "raft/remote_path_copier.h"
+#include "raft/remote_file_copier.h"
 
 class FileServiceTest : public testing::Test {
 protected:
@@ -32,7 +32,7 @@ TEST_F(FileServiceTest, sanity) {
     ASSERT_EQ(0, raft::file_service_add(reader.get(), &reader_id));
     std::string uri;
     base::string_printf(&uri, "remote://127.0.0.1:60006/%ld", reader_id);
-    raft::RemotePathCopier copier;
+    raft::RemoteFileCopier copier;
     ASSERT_NE(0, copier.init("local://127.0.0.1:60006/123456"));
     ASSERT_NE(0, copier.init("remote://127.0.0.1:60006//123456"));
     ASSERT_NE(0, copier.init("remote://127.0.1:60006//123456"));
@@ -81,7 +81,7 @@ TEST_F(FileServiceTest, hole_file) {
     int64_t reader_id = 0;
     ASSERT_EQ(0, raft::file_service_add(reader.get(), &reader_id));
 
-    raft::RemotePathCopier copier;
+    raft::RemoteFileCopier copier;
     std::string uri;
     base::string_printf(&uri, "remote://127.0.0.1:60006/%ld", reader_id);
     // normal init

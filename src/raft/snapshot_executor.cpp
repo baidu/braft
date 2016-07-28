@@ -80,10 +80,10 @@ SnapshotExecutor::SnapshotExecutor()
     : _last_snapshot_term(0)
     , _last_snapshot_index(0)
     , _term(0)
-    , _version(0)
     , _saving_snapshot(false)
     , _loading_snapshot(false)
     , _snapshot_storage(NULL)
+    , _cur_copier(NULL)
     , _fsm_caller(NULL)
     , _node(NULL)
     , _log_manager(NULL)
@@ -161,7 +161,7 @@ int SnapshotExecutor::on_snapshot_save_done(
                 << " discard saved snapshot, because has a newer snapshot."
                 << " last_included_index " << meta.last_included_index()
                 << " last_snapshot_index " << _last_snapshot_index;
-            writer->set_error(ESTALE, "snapshot is staled, maybe InstallSnapshot when snapshot");
+            writer->set_error(ESTALE, "Installing snapshot is older than local snapshot");
         }
     }
     lck.unlock();
@@ -203,7 +203,10 @@ void SnapshotExecutor::on_snapshot_load_done(const base::Status& st) {
         _last_snapshot_term = _loading_snapshot_meta.last_included_term();
         _log_manager->set_snapshot(&_loading_snapshot_meta);
     }
-    LOG(INFO) << "node " << _node->node_id() << " snapshot_load_done,"
+    if (_node) {
+        LOG(INFO) << "node " << _node->node_id() << ' ' << noflush;
+    }
+    LOG(INFO) << " snapshot_load_done,"
               << _loading_snapshot_meta.ShortDebugString();
     lck.unlock();
     if (_node) {
@@ -287,6 +290,7 @@ int SnapshotExecutor::init(const SnapshotExecutorOptions& options) {
     _log_manager = options.log_manager;
     _fsm_caller = options.fsm_caller;
     _node = options.node;
+    _term = options.init_term;
 
     _snapshot_storage = SnapshotStorage::create(options.uri);
     if (!_snapshot_storage) {
@@ -344,8 +348,7 @@ void SnapshotExecutor::install_snapshot(baidu::rpc::Controller* cntl,
     ds->response = response;
     ds->request = request;
     const std::string saved_uri = request->uri();
-    int64_t saved_version = 0;
-    ret = register_downloading_snapshot(ds.get(), &saved_version);
+    ret = register_downloading_snapshot(ds.get());
     //    ^^^ DON'T access request, response, done and cntl after this point
     //        as the retry snapshot will replace this one.
     if (ret != 0) {
@@ -358,26 +361,36 @@ void SnapshotExecutor::install_snapshot(baidu::rpc::Controller* cntl,
     }
     // Release done first as this RPC might be replaced by the retry one
     done_guard.release();
-
-    SnapshotReader* reader = _snapshot_storage->copy_from(request->uri());
-    return load_downloading_snapshot(ds.release(), meta, saved_version, reader);
+    CHECK(_cur_copier);
+    _cur_copier->join();
+    return load_downloading_snapshot(ds.release(), meta);
 }
 
 void SnapshotExecutor::load_downloading_snapshot(DownloadingSnapshot* ds,
-                                                const SnapshotMeta& meta,
-                                                int64_t expected_version,
-                                                SnapshotReader* reader) {
+                                                const SnapshotMeta& meta) {
     std::unique_ptr<DownloadingSnapshot> ds_guard(ds);
     std::unique_lock<raft_mutex_t> lck(_mutex);
-    if (expected_version != _version) {
-        // The RPC was responded where the version changed
+    CHECK_EQ(ds, _downloading_snapshot.load(boost::memory_order_relaxed));
+    baidu::rpc::ClosureGuard done_guard(ds->done);
+    CHECK(_cur_copier);
+    SnapshotReader* reader = _cur_copier->get_reader();
+    if (!_cur_copier->ok()) {
+        if (_cur_copier->error_code() == EIO) {
+            report_error(_cur_copier->error_code(), 
+                         "%s", _cur_copier->error_cstr());
+        }
         if (reader) {
             _snapshot_storage->close(reader);
         }
+        ds->cntl->SetFailed(_cur_copier->error_code(), "%s",
+                            _cur_copier->error_cstr());
+        _snapshot_storage->close(_cur_copier);
+        // Release the lock before responding the RPC
+        lck.unlock();
         return;
     }
-    CHECK_EQ(ds, _downloading_snapshot.load(boost::memory_order_relaxed));
-    baidu::rpc::ClosureGuard done_guard(ds->done);
+    _snapshot_storage->close(_cur_copier);
+    _cur_copier = NULL;
     if (reader == NULL || !reader->ok()) {
         if (reader) {
             _snapshot_storage->close(reader);
@@ -406,10 +419,11 @@ void SnapshotExecutor::load_downloading_snapshot(DownloadingSnapshot* ds,
     }
 }
 
-int SnapshotExecutor::register_downloading_snapshot(DownloadingSnapshot* ds,
-                                                   int64_t* saved_version) {
+int SnapshotExecutor::register_downloading_snapshot(DownloadingSnapshot* ds) {
     std::unique_lock<raft_mutex_t> lck(_mutex);
     if (ds->request->term() != _term) {
+        LOG(INFO) << "request_term=" << ds->request->term()
+                  << " _term=" << _term;
         ds->response->set_success(false);
         ds->response->set_term(_term);
         return -1;
@@ -427,8 +441,16 @@ int SnapshotExecutor::register_downloading_snapshot(DownloadingSnapshot* ds,
     DownloadingSnapshot* m = _downloading_snapshot.load(
             boost::memory_order_relaxed);
     if (!m) {
-        *saved_version = _version;
         _downloading_snapshot.store(ds, boost::memory_order_relaxed);
+        // Now this session has the right to download the snapshot.
+        CHECK(!_cur_copier);
+        _cur_copier = _snapshot_storage->start_to_copy_from(ds->request->uri());
+        if (_cur_copier == NULL) {
+            lck.unlock();
+            ds->cntl->SetFailed(EINVAL, "Fail to copy from , %s",
+                                ds->request->uri().c_str());
+            return -1;
+        }
         return 0;
     }
     int rc = 0;
@@ -458,17 +480,17 @@ int SnapshotExecutor::register_downloading_snapshot(DownloadingSnapshot* ds,
             ds->cntl->SetFailed(EBUSY, "A former snapshot is under loading");
             return -1;
         }
-        // Copy |*ds| to |*m| so that the fomer downloading thread would respond
-        // this RPC.
-        has_saved = true;
-        saved = *m;
-        *m = *ds;
-        *saved_version = ++_version;
+        CHECK(_cur_copier);
+        _cur_copier->cancel();
+        ds->cntl->SetFailed(EBUSY, "A former snapshot is under installing, "
+                                   " trying to cancel");
+        return -1;
     }
     lck.unlock();
     if (has_saved) {
         // Respond replaced session
-        saved.cntl->SetFailed(EINTR, "Interrupted by another snapshot");
+        saved.cntl->SetFailed(
+                EINTR, "Interrupted by the retry InstallSnapshotRequest");
         saved.done->Run();
     }
     return rc;
@@ -478,7 +500,6 @@ void SnapshotExecutor::interrupt_downloading_snapshot(int64_t new_term) {
     std::unique_lock<raft_mutex_t> lck(_mutex);
     CHECK_GE(new_term, _term);
     _term = new_term;
-    ++_version;
     if (!_downloading_snapshot.load(boost::memory_order_relaxed)) {
         return;
     }
@@ -486,13 +507,11 @@ void SnapshotExecutor::interrupt_downloading_snapshot(int64_t new_term) {
         // We can't interrupt loading
         return;
     }
-    DownloadingSnapshot saved = 
-            *_downloading_snapshot.load(boost::memory_order_relaxed);
-    _downloading_snapshot.store(NULL, boost::memory_order_release);
-    lck.unlock();
-    saved.response->set_term(new_term);
-    saved.response->set_success(false);
-    saved.done->Run();
+    CHECK(_cur_copier);
+    _cur_copier->cancel();
+    LOG(INFO) << "Trying to cancel downloading snapshot : " 
+              << _downloading_snapshot.load(boost::memory_order_relaxed)
+                 ->request->ShortDebugString();
 }
 
 void SnapshotExecutor::report_error(int error_code, const char* fmt, ...) {

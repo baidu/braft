@@ -356,7 +356,7 @@ public:
     // apply task to the replicated-state-machine
     //
     // About the ownership:
-    // |task.data|: for the performance consideration, we will take way the 
+    // |task.data|: for the performance consideration, we will take away the 
     //              content. If you want keep the content, copy it before call
     //              this function
     // |task.done|: If the data is successfully committed to the raft group. We

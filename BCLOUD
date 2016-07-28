@@ -7,6 +7,7 @@ CPPFLAGS('-D_GNU_SOURCE -D__const__= -DNDEBUG')
 CFLAGS('-O2 -g -pipe -Werror -Wall -W -fPIC -Wno-unused-parameter -Wno-strict-aliasing')
 CXXFLAGS('-O2 -g -pipe -Werror -Wall -W -fPIC -Wno-unused-parameter -Wno-strict-aliasing -Wno-invalid-offsetof -D__STDC_CONSTANT_MACROS ')
 CPPFLAGS(' -DRAFT_REVISION=\\"%s\\"' % SVN_LAST_CHANGED_REV())
+CPPFLAGS('-fno-omit-frame-pointer')
 
 if COMPILER_VERSION() == 'gcc482':
     print "gcc482"

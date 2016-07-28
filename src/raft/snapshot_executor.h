@@ -62,9 +62,9 @@ public:
     //    a new RPC with the same or newer snapshot arrives
     //  - Busy: the state machine is saving or loading snapshot
     void install_snapshot(baidu::rpc::Controller* controller,
-                         const InstallSnapshotRequest* request,
-                         InstallSnapshotResponse* response,
-                         google::protobuf::Closure* done);
+                          const InstallSnapshotRequest* request,
+                          InstallSnapshotResponse* response,
+                          google::protobuf::Closure* done);
 
     // Interrupt the downloading if possible.
     // This is called when the term of node increased to |new_term|, which
@@ -112,26 +112,22 @@ friend class InstallSnapshotDone;
         google::protobuf::Closure* done;
     };
 
-    int register_downloading_snapshot(DownloadingSnapshot* ds,
-                                     int64_t* saved_version);
+    int register_downloading_snapshot(DownloadingSnapshot* ds);
     int parse_install_snapshot_request(
             const InstallSnapshotRequest* request,
             SnapshotMeta* meta);
     void load_downloading_snapshot(DownloadingSnapshot* ds,
-                                  const SnapshotMeta& meta,
-                                  int64_t expected_version,
-                                  SnapshotReader* reader);
+                                  const SnapshotMeta& meta);
     void report_error(int error_code, const char* fmt, ...);
 
     raft_mutex_t _mutex;
     int64_t _last_snapshot_term;
     int64_t _last_snapshot_index;
-    // TODO: unify _term and _version
     int64_t _term;
-    int64_t _version;
     bool _saving_snapshot;
     bool _loading_snapshot;
     SnapshotStorage* _snapshot_storage;
+    SnapshotCopier* _cur_copier;
     FSMCaller* _fsm_caller;
     NodeImpl* _node;
     LogManager* _log_manager;

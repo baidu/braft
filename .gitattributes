@@ -285,8 +285,8 @@ src/raft/raft.pb.cc -text
 src/raft/raft.pb.h -text
 src/raft/raft_service.cpp -text
 src/raft/raft_service.h -text
-src/raft/remote_path_copier.cpp -text
-src/raft/remote_path_copier.h -text
+src/raft/remote_file_copier.cpp -text
+src/raft/remote_file_copier.h -text
 src/raft/replicator.cpp -text
 src/raft/replicator.h -text
 src/raft/snapshot.cpp -text
@@ -313,6 +313,7 @@ src/raft/test/test_log_manager.cpp -text
 src/raft/test/test_node.cpp -text
 src/raft/test/test_protobuf_file.cpp -text
 src/raft/test/test_snapshot.cpp -text
+src/raft/test/test_snapshot_executor.cpp -text
 src/raft/test/test_stable.cpp -text
 src/raft/test/test_storage.cpp -text
 src/raft/test/test_timer.cpp -text

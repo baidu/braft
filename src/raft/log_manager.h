@@ -47,7 +47,7 @@ public:
     };
 
     LogManager();
-    ~LogManager();
+    RAFT_MOCK ~LogManager();
     int init(const LogManagerOptions& options);
 
     void shutdown();
@@ -58,12 +58,12 @@ public:
 
     // Notify the log manager about the latest snapshot, which indicates the
     // logs which can be safely truncated.
-    void set_snapshot(const SnapshotMeta* meta);
+    RAFT_MOCK void set_snapshot(const SnapshotMeta* meta);
 
     // We don't delete all the logs before last snapshot to avoid installing
     // snapshot on slow replica. Call this method to drop all the logs before
     // last snapshot immediately.
-    void clear_bufferred_logs();
+    RAFT_MOCK void clear_bufferred_logs();
 
     // Get the log at |index|
     // Returns:

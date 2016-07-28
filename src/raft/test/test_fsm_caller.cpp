@@ -128,6 +128,7 @@ TEST_F(FSMCallerTest, sanity) {
     for (size_t i = 0; i < N; ++i) {
         std::vector<raft::LogEntry*> entries;
         raft::LogEntry* entry = new raft::LogEntry;
+        entry->AddRef();
         entry->type = raft::ENTRY_TYPE_DATA;
         std::string buf;
         base::string_printf(&buf, "hello_%lu", i);

@@ -34,7 +34,7 @@ TEST_F(TestUsageSuits, LogEntry) {
     peers.push_back(raft::PeerId("1.2.3.4:2000"));
     peers.push_back(raft::PeerId("1.2.3.4:3000"));
     entry->type = raft::ENTRY_TYPE_CONFIGURATION;
-    entry->add_peer(peers);
+    entry->peers = new std::vector<raft::PeerId>(peers);
 
     entry->AddRef();
     entry->Release();
@@ -44,8 +44,8 @@ TEST_F(TestUsageSuits, LogEntry) {
     entry->type = raft::ENTRY_TYPE_DATA;
     base::IOBuf buf;
     buf.append("hello, world");
-    entry->set_data(buf);
-    entry->set_data(buf);
+    entry->data = buf;
+    entry->data = buf;
 
     entry->Release();
 }

@@ -164,6 +164,18 @@ public:
     virtual std::string generate_uri_for_copy() = 0;
 };
 
+// Copy Snapshot from the given resource
+class SnapshotCopier : public base::Status {
+public:
+    virtual ~SnapshotCopier() {}
+    // Cancel the copy job
+    virtual void cancel() = 0;
+    // Block the thread until this copy job finishes, or some error occurs.
+    virtual void join() = 0;
+    // Get the the SnapshotReader which represents the copied Snapshot
+    virtual SnapshotReader* get_reader() = 0;
+};
+
 class SnapshotHook;
 
 class SnapshotStorage {
@@ -193,6 +205,8 @@ public:
 
     // Copy snapshot from uri and open it as a SnapshotReader
     virtual SnapshotReader* copy_from(const std::string& uri) WARN_UNUSED_RESULT = 0;
+    virtual SnapshotCopier* start_to_copy_from(const std::string& uri) = 0;
+    virtual int close(SnapshotCopier* copier) = 0;
 
     virtual SnapshotStorage* new_instance(const std::string& uri) const WARN_UNUSED_RESULT = 0;
     static SnapshotStorage* create(const std::string& uri);

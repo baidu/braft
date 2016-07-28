@@ -12,7 +12,7 @@
 #include "raft/util.h"
 #include "raft/protobuf_file.h"
 #include "raft/local_storage.pb.h"
-#include "raft/remote_path_copier.h"
+#include "raft/remote_file_copier.h"
 #include "raft/snapshot.h"
 #include "raft/node.h"
 #include "raft/file_service.h"
@@ -139,22 +139,6 @@ int LocalSnapshotMetaTable::get_file_meta(const std::string& filename,
     }
     return 0;
 }
-
-// Describe the Snapshot on another machine
-class LocalSnapshot : public Snapshot {
-friend class LocalSnapshotStorage;
-public:
-    // Get the path of the Snapshot
-    virtual std::string get_path();
-    // List all the existing files in the Snapshot currently
-    virtual void list_files(std::vector<std::string> *files);
-    // Get the implementation-defined file_meta
-    virtual int get_file_meta(const std::string& filename, 
-                              ::google::protobuf::Message* file_meta);
-private:
-    LocalSnapshotMetaTable _meta_table;
-};
-
 
 std::string LocalSnapshot::get_path() { return std::string(); }
 
@@ -370,8 +354,8 @@ void LocalSnapshotReader::destroy_reader_in_file_service() {
 
 LocalSnapshotStorage::LocalSnapshotStorage(const std::string& path)
     : _path(path)
-    , _last_snapshot_index(0) {
-}
+    , _last_snapshot_index(0)
+{}
 
 LocalSnapshotStorage::~LocalSnapshotStorage() {
 }
@@ -513,89 +497,32 @@ SnapshotWriter* LocalSnapshotStorage::create(bool from_empty) {
     return writer;
 }
 
+SnapshotCopier* LocalSnapshotStorage::start_to_copy_from(const std::string& uri) {
+    LocalSnapshotCopier* copier = new LocalSnapshotCopier();
+    if (copier->init(uri) != 0) {
+        LOG(ERROR) << "Fail to init copier to " << uri;
+        return NULL;
+    }
+    copier->_storage = this;
+    copier->_hook = _hook.get();
+    copier->start();
+    return copier;
+}
+
+int LocalSnapshotStorage::close(SnapshotCopier* copier) {
+    delete copier;
+    return 0;
+}
+
 SnapshotReader* LocalSnapshotStorage::copy_from(const std::string& uri) {
-    // TODO(chenzhangyi01): Refactor this implementation as it's too messy
-    RemotePathCopier copier;
-    if (copier.init(uri) != 0) {
-        LOG(WARNING) << "Fail to init RemotePathCopier to " << uri;
+    SnapshotCopier* c = start_to_copy_from(uri);
+    if (c == NULL) {
         return NULL;
     }
-    base::IOBuf meta_buf;
-    if (copier.copy_to_iobuf(RAFT_SNAPSHOT_META_FILE, &meta_buf, NULL) != 0) {
-        LOG(WARNING) << "Fail to copy";
-        return NULL;
-    }
-
-    LocalSnapshotMetaTable meta_table;
-    if (meta_table.load_from_iobuf_as_remote(meta_buf) != 0) {
-        LOG(WARNING) << "Bad meta_table format";
-        return NULL;
-    }
-    CHECK(meta_table.has_meta());
-    std::vector<std::string> files;
-    LocalSnapshotWriter* writer = (LocalSnapshotWriter*)create(_hook != NULL);
-    if (writer == NULL) {
-        return NULL;
-    }
-    LocalSnapshot remote_snapshot;
-    remote_snapshot._meta_table.swap(meta_table);
-
-    if (_hook) {
-        SnapshotReader* reader = open();
-        if (_hook->filter_before_copy(writer, reader, &remote_snapshot) != 0) {
-            LOG(WARNING) << "Fail to filter writer before copying"
-                         << " destroy and create a new writer";
-            writer->set_error(-1, "Fail to filter");
-            close(writer, false);
-            writer = (LocalSnapshotWriter*)create(true);
-        }
-        if (reader) {
-            close(reader);
-        }
-        if (writer == NULL) {
-            return NULL;
-        }
-    }
-
-    writer->save_meta(remote_snapshot._meta_table.meta());
-    if (writer->sync() != 0) {
-        close(writer, false);
-        return NULL;
-    }
-
-    remote_snapshot.list_files(&files);
-
-    for (size_t i = 0; i < files.size(); ++i) {
-        if (writer->get_file_meta(files[i], NULL) == 0) {
-            LOG(INFO) << "Skipped downloading " << files[i];
-            continue;
-        }
-        std::string file_path = writer->get_path() + '/' + files[i];
-        LocalFileMeta meta;
-        remote_snapshot.get_file_meta(files[i], &meta);
-        if (copier.copy_to_file(files[i], file_path, NULL) != 0) {
-            LOG(WARNING) << "Fail to copy " << files[i];
-            writer->set_error(-1, "Fail to copy %s", files[i].c_str());
-            close(writer);
-            return NULL;
-        }
-        if (writer->add_file(files[i], &meta) != 0) {
-            if (writer->ok()) {
-                writer->set_error(-1, "Fail to add file=", files[i].c_str());
-            }
-            close(writer, _hook != NULL);
-            return NULL;
-        }
-        if (writer->sync() != 0) {
-            close(writer, false);
-            return NULL;
-        }
-    }
-
-    if (close(writer, _hook != NULL) != 0) {
-        return NULL;
-    }
-    return open();
+    c->join();
+    SnapshotReader* reader = c->get_reader();
+    close(c);
+    return reader;
 }
 
 int LocalSnapshotStorage::close(SnapshotWriter* writer) {
@@ -701,6 +628,181 @@ int LocalSnapshotStorage::set_hook(SnapshotHook* hook) {
 
 SnapshotStorage* LocalSnapshotStorage::new_instance(const std::string& uri) const {
     return new LocalSnapshotStorage(uri);
+}
+
+// LocalSnapshotCopier
+
+LocalSnapshotCopier::LocalSnapshotCopier() 
+    : _tid(INVALID_BTHREAD)
+    , _cancelled(false)
+    , _hook(NULL)
+    , _storage(NULL)
+    , _reader(NULL)
+    , _cur_session(NULL)
+{}
+
+LocalSnapshotCopier::~LocalSnapshotCopier() {
+    CHECK(!_writer);
+}
+
+void *LocalSnapshotCopier::start_copy(void* arg) {
+    LocalSnapshotCopier* c = (LocalSnapshotCopier*)arg;
+    c->copy();
+    return NULL;
+}
+
+void LocalSnapshotCopier::copy() {
+    do {
+        load_meta_table();
+        if (!ok()) {
+            break;
+        }
+        filter();
+        if (!ok()) {
+            break;
+        }
+        std::vector<std::string> files;
+        _remote_snapshot.list_files(&files);
+        for (size_t i = 0; i < files.size() && ok(); ++i) {
+            copy_file(files[i]);
+        }
+    } while (0);
+    if (!ok() && _writer && _writer->ok()) {
+        _writer->set_error(error_code(), error_data());
+    }
+    if (_writer) {
+        _storage->close(_writer, _hook != NULL);
+        _writer = NULL;
+    }
+    if (ok()) {
+        _reader = _storage->open();
+    }
+}
+
+void LocalSnapshotCopier::load_meta_table() {
+    base::IOBuf meta_buf;
+    std::unique_lock<raft_mutex_t> lck(_mutex);
+    if (_cancelled) {
+        set_error(ECANCELED, "%s", berror(ECANCELED));
+        return;
+    }
+    scoped_refptr<RemoteFileCopier::Session> session
+            = _copier.start_to_copy_to_iobuf(RAFT_SNAPSHOT_META_FILE,
+                                            &meta_buf, NULL);
+    _cur_session = session.get();
+    lck.unlock();
+    session->join();
+    lck.lock();
+    _cur_session = NULL;
+    lck.unlock();
+    if (!session->status().ok()) {
+        LOG(WARNING) << "Fail to copy meta file : " << session->status();
+        set_error(session->status().error_code(), session->status().error_data());
+        return;
+    }
+    if (_remote_snapshot._meta_table.load_from_iobuf_as_remote(meta_buf) != 0) {
+        LOG(WARNING) << "Bad meta_table format";
+        set_error(-1, "Bad meta_table format");
+        return;
+    }
+    CHECK(_remote_snapshot._meta_table.has_meta());
+}
+
+void LocalSnapshotCopier::filter() {
+    _writer = (LocalSnapshotWriter*)_storage->create(_hook != NULL);
+    if (_writer == NULL) {
+        set_error(EIO, "Fail to create snapshot writer");
+        return;
+    }
+    if (_hook) {
+        SnapshotReader* reader = _storage->open();
+        if (_hook->filter_before_copy(_writer, reader, &_remote_snapshot) != 0) {
+            LOG(WARNING) << "Fail to filter writer before copying"
+                         << " destroy and create a new writer";
+            _writer->set_error(-1, "Fail to filter");
+            _storage->close(_writer, false);
+            _writer = (LocalSnapshotWriter*)_storage->create(true);
+        }
+        if (reader) {
+            _storage->close(reader);
+        }
+        if (_writer == NULL) {
+            set_error(EIO, "Fail to create snapshot writer");
+            return;
+        }
+    }
+    _writer->save_meta(_remote_snapshot._meta_table.meta());
+    if (_writer->sync() != 0) {
+        set_error(EIO, "Fail to sync snapshot writer");
+        return;
+    }
+}
+
+void LocalSnapshotCopier::copy_file(const std::string& filename) {
+    if (_writer->get_file_meta(filename, NULL) == 0) {
+        LOG(INFO) << "Skipped downloading " << filename;
+        return;
+    }
+    std::string file_path = _writer->get_path() + '/' + filename;
+    LocalFileMeta meta;
+    _remote_snapshot.get_file_meta(filename, &meta);
+    std::unique_lock<raft_mutex_t> lck(_mutex);
+    if (_cancelled) {
+        set_error(ECANCELED, "%s", berror(ECANCELED));
+        return;
+    }
+    scoped_refptr<RemoteFileCopier::Session> session
+            = _copier.start_to_copy_to_file(filename, file_path, NULL);
+    if (session == NULL) {
+        LOG(WARNING) << "Fail to copy " << filename;
+        set_error(-1, "Fail to copy %s", filename.c_str());
+        return;
+    }
+    _cur_session = session.get();
+    lck.unlock();
+    session->join();
+    lck.lock();
+    _cur_session = NULL;
+    lck.unlock();
+    if (!session->status().ok()) {
+        set_error(session->status().error_code(), session->status().error_data());
+        return;
+    }
+    if (_writer->add_file(filename, &meta) != 0) {
+        set_error(EIO, "Fail to add file to writer");
+        return;
+    }
+    if (_writer->sync() != 0) {
+        set_error(EIO, "Fail to sync writer");
+        return;
+    }
+}
+
+void LocalSnapshotCopier::start() {
+    if (bthread_start_background(
+                &_tid, NULL, start_copy, this) != 0) {
+        PLOG(ERROR) << "Fail to start bthread";
+        copy();
+    }
+}
+
+void LocalSnapshotCopier::join() {
+    bthread_join(_tid, NULL);
+}
+
+void LocalSnapshotCopier::cancel() {
+    BAIDU_SCOPED_LOCK(_mutex);
+    if (_cancelled) {
+        return;
+    }
+    _cancelled = true;
+    if (_cur_session) {
+        _cur_session->cancel();
+    }
+}
+
+int LocalSnapshotCopier::init(const std::string& uri) {
+    return _copier.init(uri);
 }
 
 }  // namespace raft

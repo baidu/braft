@@ -90,6 +90,7 @@ TEST_F(LogManagerTest, get_should_be_ok_when_disk_thread_stucks) {
     int64_t expected_next_log_index = 1;
     for (size_t i = 0; i < N; ++i) {
         raft::LogEntry* entry = new raft::LogEntry;
+        entry->AddRef();
         entry->type = raft::ENTRY_TYPE_DATA;
         entry->id = raft::LogId(i + 1, 1);
         StuckClosure* c = new StuckClosure;
@@ -148,8 +149,9 @@ TEST_F(LogManagerTest, configuration_changes) {
         }
         std::vector<raft::LogEntry*> entries;
         raft::LogEntry* entry = new raft::LogEntry;
+        entry->AddRef();
         entry->type = raft::ENTRY_TYPE_CONFIGURATION;
-        entry->add_peer(peers);
+        entry->peers = new std::vector<raft::PeerId>(peers);
         entry->AddRef();
         entry->id = raft::LogId(i + 1, 1);
         saved_entries[i] = entry;
@@ -196,8 +198,9 @@ TEST_F(LogManagerTest, truncate_suffix_also_revert_configuration) {
         }
         std::vector<raft::LogEntry*> entries;
         raft::LogEntry* entry = new raft::LogEntry;
+        entry->AddRef();
         entry->type = raft::ENTRY_TYPE_CONFIGURATION;
-        entry->add_peer(peers);
+        entry->peers = new std::vector<raft::PeerId>(peers);
         entry->AddRef();
         entry->id = raft::LogId(i + 1, 1);
         saved_entries[i] = entry;
@@ -242,6 +245,7 @@ TEST_F(LogManagerTest, append_with_the_same_index) {
     std::vector<raft::LogEntry*> entries0;
     for (size_t i = 0; i < N; ++i) {
         raft::LogEntry* entry = new raft::LogEntry;
+        entry->AddRef();
         entry->type = raft::ENTRY_TYPE_DATA;
         std::string buf;
         base::string_printf(&buf, "hello_%lu", i);
@@ -261,6 +265,7 @@ TEST_F(LogManagerTest, append_with_the_same_index) {
     std::vector<raft::LogEntry*> entries1;
     for (size_t i = 0; i < N; ++i) {
         raft::LogEntry* entry = new raft::LogEntry;
+        entry->AddRef();
         entry->type = raft::ENTRY_TYPE_DATA;
         std::string buf;
         base::string_printf(&buf, "hello_%lu", i);
@@ -284,6 +289,7 @@ TEST_F(LogManagerTest, append_with_the_same_index) {
     std::vector<raft::LogEntry*> entries2;
     for (size_t i = 0; i < N; ++i) {
         raft::LogEntry* entry = new raft::LogEntry;
+        entry->AddRef();
         entry->type = raft::ENTRY_TYPE_DATA;
         std::string buf;
         base::string_printf(&buf, "hello_%lu", (i + 1) * 10);
@@ -355,6 +361,7 @@ TEST_F(LogManagerTest, pipelined_append) {
     std::vector<raft::LogEntry*> entries0;
     for (size_t i = 0; i < N - 1; ++i) {
         raft::LogEntry* entry = new raft::LogEntry;
+        entry->AddRef();
         entry->type = raft::ENTRY_TYPE_DATA;
         std::string buf;
         base::string_printf(&buf, "hello_%lu", 0lu);
@@ -367,9 +374,10 @@ TEST_F(LogManagerTest, pipelined_append) {
         std::vector<raft::PeerId> peers;
         peers.push_back(raft::PeerId("127.0.0.1:1234"));
         raft::LogEntry* entry = new raft::LogEntry;
+        entry->AddRef();
         entry->type = raft::ENTRY_TYPE_CONFIGURATION;
         entry->id = raft::LogId(N, 1);
-        entry->add_peer(peers);
+        entry->peers = new std::vector<raft::PeerId>(peers);
         entries0.push_back(entry);
     }
     SyncClosure sc0;
@@ -383,6 +391,7 @@ TEST_F(LogManagerTest, pipelined_append) {
     std::vector<raft::LogEntry*> entries1;
     for (size_t i = 0; i < N - 1; ++i) {
         raft::LogEntry* entry = new raft::LogEntry;
+        entry->AddRef();
         entry->type = raft::ENTRY_TYPE_DATA;
         std::string buf;
         base::string_printf(&buf, "hello_%lu", i + 1);
@@ -396,9 +405,10 @@ TEST_F(LogManagerTest, pipelined_append) {
         peers.push_back(raft::PeerId("127.0.0.2:1234"));
         peers.push_back(raft::PeerId("127.0.0.2:2345"));
         raft::LogEntry* entry = new raft::LogEntry;
+        entry->AddRef();
         entry->type = raft::ENTRY_TYPE_CONFIGURATION;
         entry->id = raft::LogId(N, 2);
-        entry->add_peer(peers);
+        entry->peers = new std::vector<raft::PeerId>(peers);
         entries1.push_back(entry);
     }
     SyncClosure sc1;
@@ -413,6 +423,7 @@ TEST_F(LogManagerTest, pipelined_append) {
     std::vector<raft::LogEntry*> entries2;
     for (size_t i = N; i < 2 * N; ++i) {
         raft::LogEntry* entry = new raft::LogEntry;
+        entry->AddRef();
         entry->type = raft::ENTRY_TYPE_DATA;
         std::string buf;
         base::string_printf(&buf, "hello_%lu", i + 1);
@@ -497,6 +508,7 @@ int on_new_log(void* arg, int /*error_code*/) {
 
 int append_entry(raft::LogManager* lm, base::StringPiece data, int64_t index) {
     raft::LogEntry* entry = new raft::LogEntry;
+    entry->AddRef();
     entry->type = raft::ENTRY_TYPE_DATA;
     entry->data.append(data.data(), data.size());
     entry->id = raft::LogId(index, 1);

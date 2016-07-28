@@ -92,10 +92,10 @@ public:
     int init(const FSMCallerOptions& options);
     int shutdown();
     RAFT_MOCK int on_committed(int64_t committed_index);
-    int on_snapshot_load(LoadSnapshotClosure* done);
-    int on_snapshot_save(SaveSnapshotClosure* done);
+    RAFT_MOCK int on_snapshot_load(LoadSnapshotClosure* done);
+    RAFT_MOCK int on_snapshot_save(SaveSnapshotClosure* done);
     int on_leader_stop();
-    int on_error(const Error& e);
+    RAFT_MOCK int on_error(const Error& e);
     int64_t last_applied_index() const {
         return _last_applied_index.load(boost::memory_order_relaxed);
     }

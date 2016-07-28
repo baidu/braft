@@ -13,6 +13,7 @@
 #include "raft/macros.h"
 #include "raft/local_file_meta.pb.h"
 #include "raft/snapshot_hook.h"
+#include "raft/remote_file_copier.h"
 
 namespace raft {
 
@@ -108,7 +109,53 @@ private:
     scoped_refptr<LocalSnapshotHook> _hook;
 };
 
+// Describe the Snapshot on another machine
+class LocalSnapshot : public Snapshot {
+friend class LocalSnapshotCopier;
+public:
+    // Get the path of the Snapshot
+    virtual std::string get_path();
+    // List all the existing files in the Snapshot currently
+    virtual void list_files(std::vector<std::string> *files);
+    // Get the implementation-defined file_meta
+    virtual int get_file_meta(const std::string& filename, 
+                              ::google::protobuf::Message* file_meta);
+private:
+    LocalSnapshotMetaTable _meta_table;
+};
+
+class LocalSnapshotStorage;
+class LocalSnapshotCopier : public SnapshotCopier {
+friend class LocalSnapshotStorage;
+public:
+    LocalSnapshotCopier();
+    ~LocalSnapshotCopier();
+    virtual void cancel();
+    virtual void join();
+    virtual SnapshotReader* get_reader() { return _reader; }
+    int init(const std::string& uri);
+private:
+    static void* start_copy(void* arg);
+    void start();
+    void copy();
+    void load_meta_table();
+    void filter();
+    void copy_file(const std::string& filename);
+
+    raft_mutex_t _mutex;
+    bthread_t _tid;
+    bool _cancelled;
+    LocalSnapshotHook* _hook;
+    LocalSnapshotWriter* _writer;
+    LocalSnapshotStorage* _storage;
+    SnapshotReader* _reader;
+    RemoteFileCopier::Session* _cur_session;
+    LocalSnapshot _remote_snapshot;
+    RemoteFileCopier _copier;
+};
+
 class LocalSnapshotStorage : public SnapshotStorage {
+friend class LocalSnapshotCopier;
 public:
     explicit LocalSnapshotStorage(const std::string& path);
                          
@@ -124,6 +171,8 @@ public:
     virtual SnapshotReader* open() WARN_UNUSED_RESULT;
     virtual int close(SnapshotReader* reader);
     virtual SnapshotReader* copy_from(const std::string& uri) WARN_UNUSED_RESULT;
+    virtual SnapshotCopier* start_to_copy_from(const std::string& uri);
+    virtual int close(SnapshotCopier* copier);
     virtual int set_hook(SnapshotHook* hook);
 
     SnapshotStorage* new_instance(const std::string& uri) const;
