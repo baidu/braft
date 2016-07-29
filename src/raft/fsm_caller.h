@@ -99,8 +99,8 @@ public:
     int64_t last_applied_index() const {
         return _last_applied_index.load(boost::memory_order_relaxed);
     }
-    int64_t index();
     void describe(std::ostream& os, bool use_html);
+    void join();
 private:
 
 friend class IteratorImpl;

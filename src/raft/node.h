@@ -63,6 +63,9 @@ public:
     // done is user defined function, maybe response to client or clean some resource
     void shutdown(Closure* done);
 
+    // Block the thread until the node is successfully stopped.
+    void join();
+
     // apply task to the replicated-state-machine
     //
     // About the ownership:

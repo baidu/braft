@@ -817,6 +817,13 @@ void NodeImpl::shutdown(Closure* done) {
     run_closure_in_bthread(done);
 }
 
+void NodeImpl::join() {
+    if (!_fsm_caller) {
+        return;
+    }
+    return _fsm_caller->join();
+}
+
 static void on_election_timer(void* arg) {
     NodeImpl* node = static_cast<NodeImpl*>(arg);
 

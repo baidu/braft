@@ -347,10 +347,13 @@ public:
     // init node
     int init(const NodeOptions& options);
 
-    // shutdown local replica
+    // shutdown local replica.
     // done is user defined function, maybe response to client or clean some resource
     // [NOTE] code after apply can't access resource in done
     void shutdown(Closure* done);
+
+    // Block the thread until the node is successfully stopped.
+    void join();
 
     // [Thread-safe and wait-free]
     // apply task to the replicated-state-machine

@@ -116,6 +116,10 @@ void Node::shutdown(Closure* done) {
     _impl->shutdown(done);
 }
 
+void Node::join() {
+    _impl->join();
+}
+
 void Node::apply(const Task& task) {
     _impl->apply(task);
 }

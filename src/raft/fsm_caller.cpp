@@ -368,6 +368,10 @@ void FSMCaller::describe(std::ostream &os, bool use_html) {
     os << newline;
 }
 
+void FSMCaller::join() {
+    bthread::execution_queue_join(_queue_id);
+}
+
 IteratorImpl::IteratorImpl(StateMachine* sm, LogManager* lm,
                           std::vector<Closure*> *closure, 
                           int64_t first_closure_index,

@@ -215,6 +215,7 @@ public:
         cond.Init(1);
         node->shutdown(NEW_SHUTDOWNCLOSURE(&cond));
         cond.Wait();
+        node->join();
 
         if (_server_map[listen_addr] != NULL) {
             delete _server_map[listen_addr];
@@ -409,8 +410,7 @@ TEST_F(RaftTestSuits, InitShutdown) {
     ASSERT_EQ(0, node.init(options));
 
     node.shutdown(NULL);
-
-    node.shutdown(NEW_SHUTDOWNCLOSURE(NULL));
+    node.join();
 
     //FIXME:
     BthreadCond cond;
