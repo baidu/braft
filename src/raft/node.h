@@ -32,6 +32,7 @@ class LogStorage;
 class StableStorage;
 class SnapshotStorage;
 class SnapshotExecutor;
+struct StopTransferArg;
 
 class BAIDU_CACHELINE_ALIGNMENT NodeImpl : public base::RefCountedThreadSafe<NodeImpl> {
 friend class RaftServiceImpl;
@@ -121,12 +122,16 @@ public:
                                         InstallSnapshotResponse* response,
                                         google::protobuf::Closure* done);
 
+    void handle_timeout_now_request(baidu::rpc::Controller* controller,
+                                    const TimeoutNowRequest* request,
+                                    TimeoutNowResponse* response,
+                                    google::protobuf::Closure* done);
     // timer func
-    //
     void handle_election_timeout();
     void handle_vote_timeout();
     void handle_stepdown_timeout();
     void handle_snapshot_timeout();
+    void handle_transfer_timeout(int64_t term, const PeerId& peer);
 
     // Closure call func
     //
@@ -155,6 +160,8 @@ public:
     //  - Any futuer operation except shutdown would fail, including any RPC
     //    request.
     void on_error(const Error& e);
+
+    int transfer_leadership_to(const PeerId& peer);
 
 private:
     friend class base::RefCountedThreadSafe<NodeImpl>;
@@ -196,6 +203,8 @@ private:
     static int execute_applying_tasks(
                 void* meta, bthread::TaskIterator<LogEntryAndClosure>& iter);
     void apply(LogEntryAndClosure tasks[], size_t size);
+
+    bool transfering_leadership() { return _stop_transfer_arg != NULL; }
 
 private:
     struct VoteCtx {
@@ -268,6 +277,8 @@ private:
     raft_timer_t _vote_timer; // candidate retry timer
     raft_timer_t _stepdown_timer; // leader check quorum node ok
     raft_timer_t _snapshot_timer; // snapshot timer
+    raft_timer_t _transfer_timer;
+    StopTransferArg* _stop_transfer_arg;
     bool _vote_triggered;
     bthread::ExecutionQueueId<LogEntryAndClosure> _apply_queue_id;
     bthread::ExecutionQueue<LogEntryAndClosure>::scoped_ptr_t _apply_queue;

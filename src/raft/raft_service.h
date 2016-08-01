@@ -36,6 +36,10 @@ public:
                                   const InstallSnapshotRequest* request,
                                   InstallSnapshotResponse* response,
                                   google::protobuf::Closure* done);
+    void timeout_now(::google::protobuf::RpcController* controller,
+                     const ::raft::TimeoutNowRequest* request,
+                     ::raft::TimeoutNowResponse* response,
+                     ::google::protobuf::Closure* done);
 private:
     base::EndPoint _addr;
 };

@@ -391,6 +391,11 @@ public:
     // reset election_timeout, suggest some peer to become the leader in a
     // higher probability
     void vote(int election_timeout);
+
+    // Try transfering leadership to |peer|.
+    // Returns 0 on success, -1 otherwise.
+    int transfer_leadership_to(const PeerId& peer);
+
 private:
     NodeImpl* _impl;
 };

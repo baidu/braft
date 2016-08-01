@@ -79,6 +79,11 @@ public:
                                    const timespec* due_time,
                                    CatchupClosure* done);
 
+    // Tranfer leadership to the very peer if the replicated logs are over
+    // |log_index|
+    static int transfer_leadership(ReplicatorId id, int64_t log_index);
+    static int stop_transfer_leadership(ReplicatorId id);
+    
 private:
 
     int _prepare_entry(int offset, EntryMeta* em, base::IOBuf* data);
@@ -91,6 +96,8 @@ private:
     void _block(long start_time_us, int error_code);
     void _install_snapshot();
     void _start_heartbeat_timer(long start_time_us);
+    void _send_timeout_now(bool unlock_id);
+    int _transfer_leadership(int64_t log_index);
 
     static void _on_rpc_returned(
                 ReplicatorId id, baidu::rpc::Controller* cntl,
@@ -101,6 +108,12 @@ private:
                 ReplicatorId id, baidu::rpc::Controller* cntl,
                 AppendEntriesRequest* request, 
                 AppendEntriesResponse* response);
+
+    static void _on_timeout_now_returned(
+                ReplicatorId id, baidu::rpc::Controller* cntl,
+                TimeoutNowRequest* request, 
+                TimeoutNowResponse* response);
+
     static void _on_timedout(void* arg);
 
     static int _on_error(bthread_id_t id, void* arg, int error_code);
@@ -117,16 +130,19 @@ private:
     
     baidu::rpc::Channel _sending_channel;
     int64_t _next_index;
+    int _consecutive_error_times;
+    bool _has_succeeded;
+    int64_t _timeout_now_index;
+    int64_t _last_response_timestamp;
     baidu::rpc::CallId _rpc_in_fly;
     baidu::rpc::CallId _heartbeat_in_fly;
+    baidu::rpc::CallId _timeout_now_in_fly;
     LogManager::WaitId _wait_id;
     bthread_id_t _id;
     ReplicatorOptions _options;
-    CatchupClosure *_catchup_closure;
-    int64_t _last_response_timestamp;
-    int _consecutive_error_times;
     raft_timer_t _heartbeat_timer;
     SnapshotReader* _reader;
+    CatchupClosure *_catchup_closure;
 };
 
 struct ReplicatorGroupOptions {
@@ -141,7 +157,7 @@ struct ReplicatorGroupOptions {
 // Maintains the replicators attached to followers
 //  - Invoke reset_term when term changes, which affects the term in the RPC to
 //    the adding replicators
-//  - Invoke add_replicator for every single followers the the candidate
+//  - Invoke add_replicator for every single followers when the candidate
 //    becomes the leader
 //  - Invoke stop_all when the leader steps down.
 //
@@ -185,6 +201,13 @@ public:
 
     // Returns true if the there's a replicator attached to the given |peer|
     bool contains(const PeerId& peer) const;
+
+    // Transfer leadership to the given |peer|
+    int transfer_leadership_to(const PeerId& peer, int64_t log_index);
+
+    // Stop transfering leadership to the given |peer|
+    int stop_transfer_leadership(const PeerId& peer);
+
 private:
 
 

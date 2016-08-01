@@ -117,11 +117,13 @@ public:
 class ExpectClosure : public raft::Closure {
 public:
     void Run() {
+        if (_expect_err_code >= 0) {
+            EXPECT_EQ(status().error_code(), _expect_err_code) 
+                << _pos << " : " << status();
+                                                
+        }
         if (_cond) {
             _cond->Signal();
-        }
-        if (_expect_err_code >= 0) {
-            ASSERT_EQ(status().error_code(), _expect_err_code) << _pos;
         }
         delete this;
     }
@@ -156,8 +158,10 @@ typedef ExpectClosure SnapshotClosure;
 
 class Cluster {
 public:
-    Cluster(const std::string& name, const std::vector<raft::PeerId>& peers)
-        : _name(name), _peers(peers) {
+    Cluster(const std::string& name, const std::vector<raft::PeerId>& peers,
+            int32_t election_timeout_ms = 300)
+        : _name(name), _peers(peers) 
+        , _election_timeout_ms(election_timeout_ms) {
     }
     ~Cluster() {
         stop_all();
@@ -177,7 +181,7 @@ public:
         }
 
         raft::NodeOptions options;
-        options.election_timeout_ms = 300;
+        options.election_timeout_ms = _election_timeout_ms;
         options.snapshot_interval_s = snapshot_interval_s;
         if (!empty_peers) {
             options.initial_conf = raft::Configuration(_peers);
@@ -380,6 +384,7 @@ private:
     std::vector<raft::Node*> _nodes;
     std::vector<MockFSM*> _fsms;
     std::map<base::EndPoint, baidu::rpc::Server*> _server_map;
+    int32_t _election_timeout_ms;
     raft_mutex_t _mutex;
 };
 
@@ -1736,6 +1741,163 @@ TEST_F(RaftTestSuits, RecoverFollower) {
     // Start the stopped follower, expecting that leader would recover it
     cluster.start(follower_addr);
     LOG(INFO) << "here";
+    ASSERT_TRUE(cluster.ensure_same(5));
+    cluster.stop_all();
+}
+
+TEST_F(RaftTestSuits, leader_transfer) {
+    std::vector<raft::PeerId> peers;
+    for (int i = 0; i < 3; i++) {
+        raft::PeerId peer;
+        peer.addr.ip = base::get_host_ip();
+        peer.addr.port = 60006 + i;
+        peer.idx = 0;
+
+        peers.push_back(peer);
+    }
+
+    // start cluster
+    Cluster cluster("unittest", peers);
+    for (size_t i = 0; i < peers.size(); i++) {
+        ASSERT_EQ(0, cluster.start(peers[i].addr, false, 1));
+    }
+    // elect leader
+    cluster.wait_leader();
+    raft::Node* leader = cluster.leader();
+    ASSERT_TRUE(leader != NULL);
+    LOG(WARNING) << "leader is " << leader->node_id();
+    std::vector<raft::Node*> nodes;
+    cluster.followers(&nodes);
+    raft::PeerId target = nodes[0]->node_id().peer_id;
+    ASSERT_EQ(0, leader->transfer_leadership_to(target));
+    usleep(10 * 1000);
+    cluster.wait_leader();
+    leader = cluster.leader();
+    ASSERT_EQ(target, leader->node_id().peer_id);
+    ASSERT_TRUE(cluster.ensure_same(5));
+    cluster.stop_all();
+}
+
+TEST_F(RaftTestSuits, leader_transfer_before_log_is_compleleted) {
+    std::vector<raft::PeerId> peers;
+    for (int i = 0; i < 3; i++) {
+        raft::PeerId peer;
+        peer.addr.ip = base::get_host_ip();
+        peer.addr.port = 60006 + i;
+        peer.idx = 0;
+
+        peers.push_back(peer);
+    }
+
+    // start cluster
+    Cluster cluster("unittest", peers, 5000);
+    for (size_t i = 0; i < peers.size(); i++) {
+        ASSERT_EQ(0, cluster.start(peers[i].addr, false, 1));
+    }
+    // elect leader
+    cluster.wait_leader();
+    raft::Node* leader = cluster.leader();
+    ASSERT_TRUE(leader != NULL);
+    LOG(WARNING) << "leader is " << leader->node_id();
+    std::vector<raft::Node*> nodes;
+    cluster.followers(&nodes);
+    raft::PeerId target = nodes[0]->node_id().peer_id;
+    cluster.stop(target.addr);
+    // apply something
+    BthreadCond cond;
+    cond.Init(10);
+    for (int i = 0; i < 10; i++) {
+        base::IOBuf data;
+        char data_buf[128];
+        snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
+        data.append(data_buf);
+        raft::Task task;
+        task.data = &data;
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
+        leader->apply(task);
+    }
+    cond.Wait();
+    ASSERT_EQ(0, leader->transfer_leadership_to(target));
+    cond.Init(1);
+    raft::Task task;
+    base::IOBuf data;
+    data.resize(5, 'a');
+    task.data = &data;
+    task.done = NEW_APPLYCLOSURE(&cond, EBUSY);
+    leader->apply(task);
+    cond.Wait();
+    cluster.start(target.addr);
+    usleep(5000 * 1000);
+    LOG(INFO) << "here";
+    cluster.wait_leader();
+    leader = cluster.leader();
+    ASSERT_EQ(target, leader->node_id().peer_id);
+    ASSERT_TRUE(cluster.ensure_same(5));
+    cluster.stop_all();
+}
+
+TEST_F(RaftTestSuits, leader_transfer_resume_on_failure) {
+    std::vector<raft::PeerId> peers;
+    for (int i = 0; i < 3; i++) {
+        raft::PeerId peer;
+        peer.addr.ip = base::get_host_ip();
+        peer.addr.port = 60006 + i;
+        peer.idx = 0;
+
+        peers.push_back(peer);
+    }
+
+    // start cluster
+    Cluster cluster("unittest", peers);
+    for (size_t i = 0; i < peers.size(); i++) {
+        ASSERT_EQ(0, cluster.start(peers[i].addr, false, 1));
+    }
+    // elect leader
+    cluster.wait_leader();
+    raft::Node* leader = cluster.leader();
+    ASSERT_TRUE(leader != NULL);
+    LOG(WARNING) << "leader is " << leader->node_id();
+    std::vector<raft::Node*> nodes;
+    cluster.followers(&nodes);
+    raft::PeerId target = nodes[0]->node_id().peer_id;
+    cluster.stop(target.addr);
+    // apply something
+    BthreadCond cond;
+    cond.Init(10);
+    for (int i = 0; i < 10; i++) {
+        base::IOBuf data;
+        char data_buf[128];
+        snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
+        data.append(data_buf);
+        raft::Task task;
+        task.data = &data;
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
+        leader->apply(task);
+    }
+    cond.Wait();
+    ASSERT_EQ(0, leader->transfer_leadership_to(target));
+    raft::Node* saved_leader = leader;
+    cond.Init(1);
+    raft::Task task;
+    base::IOBuf data;
+    data.resize(5, 'a');
+    task.data = &data;
+    task.done = NEW_APPLYCLOSURE(&cond, EBUSY);
+    leader->apply(task);
+    cond.Wait();
+    //cluster.start(target.addr);
+    usleep(1000 * 1000);
+    LOG(INFO) << "here";
+    cluster.wait_leader();
+    leader = cluster.leader();
+    ASSERT_EQ(saved_leader, leader);
+    cluster.start(target.addr);
+    usleep(1000 * 1000);
+    data.resize(5, 'a');
+    task.data = &data;
+    task.done = NEW_APPLYCLOSURE(&cond, 0);
+    leader->apply(task);
+    cond.Wait();
     ASSERT_TRUE(cluster.ensure_same(5));
     cluster.stop_all();
 }

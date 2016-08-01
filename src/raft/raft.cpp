@@ -144,6 +144,10 @@ void Node::vote(int election_timeout) {
     _impl->vote(election_timeout);
 }
 
+int Node::transfer_leadership_to(const PeerId& peer) {
+    return _impl->transfer_leadership_to(peer);
+}
+
 // ------------- Iterator
 void Iterator::next() { 
     if (valid()) {

@@ -42,14 +42,17 @@ const int ERROR_CODE_UNSET_MAGIC = 0x1234;
 
 Replicator::Replicator() 
     : _next_index(0)
-    , _wait_id(0)
-    , _catchup_closure(NULL)
-    , _last_response_timestamp(0)
     , _consecutive_error_times(0)
+    , _has_succeeded(false)
+    , _timeout_now_index(0)
+    , _last_response_timestamp(0)
+    , _wait_id(0)
     , _reader(NULL)
+    , _catchup_closure(NULL)
 {
     _rpc_in_fly.value = 0;
     _heartbeat_in_fly.value = 0;
+    _timeout_now_in_fly.value = 0;
 }
 
 Replicator::~Replicator() {
@@ -239,7 +242,7 @@ void Replicator::_on_heartbeat_returned(
         node_impl->AddRef();
         r->_notify_on_caught_up(EPERM, true);
         LOG(INFO) << "Replicator=" << dummy_id << " is going to quit";
-        bthread_id_unlock_and_destroy(dummy_id);
+        CHECK_EQ(0, bthread_id_unlock_and_destroy(dummy_id));
         node_impl->increase_term_to(response->term());
         node_impl->Release();
         delete r;
@@ -297,7 +300,7 @@ void Replicator::_on_rpc_returned(ReplicatorId id, baidu::rpc::Controller* cntl,
             node_impl->AddRef();
             r->_notify_on_caught_up(EPERM, true);
             LOG(INFO) << "Replicator=" << dummy_id << " is going to quit";
-            bthread_id_unlock_and_destroy(dummy_id);
+            CHECK_EQ(0, bthread_id_unlock_and_destroy(dummy_id));
             node_impl->increase_term_to(response->term());
             node_impl->Release();
             delete r;
@@ -349,8 +352,12 @@ void Replicator::_on_rpc_returned(ReplicatorId id, baidu::rpc::Controller* cntl,
         }
     }
     r->_next_index += entries_size;
+    r->_has_succeeded = true;
     r->_notify_on_caught_up(0, false);
     // dummy_id is unlock in _send_entries
+    if (r->_timeout_now_index > 0 && r->_timeout_now_index < r->_next_index) {
+        r->_send_timeout_now(false);
+    }
     r->_send_entries();
     return;
 }
@@ -404,9 +411,7 @@ void Replicator::_send_empty_entries(bool is_heartbeat) {
         << " term " << _options.term
         << " last_committed_index " << request->committed_index();
 
-    google::protobuf::Closure* done = baidu::rpc::NewCallback<
-        ReplicatorId, baidu::rpc::Controller*, AppendEntriesRequest*,
-        AppendEntriesResponse*>(
+    google::protobuf::Closure* done = baidu::rpc::NewCallback(
                 is_heartbeat ? _on_heartbeat_returned :  _on_rpc_returned, 
                 _id.value, cntl.get(), request.get(), response.get());
 
@@ -648,6 +653,7 @@ int Replicator::_on_error(bthread_id_t id, void* arg, int error_code) {
     if (error_code == ESTOP) {
         baidu::rpc::StartCancel(r->_rpc_in_fly);
         baidu::rpc::StartCancel(r->_heartbeat_in_fly);
+        baidu::rpc::StartCancel(r->_timeout_now_in_fly);
         raft_timer_del(r->_heartbeat_timer);
         r->_options.log_manager->remove_waiter(r->_wait_id);
         r->_notify_on_caught_up(error_code, true);
@@ -676,6 +682,101 @@ void Replicator::_on_catch_up_timedout(void* arg) {
     r->_notify_on_caught_up(ETIMEDOUT, false);
     CHECK_EQ(0, bthread_id_unlock(id)) 
             << "Fail to unlock" << id;
+}
+
+int Replicator::transfer_leadership(ReplicatorId id, int64_t log_index) {
+    Replicator* r = NULL;
+    bthread_id_t dummy = { id };
+    const int rc = bthread_id_lock(dummy, (void**)&r);
+    if (rc != 0) {
+        return rc;
+    }
+    // dummy is unlock in _transfer_leadership
+    return r->_transfer_leadership(log_index);
+}
+
+int Replicator::stop_transfer_leadership(ReplicatorId id) {
+    Replicator* r = NULL;
+    bthread_id_t dummy = { id };
+    const int rc = bthread_id_lock(dummy, (void**)&r);
+    if (rc != 0) {
+        return rc;
+    }
+    // dummy is unlock in _transfer_leadership
+    r->_timeout_now_index = 0;
+    CHECK_EQ(0, bthread_id_unlock(dummy)) << "Fail to unlock " << dummy;
+    return 0;
+}
+
+int Replicator::_transfer_leadership(int64_t log_index) {
+    if (_has_succeeded && _next_index > log_index) {
+        // _id is unlock in _send_timeout_now
+        _send_timeout_now(true);
+        return 0;
+    }
+    // Register log_index so that _on_rpc_returned would trigger
+    // _send_timeout_now if _next_index reaches log_index
+    _timeout_now_index = log_index;
+    CHECK_EQ(0, bthread_id_unlock(_id)) << "Fail to unlock " << _id;
+    return 0;
+}
+
+void Replicator::_send_timeout_now(bool unlock_id) {
+    TimeoutNowRequest* request = new TimeoutNowRequest;
+    TimeoutNowResponse* response = new TimeoutNowResponse;
+    request->set_term(_options.term);
+    request->set_group_id(_options.group_id);
+    request->set_server_id(_options.server_id.to_string());
+    request->set_peer_id(_options.peer_id.to_string());
+    baidu::rpc::Controller* cntl = new baidu::rpc::Controller;
+    _timeout_now_in_fly = cntl->call_id();
+    _timeout_now_index = 0;
+    RaftService_Stub stub(&_sending_channel);
+    ::google::protobuf::Closure* done = baidu::rpc::NewCallback(
+            _on_timeout_now_returned, _id.value, cntl, request, response);
+    stub.timeout_now(cntl, request, response, done);
+    if (unlock_id) {
+        CHECK_EQ(0, bthread_id_unlock(_id));
+    }
+}
+
+void Replicator::_on_timeout_now_returned(
+                ReplicatorId id, baidu::rpc::Controller* cntl,
+                TimeoutNowRequest* request, 
+                TimeoutNowResponse* response) {
+    std::unique_ptr<baidu::rpc::Controller> cntl_gurad(cntl);
+    std::unique_ptr<TimeoutNowRequest>  req_gurad(request);
+    std::unique_ptr<TimeoutNowResponse> res_gurad(response);
+    Replicator *r = NULL;
+    bthread_id_t dummy_id = { id };
+    if (bthread_id_lock(dummy_id, (void**)&r) != 0) {
+        return;
+    }
+    RAFT_VLOG << "node " << r->_options.group_id << ":" << r->_options.server_id 
+        << " received TimeoutNowResponse from "
+        << r->_options.peer_id
+        << noflush;
+
+    if (cntl->Failed()) {
+        RAFT_VLOG << " fail : " << cntl->ErrorText();
+        CHECK_EQ(0, bthread_id_unlock(dummy_id));
+        return;
+    }
+    RAFT_VLOG << (response->success() ? " success " : "fail:");
+    if (response->term() > r->_options.term) {
+        NodeImpl *node_impl = r->_options.node;
+        // Acquire a reference of Node here in case that Node is detroyed
+        // after _notify_on_caught_up.
+        node_impl->AddRef();
+        r->_notify_on_caught_up(EPERM, true);
+        LOG(INFO) << "Replicator=" << dummy_id << " is going to quit";
+        CHECK_EQ(0, bthread_id_unlock_and_destroy(dummy_id));
+        node_impl->increase_term_to(response->term());
+        node_impl->Release();
+        delete r;
+        return;
+    }
+    CHECK_EQ(0, bthread_id_unlock(dummy_id));
 }
 
 // ==================== ReplicatorGroup ==========================
@@ -789,6 +890,25 @@ int ReplicatorGroup::reset_term(int64_t new_term) {
 int ReplicatorGroup::reset_heartbeat_interval(int new_interval_ms) {
     _dynamic_timeout_ms = new_interval_ms;
     return 0;
+}
+
+int ReplicatorGroup::transfer_leadership_to(
+        const PeerId& peer, int64_t log_index) {
+    std::map<PeerId, ReplicatorId>::const_iterator iter = _rmap.find(peer);
+    if (iter == _rmap.end()) {
+        return -1;
+    }
+    ReplicatorId rid = iter->second;
+    return Replicator::transfer_leadership(rid, log_index);
+}
+
+int ReplicatorGroup::stop_transfer_leadership(const PeerId& peer) {
+    std::map<PeerId, ReplicatorId>::const_iterator iter = _rmap.find(peer);
+    if (iter == _rmap.end()) {
+        return -1;
+    }
+    ReplicatorId rid = iter->second;
+    return Replicator::stop_transfer_leadership(rid);
 }
 
 } // namespace raft

@@ -87,6 +87,7 @@ NodeImpl::NodeImpl(const GroupId& group_id, const PeerId& peer_id)
     , _fsm_caller(NULL)
     , _commit_manager(NULL)
     , _snapshot_executor(NULL)
+    , _stop_transfer_arg(NULL)
     , _vote_triggered(false) {
         _server_id = peer_id;
         AddRef();
@@ -585,12 +586,17 @@ void NodeImpl::handle_stepdown_timeout() {
 bool NodeImpl::unsafe_register_conf_change(const std::vector<PeerId>& old_peers,
                                            const std::vector<PeerId>& new_peers,
                                            Closure* done) {
-    if (_state != STATE_LEADER) {
+    if (_state != STATE_LEADER || transfering_leadership()) {
         LOG(WARNING) << "[" << node_id()
                      << "] Refusing configuration changing because the state is "
-                     << state2str(_state);
+                     << state2str(_state) 
+                     << " transfer_leadership=" << transfering_leadership();
         if (done) {
-            done->status().set_error(EPERM, "Not leader");
+            if (transfering_leadership()) {
+                done->status().set_error(EBUSY, "Is transfering leadership");
+            } else {
+                done->status().set_error(EPERM, "Not leader");
+            }
             run_closure_in_bthread(done);
         }
         return false;
@@ -866,6 +872,111 @@ void NodeImpl::handle_election_timeout() {
     // Don't touch any thing of *this ever after
 }
 
+void NodeImpl::handle_timeout_now_request(baidu::rpc::Controller* controller,
+                                          const TimeoutNowRequest* request,
+                                          TimeoutNowResponse* response,
+                                          google::protobuf::Closure* done) {
+    baidu::rpc::ClosureGuard done_guard(done);
+    std::unique_lock<raft_mutex_t> lck(_mutex);
+    if (request->term() != _current_term) {
+        const int64_t saved_current_term = _current_term;
+        if (request->term() > _current_term) {
+            step_down(request->term());
+        }
+        response->set_term(_current_term);
+        response->set_success(false);
+        lck.unlock();
+        LOG(INFO) << "node " << _group_id << ":" << _server_id
+                  << " received handle_timeout_now_request " 
+                     "while _current_term="
+                  << saved_current_term << " didn't match request_term="
+                  << request->term();
+        return;
+    }
+    if (_state != STATE_FOLLOWER) {
+        LOG(INFO) << "node " << _group_id << ":" << _server_id
+                  << " received handle_timeout_now_request " 
+                     "while state is " << state2str(_state);
+        response->set_term(_current_term);
+        response->set_success(false);
+        return;
+    }
+    LOG(INFO) << "node " << _group_id << ":" << _server_id
+              << " received handle_timeout_now_request from " 
+              << controller->remote_side();
+    // Increase term to make leader step down
+    response->set_term(_current_term + 1);
+    response->set_success(true);
+    // Parallelize Response and election
+    run_closure_in_bthread(done_guard.release());
+    return elect_self(&lck);
+}
+
+struct StopTransferArg {
+    ~StopTransferArg() {
+        node->Release();
+    }
+    NodeImpl* node;
+    int64_t term;
+    PeerId peer;
+};
+
+void on_transfer_timeout(void* arg) {
+    StopTransferArg* a = (StopTransferArg*)arg;
+    a->node->handle_transfer_timeout(a->term, a->peer);
+    delete a;
+}
+
+void NodeImpl::handle_transfer_timeout(int64_t term, const PeerId& peer) {
+    LOG(INFO) << "node " << node_id()  << " transfering leadership to peer="
+              << peer << " reached timeout";
+    BAIDU_SCOPED_LOCK(_mutex);
+    CHECK(_stop_transfer_arg);
+    if (term == _current_term) {
+        _replicator_group.stop_transfer_leadership(peer);
+    }
+    _stop_transfer_arg = NULL;
+}
+
+int NodeImpl::transfer_leadership_to(const PeerId& peer) {
+    std::unique_lock<raft_mutex_t> lck(_mutex);
+    if (_state != STATE_LEADER) {
+        LOG(WARNING) << "node " << _group_id << ":" << _server_id
+                     << " is not leader";
+        return EPERM;
+    }
+    if (transfering_leadership()) {
+        LOG(WARNING) << "node " << _group_id << ":" << _server_id
+                     << " is transfering leadership";
+        return EBUSY;
+    }
+    if (peer == _server_id) {
+        LOG(INFO) << "Transfering leadership to self";
+        return 0;
+    }
+    const int64_t last_log_index = _log_manager->last_log_index();
+    const int rc = _replicator_group.transfer_leadership_to(peer, last_log_index);
+    if (rc != 0) {
+        LOG(WARNING) << "No such peer=" << peer;
+        return rc;
+    }
+    LOG(INFO) << "Transfering leadership to " << peer;
+    _stop_transfer_arg = new StopTransferArg;
+    AddRef();
+    _stop_transfer_arg->node = this;
+    _stop_transfer_arg->term = _current_term;
+    _stop_transfer_arg->peer = peer;
+    if (raft_timer_add(&_transfer_timer, 
+                       base::milliseconds_from_now(_options.election_timeout_ms),
+                       on_transfer_timeout, _stop_transfer_arg) != 0) {
+        lck.unlock();
+        LOG(ERROR) << "Fail to add timer";
+        on_transfer_timeout(_stop_transfer_arg);
+        return -1;
+    }
+    return 0;
+}
+
 void NodeImpl::vote(int election_timeout) {
     BAIDU_SCOPED_LOCK(_mutex);
     _replicator_group.reset_heartbeat_interval(
@@ -1064,7 +1175,7 @@ void NodeImpl::pre_vote(std::unique_lock<raft_mutex_t>* lck) {
     if (_snapshot_executor && _snapshot_executor->is_installing_snapshot()) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
             << " term " << _current_term
-            << " don't do pre_vote when installing snapshot as the "
+            << " doesn't do pre_vote when installing snapshot as the "
                      " configuration is possibly out of date";
         return;
     }
@@ -1150,8 +1261,8 @@ void NodeImpl::elect_self(std::unique_lock<raft_mutex_t>* lck) {
 
     AddRef();
     raft_timer_add(&_vote_timer,
-                      base::milliseconds_from_now(vote_timeout(_options.election_timeout_ms)),
-                      on_vote_timer, this);
+                  base::milliseconds_from_now(vote_timeout(_options.election_timeout_ms)),
+                  on_vote_timer, this);
     RAFT_VLOG << "node " << _group_id << ":" << _server_id
         << " term " << _current_term << " start vote_timer";
 
@@ -1271,6 +1382,15 @@ void NodeImpl::step_down(const int64_t term) {
                       on_election_timer, this);
     RAFT_VLOG << "node " << _group_id << ":" << _server_id
         << " term " << _current_term << " start election_timer";
+    if (_stop_transfer_arg != NULL) {
+        const int rc =raft_timer_del(_transfer_timer);
+        if (rc == 0) {
+            delete _stop_transfer_arg;
+            _stop_transfer_arg = NULL;
+        } else {
+            CHECK_EQ(1, rc);
+        }
+    }
 }
 
 class LeaderStartClosure : public Closure {
@@ -1378,13 +1498,17 @@ void NodeImpl::apply(LogEntryAndClosure tasks[], size_t size) {
         entries.push_back(tasks[i].entry);
     }
     std::unique_lock<raft_mutex_t> lck(_mutex);
-    if (_state != STATE_LEADER) {
+    if (_state != STATE_LEADER || transfering_leadership()) {
         lck.unlock();
-        LOG(WARNING) << "node " << _group_id << ":" << _server_id << " can't apply not in STATE_LEADER";
+        RAFT_VLOG << "node " << _group_id << ":" << _server_id << " can't apply not in STATE_LEADER";
         for (size_t i = 0; i < entries.size(); ++i) {
             entries[i]->Release();
             if (tasks[i].done) {
-                tasks[i].done->status().set_error(EPERM, "Not leader");
+                if (_state != STATE_LEADER) {
+                    tasks[i].done->status().set_error(EPERM, "is not leader");
+                } else {
+                    tasks[i].done->status().set_error(EBUSY, "Is transfering leadership");
+                }
                 run_closure_in_bthread(tasks[i].done);
             }
         }
@@ -1432,7 +1556,7 @@ void NodeImpl::unsafe_apply_configuration(const Configuration& new_conf,
 }
 
 int NodeImpl::handle_pre_vote_request(const RequestVoteRequest* request,
-                                          RequestVoteResponse* response) {
+                                      RequestVoteResponse* response) {
     std::unique_lock<raft_mutex_t> lck(_mutex);
 
     PeerId candidate_id;
@@ -1489,18 +1613,6 @@ int NodeImpl::handle_request_vote_request(const RequestVoteRequest* request,
     }
 
     do {
-        // check leader to tolerate network partitioning:
-        //     1. leader always reject RequstVote
-        //     2. follower reject RequestVote before change to candidate
-        //if (!_leader_id.is_empty()) {
-        //    LOG(WARNING) << "node " << _group_id << ":" << _server_id
-        //        << " reject RequestVote from " << request->server_id()
-        //        << " in term " << request->term()
-        //        << " current_term " << _current_term
-        //        << " current_leader " << _leader_id;
-        //    break;
-        //}
-
         // check term
         if (request->term() >= _current_term) {
             LOG(INFO) << "node " << _group_id << ":" << _server_id

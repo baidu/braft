@@ -41,6 +41,12 @@ const ::google::protobuf::internal::GeneratedMessageReflection*
 const ::google::protobuf::Descriptor* InstallSnapshotResponse_descriptor_ = NULL;
 const ::google::protobuf::internal::GeneratedMessageReflection*
   InstallSnapshotResponse_reflection_ = NULL;
+const ::google::protobuf::Descriptor* TimeoutNowRequest_descriptor_ = NULL;
+const ::google::protobuf::internal::GeneratedMessageReflection*
+  TimeoutNowRequest_reflection_ = NULL;
+const ::google::protobuf::Descriptor* TimeoutNowResponse_descriptor_ = NULL;
+const ::google::protobuf::internal::GeneratedMessageReflection*
+  TimeoutNowResponse_reflection_ = NULL;
 const ::google::protobuf::ServiceDescriptor* RaftService_descriptor_ = NULL;
 
 }  // namespace
@@ -198,6 +204,40 @@ void protobuf_AssignDesc_raft_2fraft_2eproto() {
       ::google::protobuf::DescriptorPool::generated_pool(),
       ::google::protobuf::MessageFactory::generated_factory(),
       sizeof(InstallSnapshotResponse));
+  TimeoutNowRequest_descriptor_ = file->message_type(8);
+  static const int TimeoutNowRequest_offsets_[4] = {
+    GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(TimeoutNowRequest, group_id_),
+    GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(TimeoutNowRequest, server_id_),
+    GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(TimeoutNowRequest, peer_id_),
+    GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(TimeoutNowRequest, term_),
+  };
+  TimeoutNowRequest_reflection_ =
+    new ::google::protobuf::internal::GeneratedMessageReflection(
+      TimeoutNowRequest_descriptor_,
+      TimeoutNowRequest::default_instance_,
+      TimeoutNowRequest_offsets_,
+      GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(TimeoutNowRequest, _has_bits_[0]),
+      GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(TimeoutNowRequest, _unknown_fields_),
+      -1,
+      ::google::protobuf::DescriptorPool::generated_pool(),
+      ::google::protobuf::MessageFactory::generated_factory(),
+      sizeof(TimeoutNowRequest));
+  TimeoutNowResponse_descriptor_ = file->message_type(9);
+  static const int TimeoutNowResponse_offsets_[2] = {
+    GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(TimeoutNowResponse, term_),
+    GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(TimeoutNowResponse, success_),
+  };
+  TimeoutNowResponse_reflection_ =
+    new ::google::protobuf::internal::GeneratedMessageReflection(
+      TimeoutNowResponse_descriptor_,
+      TimeoutNowResponse::default_instance_,
+      TimeoutNowResponse_offsets_,
+      GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(TimeoutNowResponse, _has_bits_[0]),
+      GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(TimeoutNowResponse, _unknown_fields_),
+      -1,
+      ::google::protobuf::DescriptorPool::generated_pool(),
+      ::google::protobuf::MessageFactory::generated_factory(),
+      sizeof(TimeoutNowResponse));
   RaftService_descriptor_ = file->service(0);
 }
 
@@ -227,6 +267,10 @@ void protobuf_RegisterTypes(const ::std::string&) {
     InstallSnapshotRequest_descriptor_, &InstallSnapshotRequest::default_instance());
   ::google::protobuf::MessageFactory::InternalRegisterGeneratedMessage(
     InstallSnapshotResponse_descriptor_, &InstallSnapshotResponse::default_instance());
+  ::google::protobuf::MessageFactory::InternalRegisterGeneratedMessage(
+    TimeoutNowRequest_descriptor_, &TimeoutNowRequest::default_instance());
+  ::google::protobuf::MessageFactory::InternalRegisterGeneratedMessage(
+    TimeoutNowResponse_descriptor_, &TimeoutNowResponse::default_instance());
 }
 
 }  // namespace
@@ -248,6 +292,10 @@ void protobuf_ShutdownFile_raft_2fraft_2eproto() {
   delete InstallSnapshotRequest_reflection_;
   delete InstallSnapshotResponse::default_instance_;
   delete InstallSnapshotResponse_reflection_;
+  delete TimeoutNowRequest::default_instance_;
+  delete TimeoutNowRequest_reflection_;
+  delete TimeoutNowResponse::default_instance_;
+  delete TimeoutNowResponse_reflection_;
 }
 
 void protobuf_AddDesc_raft_2fraft_2eproto() {
@@ -280,15 +328,20 @@ void protobuf_AddDesc_raft_2fraft_2eproto() {
     "er_id\030\003 \002(\t\022\014\n\004term\030\004 \002(\003\022 \n\004meta\030\005 \002(\0132"
     "\022.raft.SnapshotMeta\022\013\n\003uri\030\006 \002(\t\"8\n\027Inst"
     "allSnapshotResponse\022\014\n\004term\030\001 \002(\003\022\017\n\007suc"
-    "cess\030\002 \002(\0102\257\002\n\013RaftService\022\?\n\010pre_vote\022\030"
-    ".raft.RequestVoteRequest\032\031.raft.RequestV"
-    "oteResponse\022C\n\014request_vote\022\030.raft.Reque"
-    "stVoteRequest\032\031.raft.RequestVoteResponse"
-    "\022I\n\016append_entries\022\032.raft.AppendEntriesR"
-    "equest\032\033.raft.AppendEntriesResponse\022O\n\020i"
-    "nstall_snapshot\022\034.raft.InstallSnapshotRe"
-    "quest\032\035.raft.InstallSnapshotResponseB\003\200\001"
-    "\001", 1201);
+    "cess\030\002 \002(\010\"W\n\021TimeoutNowRequest\022\020\n\010group"
+    "_id\030\001 \002(\t\022\021\n\tserver_id\030\002 \002(\t\022\017\n\007peer_id\030"
+    "\003 \002(\t\022\014\n\004term\030\004 \002(\003\"3\n\022TimeoutNowRespons"
+    "e\022\014\n\004term\030\001 \002(\003\022\017\n\007success\030\002 \002(\0102\361\002\n\013Raf"
+    "tService\022\?\n\010pre_vote\022\030.raft.RequestVoteR"
+    "equest\032\031.raft.RequestVoteResponse\022C\n\014req"
+    "uest_vote\022\030.raft.RequestVoteRequest\032\031.ra"
+    "ft.RequestVoteResponse\022I\n\016append_entries"
+    "\022\032.raft.AppendEntriesRequest\032\033.raft.Appe"
+    "ndEntriesResponse\022O\n\020install_snapshot\022\034."
+    "raft.InstallSnapshotRequest\032\035.raft.Insta"
+    "llSnapshotResponse\022@\n\013timeout_now\022\027.raft"
+    ".TimeoutNowRequest\032\030.raft.TimeoutNowResp"
+    "onseB\003\200\001\001", 1409);
   ::google::protobuf::MessageFactory::InternalRegisterGeneratedFile(
     "raft/raft.proto", &protobuf_RegisterTypes);
   EntryMeta::default_instance_ = new EntryMeta();
@@ -299,6 +352,8 @@ void protobuf_AddDesc_raft_2fraft_2eproto() {
   SnapshotMeta::default_instance_ = new SnapshotMeta();
   InstallSnapshotRequest::default_instance_ = new InstallSnapshotRequest();
   InstallSnapshotResponse::default_instance_ = new InstallSnapshotResponse();
+  TimeoutNowRequest::default_instance_ = new TimeoutNowRequest();
+  TimeoutNowResponse::default_instance_ = new TimeoutNowResponse();
   EntryMeta::default_instance_->InitAsDefaultInstance();
   RequestVoteRequest::default_instance_->InitAsDefaultInstance();
   RequestVoteResponse::default_instance_->InitAsDefaultInstance();
@@ -307,6 +362,8 @@ void protobuf_AddDesc_raft_2fraft_2eproto() {
   SnapshotMeta::default_instance_->InitAsDefaultInstance();
   InstallSnapshotRequest::default_instance_->InitAsDefaultInstance();
   InstallSnapshotResponse::default_instance_->InitAsDefaultInstance();
+  TimeoutNowRequest::default_instance_->InitAsDefaultInstance();
+  TimeoutNowResponse::default_instance_->InitAsDefaultInstance();
   ::google::protobuf::internal::OnShutdown(&protobuf_ShutdownFile_raft_2fraft_2eproto);
 }
 
@@ -3219,6 +3276,631 @@ void InstallSnapshotResponse::Swap(InstallSnapshotResponse* other) {
 
 // ===================================================================
 
+#ifndef _MSC_VER
+const int TimeoutNowRequest::kGroupIdFieldNumber;
+const int TimeoutNowRequest::kServerIdFieldNumber;
+const int TimeoutNowRequest::kPeerIdFieldNumber;
+const int TimeoutNowRequest::kTermFieldNumber;
+#endif  // !_MSC_VER
+
+TimeoutNowRequest::TimeoutNowRequest()
+  : ::google::protobuf::Message() {
+  SharedCtor();
+}
+
+void TimeoutNowRequest::InitAsDefaultInstance() {
+}
+
+TimeoutNowRequest::TimeoutNowRequest(const TimeoutNowRequest& from)
+  : ::google::protobuf::Message() {
+  SharedCtor();
+  MergeFrom(from);
+}
+
+void TimeoutNowRequest::SharedCtor() {
+  _cached_size_ = 0;
+  group_id_ = const_cast< ::std::string*>(&::google::protobuf::internal::kEmptyString);
+  server_id_ = const_cast< ::std::string*>(&::google::protobuf::internal::kEmptyString);
+  peer_id_ = const_cast< ::std::string*>(&::google::protobuf::internal::kEmptyString);
+  term_ = GOOGLE_LONGLONG(0);
+  ::memset(_has_bits_, 0, sizeof(_has_bits_));
+}
+
+TimeoutNowRequest::~TimeoutNowRequest() {
+  SharedDtor();
+}
+
+void TimeoutNowRequest::SharedDtor() {
+  if (group_id_ != &::google::protobuf::internal::kEmptyString) {
+    delete group_id_;
+  }
+  if (server_id_ != &::google::protobuf::internal::kEmptyString) {
+    delete server_id_;
+  }
+  if (peer_id_ != &::google::protobuf::internal::kEmptyString) {
+    delete peer_id_;
+  }
+  if (this != default_instance_) {
+  }
+}
+
+void TimeoutNowRequest::SetCachedSize(int size) const {
+  GOOGLE_SAFE_CONCURRENT_WRITES_BEGIN();
+  _cached_size_ = size;
+  GOOGLE_SAFE_CONCURRENT_WRITES_END();
+}
+const ::google::protobuf::Descriptor* TimeoutNowRequest::descriptor() {
+  protobuf_AssignDescriptorsOnce();
+  return TimeoutNowRequest_descriptor_;
+}
+
+const TimeoutNowRequest& TimeoutNowRequest::default_instance() {
+  if (default_instance_ == NULL) protobuf_AddDesc_raft_2fraft_2eproto();  return *default_instance_;
+}
+
+TimeoutNowRequest* TimeoutNowRequest::default_instance_ = NULL;
+
+TimeoutNowRequest* TimeoutNowRequest::New() const {
+  return new TimeoutNowRequest;
+}
+
+void TimeoutNowRequest::Clear() {
+  if (_has_bits_[0 / 32] & (0xffu << (0 % 32))) {
+    if (has_group_id()) {
+      if (group_id_ != &::google::protobuf::internal::kEmptyString) {
+        group_id_->clear();
+      }
+    }
+    if (has_server_id()) {
+      if (server_id_ != &::google::protobuf::internal::kEmptyString) {
+        server_id_->clear();
+      }
+    }
+    if (has_peer_id()) {
+      if (peer_id_ != &::google::protobuf::internal::kEmptyString) {
+        peer_id_->clear();
+      }
+    }
+    term_ = GOOGLE_LONGLONG(0);
+  }
+  ::memset(_has_bits_, 0, sizeof(_has_bits_));
+  mutable_unknown_fields()->Clear();
+}
+
+bool TimeoutNowRequest::MergePartialFromCodedStream(
+    ::google::protobuf::io::CodedInputStream* input) {
+#define DO_(EXPRESSION) if (!(EXPRESSION)) return false
+  ::google::protobuf::uint32 tag;
+  while ((tag = input->ReadTag()) != 0) {
+    switch (::google::protobuf::internal::WireFormatLite::GetTagFieldNumber(tag)) {
+      // required string group_id = 1;
+      case 1: {
+        if (::google::protobuf::internal::WireFormatLite::GetTagWireType(tag) ==
+            ::google::protobuf::internal::WireFormatLite::WIRETYPE_LENGTH_DELIMITED) {
+          DO_(::google::protobuf::internal::WireFormatLite::ReadString(
+                input, this->mutable_group_id()));
+          ::google::protobuf::internal::WireFormat::VerifyUTF8String(
+            this->group_id().data(), this->group_id().length(),
+            ::google::protobuf::internal::WireFormat::PARSE);
+        } else {
+          goto handle_uninterpreted;
+        }
+        if (input->ExpectTag(18)) goto parse_server_id;
+        break;
+      }
+      
+      // required string server_id = 2;
+      case 2: {
+        if (::google::protobuf::internal::WireFormatLite::GetTagWireType(tag) ==
+            ::google::protobuf::internal::WireFormatLite::WIRETYPE_LENGTH_DELIMITED) {
+         parse_server_id:
+          DO_(::google::protobuf::internal::WireFormatLite::ReadString(
+                input, this->mutable_server_id()));
+          ::google::protobuf::internal::WireFormat::VerifyUTF8String(
+            this->server_id().data(), this->server_id().length(),
+            ::google::protobuf::internal::WireFormat::PARSE);
+        } else {
+          goto handle_uninterpreted;
+        }
+        if (input->ExpectTag(26)) goto parse_peer_id;
+        break;
+      }
+      
+      // required string peer_id = 3;
+      case 3: {
+        if (::google::protobuf::internal::WireFormatLite::GetTagWireType(tag) ==
+            ::google::protobuf::internal::WireFormatLite::WIRETYPE_LENGTH_DELIMITED) {
+         parse_peer_id:
+          DO_(::google::protobuf::internal::WireFormatLite::ReadString(
+                input, this->mutable_peer_id()));
+          ::google::protobuf::internal::WireFormat::VerifyUTF8String(
+            this->peer_id().data(), this->peer_id().length(),
+            ::google::protobuf::internal::WireFormat::PARSE);
+        } else {
+          goto handle_uninterpreted;
+        }
+        if (input->ExpectTag(32)) goto parse_term;
+        break;
+      }
+      
+      // required int64 term = 4;
+      case 4: {
+        if (::google::protobuf::internal::WireFormatLite::GetTagWireType(tag) ==
+            ::google::protobuf::internal::WireFormatLite::WIRETYPE_VARINT) {
+         parse_term:
+          DO_((::google::protobuf::internal::WireFormatLite::ReadPrimitive<
+                   ::google::protobuf::int64, ::google::protobuf::internal::WireFormatLite::TYPE_INT64>(
+                 input, &term_)));
+          set_has_term();
+        } else {
+          goto handle_uninterpreted;
+        }
+        if (input->ExpectAtEnd()) return true;
+        break;
+      }
+      
+      default: {
+      handle_uninterpreted:
+        if (::google::protobuf::internal::WireFormatLite::GetTagWireType(tag) ==
+            ::google::protobuf::internal::WireFormatLite::WIRETYPE_END_GROUP) {
+          return true;
+        }
+        DO_(::google::protobuf::internal::WireFormat::SkipField(
+              input, tag, mutable_unknown_fields()));
+        break;
+      }
+    }
+  }
+  return true;
+#undef DO_
+}
+
+void TimeoutNowRequest::SerializeWithCachedSizes(
+    ::google::protobuf::io::CodedOutputStream* output) const {
+  // required string group_id = 1;
+  if (has_group_id()) {
+    ::google::protobuf::internal::WireFormat::VerifyUTF8String(
+      this->group_id().data(), this->group_id().length(),
+      ::google::protobuf::internal::WireFormat::SERIALIZE);
+    ::google::protobuf::internal::WireFormatLite::WriteString(
+      1, this->group_id(), output);
+  }
+  
+  // required string server_id = 2;
+  if (has_server_id()) {
+    ::google::protobuf::internal::WireFormat::VerifyUTF8String(
+      this->server_id().data(), this->server_id().length(),
+      ::google::protobuf::internal::WireFormat::SERIALIZE);
+    ::google::protobuf::internal::WireFormatLite::WriteString(
+      2, this->server_id(), output);
+  }
+  
+  // required string peer_id = 3;
+  if (has_peer_id()) {
+    ::google::protobuf::internal::WireFormat::VerifyUTF8String(
+      this->peer_id().data(), this->peer_id().length(),
+      ::google::protobuf::internal::WireFormat::SERIALIZE);
+    ::google::protobuf::internal::WireFormatLite::WriteString(
+      3, this->peer_id(), output);
+  }
+  
+  // required int64 term = 4;
+  if (has_term()) {
+    ::google::protobuf::internal::WireFormatLite::WriteInt64(4, this->term(), output);
+  }
+  
+  if (!unknown_fields().empty()) {
+    ::google::protobuf::internal::WireFormat::SerializeUnknownFields(
+        unknown_fields(), output);
+  }
+}
+
+::google::protobuf::uint8* TimeoutNowRequest::SerializeWithCachedSizesToArray(
+    ::google::protobuf::uint8* target) const {
+  // required string group_id = 1;
+  if (has_group_id()) {
+    ::google::protobuf::internal::WireFormat::VerifyUTF8String(
+      this->group_id().data(), this->group_id().length(),
+      ::google::protobuf::internal::WireFormat::SERIALIZE);
+    target =
+      ::google::protobuf::internal::WireFormatLite::WriteStringToArray(
+        1, this->group_id(), target);
+  }
+  
+  // required string server_id = 2;
+  if (has_server_id()) {
+    ::google::protobuf::internal::WireFormat::VerifyUTF8String(
+      this->server_id().data(), this->server_id().length(),
+      ::google::protobuf::internal::WireFormat::SERIALIZE);
+    target =
+      ::google::protobuf::internal::WireFormatLite::WriteStringToArray(
+        2, this->server_id(), target);
+  }
+  
+  // required string peer_id = 3;
+  if (has_peer_id()) {
+    ::google::protobuf::internal::WireFormat::VerifyUTF8String(
+      this->peer_id().data(), this->peer_id().length(),
+      ::google::protobuf::internal::WireFormat::SERIALIZE);
+    target =
+      ::google::protobuf::internal::WireFormatLite::WriteStringToArray(
+        3, this->peer_id(), target);
+  }
+  
+  // required int64 term = 4;
+  if (has_term()) {
+    target = ::google::protobuf::internal::WireFormatLite::WriteInt64ToArray(4, this->term(), target);
+  }
+  
+  if (!unknown_fields().empty()) {
+    target = ::google::protobuf::internal::WireFormat::SerializeUnknownFieldsToArray(
+        unknown_fields(), target);
+  }
+  return target;
+}
+
+int TimeoutNowRequest::ByteSize() const {
+  int total_size = 0;
+  
+  if (_has_bits_[0 / 32] & (0xffu << (0 % 32))) {
+    // required string group_id = 1;
+    if (has_group_id()) {
+      total_size += 1 +
+        ::google::protobuf::internal::WireFormatLite::StringSize(
+          this->group_id());
+    }
+    
+    // required string server_id = 2;
+    if (has_server_id()) {
+      total_size += 1 +
+        ::google::protobuf::internal::WireFormatLite::StringSize(
+          this->server_id());
+    }
+    
+    // required string peer_id = 3;
+    if (has_peer_id()) {
+      total_size += 1 +
+        ::google::protobuf::internal::WireFormatLite::StringSize(
+          this->peer_id());
+    }
+    
+    // required int64 term = 4;
+    if (has_term()) {
+      total_size += 1 +
+        ::google::protobuf::internal::WireFormatLite::Int64Size(
+          this->term());
+    }
+    
+  }
+  if (!unknown_fields().empty()) {
+    total_size +=
+      ::google::protobuf::internal::WireFormat::ComputeUnknownFieldsSize(
+        unknown_fields());
+  }
+  GOOGLE_SAFE_CONCURRENT_WRITES_BEGIN();
+  _cached_size_ = total_size;
+  GOOGLE_SAFE_CONCURRENT_WRITES_END();
+  return total_size;
+}
+
+void TimeoutNowRequest::MergeFrom(const ::google::protobuf::Message& from) {
+  GOOGLE_CHECK_NE(&from, this);
+  const TimeoutNowRequest* source =
+    ::google::protobuf::internal::dynamic_cast_if_available<const TimeoutNowRequest*>(
+      &from);
+  if (source == NULL) {
+    ::google::protobuf::internal::ReflectionOps::Merge(from, this);
+  } else {
+    MergeFrom(*source);
+  }
+}
+
+void TimeoutNowRequest::MergeFrom(const TimeoutNowRequest& from) {
+  GOOGLE_CHECK_NE(&from, this);
+  if (from._has_bits_[0 / 32] & (0xffu << (0 % 32))) {
+    if (from.has_group_id()) {
+      set_group_id(from.group_id());
+    }
+    if (from.has_server_id()) {
+      set_server_id(from.server_id());
+    }
+    if (from.has_peer_id()) {
+      set_peer_id(from.peer_id());
+    }
+    if (from.has_term()) {
+      set_term(from.term());
+    }
+  }
+  mutable_unknown_fields()->MergeFrom(from.unknown_fields());
+}
+
+void TimeoutNowRequest::CopyFrom(const ::google::protobuf::Message& from) {
+  if (&from == this) return;
+  Clear();
+  MergeFrom(from);
+}
+
+void TimeoutNowRequest::CopyFrom(const TimeoutNowRequest& from) {
+  if (&from == this) return;
+  Clear();
+  MergeFrom(from);
+}
+
+bool TimeoutNowRequest::IsInitialized() const {
+  if ((_has_bits_[0] & 0x0000000f) != 0x0000000f) return false;
+  
+  return true;
+}
+
+void TimeoutNowRequest::Swap(TimeoutNowRequest* other) {
+  if (other != this) {
+    std::swap(group_id_, other->group_id_);
+    std::swap(server_id_, other->server_id_);
+    std::swap(peer_id_, other->peer_id_);
+    std::swap(term_, other->term_);
+    std::swap(_has_bits_[0], other->_has_bits_[0]);
+    _unknown_fields_.Swap(&other->_unknown_fields_);
+    std::swap(_cached_size_, other->_cached_size_);
+  }
+}
+
+::google::protobuf::Metadata TimeoutNowRequest::GetMetadata() const {
+  protobuf_AssignDescriptorsOnce();
+  ::google::protobuf::Metadata metadata;
+  metadata.descriptor = TimeoutNowRequest_descriptor_;
+  metadata.reflection = TimeoutNowRequest_reflection_;
+  return metadata;
+}
+
+
+// ===================================================================
+
+#ifndef _MSC_VER
+const int TimeoutNowResponse::kTermFieldNumber;
+const int TimeoutNowResponse::kSuccessFieldNumber;
+#endif  // !_MSC_VER
+
+TimeoutNowResponse::TimeoutNowResponse()
+  : ::google::protobuf::Message() {
+  SharedCtor();
+}
+
+void TimeoutNowResponse::InitAsDefaultInstance() {
+}
+
+TimeoutNowResponse::TimeoutNowResponse(const TimeoutNowResponse& from)
+  : ::google::protobuf::Message() {
+  SharedCtor();
+  MergeFrom(from);
+}
+
+void TimeoutNowResponse::SharedCtor() {
+  _cached_size_ = 0;
+  term_ = GOOGLE_LONGLONG(0);
+  success_ = false;
+  ::memset(_has_bits_, 0, sizeof(_has_bits_));
+}
+
+TimeoutNowResponse::~TimeoutNowResponse() {
+  SharedDtor();
+}
+
+void TimeoutNowResponse::SharedDtor() {
+  if (this != default_instance_) {
+  }
+}
+
+void TimeoutNowResponse::SetCachedSize(int size) const {
+  GOOGLE_SAFE_CONCURRENT_WRITES_BEGIN();
+  _cached_size_ = size;
+  GOOGLE_SAFE_CONCURRENT_WRITES_END();
+}
+const ::google::protobuf::Descriptor* TimeoutNowResponse::descriptor() {
+  protobuf_AssignDescriptorsOnce();
+  return TimeoutNowResponse_descriptor_;
+}
+
+const TimeoutNowResponse& TimeoutNowResponse::default_instance() {
+  if (default_instance_ == NULL) protobuf_AddDesc_raft_2fraft_2eproto();  return *default_instance_;
+}
+
+TimeoutNowResponse* TimeoutNowResponse::default_instance_ = NULL;
+
+TimeoutNowResponse* TimeoutNowResponse::New() const {
+  return new TimeoutNowResponse;
+}
+
+void TimeoutNowResponse::Clear() {
+  if (_has_bits_[0 / 32] & (0xffu << (0 % 32))) {
+    term_ = GOOGLE_LONGLONG(0);
+    success_ = false;
+  }
+  ::memset(_has_bits_, 0, sizeof(_has_bits_));
+  mutable_unknown_fields()->Clear();
+}
+
+bool TimeoutNowResponse::MergePartialFromCodedStream(
+    ::google::protobuf::io::CodedInputStream* input) {
+#define DO_(EXPRESSION) if (!(EXPRESSION)) return false
+  ::google::protobuf::uint32 tag;
+  while ((tag = input->ReadTag()) != 0) {
+    switch (::google::protobuf::internal::WireFormatLite::GetTagFieldNumber(tag)) {
+      // required int64 term = 1;
+      case 1: {
+        if (::google::protobuf::internal::WireFormatLite::GetTagWireType(tag) ==
+            ::google::protobuf::internal::WireFormatLite::WIRETYPE_VARINT) {
+          DO_((::google::protobuf::internal::WireFormatLite::ReadPrimitive<
+                   ::google::protobuf::int64, ::google::protobuf::internal::WireFormatLite::TYPE_INT64>(
+                 input, &term_)));
+          set_has_term();
+        } else {
+          goto handle_uninterpreted;
+        }
+        if (input->ExpectTag(16)) goto parse_success;
+        break;
+      }
+      
+      // required bool success = 2;
+      case 2: {
+        if (::google::protobuf::internal::WireFormatLite::GetTagWireType(tag) ==
+            ::google::protobuf::internal::WireFormatLite::WIRETYPE_VARINT) {
+         parse_success:
+          DO_((::google::protobuf::internal::WireFormatLite::ReadPrimitive<
+                   bool, ::google::protobuf::internal::WireFormatLite::TYPE_BOOL>(
+                 input, &success_)));
+          set_has_success();
+        } else {
+          goto handle_uninterpreted;
+        }
+        if (input->ExpectAtEnd()) return true;
+        break;
+      }
+      
+      default: {
+      handle_uninterpreted:
+        if (::google::protobuf::internal::WireFormatLite::GetTagWireType(tag) ==
+            ::google::protobuf::internal::WireFormatLite::WIRETYPE_END_GROUP) {
+          return true;
+        }
+        DO_(::google::protobuf::internal::WireFormat::SkipField(
+              input, tag, mutable_unknown_fields()));
+        break;
+      }
+    }
+  }
+  return true;
+#undef DO_
+}
+
+void TimeoutNowResponse::SerializeWithCachedSizes(
+    ::google::protobuf::io::CodedOutputStream* output) const {
+  // required int64 term = 1;
+  if (has_term()) {
+    ::google::protobuf::internal::WireFormatLite::WriteInt64(1, this->term(), output);
+  }
+  
+  // required bool success = 2;
+  if (has_success()) {
+    ::google::protobuf::internal::WireFormatLite::WriteBool(2, this->success(), output);
+  }
+  
+  if (!unknown_fields().empty()) {
+    ::google::protobuf::internal::WireFormat::SerializeUnknownFields(
+        unknown_fields(), output);
+  }
+}
+
+::google::protobuf::uint8* TimeoutNowResponse::SerializeWithCachedSizesToArray(
+    ::google::protobuf::uint8* target) const {
+  // required int64 term = 1;
+  if (has_term()) {
+    target = ::google::protobuf::internal::WireFormatLite::WriteInt64ToArray(1, this->term(), target);
+  }
+  
+  // required bool success = 2;
+  if (has_success()) {
+    target = ::google::protobuf::internal::WireFormatLite::WriteBoolToArray(2, this->success(), target);
+  }
+  
+  if (!unknown_fields().empty()) {
+    target = ::google::protobuf::internal::WireFormat::SerializeUnknownFieldsToArray(
+        unknown_fields(), target);
+  }
+  return target;
+}
+
+int TimeoutNowResponse::ByteSize() const {
+  int total_size = 0;
+  
+  if (_has_bits_[0 / 32] & (0xffu << (0 % 32))) {
+    // required int64 term = 1;
+    if (has_term()) {
+      total_size += 1 +
+        ::google::protobuf::internal::WireFormatLite::Int64Size(
+          this->term());
+    }
+    
+    // required bool success = 2;
+    if (has_success()) {
+      total_size += 1 + 1;
+    }
+    
+  }
+  if (!unknown_fields().empty()) {
+    total_size +=
+      ::google::protobuf::internal::WireFormat::ComputeUnknownFieldsSize(
+        unknown_fields());
+  }
+  GOOGLE_SAFE_CONCURRENT_WRITES_BEGIN();
+  _cached_size_ = total_size;
+  GOOGLE_SAFE_CONCURRENT_WRITES_END();
+  return total_size;
+}
+
+void TimeoutNowResponse::MergeFrom(const ::google::protobuf::Message& from) {
+  GOOGLE_CHECK_NE(&from, this);
+  const TimeoutNowResponse* source =
+    ::google::protobuf::internal::dynamic_cast_if_available<const TimeoutNowResponse*>(
+      &from);
+  if (source == NULL) {
+    ::google::protobuf::internal::ReflectionOps::Merge(from, this);
+  } else {
+    MergeFrom(*source);
+  }
+}
+
+void TimeoutNowResponse::MergeFrom(const TimeoutNowResponse& from) {
+  GOOGLE_CHECK_NE(&from, this);
+  if (from._has_bits_[0 / 32] & (0xffu << (0 % 32))) {
+    if (from.has_term()) {
+      set_term(from.term());
+    }
+    if (from.has_success()) {
+      set_success(from.success());
+    }
+  }
+  mutable_unknown_fields()->MergeFrom(from.unknown_fields());
+}
+
+void TimeoutNowResponse::CopyFrom(const ::google::protobuf::Message& from) {
+  if (&from == this) return;
+  Clear();
+  MergeFrom(from);
+}
+
+void TimeoutNowResponse::CopyFrom(const TimeoutNowResponse& from) {
+  if (&from == this) return;
+  Clear();
+  MergeFrom(from);
+}
+
+bool TimeoutNowResponse::IsInitialized() const {
+  if ((_has_bits_[0] & 0x00000003) != 0x00000003) return false;
+  
+  return true;
+}
+
+void TimeoutNowResponse::Swap(TimeoutNowResponse* other) {
+  if (other != this) {
+    std::swap(term_, other->term_);
+    std::swap(success_, other->success_);
+    std::swap(_has_bits_[0], other->_has_bits_[0]);
+    _unknown_fields_.Swap(&other->_unknown_fields_);
+    std::swap(_cached_size_, other->_cached_size_);
+  }
+}
+
+::google::protobuf::Metadata TimeoutNowResponse::GetMetadata() const {
+  protobuf_AssignDescriptorsOnce();
+  ::google::protobuf::Metadata metadata;
+  metadata.descriptor = TimeoutNowResponse_descriptor_;
+  metadata.reflection = TimeoutNowResponse_reflection_;
+  return metadata;
+}
+
+
+// ===================================================================
+
 RaftService::~RaftService() {}
 
 const ::google::protobuf::ServiceDescriptor* RaftService::descriptor() {
@@ -3263,6 +3945,14 @@ void RaftService::install_snapshot(::google::protobuf::RpcController* controller
   done->Run();
 }
 
+void RaftService::timeout_now(::google::protobuf::RpcController* controller,
+                         const ::raft::TimeoutNowRequest*,
+                         ::raft::TimeoutNowResponse*,
+                         ::google::protobuf::Closure* done) {
+  controller->SetFailed("Method timeout_now() not implemented.");
+  done->Run();
+}
+
 void RaftService::CallMethod(const ::google::protobuf::MethodDescriptor* method,
                              ::google::protobuf::RpcController* controller,
                              const ::google::protobuf::Message* request,
@@ -3294,6 +3984,12 @@ void RaftService::CallMethod(const ::google::protobuf::MethodDescriptor* method,
              ::google::protobuf::down_cast< ::raft::InstallSnapshotResponse*>(response),
              done);
       break;
+    case 4:
+      timeout_now(controller,
+             ::google::protobuf::down_cast<const ::raft::TimeoutNowRequest*>(request),
+             ::google::protobuf::down_cast< ::raft::TimeoutNowResponse*>(response),
+             done);
+      break;
     default:
       GOOGLE_LOG(FATAL) << "Bad method index; this should never happen.";
       break;
@@ -3312,6 +4008,8 @@ const ::google::protobuf::Message& RaftService::GetRequestPrototype(
       return ::raft::AppendEntriesRequest::default_instance();
     case 3:
       return ::raft::InstallSnapshotRequest::default_instance();
+    case 4:
+      return ::raft::TimeoutNowRequest::default_instance();
     default:
       GOOGLE_LOG(FATAL) << "Bad method index; this should never happen.";
       return *reinterpret_cast< ::google::protobuf::Message*>(NULL);
@@ -3330,6 +4028,8 @@ const ::google::protobuf::Message& RaftService::GetResponsePrototype(
       return ::raft::AppendEntriesResponse::default_instance();
     case 3:
       return ::raft::InstallSnapshotResponse::default_instance();
+    case 4:
+      return ::raft::TimeoutNowResponse::default_instance();
     default:
       GOOGLE_LOG(FATAL) << "Bad method index; this should never happen.";
       return *reinterpret_cast< ::google::protobuf::Message*>(NULL);
@@ -3373,6 +4073,13 @@ void RaftService_Stub::install_snapshot(::google::protobuf::RpcController* contr
                               ::raft::InstallSnapshotResponse* response,
                               ::google::protobuf::Closure* done) {
   channel_->CallMethod(descriptor()->method(3),
+                       controller, request, response, done);
+}
+void RaftService_Stub::timeout_now(::google::protobuf::RpcController* controller,
+                              const ::raft::TimeoutNowRequest* request,
+                              ::raft::TimeoutNowResponse* response,
+                              ::google::protobuf::Closure* done) {
+  channel_->CallMethod(descriptor()->method(4),
                        controller, request, response, done);
 }
 

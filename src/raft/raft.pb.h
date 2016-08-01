@@ -42,6 +42,8 @@ class AppendEntriesResponse;
 class SnapshotMeta;
 class InstallSnapshotRequest;
 class InstallSnapshotResponse;
+class TimeoutNowRequest;
+class TimeoutNowResponse;
 
 // ===================================================================
 
@@ -1017,6 +1019,222 @@ class InstallSnapshotResponse : public ::google::protobuf::Message {
   void InitAsDefaultInstance();
   static InstallSnapshotResponse* default_instance_;
 };
+// -------------------------------------------------------------------
+
+class TimeoutNowRequest : public ::google::protobuf::Message {
+ public:
+  TimeoutNowRequest();
+  virtual ~TimeoutNowRequest();
+  
+  TimeoutNowRequest(const TimeoutNowRequest& from);
+  
+  inline TimeoutNowRequest& operator=(const TimeoutNowRequest& from) {
+    CopyFrom(from);
+    return *this;
+  }
+  
+  inline const ::google::protobuf::UnknownFieldSet& unknown_fields() const {
+    return _unknown_fields_;
+  }
+  
+  inline ::google::protobuf::UnknownFieldSet* mutable_unknown_fields() {
+    return &_unknown_fields_;
+  }
+  
+  static const ::google::protobuf::Descriptor* descriptor();
+  static const TimeoutNowRequest& default_instance();
+  
+  void Swap(TimeoutNowRequest* other);
+  
+  // implements Message ----------------------------------------------
+  
+  TimeoutNowRequest* New() const;
+  void CopyFrom(const ::google::protobuf::Message& from);
+  void MergeFrom(const ::google::protobuf::Message& from);
+  void CopyFrom(const TimeoutNowRequest& from);
+  void MergeFrom(const TimeoutNowRequest& from);
+  void Clear();
+  bool IsInitialized() const;
+  
+  int ByteSize() const;
+  bool MergePartialFromCodedStream(
+      ::google::protobuf::io::CodedInputStream* input);
+  void SerializeWithCachedSizes(
+      ::google::protobuf::io::CodedOutputStream* output) const;
+  ::google::protobuf::uint8* SerializeWithCachedSizesToArray(::google::protobuf::uint8* output) const;
+  int GetCachedSize() const { return _cached_size_; }
+  private:
+  void SharedCtor();
+  void SharedDtor();
+  void SetCachedSize(int size) const;
+  public:
+  
+  ::google::protobuf::Metadata GetMetadata() const;
+  
+  // nested types ----------------------------------------------------
+  
+  // accessors -------------------------------------------------------
+  
+  // required string group_id = 1;
+  inline bool has_group_id() const;
+  inline void clear_group_id();
+  static const int kGroupIdFieldNumber = 1;
+  inline const ::std::string& group_id() const;
+  inline void set_group_id(const ::std::string& value);
+  inline void set_group_id(const char* value);
+  inline void set_group_id(const char* value, size_t size);
+  inline ::std::string* mutable_group_id();
+  inline ::std::string* release_group_id();
+  
+  // required string server_id = 2;
+  inline bool has_server_id() const;
+  inline void clear_server_id();
+  static const int kServerIdFieldNumber = 2;
+  inline const ::std::string& server_id() const;
+  inline void set_server_id(const ::std::string& value);
+  inline void set_server_id(const char* value);
+  inline void set_server_id(const char* value, size_t size);
+  inline ::std::string* mutable_server_id();
+  inline ::std::string* release_server_id();
+  
+  // required string peer_id = 3;
+  inline bool has_peer_id() const;
+  inline void clear_peer_id();
+  static const int kPeerIdFieldNumber = 3;
+  inline const ::std::string& peer_id() const;
+  inline void set_peer_id(const ::std::string& value);
+  inline void set_peer_id(const char* value);
+  inline void set_peer_id(const char* value, size_t size);
+  inline ::std::string* mutable_peer_id();
+  inline ::std::string* release_peer_id();
+  
+  // required int64 term = 4;
+  inline bool has_term() const;
+  inline void clear_term();
+  static const int kTermFieldNumber = 4;
+  inline ::google::protobuf::int64 term() const;
+  inline void set_term(::google::protobuf::int64 value);
+  
+  // @@protoc_insertion_point(class_scope:raft.TimeoutNowRequest)
+ private:
+  inline void set_has_group_id();
+  inline void clear_has_group_id();
+  inline void set_has_server_id();
+  inline void clear_has_server_id();
+  inline void set_has_peer_id();
+  inline void clear_has_peer_id();
+  inline void set_has_term();
+  inline void clear_has_term();
+  
+  ::google::protobuf::UnknownFieldSet _unknown_fields_;
+  
+  ::std::string* group_id_;
+  ::std::string* server_id_;
+  ::std::string* peer_id_;
+  ::google::protobuf::int64 term_;
+  
+  mutable int _cached_size_;
+  ::google::protobuf::uint32 _has_bits_[(4 + 31) / 32];
+  
+  friend void  protobuf_AddDesc_raft_2fraft_2eproto();
+  friend void protobuf_AssignDesc_raft_2fraft_2eproto();
+  friend void protobuf_ShutdownFile_raft_2fraft_2eproto();
+  
+  void InitAsDefaultInstance();
+  static TimeoutNowRequest* default_instance_;
+};
+// -------------------------------------------------------------------
+
+class TimeoutNowResponse : public ::google::protobuf::Message {
+ public:
+  TimeoutNowResponse();
+  virtual ~TimeoutNowResponse();
+  
+  TimeoutNowResponse(const TimeoutNowResponse& from);
+  
+  inline TimeoutNowResponse& operator=(const TimeoutNowResponse& from) {
+    CopyFrom(from);
+    return *this;
+  }
+  
+  inline const ::google::protobuf::UnknownFieldSet& unknown_fields() const {
+    return _unknown_fields_;
+  }
+  
+  inline ::google::protobuf::UnknownFieldSet* mutable_unknown_fields() {
+    return &_unknown_fields_;
+  }
+  
+  static const ::google::protobuf::Descriptor* descriptor();
+  static const TimeoutNowResponse& default_instance();
+  
+  void Swap(TimeoutNowResponse* other);
+  
+  // implements Message ----------------------------------------------
+  
+  TimeoutNowResponse* New() const;
+  void CopyFrom(const ::google::protobuf::Message& from);
+  void MergeFrom(const ::google::protobuf::Message& from);
+  void CopyFrom(const TimeoutNowResponse& from);
+  void MergeFrom(const TimeoutNowResponse& from);
+  void Clear();
+  bool IsInitialized() const;
+  
+  int ByteSize() const;
+  bool MergePartialFromCodedStream(
+      ::google::protobuf::io::CodedInputStream* input);
+  void SerializeWithCachedSizes(
+      ::google::protobuf::io::CodedOutputStream* output) const;
+  ::google::protobuf::uint8* SerializeWithCachedSizesToArray(::google::protobuf::uint8* output) const;
+  int GetCachedSize() const { return _cached_size_; }
+  private:
+  void SharedCtor();
+  void SharedDtor();
+  void SetCachedSize(int size) const;
+  public:
+  
+  ::google::protobuf::Metadata GetMetadata() const;
+  
+  // nested types ----------------------------------------------------
+  
+  // accessors -------------------------------------------------------
+  
+  // required int64 term = 1;
+  inline bool has_term() const;
+  inline void clear_term();
+  static const int kTermFieldNumber = 1;
+  inline ::google::protobuf::int64 term() const;
+  inline void set_term(::google::protobuf::int64 value);
+  
+  // required bool success = 2;
+  inline bool has_success() const;
+  inline void clear_success();
+  static const int kSuccessFieldNumber = 2;
+  inline bool success() const;
+  inline void set_success(bool value);
+  
+  // @@protoc_insertion_point(class_scope:raft.TimeoutNowResponse)
+ private:
+  inline void set_has_term();
+  inline void clear_has_term();
+  inline void set_has_success();
+  inline void clear_has_success();
+  
+  ::google::protobuf::UnknownFieldSet _unknown_fields_;
+  
+  ::google::protobuf::int64 term_;
+  bool success_;
+  
+  mutable int _cached_size_;
+  ::google::protobuf::uint32 _has_bits_[(2 + 31) / 32];
+  
+  friend void  protobuf_AddDesc_raft_2fraft_2eproto();
+  friend void protobuf_AssignDesc_raft_2fraft_2eproto();
+  friend void protobuf_ShutdownFile_raft_2fraft_2eproto();
+  
+  void InitAsDefaultInstance();
+  static TimeoutNowResponse* default_instance_;
+};
 // ===================================================================
 
 class RaftService_Stub;
@@ -1047,6 +1265,10 @@ class RaftService : public ::google::protobuf::Service {
   virtual void install_snapshot(::google::protobuf::RpcController* controller,
                        const ::raft::InstallSnapshotRequest* request,
                        ::raft::InstallSnapshotResponse* response,
+                       ::google::protobuf::Closure* done);
+  virtual void timeout_now(::google::protobuf::RpcController* controller,
+                       const ::raft::TimeoutNowRequest* request,
+                       ::raft::TimeoutNowResponse* response,
                        ::google::protobuf::Closure* done);
   
   // implements Service ----------------------------------------------
@@ -1092,6 +1314,10 @@ class RaftService_Stub : public RaftService {
   void install_snapshot(::google::protobuf::RpcController* controller,
                        const ::raft::InstallSnapshotRequest* request,
                        ::raft::InstallSnapshotResponse* response,
+                       ::google::protobuf::Closure* done);
+  void timeout_now(::google::protobuf::RpcController* controller,
+                       const ::raft::TimeoutNowRequest* request,
+                       ::raft::TimeoutNowResponse* response,
                        ::google::protobuf::Closure* done);
  private:
   ::google::protobuf::RpcChannel* channel_;
@@ -2294,6 +2520,254 @@ inline bool InstallSnapshotResponse::success() const {
   return success_;
 }
 inline void InstallSnapshotResponse::set_success(bool value) {
+  set_has_success();
+  success_ = value;
+}
+
+// -------------------------------------------------------------------
+
+// TimeoutNowRequest
+
+// required string group_id = 1;
+inline bool TimeoutNowRequest::has_group_id() const {
+  return (_has_bits_[0] & 0x00000001u) != 0;
+}
+inline void TimeoutNowRequest::set_has_group_id() {
+  _has_bits_[0] |= 0x00000001u;
+}
+inline void TimeoutNowRequest::clear_has_group_id() {
+  _has_bits_[0] &= ~0x00000001u;
+}
+inline void TimeoutNowRequest::clear_group_id() {
+  if (group_id_ != &::google::protobuf::internal::kEmptyString) {
+    group_id_->clear();
+  }
+  clear_has_group_id();
+}
+inline const ::std::string& TimeoutNowRequest::group_id() const {
+  return *group_id_;
+}
+inline void TimeoutNowRequest::set_group_id(const ::std::string& value) {
+  set_has_group_id();
+  if (group_id_ == &::google::protobuf::internal::kEmptyString) {
+    group_id_ = new ::std::string;
+  }
+  group_id_->assign(value);
+}
+inline void TimeoutNowRequest::set_group_id(const char* value) {
+  set_has_group_id();
+  if (group_id_ == &::google::protobuf::internal::kEmptyString) {
+    group_id_ = new ::std::string;
+  }
+  group_id_->assign(value);
+}
+inline void TimeoutNowRequest::set_group_id(const char* value, size_t size) {
+  set_has_group_id();
+  if (group_id_ == &::google::protobuf::internal::kEmptyString) {
+    group_id_ = new ::std::string;
+  }
+  group_id_->assign(reinterpret_cast<const char*>(value), size);
+}
+inline ::std::string* TimeoutNowRequest::mutable_group_id() {
+  set_has_group_id();
+  if (group_id_ == &::google::protobuf::internal::kEmptyString) {
+    group_id_ = new ::std::string;
+  }
+  return group_id_;
+}
+inline ::std::string* TimeoutNowRequest::release_group_id() {
+  clear_has_group_id();
+  if (group_id_ == &::google::protobuf::internal::kEmptyString) {
+    return NULL;
+  } else {
+    ::std::string* temp = group_id_;
+    group_id_ = const_cast< ::std::string*>(&::google::protobuf::internal::kEmptyString);
+    return temp;
+  }
+}
+
+// required string server_id = 2;
+inline bool TimeoutNowRequest::has_server_id() const {
+  return (_has_bits_[0] & 0x00000002u) != 0;
+}
+inline void TimeoutNowRequest::set_has_server_id() {
+  _has_bits_[0] |= 0x00000002u;
+}
+inline void TimeoutNowRequest::clear_has_server_id() {
+  _has_bits_[0] &= ~0x00000002u;
+}
+inline void TimeoutNowRequest::clear_server_id() {
+  if (server_id_ != &::google::protobuf::internal::kEmptyString) {
+    server_id_->clear();
+  }
+  clear_has_server_id();
+}
+inline const ::std::string& TimeoutNowRequest::server_id() const {
+  return *server_id_;
+}
+inline void TimeoutNowRequest::set_server_id(const ::std::string& value) {
+  set_has_server_id();
+  if (server_id_ == &::google::protobuf::internal::kEmptyString) {
+    server_id_ = new ::std::string;
+  }
+  server_id_->assign(value);
+}
+inline void TimeoutNowRequest::set_server_id(const char* value) {
+  set_has_server_id();
+  if (server_id_ == &::google::protobuf::internal::kEmptyString) {
+    server_id_ = new ::std::string;
+  }
+  server_id_->assign(value);
+}
+inline void TimeoutNowRequest::set_server_id(const char* value, size_t size) {
+  set_has_server_id();
+  if (server_id_ == &::google::protobuf::internal::kEmptyString) {
+    server_id_ = new ::std::string;
+  }
+  server_id_->assign(reinterpret_cast<const char*>(value), size);
+}
+inline ::std::string* TimeoutNowRequest::mutable_server_id() {
+  set_has_server_id();
+  if (server_id_ == &::google::protobuf::internal::kEmptyString) {
+    server_id_ = new ::std::string;
+  }
+  return server_id_;
+}
+inline ::std::string* TimeoutNowRequest::release_server_id() {
+  clear_has_server_id();
+  if (server_id_ == &::google::protobuf::internal::kEmptyString) {
+    return NULL;
+  } else {
+    ::std::string* temp = server_id_;
+    server_id_ = const_cast< ::std::string*>(&::google::protobuf::internal::kEmptyString);
+    return temp;
+  }
+}
+
+// required string peer_id = 3;
+inline bool TimeoutNowRequest::has_peer_id() const {
+  return (_has_bits_[0] & 0x00000004u) != 0;
+}
+inline void TimeoutNowRequest::set_has_peer_id() {
+  _has_bits_[0] |= 0x00000004u;
+}
+inline void TimeoutNowRequest::clear_has_peer_id() {
+  _has_bits_[0] &= ~0x00000004u;
+}
+inline void TimeoutNowRequest::clear_peer_id() {
+  if (peer_id_ != &::google::protobuf::internal::kEmptyString) {
+    peer_id_->clear();
+  }
+  clear_has_peer_id();
+}
+inline const ::std::string& TimeoutNowRequest::peer_id() const {
+  return *peer_id_;
+}
+inline void TimeoutNowRequest::set_peer_id(const ::std::string& value) {
+  set_has_peer_id();
+  if (peer_id_ == &::google::protobuf::internal::kEmptyString) {
+    peer_id_ = new ::std::string;
+  }
+  peer_id_->assign(value);
+}
+inline void TimeoutNowRequest::set_peer_id(const char* value) {
+  set_has_peer_id();
+  if (peer_id_ == &::google::protobuf::internal::kEmptyString) {
+    peer_id_ = new ::std::string;
+  }
+  peer_id_->assign(value);
+}
+inline void TimeoutNowRequest::set_peer_id(const char* value, size_t size) {
+  set_has_peer_id();
+  if (peer_id_ == &::google::protobuf::internal::kEmptyString) {
+    peer_id_ = new ::std::string;
+  }
+  peer_id_->assign(reinterpret_cast<const char*>(value), size);
+}
+inline ::std::string* TimeoutNowRequest::mutable_peer_id() {
+  set_has_peer_id();
+  if (peer_id_ == &::google::protobuf::internal::kEmptyString) {
+    peer_id_ = new ::std::string;
+  }
+  return peer_id_;
+}
+inline ::std::string* TimeoutNowRequest::release_peer_id() {
+  clear_has_peer_id();
+  if (peer_id_ == &::google::protobuf::internal::kEmptyString) {
+    return NULL;
+  } else {
+    ::std::string* temp = peer_id_;
+    peer_id_ = const_cast< ::std::string*>(&::google::protobuf::internal::kEmptyString);
+    return temp;
+  }
+}
+
+// required int64 term = 4;
+inline bool TimeoutNowRequest::has_term() const {
+  return (_has_bits_[0] & 0x00000008u) != 0;
+}
+inline void TimeoutNowRequest::set_has_term() {
+  _has_bits_[0] |= 0x00000008u;
+}
+inline void TimeoutNowRequest::clear_has_term() {
+  _has_bits_[0] &= ~0x00000008u;
+}
+inline void TimeoutNowRequest::clear_term() {
+  term_ = GOOGLE_LONGLONG(0);
+  clear_has_term();
+}
+inline ::google::protobuf::int64 TimeoutNowRequest::term() const {
+  return term_;
+}
+inline void TimeoutNowRequest::set_term(::google::protobuf::int64 value) {
+  set_has_term();
+  term_ = value;
+}
+
+// -------------------------------------------------------------------
+
+// TimeoutNowResponse
+
+// required int64 term = 1;
+inline bool TimeoutNowResponse::has_term() const {
+  return (_has_bits_[0] & 0x00000001u) != 0;
+}
+inline void TimeoutNowResponse::set_has_term() {
+  _has_bits_[0] |= 0x00000001u;
+}
+inline void TimeoutNowResponse::clear_has_term() {
+  _has_bits_[0] &= ~0x00000001u;
+}
+inline void TimeoutNowResponse::clear_term() {
+  term_ = GOOGLE_LONGLONG(0);
+  clear_has_term();
+}
+inline ::google::protobuf::int64 TimeoutNowResponse::term() const {
+  return term_;
+}
+inline void TimeoutNowResponse::set_term(::google::protobuf::int64 value) {
+  set_has_term();
+  term_ = value;
+}
+
+// required bool success = 2;
+inline bool TimeoutNowResponse::has_success() const {
+  return (_has_bits_[0] & 0x00000002u) != 0;
+}
+inline void TimeoutNowResponse::set_has_success() {
+  _has_bits_[0] |= 0x00000002u;
+}
+inline void TimeoutNowResponse::clear_has_success() {
+  _has_bits_[0] &= ~0x00000002u;
+}
+inline void TimeoutNowResponse::clear_success() {
+  success_ = false;
+  clear_has_success();
+}
+inline bool TimeoutNowResponse::success() const {
+  return success_;
+}
+inline void TimeoutNowResponse::set_success(bool value) {
   set_has_success();
   success_ = value;
 }

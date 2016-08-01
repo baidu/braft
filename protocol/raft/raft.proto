@@ -5,7 +5,6 @@ import "raft/enum.proto";
 package raft;
 option cc_generic_services = true;
 
-
 // data store in baidu-rpc's attachment
 message EntryMeta {
     required int64 term = 1;
@@ -65,6 +64,18 @@ message InstallSnapshotResponse {
     required bool success = 2;
 };
 
+message TimeoutNowRequest {
+    required string group_id = 1;
+    required string server_id = 2;
+    required string peer_id = 3;
+    required int64 term = 4;
+}
+
+message TimeoutNowResponse {
+    required int64 term = 1;
+    required bool success = 2;
+}
+
 service RaftService {
     rpc pre_vote(RequestVoteRequest) returns (RequestVoteResponse);
 
@@ -73,5 +84,7 @@ service RaftService {
     rpc append_entries(AppendEntriesRequest) returns (AppendEntriesResponse);
 
     rpc install_snapshot(InstallSnapshotRequest) returns (InstallSnapshotResponse);
+
+    rpc timeout_now(TimeoutNowRequest) returns (TimeoutNowResponse);
 };
 
