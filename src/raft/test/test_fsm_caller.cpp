@@ -109,7 +109,7 @@ TEST_F(FSMCallerTest, sanity) {
     log_opt.configuration_manager = cm.get();
     ASSERT_EQ(0, lm->init(log_opt));
 
-    raft::ClosureQueue cq;
+    raft::ClosureQueue cq(false);
 
     OrderedStateMachine fsm;
     fsm._expected_next = 0;
@@ -151,7 +151,7 @@ TEST_F(FSMCallerTest, on_leader_start_and_stop) {
     scoped_ptr<raft::LogManager> lm(new raft::LogManager());
     OrderedStateMachine fsm;
     fsm._expected_next = 0;
-    raft::ClosureQueue cq;
+    raft::ClosureQueue cq(false);
     raft::FSMCallerOptions opt;
     opt.log_manager = lm.get();
     opt.after_shutdown = NULL;
@@ -267,7 +267,7 @@ TEST_F(FSMCallerTest, snapshot) {
 
     OrderedStateMachine fsm;
     fsm._expected_next = 0;
-    raft::ClosureQueue cq;
+    raft::ClosureQueue cq(false);
     raft::FSMCallerOptions opt;
     opt.log_manager = lm.get();
     opt.after_shutdown = NULL;

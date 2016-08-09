@@ -289,10 +289,11 @@ int NodeImpl::init(const NodeOptions& options) {
             break;
         }
 
-        _closure_queue = new ClosureQueue();
+        _closure_queue = new ClosureQueue(_options.usercode_in_pthread);
 
         // fsm caller init, node AddRef in init
         FSMCallerOptions fsm_caller_options;
+        fsm_caller_options.usercode_in_pthread = _options.usercode_in_pthread;
         this->AddRef();
         fsm_caller_options.after_shutdown = 
             baidu::rpc::NewCallback<NodeImpl*>(after_shutdown, this);

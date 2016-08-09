@@ -14,7 +14,7 @@ namespace raft {
 // Holding the closure waiting for the commitment of logs
 class ClosureQueue {
 public:
-    ClosureQueue();
+    explicit ClosureQueue(bool usercode_in_pthread);
     ~ClosureQueue();
 
     // Clear all the pending closure and run done
@@ -33,12 +33,13 @@ public:
     // of thier indexes, |out_first_index| would be assigned the index of out[0] if
     // out is not empyt, index + 1 otherwise.
     int pop_closure_until(int64_t index, 
-                           std::vector<Closure*> *out, int64_t *out_first_index);
+                          std::vector<Closure*> *out, int64_t *out_first_index);
 private:
     // TODO: a spsc lock-free queue would help
     raft_mutex_t                                    _mutex;
     int64_t                                         _first_index;
     std::deque<Closure*>                            _queue;
+    bool                                            _usercode_in_pthread;
 
 };
 

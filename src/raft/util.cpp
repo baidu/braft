@@ -23,25 +23,26 @@ static void* run_closure(void* arg) {
     return NULL;
 }
 
-void run_closure_in_bthread(google::protobuf::Closure* closure) {
+void run_closure_in_bthread(google::protobuf::Closure* closure,
+                            bool in_pthread) {
     DCHECK(closure);
     bthread_t tid;
-    int ret = bthread_start_urgent(&tid, NULL, run_closure, closure);
+    bthread_attr_t attr = (in_pthread) 
+                          ? BTHREAD_ATTR_NORMAL : BTHREAD_ATTR_PTHREAD;
+    int ret = bthread_start_background(&tid, &attr, run_closure, closure);
     if (0 != ret) {
         PLOG(ERROR) << "Fail to start bthread";
         return closure->Run();
     }
 }
 
-void run_closure_in_bthread_nosig(google::protobuf::Closure* closure) {
+void run_closure_in_bthread_nosig(google::protobuf::Closure* closure,
+                                  bool in_pthread) {
     DCHECK(closure);
     bthread_t tid;
-    bthread_attr_t attr;
-    if (bthread_attr_init(&attr) != 0) {
-        PLOG(ERROR) << "Fail to init bthread_attr";
-        return closure->Run();
-    }
-    attr.flags = BTHREAD_NOSIGNAL;
+    bthread_attr_t attr = (in_pthread) 
+                          ? BTHREAD_ATTR_NORMAL : BTHREAD_ATTR_PTHREAD;
+    attr =  attr | BTHREAD_NOSIGNAL;
     int ret = bthread_start_background(&tid, &attr, run_closure, closure);
     if (0 != ret) {
         PLOG(ERROR) << "Fail to start bthread";

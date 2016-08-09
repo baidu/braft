@@ -91,7 +91,7 @@ private:
 
 TEST_F(CommitmentManagerTest, odd_cluster) {
     DummyCaller caller;
-    raft::ClosureQueue cq;
+    raft::ClosureQueue cq(false);
     raft::CommitmentManagerOptions opt;
     opt.waiter = &caller;
     opt.closure_queue = &cq;
@@ -124,7 +124,7 @@ TEST_F(CommitmentManagerTest, odd_cluster) {
 
 TEST_F(CommitmentManagerTest, even_cluster) {
     DummyCaller caller;
-    raft::ClosureQueue cq;
+    raft::ClosureQueue cq(false);
     raft::CommitmentManagerOptions opt;
     opt.waiter = &caller;
     opt.closure_queue = &cq;

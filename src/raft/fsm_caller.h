@@ -65,12 +65,14 @@ struct FSMCallerOptions {
         , after_shutdown(NULL)
         , closure_queue(NULL)
         , node(NULL)
+        , usercode_in_pthread(false)
     {}
     LogManager *log_manager;
     StateMachine *fsm;
     google::protobuf::Closure* after_shutdown;
     ClosureQueue* closure_queue;
     NodeImpl* node;
+    bool usercode_in_pthread;
 };
 
 class SaveSnapshotClosure : public Closure {

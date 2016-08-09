@@ -302,6 +302,11 @@ struct NodeOptions {
     // Default: false
     bool node_owns_fsm;
 
+    // Run the user callbacks and user closures in pthread rather than bthread
+    // 
+    // Default: false
+    bool usercode_in_pthread;
+
     // Describe a specific LogStorage in format ${type}://${parameters}
     std::string log_uri;
 
@@ -326,6 +331,7 @@ inline NodeOptions::NodeOptions()
     , pipelined_replication(false)
     , fsm(NULL)
     , node_owns_fsm(false)
+    , usercode_in_pthread(false)
     , snapshot_hook(NULL)
 {}
 

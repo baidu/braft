@@ -10,7 +10,10 @@
 
 namespace raft {
 
-ClosureQueue::ClosureQueue() : _first_index(0){}
+ClosureQueue::ClosureQueue(bool usercode_in_pthread) 
+    : _first_index(0)
+    , _usercode_in_pthread(usercode_in_pthread)
+{}
 
 ClosureQueue::~ClosureQueue() {
     clear();
@@ -28,7 +31,7 @@ void ClosureQueue::clear() {
             it = saved_queue.begin(); it != saved_queue.end(); ++it) {
         if (*it) {
             (*it)->status().set_error(EPERM, "leader stepped down");
-            run_closure_in_bthread_nosig(*it);
+            run_closure_in_bthread_nosig(*it, _usercode_in_pthread);
             run_bthread = true;
         }
     }

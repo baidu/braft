@@ -113,7 +113,8 @@ inline uint32_t crc32(const base::IOBuf& buf) {
 }
 
 // Start a bthread to run closure
-void run_closure_in_bthread(::google::protobuf::Closure* closure);
+void run_closure_in_bthread(::google::protobuf::Closure* closure,
+                           bool in_pthread = false);
 
 struct RunClosureInBthread {
     void operator()(google::protobuf::Closure* done) {
@@ -126,7 +127,8 @@ typedef std::unique_ptr<google::protobuf::Closure, RunClosureInBthread>
 
 // Start a bthread to run closure without signal other worker thread to steal
 // it. You should call bthread_flush() at last.
-void run_closure_in_bthread_nosig(::google::protobuf::Closure* closure);
+void run_closure_in_bthread_nosig(::google::protobuf::Closure* closure,
+                                  bool in_pthread = false);
 
 struct RunClosureInBthreadNoSig {
     void operator()(google::protobuf::Closure* done) {
