@@ -382,16 +382,23 @@ int NodeImpl::init(const NodeOptions& options) {
     return ret;
 }
 
+DEFINE_int32(raft_apply_batch, 32, "Max number of tasks that can be applied "
+                                   " in a single batch");
+BAIDU_RPC_VALIDATE_GFLAG(raft_apply_batch, ::baidu::rpc::PositiveInteger);
+
 int NodeImpl::execute_applying_tasks(
         void* meta, bthread::TaskIterator<LogEntryAndClosure>& iter) {
     if (iter.is_queue_stopped()) {
         return 0;
     }
-    LogEntryAndClosure tasks[8/*FIXME*/];
+    // TODO: the batch size should limited by both task size and the total log
+    // size
+    const size_t batch_size = FLAGS_raft_apply_batch;
+    DEFINE_SMALL_ARRAY(LogEntryAndClosure, tasks, batch_size, 256);
     size_t cur_size = 0;
     NodeImpl* m = (NodeImpl*)meta;
     for (; iter; ++iter) {
-        if (cur_size == ARRAY_SIZE(tasks)) {
+        if (cur_size == batch_size) {
             m->apply(tasks, cur_size);
             cur_size = 0;
         }

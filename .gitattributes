@@ -2,6 +2,10 @@
 /BCLOUD -text
 /COMAKE -text
 /OWNER -text
+benchmark/COMAKE -text
+benchmark/client.cpp -text
+benchmark/log.proto -text
+benchmark/server.cpp -text
 example/atomic/COMAKE -text
 example/atomic/atomic.proto -text
 example/atomic/bench.cpp -text

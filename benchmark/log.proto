@@ -1,0 +1,25 @@
+syntax="proto2";
+package benchmark;
+option cc_generic_services = true;
+
+
+message GetLeaderRequest {
+};
+
+message GetLeaderResponse {
+    required bool success = 1;
+    optional string leader_addr = 2;
+};
+
+// data in attachment
+message WriteRequest {
+}
+
+message WriteResponse {
+}
+
+// service
+service LogService {
+    rpc write(WriteRequest) returns(WriteResponse);
+    rpc leader(GetLeaderRequest) returns (GetLeaderResponse);
+};
