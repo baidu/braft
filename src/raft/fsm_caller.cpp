@@ -124,9 +124,9 @@ int FSMCaller::init(const FSMCallerOptions &options) {
     }
     
     bthread::ExecutionQueueOptions execq_opt;
-    execq_opt.bthread_attr = 
-        options.usercode_in_pthread ? BTHREAD_ATTR_NORMAL
-                                    : BTHREAD_ATTR_PTHREAD;
+    execq_opt.bthread_attr = options.usercode_in_pthread 
+                             ? BTHREAD_ATTR_PTHREAD
+                             : BTHREAD_ATTR_NORMAL;
     bthread::execution_queue_start(&_queue_id,
                                    &execq_opt,
                                    FSMCaller::run,
