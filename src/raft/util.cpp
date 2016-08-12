@@ -28,7 +28,7 @@ void run_closure_in_bthread(google::protobuf::Closure* closure,
     DCHECK(closure);
     bthread_t tid;
     bthread_attr_t attr = (in_pthread) 
-                          ? BTHREAD_ATTR_NORMAL : BTHREAD_ATTR_PTHREAD;
+                          ? BTHREAD_ATTR_PTHREAD : BTHREAD_ATTR_NORMAL;
     int ret = bthread_start_background(&tid, &attr, run_closure, closure);
     if (0 != ret) {
         PLOG(ERROR) << "Fail to start bthread";
@@ -41,7 +41,7 @@ void run_closure_in_bthread_nosig(google::protobuf::Closure* closure,
     DCHECK(closure);
     bthread_t tid;
     bthread_attr_t attr = (in_pthread) 
-                          ? BTHREAD_ATTR_NORMAL : BTHREAD_ATTR_PTHREAD;
+                          ? BTHREAD_ATTR_PTHREAD : BTHREAD_ATTR_NORMAL;
     attr =  attr | BTHREAD_NOSIGNAL;
     int ret = bthread_start_background(&tid, &attr, run_closure, closure);
     if (0 != ret) {
