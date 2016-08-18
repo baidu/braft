@@ -385,6 +385,8 @@ void SnapshotExecutor::load_downloading_snapshot(DownloadingSnapshot* ds,
         ds->cntl->SetFailed(_cur_copier->error_code(), "%s",
                             _cur_copier->error_cstr());
         _snapshot_storage->close(_cur_copier);
+        _cur_copier = NULL;
+        _downloading_snapshot.store(NULL, boost::memory_order_relaxed);
         // Release the lock before responding the RPC
         lck.unlock();
         return;
@@ -446,6 +448,7 @@ int SnapshotExecutor::register_downloading_snapshot(DownloadingSnapshot* ds) {
         CHECK(!_cur_copier);
         _cur_copier = _snapshot_storage->start_to_copy_from(ds->request->uri());
         if (_cur_copier == NULL) {
+            _downloading_snapshot.store(NULL, boost::memory_order_relaxed);
             lck.unlock();
             ds->cntl->SetFailed(EINVAL, "Fail to copy from , %s",
                                 ds->request->uri().c_str());
