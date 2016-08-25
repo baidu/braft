@@ -92,6 +92,13 @@ SnapshotExecutor::SnapshotExecutor()
 }
 
 SnapshotExecutor::~SnapshotExecutor() {
+    CHECK(!_saving_snapshot);
+    CHECK(!_cur_copier);
+    CHECK(!_loading_snapshot);
+    CHECK(!_downloading_snapshot.load(boost::memory_order_relaxed));
+    if (_snapshot_storage) {
+        delete _snapshot_storage;
+    }
 }
 
 void SnapshotExecutor::do_snapshot(Closure* done) {
