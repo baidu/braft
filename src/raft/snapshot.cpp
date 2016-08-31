@@ -101,6 +101,7 @@ int LocalSnapshotMetaTable::load_from_iobuf_as_remote(const base::IOBuf& buf) {
     LocalSnapshotPbMeta pb_meta;
     base::IOBufAsZeroCopyInputStream wrapper(buf);
     if (!pb_meta.ParseFromZeroCopyStream(&wrapper)) {
+        LOG(ERROR) << "Fail to parse LocalSnapshotPbMeta";
         return -1;
     }
     if (pb_meta.has_meta()) {

@@ -180,6 +180,7 @@ void FileSegData::close() {
 }
 
 size_t FileSegData::next(uint64_t* offset, base::IOBuf* data) {
+    data->clear();
     if (_data.length() == 0) {
         return 0;
     }
