@@ -502,6 +502,7 @@ SnapshotCopier* LocalSnapshotStorage::start_to_copy_from(const std::string& uri)
     LocalSnapshotCopier* copier = new LocalSnapshotCopier();
     if (copier->init(uri) != 0) {
         LOG(ERROR) << "Fail to init copier to " << uri;
+        delete copier;
         return NULL;
     }
     copier->_storage = this;
