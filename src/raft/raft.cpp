@@ -124,6 +124,10 @@ void Node::apply(const Task& task) {
     _impl->apply(task);
 }
 
+base::Status Node::list_peers(std::vector<PeerId>* peers) {
+    return _impl->list_peers(peers);
+}
+
 void Node::add_peer(const std::vector<PeerId>& old_peers, const PeerId& peer, Closure* done) {
     _impl->add_peer(old_peers, peer, done);
 }
