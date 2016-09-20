@@ -1,4 +1,3 @@
-// libraft - Quorum-based replication of states across machines.
 // Copyright (c) 2015 Baidu.com, Inc. All Rights Reserved
 
 // Author: WangYao (fisherman), wangyao02@baidu.com
@@ -60,10 +59,10 @@ public:
     int64_t get_term(const int64_t index) const;
 
     // close open segment
-    int close();
+    int close(bool will_sync = true);
 
     // sync open segment
-    int sync();
+    int sync(bool will_sync);
 
     // unlink segment
     int unlink();
@@ -125,17 +124,19 @@ class SegmentLogStorage : public LogStorage {
 public:
     typedef std::map<int64_t, boost::shared_ptr<Segment> > SegmentMap;
 
-    explicit SegmentLogStorage(const std::string& path)
+    explicit SegmentLogStorage(const std::string& path, bool enable_sync = true)
         : _path(path)
         , _first_log_index(1)
         , _last_log_index(0)
         , _checksum_type(0)
+        , _enable_sync(enable_sync)
     {} 
 
     SegmentLogStorage()
         : _first_log_index(1)
         , _last_log_index(0)
         , _checksum_type(0)
+        , _enable_sync(true)
     {}
 
     virtual ~SegmentLogStorage() {
@@ -184,6 +185,8 @@ public:
     }
 
     void list_files(std::vector<std::string>* seg_files);
+
+    void sync();
 private:
     Segment* open_segment();
     int save_meta(const int64_t log_index);
@@ -207,6 +210,7 @@ private:
     SegmentMap _segments;
     boost::shared_ptr<Segment> _open_segment;
     int _checksum_type;
+    bool _enable_sync;
 };
 
 }  // namespace raft

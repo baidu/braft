@@ -575,8 +575,8 @@ TEST_F(TestUsageSuits, append_read_badcase) {
                 len = 4096;
             }
             char data[4096] = {0};
-            pwrite(fd, data, len, off);
-            close(fd);
+            ::pwrite(fd, data, len, off);
+            ::close(fd);
         }
     }
 

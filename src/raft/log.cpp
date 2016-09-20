@@ -400,10 +400,10 @@ int Segment::append(const LogEntry* entry) {
     return 0;
 }
 
-int Segment::sync() {
+int Segment::sync(bool will_sync) {
     if (_last_index > _first_index) {
         CHECK(_is_open);
-        if (FLAGS_raft_sync) {
+        if (FLAGS_raft_sync && will_sync) {
             return raft_fsync(_fd);
         } else {
             return 0;
@@ -482,7 +482,7 @@ int64_t Segment::get_term(const int64_t index) const {
     return meta.term;
 }
 
-int Segment::close() {
+int Segment::close(bool will_sync) {
     CHECK(_is_open);
 
     std::string old_path(_path);
@@ -493,7 +493,7 @@ int Segment::close() {
                          _first_index, _last_index.load());
 
     // TODO: optimize index memory usage by reconstruct vector
-    int ret = this->sync();
+    int ret = this->sync(will_sync);
     if (ret == 0) {
         _is_open = false;
         const int rc = ::rename(old_path.c_str(), new_path.c_str());
@@ -613,7 +613,6 @@ int Segment::truncate(const int64_t last_index_kept) {
 }
 
 int SegmentLogStorage::init(ConfigurationManager* configuration_manager) {
-
     base::FilePath dir_path(_path);
     if (!base::CreateDirectory(dir_path)) {
         LOG(ERROR) << "Fail to create " << dir_path.AsUTF8Unsafe();
@@ -682,7 +681,7 @@ int SegmentLogStorage::append_entries(const std::vector<LogEntry*>& entries) {
         _last_log_index.fetch_add(1, boost::memory_order_release);
         last_segment = segment;
     }
-    last_segment->sync();
+    last_segment->sync(_enable_sync);
     return entries.size();
 }
 
@@ -697,7 +696,7 @@ int SegmentLogStorage::append_entry(const LogEntry* entry) {
     }
     _last_log_index.fetch_add(1, boost::memory_order_release);
 
-    return segment->sync();
+    return segment->sync(_enable_sync);
 }
 
 LogEntry* SegmentLogStorage::get_entry(const int64_t index) {
@@ -1080,7 +1079,7 @@ Segment* SegmentLogStorage::open_segment() {
     }
     do {
         if (prev_open_segment) {
-            if (prev_open_segment->close() == 0) {
+            if (prev_open_segment->close(_enable_sync) == 0) {
                 BAIDU_SCOPED_LOCK(_mutex);
                 _open_segment.reset(new Segment(_path, last_log_index() + 1, _checksum_type));
                 if (_open_segment->create() == 0) {
@@ -1134,6 +1133,21 @@ void SegmentLogStorage::list_files(std::vector<std::string>* seg_files) {
     for (SegmentMap::iterator it = _segments.begin(); it != _segments.end(); ++it) {
         boost::shared_ptr<Segment>& segment = it->second;
         seg_files->push_back(segment->file_name());
+    }
+}
+
+void SegmentLogStorage::sync() {
+    std::vector<boost::shared_ptr<Segment> > segments;
+    {
+        BAIDU_SCOPED_LOCK(_mutex);
+        for (SegmentMap::iterator it = _segments.begin(); it != _segments.end(); ++it) {
+            segments.push_back(it->second);
+        }
+    }
+
+    for (size_t i = 0; i < segments.size(); i++) {
+        boost::shared_ptr<Segment>& segment = segments[i];
+        segment->sync(true);
     }
 }
 
