@@ -402,7 +402,7 @@ int Segment::append(const LogEntry* entry) {
 
 int Segment::sync(bool will_sync) {
     if (_last_index > _first_index) {
-        CHECK(_is_open);
+        //CHECK(_is_open);
         if (FLAGS_raft_sync && will_sync) {
             return raft_fsync(_fd);
         } else {
