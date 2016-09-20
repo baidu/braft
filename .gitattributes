@@ -242,6 +242,7 @@ src/raft/builtin_service.pb.cc -text
 src/raft/builtin_service.pb.h -text
 src/raft/builtin_service_impl.cpp -text
 src/raft/builtin_service_impl.h -text
+src/raft/closure_helper.h -text
 src/raft/closure_queue.cpp -text
 src/raft/closure_queue.h -text
 src/raft/commitment_manager.cpp -text
