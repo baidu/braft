@@ -374,6 +374,11 @@ public:
     //
     void apply(const Task& task);
 
+    // list peers of this raft group, only leader retruns ok
+    // [NOTE] when list_peers concurrency with add_peer/remove_peer, maybe return peers is staled.
+    // because add_peer/remove_peer immediately modify configuration in memory
+    base::Status list_peers(std::vector<PeerId>* peers);
+
     // add peer to replicated-state-machine [thread-safe]
     // done is user defined function, maybe response to client
     // [NOTE] code after apply can't access resource in done

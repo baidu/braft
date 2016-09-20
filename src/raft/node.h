@@ -79,6 +79,8 @@ public:
     //
     void apply(const Task& task);
 
+    base::Status list_peers(std::vector<PeerId>* peers);
+
     // add peer to replicated-state-machine
     // done is user defined function, maybe response to client
     void add_peer(const std::vector<PeerId>& old_peers, const PeerId& peer,

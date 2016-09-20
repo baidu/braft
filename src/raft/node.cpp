@@ -640,6 +640,15 @@ bool NodeImpl::unsafe_register_conf_change(const std::vector<PeerId>& old_peers,
     return true;
 }
 
+base::Status NodeImpl::list_peers(std::vector<PeerId>* peers) {
+    BAIDU_SCOPED_LOCK(_mutex);
+    if (_state != STATE_LEADER) {
+        return base::Status(EPERM, "Not leader");
+    }
+    _conf.second.list_peers(peers);
+    return base::Status::OK();
+}
+
 void NodeImpl::add_peer(const std::vector<PeerId>& old_peers, const PeerId& peer,
                         Closure* done) {
     Configuration new_conf(old_peers);
