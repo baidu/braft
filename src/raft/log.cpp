@@ -1134,6 +1134,9 @@ void SegmentLogStorage::list_files(std::vector<std::string>* seg_files) {
         boost::shared_ptr<Segment>& segment = it->second;
         seg_files->push_back(segment->file_name());
     }
+    if (_open_segment) {
+        seg_files->push_back(_open_segment->file_name());
+    }
 }
 
 void SegmentLogStorage::sync() {
