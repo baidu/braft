@@ -71,7 +71,7 @@ static inline int heartbeat_timeout(int election_timeout) {
 }
 
 static inline int vote_timeout(int election_timeout) {
-    return random_timeout(std::max(election_timeout / FLAGS_raft_election_heartbeat_factor, 1));
+    return random_timeout(election_timeout);
 }
 
 NodeImpl::NodeImpl(const GroupId& group_id, const PeerId& peer_id)
@@ -1396,7 +1396,7 @@ void NodeImpl::step_down(const int64_t term) {
     AddRef();
     int election_timeout = random_timeout(_options.election_timeout_ms);
     raft_timer_add(&_election_timer, base::milliseconds_from_now(election_timeout),
-                      on_election_timer, this);
+                   on_election_timer, this);
     RAFT_VLOG << "node " << _group_id << ":" << _server_id
         << " term " << _current_term << " start election_timer";
     if (_stop_transfer_arg != NULL) {
