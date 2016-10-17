@@ -540,7 +540,6 @@ void NodeImpl::on_caughtup(const PeerId& peer, int64_t term,
     } while (0);
 
     // call add_peer done when fail
-    CHECK(_conf_ctx.empty());
     done->status().set_error(error_code, "caughtup failed: %s", error_text);
     done->Run();
 }
@@ -628,7 +627,7 @@ bool NodeImpl::unsafe_register_conf_change(const std::vector<PeerId>& old_peers,
     // check not equal
     if (!_conf.second.equals(old_peers)) {
         LOG(WARNING) << "[" << node_id() 
-                     << "] Refusing configuration changing based on wrong configuraiont,"
+                     << "] Refusing configuration changing based on wrong configuration ,"
                      << " expect: " << _conf.second << " recv: " << Configuration(old_peers);
         if (done) {
             done->status().set_error(EINVAL, "old_peers dismatch");
