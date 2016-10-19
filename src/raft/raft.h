@@ -14,6 +14,7 @@
 #include <base/status.h>
 #include "raft/configuration.h"
 #include "raft/enum.pb.h"
+#include "raft/errno.pb.h"
 
 #ifdef RAFT_ENABLE_ROCKSDB_STORAGE
 #include <raft/rocksdb.h>

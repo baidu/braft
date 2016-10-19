@@ -9,6 +9,7 @@
 #include <baidu/rpc/controller.h>
 #include <baidu/rpc/channel.h>
 
+#include "raft/errno.pb.h"
 #include "raft/util.h"
 #include "raft/raft.h"
 #include "raft/node.h"

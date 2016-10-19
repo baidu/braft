@@ -55,8 +55,9 @@ void protobuf_AddDesc_raft_2ferrno_2eproto() {
   GOOGLE_PROTOBUF_VERIFY_VERSION;
 
   ::google::protobuf::DescriptorPool::InternalAddGeneratedFile(
-    "\n\020raft/errno.proto\022\004raft*+\n\tRaftError\022\n\n"
-    "\005ETERM\020\221N\022\022\n\rESTATEMACHINE\020\222N", 69);
+    "\n\020raft/errno.proto\022\004raft*:\n\tRaftError\022\n\n"
+    "\005ETERM\020\221N\022\022\n\rESTATEMACHINE\020\222N\022\r\n\010ECATCHU"
+    "P\020\223N", 84);
   ::google::protobuf::MessageFactory::InternalRegisterGeneratedFile(
     "raft/errno.proto", &protobuf_RegisterTypes);
   ::google::protobuf::internal::OnShutdown(&protobuf_ShutdownFile_raft_2ferrno_2eproto);
@@ -77,6 +78,7 @@ bool RaftError_IsValid(int value) {
   switch(value) {
     case 10001:
     case 10002:
+    case 10003:
       return true;
     default:
       return false;
