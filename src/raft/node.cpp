@@ -537,6 +537,7 @@ void NodeImpl::on_caughtup(const PeerId& peer, int64_t term,
 
         _replicator_group.stop_replicator(peer);
         _conf_ctx.reset();
+        error_code = ECATCHUP;
     } while (0);
 
     // call add_peer done when fail

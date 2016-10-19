@@ -7,6 +7,7 @@ enum RaftError {
 
     ETERM = 10001;  // Term Dismatches
     ESTATEMACHINE = 10002;  // Bad User State Machine
+    ECATCHUP = 10003; // Catchup Failed
     
 };
 
