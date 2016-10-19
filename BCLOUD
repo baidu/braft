@@ -23,12 +23,10 @@ for f in GLOB('protocol/raft/*.proto').split():
     GenSources('../../third-64/protobuf/bin/protoc', 
                '--proto_path=./protocol -I../../third-64/protobuf/include --cpp_out=. %s' % (f), f) 
 
-HEADERS(GLOB_GEN_SRCS('raft/*.pb.h'), '$INC/raft')
 pb_cc_sources = GLOB_GEN_SRCS('raft/*.pb.cc')
 StaticLibrary('raft',Sources(GLOB('src/raft/*.cpp')) + Sources(pb_cc_sources))
 
 raft_headers = set(GLOB('src/raft/*.h').split()) - set(GLOB('src/raft/*.pb.h').split())
 
 HEADERS(' '.join(raft_headers), '$INC/raft')
-HEADERS(GLOB('src/raft/*.h'), '$INC/raft')
 HEADERS(GLOB_GEN_SRCS('raft/*.pb.h'), '$INC/raft')
