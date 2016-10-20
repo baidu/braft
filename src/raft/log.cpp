@@ -521,7 +521,7 @@ static void* run_unlink(void* arg) {
     timer.start();
     int ret = ::unlink(file_path->c_str());
     timer.stop();
-    RAFT_VLOG << "unlink " << file_path << " ret " << ret << " time: " << timer.u_elapsed();
+    RAFT_VLOG << "unlink " << *file_path << " ret " << ret << " time: " << timer.u_elapsed();
     delete file_path;
 
     return NULL;
