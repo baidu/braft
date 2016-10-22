@@ -92,13 +92,18 @@ inline std::ostream& operator<<(std::ostream& os, const Error& e) {
 
 // Basic message structure of libraft
 struct Task {
-    Task() : data(NULL), done(NULL) {}
+    Task() : data(NULL), done(NULL), expected_term(-1) {}
 
     // The data applied to StateMachine
     base::IOBuf* data;
 
     // Continuation when the data is applied to StateMachine or error occurs.
     Closure* done;
+
+    // Reject this task if expected_term doesn't match the current term of
+    // this Node if the value is not -1
+    // Default: -1
+    int64_t expected_term;
 };
 
 class IteratorImpl;
@@ -126,6 +131,9 @@ public:
     //    at index |i| must be applied before task at index |j| in all the 
     //    peers from the group.
     int64_t index() const;
+
+    // Returns the term of the leader which to task was applied to.
+    int64_t term() const;
 
     // Return the data whose content is the same as what was passed to
     // Node::apply in the leader node.

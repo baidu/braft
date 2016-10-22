@@ -814,7 +814,7 @@ TEST_F(RaftTestSuits, JoinNode) {
 
     cond.Init(1);
     peers.push_back(peer1);
-    leader->add_peer(peers, peer2, NEW_ADDPEERCLOSURE(&cond, ETIMEDOUT));
+    leader->add_peer(peers, peer2, NEW_ADDPEERCLOSURE(&cond, raft::ECATCHUP));
     cond.Wait();
 
     // start peer2 after some seconds wait 

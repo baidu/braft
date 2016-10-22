@@ -165,6 +165,8 @@ bool Iterator::valid() const {
 
 int64_t Iterator::index() const { return _impl->index(); }
 
+int64_t Iterator::term() const { return _impl->entry()->id.term; }
+
 const base::IOBuf& Iterator::data() const {
     return _impl->entry()->data;
 }

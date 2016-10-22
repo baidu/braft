@@ -418,8 +418,9 @@ void NodeImpl::apply(const Task& task) {
     LogEntryAndClosure m;
     m.entry = entry;
     m.done = task.done;
+    m.expected_term = task.expected_term;
     if (_apply_queue->execute(m, &bthread::TASK_OPTIONS_INPLACE, NULL) != 0) {
-        task.done->status().set_error(EINVAL, "Node is down");
+        task.done->status().set_error(EPERM, "Node is down");
         entry->Release();
         return run_closure_in_bthread(task.done);
     }
@@ -1512,29 +1513,42 @@ void LeaderStableClosure::Run() {
 void NodeImpl::apply(LogEntryAndClosure tasks[], size_t size) {
     std::vector<LogEntry*> entries;
     entries.reserve(size);
-    for (size_t i = 0; i < size; ++i) {
-        entries.push_back(tasks[i].entry);
-    }
     std::unique_lock<raft_mutex_t> lck(_mutex);
     if (_state != STATE_LEADER || transfering_leadership()) {
+        base::Status st;
+        if (_state != STATE_LEADER) {
+            st.set_error(EPERM, "is not leader");
+        } else {
+            st.set_error(EBUSY, "Is transfering leadership");
+        }
         lck.unlock();
-        RAFT_VLOG << "node " << _group_id << ":" << _server_id << " can't apply not in STATE_LEADER";
-        for (size_t i = 0; i < entries.size(); ++i) {
-            entries[i]->Release();
+        RAFT_VLOG << "node " << _group_id << ":" << _server_id << " can't apply : " << st;
+        for (size_t i = 0; i < size; ++i) {
+            tasks[i].entry->Release();
             if (tasks[i].done) {
-                if (_state != STATE_LEADER) {
-                    tasks[i].done->status().set_error(EPERM, "is not leader");
-                } else {
-                    tasks[i].done->status().set_error(EBUSY, "Is transfering leadership");
-                }
+                tasks[i].done->status() = st;
                 run_closure_in_bthread(tasks[i].done);
             }
         }
         return;
     }
     for (size_t i = 0; i < size; ++i) {
-        entries[i]->id.term = _current_term;
-        entries[i]->type = ENTRY_TYPE_DATA;
+        if (tasks[i].expected_term != -1 && tasks[i].expected_term != _current_term) {
+            RAFT_VLOG << "node " << _group_id << ":" << _server_id
+                      << " can't apply taks whose expected_term=" << tasks[i].expected_term
+                      << " doesn't match current_term=" << _current_term;
+            if (tasks[i].done) {
+                tasks[i].done->status().set_error(
+                        EPERM, "expected_term=%ld doesn't match current_term=%ld",
+                        tasks[i].expected_term, _current_term);
+                run_closure_in_bthread(tasks[i].done);
+            }
+            tasks[i].entry->Release();
+            continue;
+        }
+        entries.push_back(tasks[i].entry);
+        entries.back()->id.term = _current_term;
+        entries.back()->type = ENTRY_TYPE_DATA;
         _commit_manager->append_pending_task(_conf.second, tasks[i].done);
     }
     _log_manager->append_entries(&entries, 

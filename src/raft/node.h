@@ -248,6 +248,7 @@ private:
     struct LogEntryAndClosure {
         LogEntry* entry;
         Closure* done;
+        int64_t expected_term;
     };
 
     State _state;
