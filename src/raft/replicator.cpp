@@ -594,6 +594,7 @@ void Replicator::_on_install_snapshot_returned(
     // We don't retry installing the snapshot explicitly. 
     // dummy_id is unlock in _send_entries
     if (succ) {
+        r->_notify_on_caught_up(0, false);
         r->_send_entries();
     } else {
         r->_block(base::gettimeofday_us(), cntl->ErrorCode());
