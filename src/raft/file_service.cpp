@@ -54,11 +54,16 @@ void FileServiceImpl::get_file(::google::protobuf::RpcController* controller,
         return;
     }
 
+    response->set_eof(is_eof);
+    if (buf.size() == 0) {
+        return;
+    }
+
     FileSegData seg_data;
     uint64_t nparse = 0;
     uint64_t data_len = buf.size();
     while (nparse < data_len) {
-        // TODO: optimize the performance:
+        // TODO: optimize the performance, use IOBuf reduce copy
         char data_buf[4096];
         size_t copy_len = buf.copy_to(data_buf, sizeof(data_buf), 0);
         buf.pop_front(copy_len); // release orig iobuf as early
@@ -80,8 +85,6 @@ void FileServiceImpl::get_file(::google::protobuf::RpcController* controller,
         nparse += copy_len;
     }
     cntl->response_attachment().swap(seg_data.data());
-
-    response->set_eof(is_eof);
 }
 
 FileServiceImpl::FileServiceImpl() {
