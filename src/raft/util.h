@@ -75,6 +75,19 @@ inline ip_t get_host_ip() {
 namespace raft {
 class Closure;
 
+// http://stackoverflow.com/questions/1493936/faster-approach-to-checking-for-an-all-zero-buffer-in-c
+inline bool is_zero(const char* buff, const size_t size) {
+    if (size >= sizeof(uint64_t)) {
+        return (0 == *(uint64_t*)buff) &&
+            (0 == memcmp(buff, buff + sizeof(uint64_t), size - sizeof(uint64_t)));
+    } else if (size > 0) {
+        return (0 == *(uint8_t*)buff) &&
+            (0 == memcmp(buff, buff + sizeof(uint8_t), size - sizeof(uint8_t)));
+    } else {
+        return 0;
+    }
+}
+
 inline uint32_t murmurhash32(const void *key, int len) {
     uint32_t hash = 0;
     MurmurHash3_x86_32(key, len, 0, &hash);
@@ -157,6 +170,7 @@ public:
     }
 
     // writer append
+    void append(const base::IOBuf& data, uint64_t offset);
     void append(void* data, uint64_t offset, uint32_t len);
 
     // writer get

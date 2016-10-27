@@ -163,8 +163,15 @@ TEST_F(TestUsageSuits, FileSegData) {
     raft::FileSegData seg_writer;
     for (uint64_t i = 0; i < 10UL; i++) {
         char buf[1024];
-        snprintf(buf, sizeof(buf), "hello %lu", i);
+        snprintf(buf, sizeof(buf), "raw hello %lu", i);
         seg_writer.append(buf, 1000 * i, strlen(buf));
+    }
+    for (uint64_t i = 10; i < 20UL; i++) {
+        char buf[1024];
+        snprintf(buf, sizeof(buf), "iobuf hello %lu", i);
+        base::IOBuf piece_buf;
+        piece_buf.append(buf, strlen(buf));
+        seg_writer.append(piece_buf, 1000 * i);
     }
 
     raft::FileSegData seg_reader(seg_writer.data());
@@ -175,7 +182,11 @@ TEST_F(TestUsageSuits, FileSegData) {
         ASSERT_EQ(index * 1000, seg_offset);
 
         char buf[1024] = {0};
-        snprintf(buf, sizeof(buf), "hello %lu", index);
+        if (index < 10) {
+            snprintf(buf, sizeof(buf), "raw hello %lu", index);
+        } else {
+            snprintf(buf, sizeof(buf), "iobuf hello %lu", index);
+        }
 
         char new_buf[1024] = {0};
         seg_data.copy_to(new_buf, strlen(buf));
@@ -185,7 +196,7 @@ TEST_F(TestUsageSuits, FileSegData) {
         seg_data.clear();
         index ++;
     }
-    ASSERT_EQ(index, 10UL);
+    ASSERT_EQ(index, 20UL);
 }
 
 TEST_F(TestUsageSuits, PathACL) {
@@ -299,6 +310,105 @@ TEST_F(TestUsageSuits, crc32) {
     }
     int32_t val2 = raft::crc32(buf);
     ASSERT_EQ(val1, val2);
+
+    free(data);
+}
+
+bool is_zero1(const char *buff, size_t size) {
+    while (size--) {
+        if (*buff++) {
+            return false;
+        }
+    }
+    return true;
+}
+
+int is_zero2(const char *buff, const size_t size) {
+    return (0 == *buff && 0 == memcmp(buff, buff + 1, size - 1));
+}
+
+int is_zero3(const char *buff, const size_t size) {
+    return (0 == *(uint64_t*)buff &&
+            0 == memcmp(buff, buff + sizeof(uint64_t), size - sizeof(uint64_t)));
+}
+
+int is_zero4(const char *buff, const size_t size) {
+    return (0 == *(wchar_t*)buff &&
+            0 ==  wmemcmp((wchar_t*)buff, (wchar_t*)buff + 1, size / sizeof(wchar_t) - 1));
+}
+
+int is_zero5(const char *buff, size_t size) {
+    for (size_t i = 0; i < size / sizeof(uint64_t); i++) {
+        if (*(uint64_t*)buff != 0) {
+            return false;
+        }
+        buff += sizeof(uint64_t);
+    }
+    size %= sizeof(uint64_t);
+    for (size_t i = 0; i < size / sizeof(uint8_t); i++) {
+        if (*(uint8_t*)buff != 0) {
+            return false;
+        }
+        buff += sizeof(uint8_t);
+    }
+    return true;
+}
+
+int is_zero_memcmp(const char* buff, size_t size) {
+    static char static_zero_1m_buf[1024*1024] = {0};
+    return 0 == memcmp(buff, static_zero_1m_buf, size);
+}
+
+#define IS_ZERO_TEST(func, size)                                               \
+    do {                                                                       \
+        int64_t start = base::detail::clock_cycles();                          \
+        ASSERT_TRUE(func(data, size));                                         \
+        int64_t end = base::detail::clock_cycles();                            \
+        LOG(INFO) << #func << " cycle: " << end - start;     \
+    } while (0)
+
+TEST_F(TestUsageSuits, is_zero) {
+    char* data = (char*)malloc(1024*1024);
+    memset(data, 0, 1024*1024);
+
+    {
+        char* tmp_data = (char*)malloc(1024*1024);
+        memset(tmp_data, 'a', 1024*1024);
+        free(tmp_data);
+        ASSERT_EQ(0, memcmp(data, tmp_data, 0));
+    }
+
+    int test_sizes[] = {4*1024, 8*1024, 16*1024, 64*1024, 128*1024, 256*1024, 512*1024, 1024*1024};
+    for (size_t i = 0; i < sizeof(test_sizes) / sizeof(int); i++) {
+        LOG(INFO) << "is_zero size: " << test_sizes[i];
+        IS_ZERO_TEST(is_zero1, test_sizes[i]);
+        IS_ZERO_TEST(is_zero2, test_sizes[i]);
+        IS_ZERO_TEST(is_zero3, test_sizes[i]);
+        IS_ZERO_TEST(is_zero4, test_sizes[i]);
+        IS_ZERO_TEST(is_zero5, test_sizes[i]);
+        IS_ZERO_TEST(is_zero_memcmp, test_sizes[i]);
+        IS_ZERO_TEST(raft::is_zero, test_sizes[i]);
+    }
+
+    for (int i = 1024; i >= 1; i--) {
+        ASSERT_TRUE(raft::is_zero(data, i*1024));
+    }
+    for (int i = 1; i < 8; i++) {
+        ASSERT_TRUE(raft::is_zero(data, i));
+    }
+
+    int rand_pos = rand() % (1024 * 1024);
+    data[rand_pos] = 'a' + rand() % 26;
+    ASSERT_FALSE(raft::is_zero(data, 1024 * 1024));
+    ASSERT_TRUE(raft::is_zero(data, rand_pos));
+    ASSERT_TRUE(raft::is_zero(data + rand_pos + 1, 1024 * 1024 - 1 - rand_pos));
+
+    memset(data, 0, 1024*1024);
+    rand_pos = rand() % 8;
+    data[rand_pos] = 'a' + rand() % 26;
+    ASSERT_FALSE(raft::is_zero(data, 8));
+    ASSERT_TRUE(raft::is_zero(data, rand_pos));
+    ASSERT_TRUE(raft::is_zero(data + rand_pos + 1, 8 - 1 - rand_pos));
 
     free(data);
 }

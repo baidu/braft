@@ -4,12 +4,17 @@
 // Date: 2015/11/06 15:40:45
 
 #include <gtest/gtest.h>
+#include <gflags/gflags.h>
 #include <base/logging.h>
 
 #include <baidu/rpc/server.h>
 #include "raft/file_service.h"
 #include "raft/util.h"
 #include "raft/remote_file_copier.h"
+
+namespace raft {
+DECLARE_bool(raft_file_check_hole);
+}
 
 class FileServiceTest : public testing::Test {
 protected:
@@ -65,13 +70,14 @@ TEST_F(FileServiceTest, sanity) {
 }
 
 TEST_F(FileServiceTest, hole_file) {
-    ASSERT_EQ(0, system("rm -rf a; rm -rf b; mkdir a;"));
+    int ret = 0;
+    ASSERT_EQ(0, system("rm -rf a; rm -rf b; rm -rf c; mkdir a;"));
 
     LOG(INFO) << "build hole file";
     int fd = ::open("./a/hole.data", O_CREAT | O_TRUNC | O_WRONLY, 0644);
     ASSERT_GE(fd, 0);
-    for (int i = 0; i < 10; i++) {
-        char buf[1024] = {0};
+    for (int i = 0; i < 1000; i++) {
+        char buf[16*1024] = {0};
         snprintf(buf, sizeof(buf), "hello %d", i);
         ssize_t nwriten = pwrite(fd, buf, strlen(buf), 128 * 1024 * i);
         ASSERT_EQ(static_cast<size_t>(nwriten), strlen(buf));
@@ -85,6 +91,15 @@ TEST_F(FileServiceTest, hole_file) {
     std::string uri;
     base::string_printf(&uri, "remote://127.0.0.1:60006/%ld", reader_id);
     // normal init
+    raft::FLAGS_raft_file_check_hole = false;
     ASSERT_EQ(0, copier.init(uri));
     ASSERT_EQ(0, copier.copy_to_file("hole.data", "./b/hole.data", NULL));
+    ret = system("diff ./a/hole.data ./b/hole.data");
+    ASSERT_EQ(0, ret);
+
+    raft::FLAGS_raft_file_check_hole = true;
+    ASSERT_EQ(0, copier.copy_to_file("hole.data", "./c/hole.data", NULL));
+    ret = system("diff ./a/hole.data ./c/hole.data");
+    ASSERT_EQ(0, ret);
+
 }

@@ -146,6 +146,29 @@ ssize_t file_pwrite(const base::IOBuf& data, int fd, off_t offset) {
     return size - left;
 }
 
+void FileSegData::append(const base::IOBuf& data, uint64_t offset) {
+    uint32_t len = data.size();
+    if (0 != _seg_offset && offset == (_seg_offset + _seg_len)) {
+        // append to last segment
+        _seg_len += len;
+        _data.append(data);
+    } else {
+        // close last segment
+        char seg_header[sizeof(uint64_t) + sizeof(uint32_t)] = {0};
+        if (_seg_len > 0) {
+            ::base::RawPacker(seg_header).pack64(_seg_offset).pack32(_seg_len);
+            CHECK_EQ(0, _data.unsafe_assign(_seg_header, seg_header));
+        }
+
+        // start new segment
+        _seg_offset = offset;
+        _seg_len = len;
+        _seg_header = _data.reserve(sizeof(seg_header));
+        CHECK(_seg_header != base::IOBuf::INVALID_AREA);
+        _data.append(data);
+    }
+}
+
 void FileSegData::append(void* data, uint64_t offset, uint32_t len) {
     if (0 != _seg_offset && offset == (_seg_offset + _seg_len)) {
         // append to last segment

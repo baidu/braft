@@ -16,6 +16,8 @@
 
 namespace raft {
 
+DEFINE_bool(raft_file_check_hole, false, "file service check hole switch, default disable");
+
 void FileServiceImpl::get_file(::google::protobuf::RpcController* controller,
                                const ::raft::GetFileRequest* request,
                                ::raft::GetFileResponse* response,
@@ -55,34 +57,28 @@ void FileServiceImpl::get_file(::google::protobuf::RpcController* controller,
     }
 
     response->set_eof(is_eof);
+    // skip empty data
     if (buf.size() == 0) {
         return;
     }
 
     FileSegData seg_data;
-    uint64_t nparse = 0;
-    uint64_t data_len = buf.size();
-    while (nparse < data_len) {
-        // TODO: optimize the performance, use IOBuf reduce copy
-        char data_buf[4096];
-        size_t copy_len = buf.copy_to(data_buf, sizeof(data_buf), 0);
-        buf.pop_front(copy_len); // release orig iobuf as early
-        if (copy_len == sizeof(data_buf)) {
-            bool is_zero = true;
-            uint64_t* int64_data_buf = (uint64_t*)data_buf;
-            for (size_t i = 0; i < sizeof(data_buf) / sizeof(uint64_t); i++) {
-                if (int64_data_buf[i] != static_cast<uint64_t>(0)) {
-                    is_zero = false;
-                    break;
-                }
+    if (!FLAGS_raft_file_check_hole) {
+        seg_data.append(buf, request->offset());
+    } else {
+        off_t buf_off = request->offset();
+        while (!buf.empty()) {
+            base::StringPiece p = buf.backing_block(0);
+            if (!is_zero(p.data(), p.size())) {
+                base::IOBuf piece_buf;
+                buf.cutn(&piece_buf, p.size());
+                seg_data.append(piece_buf, buf_off);
+            } else {
+                // skip zero IOBuf block
+                buf.pop_front(p.size());
             }
-            if (is_zero) {
-                nparse += copy_len;
-                continue;
-            }
+            buf_off += p.size();
         }
-        seg_data.append(data_buf, request->offset() + nparse, copy_len);
-        nparse += copy_len;
     }
     cntl->response_attachment().swap(seg_data.data());
 }
