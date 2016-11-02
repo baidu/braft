@@ -29,6 +29,25 @@
 #include "raft/macros.h"
 #include "raft/timer.h"
 
+#define RAFT_GET_ARG3(arg1, arg2, arg3, ...)  arg3
+
+#define RAFT_RETURN_IF1(expr, rc)       \
+    do {                                \
+        if ((expr)) {                   \
+            return (rc);                \
+        }                               \
+    } while (0)
+
+#define RAFT_RETURN_IF0(expr)           \
+    do {                                \
+        if ((expr)) {                   \
+            return;                     \
+        }                               \
+    } while (0)
+
+#define RAFT_RETURN_IF(expr, args...)   \
+        RAFT_GET_ARG3(1, ##args, RAFT_RETURN_IF1, RAFT_RETURN_IF0)(expr, ##args)
+
 namespace base {
 
 inline ip_t get_host_ip_by_interface(const char* interface) {
@@ -189,35 +208,6 @@ private:
     base::IOBuf::Area _seg_header;
     uint64_t _seg_offset;
     uint32_t _seg_len;
-};
-
-// PathACL, path must is dir, and not inherit relationship with any path in acl
-class PathACL {
-public:
-    static PathACL* GetInstance() {
-        return Singleton<PathACL>::get();
-    }
-
-    bool check(const std::string& path);
-
-    bool add(const std::string& path);
-
-    bool remove(const std::string& path);
-
-private:
-    PathACL() {}
-    ~PathACL() {}
-    DISALLOW_COPY_AND_ASSIGN(PathACL);
-    friend struct DefaultSingletonTraits<PathACL>;
-
-    typedef std::set<std::string> AccessList;
-
-    static bool normalize_path(const std::string& path, std::string* real_path);
-    static bool is_sub_path(const std::string& parent, const std::string& child);
-    static size_t add_path(AccessList& m, const std::string& path);
-    static size_t remove_path(AccessList& m, const std::string& path);
-
-    base::DoublyBufferedData<AccessList> _acl;
 };
 
 }  // namespace raft

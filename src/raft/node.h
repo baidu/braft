@@ -25,6 +25,7 @@
 #include "raft/util.h"
 #include "raft/closure_queue.h"
 #include "raft/configuration_manager.h"
+#include "raft/repeated_timer_task.h"
 
 namespace raft {
 
@@ -34,7 +35,42 @@ class SnapshotStorage;
 class SnapshotExecutor;
 struct StopTransferArg;
 
-class BAIDU_CACHELINE_ALIGNMENT NodeImpl : public base::RefCountedThreadSafe<NodeImpl> {
+class NodeImpl;
+class NodeTimer : public RepeatedTimerTask {
+public:
+    NodeTimer() : _node(NULL) {}
+    ~NodeTimer() {}
+    int init(NodeImpl* node, int timeout_ms);
+    virtual void run() = 0;
+protected:
+    void on_destroy();
+    NodeImpl* _node;
+};
+
+class ElectionTimer : public NodeTimer {
+protected:
+    void run();
+    int adjust_timeout_ms(int timeout_ms);
+};
+
+class VoteTimer : public NodeTimer {
+protected:
+    void run();
+    int adjust_timeout_ms(int timeout_ms);
+};
+
+class StepdownTimer : public NodeTimer {
+protected:
+    void run();
+};
+
+class SnapshotTimer : public NodeTimer {
+protected:
+    void run();
+};
+
+class BAIDU_CACHELINE_ALIGNMENT NodeImpl 
+        : public base::RefCountedThreadSafe<NodeImpl> {
 friend class RaftServiceImpl;
 friend class RaftStatImpl;
 friend class FollowerStableClosure;
@@ -276,10 +312,10 @@ private:
     SnapshotExecutor* _snapshot_executor;
     ReplicatorGroup _replicator_group;
     std::vector<Closure*> _shutdown_continuations;
-    raft_timer_t _election_timer; // follower -> candidate timer
-    raft_timer_t _vote_timer; // candidate retry timer
-    raft_timer_t _stepdown_timer; // leader check quorum node ok
-    raft_timer_t _snapshot_timer; // snapshot timer
+    ElectionTimer _election_timer;
+    VoteTimer _vote_timer;
+    StepdownTimer _stepdown_timer;
+    SnapshotTimer _snapshot_timer;
     raft_timer_t _transfer_timer;
     StopTransferArg* _stop_transfer_arg;
     bool _vote_triggered;

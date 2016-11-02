@@ -172,8 +172,18 @@ void Replicator::wait_for_caught_up(ReplicatorId id,
     return;
 }
 
-void Replicator::_on_block_timedout(void *arg) {
+void* Replicator::_on_block_timedout_in_new_thread(void* arg) {
     Replicator::_continue_sending(arg, ETIMEDOUT);
+    return NULL;
+}
+
+void Replicator::_on_block_timedout(void *arg) {
+    bthread_t tid;
+    if (bthread_start_background(
+                &tid, NULL, _on_block_timedout_in_new_thread, arg) != 0) {
+        PLOG(ERROR) << "Fail to start bthread";
+        _on_block_timedout_in_new_thread(arg);
+    }
 }
 
 void Replicator::_block(long start_time_us, int /*error_code NOTE*/) {
@@ -187,7 +197,7 @@ void Replicator::_block(long start_time_us, int /*error_code NOTE*/) {
             *_options.dynamic_heartbeat_timeout_ms);
     raft_timer_t timer;
     const int rc = raft_timer_add(&timer, due_time, 
-                                     _on_block_timedout, (void*)_id.value);
+                                  _on_block_timedout, (void*)_id.value);
     RAFT_VLOG << "Blocking " << _options.peer_id << " for " 
               << *_options.dynamic_heartbeat_timeout_ms << "ms";
     if (rc == 0) {

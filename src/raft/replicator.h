@@ -121,6 +121,7 @@ private:
     static void* _run_on_caught_up(void*);
     static void _on_catch_up_timedout(void*);
     static void _on_block_timedout(void *arg);
+    static void* _on_block_timedout_in_new_thread(void *arg);
     static void _on_install_snapshot_returned(
                 ReplicatorId id, baidu::rpc::Controller* cntl,
                 InstallSnapshotRequest* request, 
