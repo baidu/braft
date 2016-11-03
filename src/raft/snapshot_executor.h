@@ -95,6 +95,13 @@ public:
 
     void describe(std::ostream& os, bool use_html);
 
+    // Shutdown the SnapshotExecutor and all the following jobs would be refused
+    void shutdown();
+
+    // Block the current thread until all the running job finishes (including
+    // failure)
+    void join();
+
 private:
 friend class SaveSnapshotDone;
 friend class FirstSnapshotLoadDone;
@@ -126,6 +133,7 @@ friend class InstallSnapshotDone;
     int64_t _term;
     bool _saving_snapshot;
     bool _loading_snapshot;
+    bool _stopped;
     SnapshotStorage* _snapshot_storage;
     SnapshotCopier* _cur_copier;
     FSMCaller* _fsm_caller;
@@ -138,6 +146,7 @@ friend class InstallSnapshotDone;
     //   closure which is called after the Snapshot replaces FSM
     boost::atomic<DownloadingSnapshot*> _downloading_snapshot;
     SnapshotMeta _loading_snapshot_meta;
+    bthread::CountdownEvent _running_jobs;
 };
 
 inline SnapshotExecutorOptions::SnapshotExecutorOptions() 

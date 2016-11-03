@@ -82,7 +82,7 @@ public:
         writer->add_file("data");
     }
 
-    int on_snapshot_load(raft::SnapshotReader* reader) {
+    virtual int on_snapshot_load(raft::SnapshotReader* reader) {
         std::string file_path = reader->get_path();
         file_path.append("/data");
 
@@ -1900,4 +1900,73 @@ TEST_F(RaftTestSuits, leader_transfer_resume_on_failure) {
     cond.Wait();
     ASSERT_TRUE(cluster.ensure_same(5));
     cluster.stop_all();
+}
+
+class MockFSM1 : public MockFSM {
+protected:
+    MockFSM1() : MockFSM(base::EndPoint()) {}
+    virtual int on_snapshot_load(raft::SnapshotReader* reader) {
+        (void)reader;
+        return -1;
+    }
+};
+
+TEST_F(RaftTestSuits, shutdown_and_join_work_after_init_fails) {
+    baidu::rpc::Server server;
+    int ret = raft::add_service(&server, 60006);
+    server.Start(60006, NULL);
+    ASSERT_EQ(0, ret);
+
+    raft::PeerId peer;
+    peer.addr.ip = base::get_host_ip();
+    peer.addr.port = 60006;
+    peer.idx = 0;
+    std::vector<raft::PeerId> peers;
+    peers.push_back(peer);
+
+    {
+        raft::NodeOptions options;
+        options.election_timeout_ms = 300;
+        options.initial_conf = raft::Configuration(peers);
+        options.fsm = new MockFSM1();
+        options.log_uri = "local://./data/log";
+        options.stable_uri = "local://./data/stable";
+        options.snapshot_uri = "local://./data/snapshot";
+        raft::Node node("unittest", peer);
+        ASSERT_EQ(0, node.init(options));
+        sleep(1);
+        BthreadCond cond;
+        cond.Init(10);
+        for (int i = 0; i < 10; i++) {
+            base::IOBuf data;
+            char data_buf[128];
+            snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
+            data.append(data_buf);
+            raft::Task task;
+            task.data = &data;
+            task.done = NEW_APPLYCLOSURE(&cond, 0);
+            node.apply(task);
+        }
+        cond.Wait();
+        node.snapshot(NULL);
+        node.shutdown(NULL);
+        node.join();
+    }
+    
+    {
+        raft::NodeOptions options;
+        options.election_timeout_ms = 300;
+        options.initial_conf = raft::Configuration(peers);
+        options.fsm = new MockFSM1();
+        options.log_uri = "local://./data/log";
+        options.stable_uri = "local://./data/stable";
+        options.snapshot_uri = "local://./data/snapshot";
+        raft::Node node("unittest", peer);
+        ASSERT_NE(0, node.init(options));
+        node.shutdown(NULL);
+        node.join();
+    }
+
+    server.Stop(200);
+    server.Join();
 }

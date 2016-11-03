@@ -39,7 +39,7 @@ class NodeImpl;
 class NodeTimer : public RepeatedTimerTask {
 public:
     NodeTimer() : _node(NULL) {}
-    ~NodeTimer() {}
+    virtual ~NodeTimer() {}
     int init(NodeImpl* node, int timeout_ms);
     virtual void run() = 0;
 protected:

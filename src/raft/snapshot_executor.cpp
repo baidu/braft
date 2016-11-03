@@ -47,33 +47,24 @@ public:
     FirstSnapshotLoadDone(SnapshotExecutor* se,
                           SnapshotReader* reader)
         : _se(se)
-        , _reader(reader)
-        , _has_run(false) {
-        CHECK_EQ(0, raft_cond_init(&_cond, NULL));
+        , _reader(reader) {
+        CHECK_EQ(0, _event.init(1));
     }
     ~FirstSnapshotLoadDone() {
-        CHECK_EQ(0, raft_cond_destroy(&_cond));
     }
 
     SnapshotReader* start() { return _reader; }
     void Run() {
         _se->on_snapshot_load_done(status());
-        BAIDU_SCOPED_LOCK(_mutex);
-        _has_run = true;
-        raft_cond_signal(&_cond);
+        _event.signal();
     }
     void wait_for_run() {
-        BAIDU_SCOPED_LOCK(_mutex);
-        while (!_has_run) {
-            raft_cond_wait(&_cond, _mutex.native_handler());
-        }
+        _event.wait();
     }
 private:
     SnapshotExecutor* _se;
     SnapshotReader* _reader;
-    raft_mutex_t _mutex;
-    raft_cond_t _cond;
-    bool _has_run;
+    bthread::CountdownEvent _event;
 };
 
 SnapshotExecutor::SnapshotExecutor()
@@ -82,6 +73,7 @@ SnapshotExecutor::SnapshotExecutor()
     , _term(0)
     , _saving_snapshot(false)
     , _loading_snapshot(false)
+    , _stopped(false)
     , _snapshot_storage(NULL)
     , _cur_copier(NULL)
     , _fsm_caller(NULL)
@@ -89,9 +81,12 @@ SnapshotExecutor::SnapshotExecutor()
     , _log_manager(NULL)
     , _downloading_snapshot(NULL)
 {
+    _running_jobs.init(0);
 }
 
 SnapshotExecutor::~SnapshotExecutor() {
+    shutdown();
+    join();
     CHECK(!_saving_snapshot);
     CHECK(!_cur_copier);
     CHECK(!_loading_snapshot);
@@ -103,6 +98,14 @@ SnapshotExecutor::~SnapshotExecutor() {
 
 void SnapshotExecutor::do_snapshot(Closure* done) {
     std::unique_lock<raft_mutex_t> lck(_mutex);
+    if (_stopped) {
+        lck.unlock();
+        if (done) {
+            done->status().set_error(EPERM, "Is stopped");
+            run_closure_in_bthread(done);
+        }
+        return;
+    }
     // check snapshot install/load
     if (_downloading_snapshot.load(boost::memory_order_relaxed)) {
         lck.unlock();
@@ -153,6 +156,7 @@ void SnapshotExecutor::do_snapshot(Closure* done) {
         }
         return;
     }
+    _running_jobs.add_count(1);
 }
 
 int SnapshotExecutor::on_snapshot_save_done(
@@ -196,6 +200,8 @@ int SnapshotExecutor::on_snapshot_save_done(
         report_error(EIO, "Fail to save snapshot");
     }
     _saving_snapshot = false;
+    lck.unlock();
+    _running_jobs.signal();
     return ret;
 }
 
@@ -234,6 +240,7 @@ void SnapshotExecutor::on_snapshot_load_done(const base::Status& st) {
         m->done->Run();
         delete m;
     }
+    _running_jobs.signal();
 }
 
 SaveSnapshotDone::SaveSnapshotDone(SnapshotExecutor* se, 
@@ -325,6 +332,7 @@ int SnapshotExecutor::init(const SnapshotExecutorOptions& options) {
         return -1;
     }
     _loading_snapshot = true;
+    _running_jobs.add_count(1);
     // Load snapshot ater startup
     FirstSnapshotLoadDone done(this, reader);
     CHECK_EQ(0, _fsm_caller->on_snapshot_load(&done));
@@ -360,8 +368,8 @@ void SnapshotExecutor::install_snapshot(baidu::rpc::Controller* cntl,
     //        as the retry snapshot will replace this one.
     if (ret != 0) {
         LOG(WARNING) << "Fail to register_downloading_snapshot";
-        // This RPC will be responded by the previous session
         if (ret > 0) {
+            // This RPC will be responded by the previous session
             done_guard.release();
         }
         return;
@@ -374,7 +382,7 @@ void SnapshotExecutor::install_snapshot(baidu::rpc::Controller* cntl,
 }
 
 void SnapshotExecutor::load_downloading_snapshot(DownloadingSnapshot* ds,
-                                                const SnapshotMeta& meta) {
+                                                 const SnapshotMeta& meta) {
     std::unique_ptr<DownloadingSnapshot> ds_guard(ds);
     std::unique_lock<raft_mutex_t> lck(_mutex);
     CHECK_EQ(ds, _downloading_snapshot.load(boost::memory_order_relaxed));
@@ -396,6 +404,7 @@ void SnapshotExecutor::load_downloading_snapshot(DownloadingSnapshot* ds,
         _downloading_snapshot.store(NULL, boost::memory_order_relaxed);
         // Release the lock before responding the RPC
         lck.unlock();
+        _running_jobs.signal();
         return;
     }
     _snapshot_storage->close(_cur_copier);
@@ -409,6 +418,7 @@ void SnapshotExecutor::load_downloading_snapshot(DownloadingSnapshot* ds,
         ds->cntl->SetFailed(baidu::rpc::EINTERNAL, 
                            "Fail to copy snapshot from %s",
                             ds->request->uri().c_str());
+        _running_jobs.signal();
         return;
     }
     // The owner of ds is on_snapshot_load_done
@@ -430,9 +440,11 @@ void SnapshotExecutor::load_downloading_snapshot(DownloadingSnapshot* ds,
 
 int SnapshotExecutor::register_downloading_snapshot(DownloadingSnapshot* ds) {
     std::unique_lock<raft_mutex_t> lck(_mutex);
+    if (_stopped) {
+        ds->cntl->SetFailed(EHOSTDOWN, "Node is stopped");
+        return -1;
+    }
     if (ds->request->term() != _term) {
-        LOG(INFO) << "request_term=" << ds->request->term()
-                  << " _term=" << _term;
         ds->response->set_success(false);
         ds->response->set_term(_term);
         return -1;
@@ -461,6 +473,7 @@ int SnapshotExecutor::register_downloading_snapshot(DownloadingSnapshot* ds) {
                                 ds->request->uri().c_str());
             return -1;
         }
+        _running_jobs.add_count(1);
         return 0;
     }
     int rc = 0;
@@ -574,6 +587,19 @@ void SnapshotExecutor::describe(std::ostream&os, bool use_html) {
     } else {
         os << "snapshot_status: IDLE" << newline;
     }
+}
+
+void SnapshotExecutor::shutdown() {
+    std::unique_lock<raft_mutex_t> lck(_mutex);
+    const int64_t saved_term = _term;
+    _stopped = true;
+    lck.unlock();
+    interrupt_downloading_snapshot(saved_term);
+}
+
+void SnapshotExecutor::join() {
+    // Wait until all the running jobs finishes
+    _running_jobs.wait();
 }
 
 InstallSnapshotDone::InstallSnapshotDone(SnapshotExecutor* se, 

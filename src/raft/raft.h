@@ -246,13 +246,14 @@ enum State {
     STATE_CANDIDATE = 2,
     STATE_FOLLOWER = 3,
     STATE_ERROR = 4,
-    STATE_SHUTTING = 5,
-    STATE_SHUTDOWN = 6,
+    STATE_UNINITIALIZED = 5,
+    STATE_SHUTTING = 6,
+    STATE_SHUTDOWN = 7,
     STATE_END,
 };
 
 inline const char* state2str(State state) {
-    const char* str[] = {"LEADER", "CANDIDATE", "FOLLOWER", "ERROR", "SHUTTING", "SHUTDOWN", };
+    const char* str[] = {"LEADER", "CANDIDATE", "FOLLOWER", "ERROR", "UNINITIALIZED", "SHUTTING", "SHUTDOWN", };
     if (state < STATE_END) {
         return str[(int)state - 1];
     } else {

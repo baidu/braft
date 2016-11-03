@@ -72,7 +72,7 @@ static inline int heartbeat_timeout(int election_timeout) {
 }
 
 NodeImpl::NodeImpl(const GroupId& group_id, const PeerId& peer_id)
-    : _state(STATE_SHUTDOWN)
+    : _state(STATE_UNINITIALIZED)
     , _current_term(0)
     , _last_leader_timestamp(base::monotonic_time_ms())
     , _group_id(group_id)
@@ -772,8 +772,6 @@ void NodeImpl::shutdown(Closure* done) {
             " current_term " << _current_term << " state " << state2str(_state);
 
         if (_state < STATE_SHUTTING) {
-            // leader stop disk thread and replicator, stop stepdown timer, change state to STATE_FOLLOWER
-            // candidate stop vote timer, change state to STATE_FOLLOWER
             if (_state < STATE_FOLLOWER) {
                 step_down(_current_term);
             }
@@ -787,12 +785,20 @@ void NodeImpl::shutdown(Closure* done) {
             _snapshot_timer.destroy();
 
             // stop replicator and fsm_caller wait
-            _log_manager->shutdown();
+            if (_log_manager) {
+                _log_manager->shutdown();
+            }
+            
+            if (_snapshot_executor) {
+                _snapshot_executor->shutdown();
+            }
 
             // step_down will call _commitment_manager->clear_pending_applications(),
             // this can avoid send LogEntry with closure to fsm_caller.
             // fsm_caller shutdown will not leak user's closure.
-            _fsm_caller->shutdown();
+            if (_fsm_caller) {
+                _fsm_caller->shutdown();
+            }
         }
         if (_state != STATE_SHUTDOWN) {
             _shutdown_continuations.push_back(done);
@@ -804,10 +810,12 @@ void NodeImpl::shutdown(Closure* done) {
 }
 
 void NodeImpl::join() {
-    if (!_fsm_caller) {
-        return;
+    if (_fsm_caller) {
+        _fsm_caller->join();
     }
-    return _fsm_caller->join();
+    if (_snapshot_executor) {
+        _snapshot_executor->join();
+    }
 }
 
 void NodeImpl::handle_election_timeout() {
