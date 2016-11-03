@@ -826,10 +826,12 @@ void NodeImpl::handle_election_timeout() {
         return;
     }
     // check timestamp, skip one cycle check when trigger vote
-    if (base::monotonic_time_ms() - _last_leader_timestamp < _options.election_timeout_ms) {
+    if (!_vote_triggered && 
+            (base::monotonic_time_ms() - _last_leader_timestamp
+                    < _options.election_timeout_ms)) {
         return;
     }
-
+    _vote_triggered = false;
     // Reset leader as the leader is uncerntain on election timeout.
     _leader_id.reset();
 
@@ -943,14 +945,14 @@ int NodeImpl::transfer_leadership_to(const PeerId& peer) {
 }
 
 void NodeImpl::vote(int election_timeout) {
-    BAIDU_SCOPED_LOCK(_mutex);
+    std::unique_lock<raft_mutex_t> lck(_mutex);
     _options.election_timeout_ms = election_timeout;
     _replicator_group.reset_heartbeat_interval(
             heartbeat_timeout(_options.election_timeout_ms));
     if (_state != STATE_FOLLOWER) {
         return;
     }
-
+    _vote_triggered = true;
     LOG(INFO) << "node " << _group_id << ":" << _server_id << " trigger-vote,"
         " current_term " << _current_term << " state " << state2str(_state) <<
         " election_timeout " << election_timeout;
@@ -1284,6 +1286,7 @@ void NodeImpl::step_down(const int64_t term) {
     _state = STATE_FOLLOWER;
     _leader_id.reset();
     _conf_ctx.reset();
+    _last_leader_timestamp = base::monotonic_time_ms();
 
     if (_snapshot_executor) {
         _snapshot_executor->interrupt_downloading_snapshot(term);
