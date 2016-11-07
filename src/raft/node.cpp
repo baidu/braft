@@ -545,22 +545,27 @@ void NodeImpl::handle_stepdown_timeout() {
     std::vector<PeerId> peers;
     _conf.second.list_peers(&peers);
     int64_t now_timestamp = base::monotonic_time_ms();
-    size_t dead_count = 0;
+    size_t alive_count = 0;
+    Configuration dead_nodes;  // for easily print
     for (size_t i = 0; i < peers.size(); i++) {
         if (peers[i] == _server_id) {
+            ++alive_count;
             continue;
         }
 
-        if (now_timestamp - _replicator_group.last_response_timestamp(peers[i]) >
+        if (now_timestamp - _replicator_group.last_response_timestamp(peers[i]) <= 
             _options.election_timeout_ms) {
-            dead_count++;
+            ++alive_count;
+            continue;
         }
+        dead_nodes.add_peer(peers[i]);
     }
-    if (dead_count < (peers.size() / 2 + 1)) {
+    if (alive_count >= peers.size() / 2 + 1) {
         return;
     }
     LOG(INFO) << "node " << _group_id << ":" << _server_id
-        << " term " << _current_term << " stepdown when quorum node dead";
+        << " term " << _current_term << " stepdown when alive nodes don't satisfy quorum"
+        << " dead_nodes: " << dead_nodes;
     step_down(_current_term);
 }
 
