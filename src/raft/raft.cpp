@@ -7,6 +7,7 @@
 #include <pthread.h>
 #include <unistd.h>
 #include <base/string_printf.h>
+#include <base/class_name.h>
 #include "raft/raft.h"
 #include "raft/node.h"
 #include "raft/storage.h"
@@ -177,6 +178,37 @@ Closure* Iterator::done() const {
 
 void Iterator::set_error_and_rollback(size_t ntail, const base::Status* st) {
     return _impl->set_error_and_rollback(ntail, st);
+}
+
+// ----------------- Default Implementation of StateMachine
+StateMachine::~StateMachine() {}
+void StateMachine::on_shutdown() {}
+
+void StateMachine::on_snapshot_save(SnapshotWriter* writer, Closure* done) {
+    CHECK(done);
+    LOG(ERROR) << base::class_name_str(*this) 
+               << " didn't implement on_snapshot_save";
+    done->status().set_error(-1, "%s didn't implement on_snapshot_save",
+                                 base::class_name_str(*this).c_str());
+    done->Run();
+}
+
+int StateMachine::on_snapshot_load(SnapshotReader* reader) {
+    LOG(ERROR) << base::class_name_str(*this) 
+               << " didn't implement on_snapshot_load"
+               << " while a snapshot is saved in " << reader->get_path();
+    return -1;
+}
+
+void StateMachine::on_leader_start() {}
+void StateMachine::on_leader_start(int64_t) { return on_leader_start(); }
+void StateMachine::on_leader_stop() {}
+void StateMachine::on_error(const Error& e) {
+    LOG(ERROR) << "An error=" << e << " raised on StateMachine "
+               << base::class_name_str(*this)
+               << ", it's highly recommended to implement this interface"
+                  " as raft stops working since some error ocurrs,"
+                  " you should figure out the cause and repair or remove this node";
 }
 
 }

@@ -181,6 +181,7 @@ friend class FSMCaller;
 // following ones.
 class StateMachine {
 public:
+    virtual ~StateMachine();
 
     // Update the StateMachine with a batch a tasks that you can access
     // through |iterator|.
@@ -196,48 +197,38 @@ public:
     virtual void on_apply(Iterator& iter) = 0;
 
     // Called once when the raft node was shut down.
-    virtual void on_shutdown() {}
+    // Default do nothing
+    virtual void on_shutdown();
 
     // user defined snapshot generate function, this method will block on_apply.
     // user can make snapshot async when fsm can be cow(copy-on-write).
     // call done->Run() when snapshot finised.
     // success return 0, fail return errno
-    virtual void on_snapshot_save(SnapshotWriter* writer, Closure* done) {
-        (void)writer;
-        CHECK(done);
-        done->status().set_error(-1, "Not implemented");
-    }
+    // Default: Save nothing and returns error, no log would be compacted
+    virtual void on_snapshot_save(SnapshotWriter* writer, Closure* done);
 
     // user defined snapshot load function
     // get and load snapshot
     // success return 0, fail return errno
-    virtual int on_snapshot_load(SnapshotReader* reader) {
-        (void)reader;
-        LOG(ERROR) << "Not implemented";
-        return -1;
-    }
+    // Default: Load nothing and returns error.
+    virtual int on_snapshot_load(SnapshotReader* reader);
 
     // user defined leader start function
     // [NOTE] user can direct append to node ignore this callback.
     //        this callback can sure read consistency, after leader's first NO_OP committed
-    virtual void on_leader_start() {}
-    virtual void on_leader_start(int64_t term) {
-        (void)term;
-        on_leader_start();
-    }
+    // Default: did nothing
+    virtual void on_leader_start();
+    virtual void on_leader_start(int64_t term);
 
     // user defined leader start function
     // [NOTE] this method called immediately when leader stepdown,
     //        maybe before some method: apply success on_apply or fail done.
     //        user sure resource available.
-    virtual void on_leader_stop() {}
+    virtual void on_leader_stop();
 
     // on_error is called when  
-    virtual void on_error(const Error& e) {
-        LOG(WARNING) << "Got error=" << e;
-    }
+    virtual void on_error(const Error& e);
 
-    virtual ~StateMachine() {}
 };
 
 enum State {
