@@ -245,6 +245,7 @@ int LogManager::truncate_prefix(const int64_t first_index_kept,
             break;
         }
     }
+    CHECK_GE(first_index_kept, _first_log_index);
     _first_log_index = first_index_kept;
     if (first_index_kept > _last_log_index) {
         // The entrie log is dropped
@@ -607,11 +608,18 @@ void LogManager::set_snapshot(const SnapshotMeta* meta) {
     }
     if (term == 0) {
         // last_included_index is larger than last_index
+        // FIXME: what if last_included_index is less than first_index?
         truncate_prefix(meta->last_included_index() + 1, lck);
         return;
     } else if (term == meta->last_included_term()) {
         // Truncating log to the index of the last snapshot.
-        truncate_prefix(saved_last_snapshot_index + 1, lck);
+        // We don't truncate log before the lastest snapshot immediately since
+        // some log around last_snapshot_index is probably needed by some
+        // followers
+        if (saved_last_snapshot_index > 0) {
+            // We have last snapshot index
+            truncate_prefix(saved_last_snapshot_index + 1, lck);
+        }
         return;
     } else {
         // TODO: check the result of reset.

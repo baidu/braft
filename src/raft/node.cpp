@@ -1722,12 +1722,18 @@ void NodeImpl::handle_append_entries_request(baidu::rpc::Controller* cntl,
         _leader_id = server_id;
     }
 
-    // FIXME: is it conflicted with set_peer?
-    CHECK_EQ(server_id, _leader_id) 
-            << "Another peer=" << server_id 
-            << " declares that it is the leader at term="
-            << _current_term << " which is occupied by leader="
-            << _leader_id;
+    if (server_id != _leader_id) {
+        LOG(ERROR) << "Another peer=" << server_id 
+                   << " declares that it is the leader at term="
+                   << _current_term << " which was occupied by leader="
+                   << _leader_id;
+        // Increase the term by 1 and make both leaders step down to minimize the
+        // loss of split brain
+        step_down(request->term() + 1);
+        response->set_success(false);
+        response->set_term(request->term() + 1);
+        return;
+    }
 
     _last_leader_timestamp = base::monotonic_time_ms();
 

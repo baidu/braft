@@ -26,8 +26,8 @@ DEFINE_int32(raft_max_body_size, 512 * 1024,
              "The max byte size of AppendEntriesRequest");
 BAIDU_RPC_VALIDATE_GFLAG(raft_max_body_size, ::baidu::rpc::PositiveInteger);
 
-bvar::LatencyRecorder g_send_entries_latency("raft_send_entries");
-bvar::LatencyRecorder g_normalized_send_entries_latency("raft_send_entries_normalized");
+static bvar::LatencyRecorder g_send_entries_latency("raft_send_entries");
+static bvar::LatencyRecorder g_normalized_send_entries_latency("raft_send_entries_normalized");
 
 ReplicatorOptions::ReplicatorOptions()
     : dynamic_heartbeat_timeout_ms(NULL)
