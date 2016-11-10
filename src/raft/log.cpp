@@ -1034,7 +1034,7 @@ int SegmentLogStorage::save_meta(const int64_t log_index) {
     int ret = pb_file.save(&meta, FLAGS_raft_sync);
 
     timer.stop();
-    LOG_IF(ERROR, ret != 0) << "Fail to save meta to " << meta_path;
+    PLOG_IF(ERROR, ret != 0) << "Fail to save meta to " << meta_path;
     RAFT_VLOG << "log save_meta " << meta_path << " log_index: " << log_index
         << " time: " << timer.u_elapsed();
     return ret;
@@ -1050,6 +1050,7 @@ int SegmentLogStorage::load_meta() {
     ProtoBufFile pb_file(meta_path);
     LogPBMeta meta;
     if (0 != pb_file.load(&meta)) {
+        PLOG(ERROR) << "Fail to load meta from " << meta_path;
         return -1;
     }
 

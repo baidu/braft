@@ -58,13 +58,16 @@ int LocalSnapshotMetaTable::save_to_file(const std::string& path) const {
         *f->mutable_meta() = iter->second;
     }
     ProtoBufFile pb_file(path);
-    return pb_file.save(&pb_meta, FLAGS_raft_sync);
+    int ret = pb_file.save(&pb_meta, FLAGS_raft_sync);
+    PLOG_IF(ERROR, ret != 0) << "Fail to save meta to " << path;
+    return ret;
 }
 
 int LocalSnapshotMetaTable::load_from_file(const std::string& path) {
     ProtoBufFile pb_file(path);
     LocalSnapshotPbMeta pb_meta;
     if (pb_file.load(&pb_meta) != 0) {
+        PLOG(ERROR) << "Fail to load meta from " << path;
         return -1;
     }
     if (pb_meta.has_meta()) {

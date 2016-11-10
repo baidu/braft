@@ -82,6 +82,8 @@ int LocalStableStorage::load() {
         ret = _votedfor.parse(meta.votedfor());
     } else if (errno == ENOENT) {
         ret = 0;
+    } else {
+        PLOG(ERROR) << "Fail to load meta from " << path;
     }
 
     return ret;
@@ -102,6 +104,7 @@ int LocalStableStorage::save() {
     ProtoBufFile pb_file(path);
 
     int ret = pb_file.save(&meta, FLAGS_raft_sync /*true*/);
+    PLOG_IF(ERROR, ret != 0) << "Fail to save meta to " << path;
 
     timer.stop();
     LOG(INFO) << "save stable meta, path " << _path

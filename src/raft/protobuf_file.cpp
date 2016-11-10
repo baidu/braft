@@ -93,11 +93,20 @@ int ProtoBufFile::load(google::protobuf::Message* message) {
         ssize_t read_len = msg_buf.append_from_file_descriptor(fd, left_len);
         if (read_len > 0) {
             left_len -= read_len;
-        } else if (read_len < 0) {
+        } else if (read_len == 0) {
+            break;
+        } else if (errno == EINTR) {
+            continue;
+        } else {
             PLOG(WARNING) << "readv failed, path: " << _path;
             break;
         }
     } while (left_len > 0);
+
+    if (left_len > 0) {
+        PLOG(WARNING) << "read body failed, path: " << _path;
+        return -1;
+    }
 
     // parse msg
     base::IOBufAsZeroCopyInputStream msg_wrapper(msg_buf);
