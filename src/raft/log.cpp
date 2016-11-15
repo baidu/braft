@@ -632,6 +632,7 @@ int SegmentLogStorage::init(ConfigurationManager* configuration_manager) {
     do {
         ret = load_meta();
         if (ret != 0 && errno == ENOENT) {
+            LOG(WARNING) << _path << " is empty";
             is_empty = true;
         } else if (ret != 0) {
             break;
@@ -1050,7 +1051,7 @@ int SegmentLogStorage::load_meta() {
     ProtoBufFile pb_file(meta_path);
     LogPBMeta meta;
     if (0 != pb_file.load(&meta)) {
-        PLOG(ERROR) << "Fail to load meta from " << meta_path;
+        PLOG_IF(ERROR, errno != ENOENT) << "Fail to load meta from " << meta_path;
         return -1;
     }
 
