@@ -19,6 +19,7 @@ namespace raft {
 
 DEFINE_int32(raft_max_byte_count_per_rpc, 1024 * 128 /*128K*/,
              "Maximum of block size per RPC");
+BAIDU_RPC_VALIDATE_GFLAG(raft_max_byte_count_per_rpc, baidu::rpc::PositiveInteger);
 
 RemoteFileCopier::RemoteFileCopier()
     : _reader_id(0)
