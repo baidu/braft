@@ -151,6 +151,7 @@ int NodeImpl::init_snapshot_storage() {
     opt.node = this;
     opt.log_manager = _log_manager;
     opt.addr = _server_id.addr;
+    opt.init_term = _current_term;
     if (_options.snapshot_hook) {
         opt.snapshot_hook = *_options.snapshot_hook;
     }
@@ -1713,7 +1714,8 @@ void NodeImpl::handle_append_entries_request(baidu::rpc::Controller* cntl,
     }
 
     // check term and state to step down
-    if (request->term() > _current_term || _state != STATE_FOLLOWER) {
+    if (request->term() > _current_term || _state != STATE_FOLLOWER 
+                || _leader_id.is_empty()) {
         step_down(request->term());
     }
 
@@ -1866,7 +1868,8 @@ void NodeImpl::handle_install_snapshot_request(baidu::rpc::Controller* controlle
         response->set_success(false);
         return;
     }
-    if (request->term() > _current_term || _state != STATE_FOLLOWER) {
+    if (request->term() > _current_term || _state != STATE_FOLLOWER 
+                || _leader_id.is_empty()) {
         step_down(request->term());
         response->set_term(request->term());
     }
@@ -1876,12 +1879,18 @@ void NodeImpl::handle_install_snapshot_request(baidu::rpc::Controller* controlle
         _leader_id = server_id;
     }
 
-    // FIXME: is it conflicted with set_peer?
-    CHECK_EQ(server_id, _leader_id) 
-            << "Another peer=" << _group_id << ":" << _server_id
-            << " declares that it is the leader at term="
-            << _current_term << " which is occupied by leader="
-            << _leader_id;
+    if (server_id != _leader_id) {
+        LOG(ERROR) << "Another peer=" << server_id 
+                   << " declares that it is the leader at term="
+                   << _current_term << " which was occupied by leader="
+                   << _leader_id;
+        // Increase the term by 1 and make both leaders step down to minimize the
+        // loss of split brain
+        step_down(request->term() + 1);
+        response->set_success(false);
+        response->set_term(request->term() + 1);
+        return;
+    }
     lck.unlock();
     LOG(INFO) << "node " << _group_id << ":" << _server_id
               << " received InstallSnapshotRequest"
