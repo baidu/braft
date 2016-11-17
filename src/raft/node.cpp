@@ -1196,6 +1196,11 @@ void NodeImpl::elect_self(std::unique_lock<raft_mutex_t>* lck) {
     LOG(INFO) << "node " << _group_id << ":" << _server_id
         << " term " << _current_term
         << " start vote and grant vote self";
+    if (!_conf.second.contains(_server_id)) {
+        LOG(WARNING) << "node " << _group_id << ':' << _server_id
+                     << " can't do elect_self as it is not in " << _conf.second;
+        return;
+    }
     // cancel follower election timer
     if (_state == STATE_FOLLOWER) {
         RAFT_VLOG << "node " << _group_id << ":" << _server_id
@@ -1226,6 +1231,7 @@ void NodeImpl::elect_self(std::unique_lock<raft_mutex_t>* lck) {
     lck->lock();
     // vote need defense ABA after unlock&lock
     if (old_term != _current_term) {
+        // term changed casue by step_down
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
             << " raise term " << _current_term << " when get last_log_id";
         return;
