@@ -1157,7 +1157,7 @@ void NodeImpl::pre_vote(std::unique_lock<raft_mutex_t>* lck) {
     _pre_vote_ctx.reset();
     std::vector<PeerId> peers;
     _conf.second.list_peers(&peers);
-    _pre_vote_ctx.set(peers.size());
+    _pre_vote_ctx.set(peers);
     for (size_t i = 0; i < peers.size(); i++) {
         if (peers[i] == _server_id) {
             continue;
@@ -1222,7 +1222,7 @@ void NodeImpl::elect_self(std::unique_lock<raft_mutex_t>* lck) {
 
     std::vector<PeerId> peers;
     _conf.second.list_peers(&peers);
-    _vote_ctx.set(peers.size());
+    _vote_ctx.set(peers);
 
     int64_t old_term = _current_term;
     // get last_log_id outof node mutex
@@ -1296,6 +1296,8 @@ void NodeImpl::step_down(const int64_t term) {
 
     // soft state in memory
     _state = STATE_FOLLOWER;
+    _pre_vote_ctx.reset();
+    _vote_ctx.reset();
     _leader_id.reset();
     _conf_ctx.reset();
     _last_leader_timestamp = base::monotonic_time_ms();

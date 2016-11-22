@@ -219,7 +219,7 @@ void SnapshotExecutor::on_snapshot_load_done(const base::Status& st) {
     if (_node) {
         LOG(INFO) << "node " << _node->node_id() << ' ' << noflush;
     }
-    LOG(INFO) << "snapshot_load_done,"
+    LOG(INFO) << "snapshot_load_done, "
               << _loading_snapshot_meta.ShortDebugString();
     lck.unlock();
     if (_node) {

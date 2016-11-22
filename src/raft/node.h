@@ -246,26 +246,29 @@ private:
 
 private:
     struct VoteCtx {
-        size_t needed;
-        std::set<PeerId> granted;
+        size_t peers;
+        std::set<PeerId> ungranted;
 
         VoteCtx() {
             reset();
         }
 
-        void set(size_t peer_size) {
-            needed = peer_size / 2 + 1;
+        void set(const std::vector<PeerId>& peer_vec) {
+            peers = peer_vec.size();
+            for (size_t i = 0; i < peer_vec.size(); i++) {
+                ungranted.insert(peer_vec[i]);
+            }
         }
 
         void grant(PeerId peer) {
-            granted.insert(peer);
+            ungranted.erase(peer);
         }
         bool quorum() {
-            return granted.size() >= needed;
+            return (peers - ungranted.size()) >= (peers / 2 + 1);
         }
         void reset() {
-            needed = 0;
-            granted.clear();
+            peers = 0;
+            ungranted.clear();
         }
     };
     struct ConfigurationCtx {
