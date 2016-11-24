@@ -234,17 +234,19 @@ public:
 enum State {
     // Don't change the order if you are not sure about the usage.
     STATE_LEADER = 1,
-    STATE_CANDIDATE = 2,
-    STATE_FOLLOWER = 3,
-    STATE_ERROR = 4,
-    STATE_UNINITIALIZED = 5,
-    STATE_SHUTTING = 6,
-    STATE_SHUTDOWN = 7,
+    STATE_TRANSFERING = 2,
+    STATE_CANDIDATE = 3,
+    STATE_FOLLOWER = 4,
+    STATE_ERROR = 5,
+    STATE_UNINITIALIZED = 6,
+    STATE_SHUTTING = 7,
+    STATE_SHUTDOWN = 8,
     STATE_END,
 };
 
 inline const char* state2str(State state) {
-    const char* str[] = {"LEADER", "CANDIDATE", "FOLLOWER", "ERROR", "UNINITIALIZED", "SHUTTING", "SHUTDOWN", };
+    const char* str[] = {"LEADER", "TRANSFERING", "CANDIDATE", "FOLLOWER", 
+                         "ERROR", "UNINITIALIZED", "SHUTTING", "SHUTDOWN", };
     if (state < STATE_END) {
         return str[(int)state - 1];
     } else {

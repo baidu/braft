@@ -242,8 +242,6 @@ private:
                 void* meta, bthread::TaskIterator<LogEntryAndClosure>& iter);
     void apply(LogEntryAndClosure tasks[], size_t size);
 
-    bool transfering_leadership() { return _stop_transfer_arg != NULL; }
-
 private:
     struct VoteCtx {
         size_t peers;

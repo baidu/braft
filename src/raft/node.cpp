@@ -415,7 +415,7 @@ void NodeImpl::on_configuration_change_done(int64_t term) {
     Configuration removed;
     Configuration added;
     BAIDU_SCOPED_LOCK(_mutex);
-    if (_state != STATE_LEADER || term != _current_term) {
+    if (_state > STATE_TRANSFERING || term != _current_term) {
         // Callback from older version
         return;
     }
@@ -476,14 +476,43 @@ void NodeImpl::on_caughtup(const PeerId& peer, int64_t term,
 
     do {
         BAIDU_SCOPED_LOCK(_mutex);
-        // CHECK term and status to avoid ABA problem
-        if (_state != STATE_LEADER || term != _current_term) {
-            // Reset error code if this was a successful callback.
+        // CHECK _current_term and _state to avoid ABA problem
+        if (term != _current_term) {
+            // term has changed, we have to mark this configuration changing
+            // operation as failure, otherwise there is likely an ABA problem
             if (error_code == 0) {
                 error_code = EINVAL;
                 error_text = "leader stepped down";
             }
             // DON'T stop replicator here.
+            // Caution: Be careful if you want to add some stuff here
+            break;
+        }
+        if (_state != STATE_LEADER) {
+            if (_state == STATE_TRANSFERING) {
+                // Print error to notice the users there must be some wrong here
+                // as we refused configuration changing.
+                // Note: Don't use FATAL in case the users turn
+                //       `crash_on_fatal_log' on and the process is going to
+                //       abort ever since.
+                LOG(ERROR) << "node " << _group_id << ":" << _server_id
+                           << " received on_caughtup while the state is "
+                           << state2str(STATE_TRANSFERING)
+                           << " which is not supposed to happend according to"
+                              " the implemention(until Thu Nov 24 17:28:42 CST 2016)."
+                              " There must be something wrong, please contact the raft"
+                              " maintainers to checkout this issue the fix it";
+                // Stop this replicator to release the resource
+                _replicator_group.stop_replicator(peer);
+                // Reset _conf_ctx to make furture configuration changing
+                // acceptable.
+                _conf_ctx.reset();
+                error_code = EINVAL;
+                error_text = "Impossible condition";
+            } else {
+                error_code = EPERM;
+                error_text = "leader stepped down";
+            }
             break;
         }
 
@@ -520,7 +549,7 @@ void NodeImpl::on_caughtup(const PeerId& peer, int64_t term,
 
         LOG(WARNING) << "node " << _group_id << ":" << _server_id << " add_peer " << peer
             << " to " << _conf.second << ", caughtup "
-            << "failed: " << error_code;
+            << "failed: " << error_text << " (" << error_code << ')';
 
         _replicator_group.stop_replicator(peer);
         _conf_ctx.reset();
@@ -536,10 +565,10 @@ void NodeImpl::handle_stepdown_timeout() {
     BAIDU_SCOPED_LOCK(_mutex);
 
     // check state
-    if (_state != STATE_LEADER) {
+    if (_state > STATE_TRANSFERING) {
         RAFT_VLOG << "node " << _group_id << ":" << _server_id
             << " term " << _current_term << " stop stepdown_timer"
-            << " state not in STATE_LEADER but " << state2str(_state);
+            << " state is " << state2str(_state);
         return;
     }
 
@@ -573,13 +602,12 @@ void NodeImpl::handle_stepdown_timeout() {
 bool NodeImpl::unsafe_register_conf_change(const std::vector<PeerId>& old_peers,
                                            const std::vector<PeerId>& new_peers,
                                            Closure* done) {
-    if (_state != STATE_LEADER || transfering_leadership()) {
+    if (_state != STATE_LEADER) {
         LOG(WARNING) << "[" << node_id()
                      << "] Refusing configuration changing because the state is "
-                     << state2str(_state) 
-                     << " transfer_leadership=" << transfering_leadership();
+                     << state2str(_state) ;
         if (done) {
-            if (transfering_leadership()) {
+            if (_state == STATE_TRANSFERING) {
                 done->status().set_error(EBUSY, "Is transfering leadership");
             } else {
                 done->status().set_error(EPERM, "Not leader");
@@ -885,7 +913,13 @@ void NodeImpl::handle_timeout_now_request(baidu::rpc::Controller* controller,
     return elect_self(&lck);
 }
 
-struct StopTransferArg {
+class StopTransferArg {
+DISALLOW_COPY_AND_ASSIGN(StopTransferArg);
+public:
+    StopTransferArg(NodeImpl* n, int64_t t, const PeerId& p)
+        : node(n), term(t), peer(p) {
+        node->AddRef();
+    }
     ~StopTransferArg() {
         node->Release();
     }
@@ -901,44 +935,65 @@ void on_transfer_timeout(void* arg) {
 }
 
 void NodeImpl::handle_transfer_timeout(int64_t term, const PeerId& peer) {
-    LOG(INFO) << "node " << node_id()  << " transfering leadership to peer="
-              << peer << " reached timeout";
+    LOG(INFO) << "node " << node_id()  << " failed to transfer leadership to peer="
+              << peer << " : reached timeout";
     BAIDU_SCOPED_LOCK(_mutex);
-    CHECK(_stop_transfer_arg);
     if (term == _current_term) {
         _replicator_group.stop_transfer_leadership(peer);
+        if (_state == STATE_TRANSFERING) {
+            _fsm_caller->on_leader_start(term);
+            _state = STATE_LEADER;
+            _stop_transfer_arg = NULL;
+        }
     }
-    _stop_transfer_arg = NULL;
 }
 
 int NodeImpl::transfer_leadership_to(const PeerId& peer) {
     std::unique_lock<raft_mutex_t> lck(_mutex);
     if (_state != STATE_LEADER) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
-                     << " is not leader";
-        return EPERM;
-    }
-    if (transfering_leadership()) {
-        LOG(WARNING) << "node " << _group_id << ":" << _server_id
-                     << " is transfering leadership";
-        return EBUSY;
+                     << " is in state " << state2str(_state);
+        return _state == STATE_TRANSFERING ? EBUSY : EPERM;
     }
     if (peer == _server_id) {
         LOG(INFO) << "Transfering leadership to self";
         return 0;
     }
+    if (!_conf_ctx.empty() /*FIXME: make this expression more readable*/) {
+        // It's very messy to deal with the case when the |peer| received
+        // TimeoutNowRequest and increase the term while somehow another leader
+        // which was not replicated with the newest configuration has been
+        // elected. If no add_peer with this very |peer| is to be invoked ever
+        // after nor this peer is to be killed, this peer will spin in the voting
+        // procedure and make the each new leader stepped down when the peer
+        // reached vote timedoutit starts to vote (because it will increase the
+        // term of the group)
+        // To make things simple so just refuse the operation and force users to
+        // invoke transfer_leadership_to after configuration changing is
+        // completed so the peer's configuration is up-to-date when it receives
+        // the TimeOutNowRequest.
+        LOG(WARNING) << "node " << _group_id << ":" << _server_id
+                     << " refused to transfer leadership to peer " << peer
+                     << " when the leader is changing the configuration";
+        return EBUSY;
+    }
+    if (!_conf.second.contains(peer)) {
+        LOG(WARNING) << "node " << _group_id << ":" << _server_id
+                     << " refused to transfer leadership to peer " << peer
+                     << " which doesn't belong to " << _conf.second;
+        return EINVAL;
+    }
     const int64_t last_log_index = _log_manager->last_log_index();
     const int rc = _replicator_group.transfer_leadership_to(peer, last_log_index);
     if (rc != 0) {
         LOG(WARNING) << "No such peer=" << peer;
-        return rc;
+        return EINVAL;
     }
-    LOG(INFO) << "Transfering leadership to " << peer;
-    _stop_transfer_arg = new StopTransferArg;
-    AddRef();
-    _stop_transfer_arg->node = this;
-    _stop_transfer_arg->term = _current_term;
-    _stop_transfer_arg->peer = peer;
+    _state = STATE_TRANSFERING;
+    _fsm_caller->on_leader_stop();
+    LOG(INFO) << "node " << _group_id << ":" << _server_id 
+              << "starts to transfer leadership to " << peer;
+    _stop_transfer_arg = new StopTransferArg(this, _current_term, peer);
     if (raft_timer_add(&_transfer_timer, 
                        base::milliseconds_from_now(_options.election_timeout_ms),
                        on_transfer_timeout, _stop_transfer_arg) != 0) {
@@ -1283,7 +1338,7 @@ void NodeImpl::step_down(const int64_t term) {
         RAFT_VLOG << "node " << _group_id << ":" << _server_id
             << " term " << _current_term << " stop vote_timer";
         _vote_timer.stop();
-    } else if (_state == STATE_LEADER) {
+    } else if (_state <= STATE_TRANSFERING) {
         RAFT_VLOG << "node " << _group_id << ":" << _server_id
             << " term " << _current_term << " stop stepdown_timer";
         _stepdown_timer.stop();
@@ -1291,7 +1346,9 @@ void NodeImpl::step_down(const int64_t term) {
         _commit_manager->clear_pending_tasks();
 
         // signal fsm leader stop immediately
-        _fsm_caller->on_leader_stop();
+        if (_state  == STATE_LEADER) {
+            _fsm_caller->on_leader_stop();
+        }
     }
 
     // soft state in memory
@@ -1322,11 +1379,13 @@ void NodeImpl::step_down(const int64_t term) {
     if (_stop_transfer_arg != NULL) {
         const int rc = raft_timer_del(_transfer_timer);
         if (rc == 0) {
+            // Get the right to delete _stop_transfer_arg.
             delete _stop_transfer_arg;
-            _stop_transfer_arg = NULL;
-        } else {
-            CHECK_EQ(1, rc);
-        }
+        }  // else on_transfer_timeout will delete _stop_transfer_arg
+
+        // There is at most one StopTransferTimer at the same term, it's safe to
+        // mark _stop_transfer_arg to NULL
+        _stop_transfer_arg = NULL;
     }
 }
 
@@ -1421,12 +1480,12 @@ void NodeImpl::apply(LogEntryAndClosure tasks[], size_t size) {
     std::vector<LogEntry*> entries;
     entries.reserve(size);
     std::unique_lock<raft_mutex_t> lck(_mutex);
-    if (_state != STATE_LEADER || transfering_leadership()) {
+    if (_state != STATE_LEADER) {
         base::Status st;
-        if (_state != STATE_LEADER) {
+        if (_state != STATE_TRANSFERING) {
             st.set_error(EPERM, "is not leader");
         } else {
-            st.set_error(EBUSY, "Is transfering leadership");
+            st.set_error(EBUSY, "is transfering leadership");
         }
         lck.unlock();
         RAFT_VLOG << "node " << _group_id << ":" << _server_id << " can't apply : " << st;

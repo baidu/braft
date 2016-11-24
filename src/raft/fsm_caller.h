@@ -97,6 +97,7 @@ public:
     RAFT_MOCK int on_snapshot_load(LoadSnapshotClosure* done);
     RAFT_MOCK int on_snapshot_save(SaveSnapshotClosure* done);
     int on_leader_stop();
+    int on_leader_start(int64_t term);
     RAFT_MOCK int on_error(const Error& e);
     int64_t last_applied_index() const {
         return _last_applied_index.load(boost::memory_order_relaxed);
@@ -113,6 +114,7 @@ friend class IteratorImpl;
         SNAPSHOT_SAVE,
         SNAPSHOT_LOAD,
         LEADER_STOP,
+        LEADER_START,
         ERROR,
     };
 
@@ -122,6 +124,9 @@ friend class IteratorImpl;
             // For applying log entry (including configuartion change)
             int64_t committed_index;
             
+            // For on_leader_start
+            int64_t term;
+
             // For other operation
             Closure* done;
         };
@@ -136,6 +141,7 @@ friend class IteratorImpl;
     void do_snapshot_load(LoadSnapshotClosure* done);
     void do_on_error(OnErrorClousre* done);
     void do_leader_stop();
+    void do_leader_start(int64_t term);
     void set_error(const Error& e);
     bool pass_by_status(Closure* done);
 

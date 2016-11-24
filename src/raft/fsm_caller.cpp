@@ -77,6 +77,9 @@ int FSMCaller::run(void* meta, bthread::TaskIterator<ApplyTask>& iter) {
                 CHECK(!iter->done);
                 caller->do_leader_stop();
                 break;
+            case LEADER_START:
+                caller->do_leader_start(iter->term);
+                break;
             case ERROR:
                 caller->_cur_task = ERROR;
                 caller->do_on_error((OnErrorClousre*)iter->done);
@@ -338,8 +341,19 @@ int FSMCaller::on_leader_stop() {
     return bthread::execution_queue_execute(_queue_id, task);
 }
 
+int FSMCaller::on_leader_start(int64_t term) {
+    ApplyTask task;
+    task.type = LEADER_START;
+    task.term = term;
+    return bthread::execution_queue_execute(_queue_id, task);
+}
+
 void FSMCaller::do_leader_stop() {
     _fsm->on_leader_stop();
+}
+
+void FSMCaller::do_leader_start(int64_t term) {
+    _fsm->on_leader_start(term);
 }
 
 void FSMCaller::describe(std::ostream &os, bool use_html) {
@@ -366,6 +380,9 @@ void FSMCaller::describe(std::ostream &os, bool use_html) {
         break;
     case LEADER_STOP:
         os << "Notifying leader stop";
+        break;
+    case LEADER_START:
+        os << "Notifying leader start";
         break;
     }
     os << newline;
