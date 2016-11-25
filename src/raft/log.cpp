@@ -675,6 +675,9 @@ int SegmentLogStorage::append_entries(const std::vector<LogEntry*>& entries) {
         LogEntry* entry = entries[i];
 
         Segment* segment = open_segment();
+        if (NULL == segment) {
+            return i;
+        }
         int ret = segment->append(entry);
         if (0 != ret) {
             return i;
@@ -688,6 +691,9 @@ int SegmentLogStorage::append_entries(const std::vector<LogEntry*>& entries) {
 
 int SegmentLogStorage::append_entry(const LogEntry* entry) {
     Segment* segment = open_segment();
+    if (NULL == segment) {
+        return EIO;
+    }
     int ret = segment->append(entry);
     if (ret != 0 && ret != EEXIST) {
         return ret;
@@ -1089,11 +1095,12 @@ Segment* SegmentLogStorage::open_segment() {
                     break;
                 }
             }
-            CHECK(false) << "Fail to create close old open_segment or create new open_segment";
+            PLOG(ERROR) << "Fail to create close old open_segment or create new open_segment";
             // Failed, revert former changes
             BAIDU_SCOPED_LOCK(_mutex);
             _segments.erase(prev_open_segment->first_index());
             _open_segment.swap(prev_open_segment);
+            return NULL;
         }
     } while (0);
     return _open_segment.get();

@@ -14,10 +14,10 @@
 
 namespace raft {
 
-DEFINE_int32(ioman_threads, 24, "ioman threads");
+DEFINE_int32(raft_ioman_threads, 24, "ioman threads");
 
 IOMan::IOMan()
-    : _worker_pool(new base::SequencedWorkerPool(FLAGS_ioman_threads, "io_worker_pool")) {
+    : _worker_pool(new base::SequencedWorkerPool(FLAGS_raft_ioman_threads, "io_worker_pool")) {
     AddRef();
 }
 
