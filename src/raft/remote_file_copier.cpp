@@ -215,6 +215,7 @@ void RemoteFileCopier::Session::on_rpc_returned() {
         }
         return;
     }
+    _retry_times = 0;
     if (_fd >= 0) {
         FileSegData data(_cntl.response_attachment());
         uint64_t seg_offset = 0;
