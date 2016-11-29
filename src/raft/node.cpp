@@ -343,18 +343,19 @@ int NodeImpl::init(const NodeOptions& options) {
         // set state to follower
         _state = STATE_FOLLOWER;
 
-        // add node to NodeManager
-        if (!NodeManager::GetInstance()->add(this)) {
-            LOG(WARNING) << "NodeManager add " << _group_id << ":" << _server_id << "failed";
-            ret = EINVAL;
-            break;
-        }
         LOG(INFO) << "node " << _group_id << ":" << _server_id << " init,"
             << " term: " << _current_term
             << " last_log_id: " << _log_manager->last_log_id()
             << " conf: " << _conf.second;
         if (!_conf.second.empty()) {
             step_down(_current_term);
+        }
+
+        // add node to NodeManager
+        if (!NodeManager::GetInstance()->add(this)) {
+            LOG(WARNING) << "NodeManager add " << _group_id << ":" << _server_id << "failed";
+            ret = EINVAL;
+            break;
         }
 
         // start snapshot timer
