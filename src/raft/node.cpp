@@ -659,11 +659,15 @@ base::Status NodeImpl::list_peers(std::vector<PeerId>* peers) {
 
 void NodeImpl::add_peer(const std::vector<PeerId>& old_peers, const PeerId& peer,
                         Closure* done) {
+    BAIDU_SCOPED_LOCK(_mutex);
     Configuration new_conf(old_peers);
+    if (old_peers.empty()) {
+        new_conf = _conf.second;
+    }
     new_conf.add_peer(peer);
     std::vector<PeerId> new_peers;
     new_conf.list_peers(&new_peers);
-    BAIDU_SCOPED_LOCK(_mutex);
+
     if (!unsafe_register_conf_change(old_peers, new_peers, done)) {
         return;
     }
@@ -700,11 +704,14 @@ void NodeImpl::add_peer(const std::vector<PeerId>& old_peers, const PeerId& peer
 
 void NodeImpl::remove_peer(const std::vector<PeerId>& old_peers, const PeerId& peer,
                            Closure* done) {
+    BAIDU_SCOPED_LOCK(_mutex);
     Configuration new_conf(old_peers);
+    if (old_peers.empty()) {
+        new_conf = _conf.second;
+    }
     new_conf.remove_peer(peer);
     std::vector<PeerId> new_peers;
     new_conf.list_peers(&new_peers);
-    BAIDU_SCOPED_LOCK(_mutex);
 
     // Register _conf_ctx to reject configuration changing request before this
     // log was committed
@@ -754,16 +761,18 @@ int NodeImpl::set_peer(const std::vector<PeerId>& old_peers, const std::vector<P
     if (_conf.second.equals(new_peers)) {
         return 0;
     }
-    // check not equal
-    if (!_conf.second.equals(std::vector<PeerId>(old_peers))) {
-        LOG(WARNING) << "node " << _group_id << ":" << _server_id << " set_peer dismatch old_peers";
-        return EINVAL;
-    }
-    // check quorum
-    if (new_peers.size() >= (old_peers.size() / 2 + 1)) {
-        LOG(WARNING) << "node " << _group_id << ":" << _server_id << " set_peer new_peers greater "
-            "than old_peers'quorum";
-        return EINVAL;
+    if (!old_peers.empty()) {
+        // check not equal
+        if (!_conf.second.equals(std::vector<PeerId>(old_peers))) {
+            LOG(WARNING) << "node " << _group_id << ":" << _server_id << " set_peer dismatch old_peers";
+            return EINVAL;
+        }
+        // check quorum
+        if (new_peers.size() >= (old_peers.size() / 2 + 1)) {
+            LOG(WARNING) << "node " << _group_id << ":" << _server_id << " set_peer new_peers greater "
+                "than old_peers'quorum";
+            return EINVAL;
+        }
     }
     // check contain
     if (!_conf.second.contains(new_peers)) {
