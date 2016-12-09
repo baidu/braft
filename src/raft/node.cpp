@@ -731,10 +731,14 @@ void NodeImpl::remove_peer(const std::vector<PeerId>& old_peers, const PeerId& p
 int NodeImpl::set_peer(const std::vector<PeerId>& old_peers, const std::vector<PeerId>& new_peers) {
     BAIDU_SCOPED_LOCK(_mutex);
 
+    if (new_peers.empty()) {
+        LOG(WARNING) << "node " << _group_id << ":" << _server_id << " set empty peers";
+        return EINVAL;
+    }
     // check state
     if (!is_active_state(_state)) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id << " shutdown, can't set_peer";
-        return -1;
+        return EPERM;
     }
     // check bootstrap
     if (_conf.second.empty()) {
@@ -755,7 +759,7 @@ int NodeImpl::set_peer(const std::vector<PeerId>& old_peers, const std::vector<P
     if (_state == STATE_LEADER && !_conf_ctx.empty()) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id << " set_peer need wait "
             "current conf change";
-        return EINVAL;
+        return EBUSY;
     }
     // check equal, maybe retry direct return
     if (_conf.second.equals(new_peers)) {

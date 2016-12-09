@@ -197,6 +197,7 @@ StateMachine::~StateMachine() {}
 void StateMachine::on_shutdown() {}
 
 void StateMachine::on_snapshot_save(SnapshotWriter* writer, Closure* done) {
+    (void)writer;
     CHECK(done);
     LOG(ERROR) << base::class_name_str(*this) 
                << " didn't implement on_snapshot_save";
@@ -206,6 +207,7 @@ void StateMachine::on_snapshot_save(SnapshotWriter* writer, Closure* done) {
 }
 
 int StateMachine::on_snapshot_load(SnapshotReader* reader) {
+    (void)reader;
     LOG(ERROR) << base::class_name_str(*this) 
                << " didn't implement on_snapshot_load"
                << " while a snapshot is saved in " << reader->get_path();
@@ -221,6 +223,11 @@ void StateMachine::on_error(const Error& e) {
                << ", it's highly recommended to implement this interface"
                   " as raft stops working since some error ocurrs,"
                   " you should figure out the cause and repair or remove this node";
+}
+
+void StateMachine::on_configuration_committed(const Configuration& conf) {
+    (void)conf;
+    return;
 }
 
 }

@@ -224,6 +224,10 @@ void FSMCaller::do_committed(int64_t committed_index) {
                  last_applied_index, committed_index, &_applying_index);
     for (; iter_impl.is_good();) {
         if (iter_impl.entry()->type != ENTRY_TYPE_DATA) {
+            if (iter_impl.entry()->type == ENTRY_TYPE_CONFIGURATION) {
+                _fsm->on_configuration_committed(
+                        Configuration(*iter_impl.entry()->peers));
+            }
             // For other entries, we have nothing to do besides flush the
             // pending tasks and run this closure to notify the caller that the
             // entries before this one were successfully committed and applied.
@@ -327,6 +331,12 @@ void FSMCaller::do_snapshot_load(LoadSnapshotClosure* done) {
         set_error(e);
         return;
     }
+
+    Configuration conf;
+    for (int i = 0; i < meta.peers_size(); ++i) {
+        conf.add_peer(meta.peers(i));
+    }
+    _fsm->on_configuration_committed(conf);
 
     _last_applied_index.store(meta.last_included_index(),
                               boost::memory_order_release);

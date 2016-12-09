@@ -155,7 +155,7 @@ public:
     // batch of tasks or some error has occured
     bool valid() const;
 
-    // Called when some critical error occured. And we will consider the last 
+    // Invoked when some critical error occured. And we will consider the last 
     // |ntail| tasks (starting from the last iterated one) as not applied. After
     // this point, no futher changes on the StateMachine as well as the Node 
     // would be allowed and you should try to repair this replica or just drop 
@@ -186,7 +186,7 @@ public:
     // Update the StateMachine with a batch a tasks that you can access
     // through |iterator|.
     //
-    // Called when one or more tasks that were passed to Node::apply have been
+    // Invoked when one or more tasks that were passed to Node::apply have been
     // committed to the raft group (quorum of the group peers have received 
     // those tasks and stored them on the backing storage).
     //
@@ -194,9 +194,9 @@ public:
     // tasks through |iter| have been successfully applied. And if you didn't
     // apply all the the given tasks, we would regard this as a critical error
     // and report a error whose type is ERROR_TYPE_STATE_MACHINE.
-    virtual void on_apply(Iterator& iter) = 0;
+    virtual void on_apply(::raft::Iterator& iter) = 0;
 
-    // Called once when the raft node was shut down.
+    // Invoked once when the raft node was shut down.
     // Default do nothing
     virtual void on_shutdown();
 
@@ -205,13 +205,14 @@ public:
     // call done->Run() when snapshot finised.
     // success return 0, fail return errno
     // Default: Save nothing and returns error, no log would be compacted
-    virtual void on_snapshot_save(SnapshotWriter* writer, Closure* done);
+    virtual void on_snapshot_save(::raft::SnapshotWriter* writer,
+                                  ::raft::Closure* done);
 
     // user defined snapshot load function
     // get and load snapshot
     // success return 0, fail return errno
     // Default: Load nothing and returns error.
-    virtual int on_snapshot_load(SnapshotReader* reader);
+    virtual int on_snapshot_load(::raft::SnapshotReader* reader);
 
     // user defined leader start function
     // [NOTE] user can direct append to node ignore this callback.
@@ -227,7 +228,10 @@ public:
     virtual void on_leader_stop();
 
     // on_error is called when  
-    virtual void on_error(const Error& e);
+    virtual void on_error(const ::raft::Error& e);
+
+    // Invoked when a configuration has been committed to the group
+    virtual void on_configuration_committed(const ::raft::Configuration& conf);
 
 };
 
