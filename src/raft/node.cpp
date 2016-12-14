@@ -777,12 +777,12 @@ int NodeImpl::set_peer(const std::vector<PeerId>& old_peers, const std::vector<P
                 "than old_peers'quorum";
             return EINVAL;
         }
-    }
-    // check contain
-    if (!_conf.second.contains(new_peers)) {
-        LOG(WARNING) << "node " << _group_id << ":" << _server_id << " set_peer old_peers not "
-            "contains all new_peers";
-        return EINVAL;
+        // check contain
+        if (!_conf.second.contains(new_peers)) {
+            LOG(WARNING) << "node " << _group_id << ":" << _server_id << " set_peer old_peers not "
+                "contains all new_peers";
+            return EINVAL;
+        }
     }
 
     Configuration new_conf(new_peers);
