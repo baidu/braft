@@ -1831,12 +1831,15 @@ void NodeImpl::handle_append_entries_request(baidu::rpc::Controller* cntl,
 
     const int64_t prev_log_index = request->prev_log_index();
     const int64_t prev_log_term = request->prev_log_term();
-    if (_log_manager->get_term(prev_log_index) != prev_log_term) {
+    const int64_t local_prev_log_term = _log_manager->get_term(prev_log_index);
+    if (local_prev_log_term != prev_log_term) {
         int64_t last_index = _log_manager->last_log_index();
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
             << " reject term_unmatched AppendEntries from " << request->server_id()
             << " in term " << request->term()
             << " prev_log_index " << request->prev_log_index()
+            << " prev_log_term " << request->prev_log_term()
+            << " local_prev_log_term " << local_prev_log_term
             << " last_log_index " << last_index;
         response->set_success(false);
         response->set_term(_current_term);
