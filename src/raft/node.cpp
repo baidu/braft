@@ -502,7 +502,7 @@ void NodeImpl::on_caughtup(const PeerId& peer, int64_t term,
                            << " which is not supposed to happend according to"
                               " the implemention(until Thu Nov 24 17:28:42 CST 2016)."
                               " There must be something wrong, please contact the raft"
-                              " maintainers to checkout this issue the fix it";
+                              " maintainers to checkout this issue and fix it";
                 // Stop this replicator to release the resource
                 _replicator_group.stop_replicator(peer);
                 // Reset _conf_ctx to make furture configuration changing
