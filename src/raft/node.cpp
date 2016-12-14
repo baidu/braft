@@ -747,7 +747,7 @@ int NodeImpl::set_peer(const std::vector<PeerId>& old_peers, const std::vector<P
             LOG(INFO) << "node " << _group_id << ":" << _server_id << " set_peer boot from "
                 << new_conf;
             _conf.second = new_conf;
-            step_down(1);
+            step_down(_current_term + 1);
             return 0;
         } else {
             LOG(WARNING) << "node " << _group_id << ":" << _server_id
