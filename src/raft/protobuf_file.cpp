@@ -19,12 +19,6 @@ int ProtoBufFile::save(const google::protobuf::Message* message, bool sync) {
     std::string tmp_path(_path);
     tmp_path.append(".tmp");
 
-    base::FilePath tmp_file_path(tmp_path);
-    if (!base::CreateDirectory(tmp_file_path.DirName())) {
-        PLOG(WARNING) << "create parent directory failed, path: " << tmp_file_path.DirName().value();
-        return -1;
-    }
-
     int fd = open(tmp_path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if (fd < 0) {
         PLOG(WARNING) << "create tmp file failed, path: " << tmp_path;

@@ -79,11 +79,6 @@ int Segment::create() {
 
     std::string path(_path);
     base::string_appendf(&path, "/" RAFT_SEGMENT_OPEN_PATTERN, _first_index);
-    base::FilePath dir_path(_path);
-    if (!base::CreateDirectory(dir_path)) {
-        return -1;
-    }
-
     _fd = ::open(path.c_str(), O_RDWR | O_CREAT | O_TRUNC, 0644);
     if (_fd >= 0) {
         base::make_close_on_exec(_fd);
@@ -614,8 +609,10 @@ int Segment::truncate(const int64_t last_index_kept) {
 
 int SegmentLogStorage::init(ConfigurationManager* configuration_manager) {
     base::FilePath dir_path(_path);
-    if (!base::CreateDirectory(dir_path)) {
-        LOG(ERROR) << "Fail to create " << dir_path.AsUTF8Unsafe();
+    base::File::Error e;
+    if (!base::CreateDirectoryAndGetError(
+                dir_path, &e, FLAGS_raft_create_parent_directories)) {
+        LOG(ERROR) << "Fail to create " << dir_path.value() << " : " << e;
         return -1;
     }
 

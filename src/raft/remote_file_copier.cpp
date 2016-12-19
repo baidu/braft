@@ -98,14 +98,6 @@ RemoteFileCopier::start_to_copy_to_file(
                       const std::string& source,
                       const std::string& dest_path,
                       const CopyOptions* options) {
-    // Create Directory for |dest_path|
-    base::File::Error e;
-    if (!base::CreateDirectoryAndGetError(
-                base::FilePath(dest_path).DirName(), &e)) {
-        LOG(ERROR) << "Fail to create direcotry of path=" 
-                     << dest_path << " : " << e;
-        return NULL;
-    }
     base::fd_guard fd(
             ::open(dest_path.c_str(), O_TRUNC | O_WRONLY | O_CREAT, 0644));
     

@@ -19,6 +19,8 @@
 namespace raft {
 
 DEFINE_bool(raft_sync, true, "call fsync when need");
+DEFINE_bool(raft_create_parent_directories, true,
+            "Create parent directories of the path in local storage if true");
 BAIDU_RPC_VALIDATE_GFLAG(raft_sync, ::baidu::rpc::PassValidate);
 
 inline base::StringPiece parse_uri(base::StringPiece* uri, std::string* parameter) {

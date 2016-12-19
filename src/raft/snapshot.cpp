@@ -171,7 +171,10 @@ LocalSnapshotWriter::~LocalSnapshotWriter() {
 
 int LocalSnapshotWriter::init() {
     base::FilePath dir_path(_path);
-    if (!base::CreateDirectory(dir_path)) {
+    base::File::Error e;
+    if (!base::CreateDirectoryAndGetError(dir_path, &e, false)) {
+        LOG(ERROR) << "Fail to create " << dir_path.value() << " : " << e;
+        return -1;
         set_error(EIO, "CreateDirectory failed, path: %s %m", _path.c_str());
         return EIO;
     }
@@ -366,11 +369,12 @@ LocalSnapshotStorage::~LocalSnapshotStorage() {
 
 int LocalSnapshotStorage::init() {
     base::FilePath dir_path(_path);
-    if (!base::CreateDirectory(dir_path)) {
-        LOG(ERROR) << "CreateDirectory failed, path: " << _path;
-        return EIO;
+    base::File::Error e;
+    if (!base::CreateDirectoryAndGetError(
+                dir_path, &e, FLAGS_raft_create_parent_directories)) {
+        LOG(ERROR) << "Fail to create " << dir_path.value() << " : " << e;
+        return -1;
     }
-
     // delete temp snapshot
     if (!_hook) {
         std::string temp_snapshot_path(_path);
@@ -484,11 +488,6 @@ SnapshotWriter* LocalSnapshotStorage::create(bool from_empty) {
             }
         }
 
-        // create temp
-        if (!base::CreateDirectory(base::FilePath(snapshot_path))) {
-            LOG(WARNING) << "create temp snapshot path failed, path " << snapshot_path;
-            break;
-        }
         writer = new LocalSnapshotWriter(snapshot_path);
         if (writer->init() != 0) {
             LOG(ERROR) << "Fail to init writer";

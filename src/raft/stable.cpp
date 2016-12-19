@@ -7,6 +7,7 @@
 #include <errno.h>
 #include <base/time.h>
 #include <base/logging.h>
+#include <base/file_util.h>                         // base::CreateDirectory
 #include "raft/util.h"
 #include "raft/protobuf_file.h"
 #include "raft/local_storage.pb.h"
@@ -15,9 +16,17 @@
 namespace raft {
 
 const char* LocalStableStorage::_s_stable_meta = "stable_meta";
+
 int LocalStableStorage::init() {
     if (_is_inited) {
         return 0;
+    }
+    base::FilePath dir_path(_path);
+    base::File::Error e;
+    if (!base::CreateDirectoryAndGetError(
+                dir_path, &e, FLAGS_raft_create_parent_directories)) {
+        LOG(ERROR) << "Fail to create " << dir_path.value() << " : " << e;
+        return -1;
     }
 
     int ret = load();
