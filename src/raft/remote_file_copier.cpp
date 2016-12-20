@@ -80,6 +80,9 @@ int RemoteFileCopier::copy_to_file(
         const CopyOptions* options) {
     scoped_refptr<Session> session = start_to_copy_to_file(
                                         source, dest_path, options);
+    if (session == NULL) {
+        return -1;
+    }
     session->join();
     return session->status().error_code();
 }
@@ -89,6 +92,9 @@ int RemoteFileCopier::copy_to_iobuf(const std::string& source,
                                     const CopyOptions* options) {
     scoped_refptr<Session> session = start_to_copy_to_iobuf(
                                         source, dest_buf, options);
+    if (session == NULL) {
+        return -1;
+    }
     session->join();
     return session->status().error_code();
 }

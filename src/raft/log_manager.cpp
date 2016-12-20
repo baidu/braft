@@ -9,9 +9,9 @@
 #include <base/logging.h>                       // LOG
 #include <base/object_pool.h>                   // base::get_object
 #include <bthread_unstable.h>                   // bthread_flush
+#include <bthread/countdown_event.h>            // bthread::CountdownEvent
 #include <baidu/rpc/reloadable_flags.h>         // BAIDU_RPC_VALIDATE_GFLAG
 #include "raft/storage.h"                       // LogStorage
-#include "raft/bthread_support.h"               // BthreadCond
 #include "raft/fsm_caller.h"                    // FSMCaller
 
 namespace raft {
@@ -126,19 +126,24 @@ int64_t LogManager::first_log_index() {
 
 class LastLogIdClosure : public LogManager::StableClosure {
 public:
-    explicit LastLogIdClosure(BthreadCond* cond, LogId* log_id)
-        : _cond(cond), _last_log_id(log_id)
-    {}
+    LastLogIdClosure() {
+        _event.init(1); 
+    }
     void Run() {
-        delete this;
+        _event.signal();
     }
     void set_last_log_id(const LogId& log_id) {
-        *_last_log_id = log_id;
-        _cond->signal();
+        CHECK(log_id.index == 0 || log_id.term != 0) << "Invalid log_id=" << log_id;
+        _last_log_id = log_id;
+    }
+    LogId last_log_id() const { return _last_log_id; }
+
+    void wait() {
+        _event.wait();
     }
 private:
-    BthreadCond* _cond;
-    LogId* _last_log_id;
+    bthread::CountdownEvent _event;
+    LogId _last_log_id;
 };
 
 int64_t LogManager::last_log_index(bool is_flush) {
@@ -149,18 +154,11 @@ int64_t LogManager::last_log_index(bool is_flush) {
         if (_last_log_index == _last_snapshot_id.index) {
             return _last_log_index;
         }
-        BthreadCond cond;
-        LogId last_id;
-        LastLogIdClosure* c = new LastLogIdClosure(&cond, &last_id);
-        const int rc = bthread::execution_queue_execute(_disk_queue, c);
+        LastLogIdClosure c;
+        CHECK_EQ(0, bthread::execution_queue_execute(_disk_queue, &c));
         lck.unlock();
-
-        if (rc != 0) {
-            return 0;
-        } else {
-            cond.wait();
-            return last_id.index;
-        }
+        c.wait();
+        return c.last_log_id().index;
     }
 }
 
@@ -175,18 +173,11 @@ LogId LogManager::last_log_id(bool is_flush) {
         if (_last_log_index == _last_snapshot_id.index) {
             return _last_snapshot_id;
         }
-        BthreadCond cond;
-        LogId last_id;
-        LastLogIdClosure* c = new LastLogIdClosure(&cond, &last_id);
-        const int rc = bthread::execution_queue_execute(_disk_queue, c);
+        LastLogIdClosure c;
+        CHECK_EQ(0, bthread::execution_queue_execute(_disk_queue, &c));
         lck.unlock();
-
-        if (rc != 0) {
-            return LogId();
-        } else {
-            cond.wait();
-            return last_id;
-        }
+        c.wait();
+        return c.last_log_id();
     }
 }
 

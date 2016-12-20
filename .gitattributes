@@ -237,7 +237,6 @@ protocol/raft/file_service.proto -text
 protocol/raft/local_file_meta.proto -text
 protocol/raft/local_storage.proto -text
 protocol/raft/raft.proto -text
-src/raft/bthread_support.h -text
 src/raft/builtin_service.pb.cc -text
 src/raft/builtin_service.pb.h -text
 src/raft/builtin_service_impl.cpp -text
@@ -306,7 +305,6 @@ src/raft/stable.h -text
 src/raft/storage.cpp -text
 src/raft/storage.h -text
 src/raft/test/COMAKE -text
-src/raft/test/bthread_sync.h -text
 src/raft/test/test_checksum.cpp -text
 src/raft/test/test_commitment_manager.cpp -text
 src/raft/test/test_configuration.cpp -text

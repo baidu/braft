@@ -7,11 +7,11 @@
 #ifndef PUBLIC_RAFT_IO_MAN_H
 #define PUBLIC_RAFT_IO_MAN_H
 
-#include "bthread_support.h"
 #include <base/memory/singleton.h>
 #include "base/threading/thread.h"
 #include "base/threading/sequenced_worker_pool.h"
 #include "base/memory/ref_counted.h"
+#include <bthread/countdown_event.h>
 
 namespace raft {
 
@@ -39,9 +39,9 @@ private:
     struct IOCtx {
         ssize_t ret;
         int err;
-        BthreadCond cond;
+        bthread::CountdownEvent cond;
 
-        IOCtx() : ret(0), err(0) {}
+        IOCtx() : ret(0), err(0) { cond.init(1); }
     };
 
     void do_write(int fd, const void* buf, size_t count, IOCtx* ctx);

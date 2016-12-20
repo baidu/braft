@@ -145,6 +145,7 @@ TEST_F(TestUsageSuits, copy) {
     // storage2
     ::system("rm -rf data2");
     raft::SnapshotStorage* storage2 = new raft::LocalSnapshotStorage("./data2");
+    ASSERT_EQ(0, storage2->init());
     raft::SnapshotReader* reader2 = storage2->copy_from(uri);
     ASSERT_TRUE(reader2 != NULL);
     ASSERT_EQ(0, storage1->close(reader1));
