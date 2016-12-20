@@ -548,3 +548,89 @@ TEST_F(LogManagerTest, wait) {
     sc.join();
     ASSERT_NE(0, lm->remove_waiter(wait_id));
 }
+
+TEST_F(LogManagerTest, flush_and_get_last_id) {
+    system("rm -rf ./data");
+    {
+        scoped_ptr<raft::ConfigurationManager> cm(
+                                    new raft::ConfigurationManager);
+        scoped_ptr<raft::SegmentLogStorage> storage(
+                                    new raft::SegmentLogStorage("./data"));
+        scoped_ptr<raft::LogManager> lm(new raft::LogManager());
+        raft::LogManagerOptions opt;
+        opt.log_storage = storage.get();
+        opt.configuration_manager = cm.get();
+        ASSERT_EQ(0, lm->init(opt));
+        raft::SnapshotMeta meta;
+        meta.set_last_included_index(100);
+        meta.set_last_included_term(100);
+        lm->set_snapshot(&meta);
+        ASSERT_EQ(raft::LogId(100, 100), lm->last_log_id(false));
+        ASSERT_EQ(raft::LogId(100, 100), lm->last_log_id(true));
+    }
+    // Load from disk again
+    {
+        scoped_ptr<raft::ConfigurationManager> cm(
+                                    new raft::ConfigurationManager);
+        scoped_ptr<raft::SegmentLogStorage> storage(
+                                    new raft::SegmentLogStorage("./data"));
+        scoped_ptr<raft::LogManager> lm(new raft::LogManager());
+        raft::LogManagerOptions opt;
+        opt.log_storage = storage.get();
+        opt.configuration_manager = cm.get();
+        ASSERT_EQ(0, lm->init(opt));
+        raft::SnapshotMeta meta;
+        meta.set_last_included_index(100);
+        meta.set_last_included_term(100);
+        lm->set_snapshot(&meta);
+        ASSERT_EQ(raft::LogId(100, 100), lm->last_log_id(false));
+        ASSERT_EQ(raft::LogId(100, 100), lm->last_log_id(true));
+    }
+}
+
+TEST_F(LogManagerTest, check_consistency) {
+    system("rm -rf ./data");
+    {
+        scoped_ptr<raft::ConfigurationManager> cm(
+                                    new raft::ConfigurationManager);
+        scoped_ptr<raft::SegmentLogStorage> storage(
+                                    new raft::SegmentLogStorage("./data"));
+        scoped_ptr<raft::LogManager> lm(new raft::LogManager());
+        raft::LogManagerOptions opt;
+        opt.log_storage = storage.get();
+        opt.configuration_manager = cm.get();
+        ASSERT_EQ(0, lm->init(opt));
+        base::Status st;
+        st = lm->check_consistency();
+        ASSERT_TRUE(st.ok()) << st;
+        raft::SnapshotMeta meta;
+        for (int i = 1; i < 1001; ++i) {
+            append_entry(lm.get(), "dummy", i);
+        }
+        st = lm->check_consistency();
+        ASSERT_TRUE(st.ok()) << st;
+        meta.set_last_included_index(100);
+        meta.set_last_included_term(1);
+        lm->set_snapshot(&meta);
+        st = lm->check_consistency();
+        ASSERT_TRUE(st.ok()) << st;
+        lm->clear_bufferred_logs();
+        st = lm->check_consistency();
+        ASSERT_TRUE(st.ok()) << st;
+    }
+    {
+        scoped_ptr<raft::ConfigurationManager> cm(
+                                    new raft::ConfigurationManager);
+        scoped_ptr<raft::SegmentLogStorage> storage(
+                                    new raft::SegmentLogStorage("./data"));
+        scoped_ptr<raft::LogManager> lm(new raft::LogManager());
+        raft::LogManagerOptions opt;
+        opt.log_storage = storage.get();
+        opt.configuration_manager = cm.get();
+        ASSERT_EQ(0, lm->init(opt));
+        base::Status st;
+        st = lm->check_consistency();
+        LOG(INFO) << "st : " << st;
+        ASSERT_FALSE(st.ok()) << st;
+    }
+}

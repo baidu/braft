@@ -112,6 +112,15 @@ public:
     // can be droped from memory logs
     void set_applied_id(const LogId& applied_id);
 
+    // Check the consistency between log and snapshot, which must satisfy ANY
+    // one of the follower condition
+    //   - Log starts from 1. OR
+    //   - Log starts from a positive position and there must be a snapshot
+    //     of which the last_included_id is in the range 
+    //     [first_log_index-1, last_log_index]
+    // Returns base::Status::OK if valid, a specific error otherwise
+    base::Status check_consistency();
+
     void describe(std::ostream& os, bool use_html);
 
 private:
@@ -144,8 +153,8 @@ friend class AppendBatcher;
 
     WaitId notify_on_new_log(int64_t expected_last_log_index, WaitMeta* wm);
 
-    int check_and_resolve_confliction(std::vector<LogEntry*>* entries, 
-                                      StableClosure* done);
+    int check_and_resolve_conflict(std::vector<LogEntry*>* entries, 
+                                   StableClosure* done);
 
     void unsafe_truncate_suffix(const int64_t last_index_kept);
 

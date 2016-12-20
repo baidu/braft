@@ -146,6 +146,9 @@ int64_t LogManager::last_log_index(bool is_flush) {
     if (!is_flush) {
         return _last_log_index;
     } else {
+        if (_last_log_index == _last_snapshot_id.index) {
+            return _last_log_index;
+        }
         BthreadCond cond;
         LogId last_id;
         LastLogIdClosure* c = new LastLogIdClosure(&cond, &last_id);
@@ -169,7 +172,9 @@ LogId LogManager::last_log_id(bool is_flush) {
         }
         return _last_snapshot_id;
     } else {
-        // FIXME(chenzhangyi01): it's buggy
+        if (_last_log_index == _last_snapshot_id.index) {
+            return _last_snapshot_id;
+        }
         BthreadCond cond;
         LogId last_id;
         LastLogIdClosure* c = new LastLogIdClosure(&cond, &last_id);
@@ -303,13 +308,13 @@ void LogManager::unsafe_truncate_suffix(const int64_t last_index_kept) {
     CHECK_EQ(0, bthread::execution_queue_execute(_disk_queue, tsc));
 }
 
-int LogManager::check_and_resolve_confliction(
+int LogManager::check_and_resolve_conflict(
             std::vector<LogEntry*> *entries, StableClosure* done) {
     AsyncClosureGuard done_guard(done);   
     if (entries->front()->id.index == 0) {
         // Node is currently the leader and |entries| are from the user who 
-        // don't know the exact index the logs should be. So we should assign 
-        // index to the appending entries
+        // don't know the correct indexes the logs should assign to. So we have
+        // to assign indexes to the appending entries
         for (size_t i = 0; i < entries->size(); ++i) {
             (*entries)[i]->id.index = ++_last_log_index;
         }
@@ -388,7 +393,7 @@ void LogManager::append_entries(
         return run_closure_in_bthread(done);
     }
     std::unique_lock<raft_mutex_t> lck(_mutex);
-    if (!entries->empty() && check_and_resolve_confliction(entries, done) != 0) {
+    if (!entries->empty() && check_and_resolve_conflict(entries, done) != 0) {
         lck.unlock();
         // release entries
         for (size_t i = 0; i < entries->size(); ++i) {
@@ -557,7 +562,10 @@ int LogManager::disk_thread(void* meta,
                     if (ret == 0) {
                         // update last_id after truncate_suffix
                         last_id.index = tsc->last_index_kept();
-                        last_id.term = log_manager->get_term(last_id.index);
+                        last_id.term = log_manager->_log_storage->get_term(last_id.index);
+                        if (last_id.index != 0) {
+                            CHECK_NE(0, last_id.term);
+                        }
                     }
                     break;
                 }
@@ -871,6 +879,29 @@ void LogManager::report_error(int error_code, const char* fmt, ...) {
     e.status().set_error(error_code, fmt, ap);
     va_end(ap);
     _fsm_caller->on_error(e);
+}
+
+base::Status LogManager::check_consistency() {
+    BAIDU_SCOPED_LOCK(_mutex);
+    CHECK_GT(_first_log_index, 0);
+    CHECK_GE(_last_log_index, 0);
+    if (_last_snapshot_id == LogId(0, 0)) {
+        if (_first_log_index == 1) {
+            return base::Status::OK();
+        }
+        return base::Status(EIO, "Missing logs in (0, %ld)", _first_log_index);
+    } else {
+        if (_last_snapshot_id.index >= _first_log_index - 1
+                && _last_snapshot_id.index <= _last_log_index) {
+            return base::Status::OK();
+        }
+        return base::Status(EIO, "There's a gap between snapshot={%ld, %ld}"
+                                 " and log=[%ld, %ld] ",
+                            _last_snapshot_id.index, _last_snapshot_id.term,
+                            _first_log_index, _last_log_index);
+    }
+    CHECK(false) << "Can't reach here";
+    return base::Status(-1, "Impossible condition");
 }
 
 }  // namespace raft

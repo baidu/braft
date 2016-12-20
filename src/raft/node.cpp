@@ -320,6 +320,15 @@ int NodeImpl::init(const NodeOptions& options) {
             break;
         }
 
+        base::Status st = _log_manager->check_consistency();
+        if (!st.ok()) {
+            LOG(ERROR) << "node " << _group_id << ":" << _server_id
+                       << " is initialized with inconsitency log: "
+                       << st;
+            ret = st.error_code();
+            break;
+        }
+
         _conf.first = LogId();
         // if have log using conf in log, else using conf in options
         if (_log_manager->last_log_index() > 0) {
