@@ -6,6 +6,7 @@
 #include <gtest/gtest.h>
 #include <gflags/gflags.h>
 #include <base/logging.h>
+#include <base/file_util.h>
 
 #include <baidu/rpc/server.h>
 #include "raft/file_service.h"
@@ -47,6 +48,7 @@ TEST_F(FileServiceTest, sanity) {
     // normal copy dir
     system("chmod -R 755 ./a; chmod -R 755 ./b");
     ASSERT_EQ(0, system("rm -rf a; rm -rf b; mkdir a; mkdir a/b; echo '123' > a/c"));
+    ASSERT_TRUE(base::CreateDirectory(base::FilePath("./b")));
     ASSERT_EQ(0, copier.copy_to_file("c", "./b/c", NULL));
     base::IOBuf c_data;
     ASSERT_EQ(0, copier.copy_to_iobuf("c", &c_data, NULL));
@@ -93,11 +95,13 @@ TEST_F(FileServiceTest, hole_file) {
     // normal init
     raft::FLAGS_raft_file_check_hole = false;
     ASSERT_EQ(0, copier.init(uri));
+    ASSERT_TRUE(base::CreateDirectory(base::FilePath("./b")));
     ASSERT_EQ(0, copier.copy_to_file("hole.data", "./b/hole.data", NULL));
     ret = system("diff ./a/hole.data ./b/hole.data");
     ASSERT_EQ(0, ret);
 
     raft::FLAGS_raft_file_check_hole = true;
+    ASSERT_TRUE(base::CreateDirectory(base::FilePath("./c")));
     ASSERT_EQ(0, copier.copy_to_file("hole.data", "./c/hole.data", NULL));
     ret = system("diff ./a/hole.data ./c/hole.data");
     ASSERT_EQ(0, ret);

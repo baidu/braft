@@ -25,6 +25,7 @@
 #include <base/memory/singleton.h>
 #include <base/containers/doubly_buffered_data.h>
 #include <base/crc32c.h>
+#include <base/file_util.h>
 #include <bthread.h>
 #include "raft/macros.h"
 #include "raft/timer.h"
@@ -89,7 +90,7 @@ inline ip_t get_host_ip() {
     return ip;
 }
 
-}  // namespace std
+}  // namespace base
 
 namespace raft {
 class Closure;
@@ -143,6 +144,14 @@ inline uint32_t crc32(const base::IOBuf& buf) {
     }
     return hash;
 }
+
+// Create a sub directory of an existing |parent_path|. Requiring that
+// |parent_path| must exist.
+// Returns true on successful creation, or if the directory already exists.
+// Returns false on failure and sets *error appropriately, if it is non-NULL.
+bool create_sub_directory(const base::FilePath& parent_path,
+                          const base::FilePath& sub_path,
+                          base::File::Error* error = NULL);
 
 // Start a bthread to run closure
 void run_closure_in_bthread(::google::protobuf::Closure* closure,

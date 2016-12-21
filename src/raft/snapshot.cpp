@@ -198,6 +198,7 @@ int LocalSnapshotWriter::remove_file(const std::string& filename) {
 int LocalSnapshotWriter::add_file(
         const std::string& filename, 
         const ::google::protobuf::Message* file_meta) {
+    // TODO: normalize filename
     LocalFileMeta meta;
     if (file_meta) {
         meta.CopyFrom(*file_meta);
@@ -749,6 +750,17 @@ void LocalSnapshotCopier::copy_file(const std::string& filename) {
         return;
     }
     std::string file_path = _writer->get_path() + '/' + filename;
+    base::FilePath sub_path(filename);
+    if (sub_path != sub_path.DirName() && sub_path.DirName().value() != ".") {
+        base::File::Error e;
+        if (!create_sub_directory(
+                base::FilePath(_writer->get_path()), sub_path.DirName(), &e)) {
+            LOG(ERROR) << "Fail to create directory for " << file_path
+                       << " : " << base::File::ErrorToString(e);
+            set_error(EIO, "Fail to create directory");
+            return;
+        }
+    }
     LocalFileMeta meta;
     _remote_snapshot.get_file_meta(filename, &meta);
     std::unique_lock<raft_mutex_t> lck(_mutex);

@@ -146,6 +146,49 @@ ssize_t file_pwrite(const base::IOBuf& data, int fd, off_t offset) {
     return size - left;
 }
 
+bool create_sub_directory(const base::FilePath& parent_path,
+                          const base::FilePath& sub_path,
+                          base::File::Error* error) {
+    if (!base::DirectoryExists(parent_path)) {
+        if (error) {
+            *error = base::File::FILE_ERROR_NOT_FOUND;
+        }
+        return false;
+    }
+    if (sub_path.ReferencesParent()) {
+        if (error) {
+            *error = base::File::FILE_ERROR_INVALID_URL;
+        }
+        return false;
+    }
+    std::vector<base::FilePath> subpaths;
+
+    // Collect a list of all parent directories.
+    base::FilePath last_path = sub_path;
+    subpaths.push_back(sub_path.BaseName());
+    for (base::FilePath path = sub_path.DirName();
+            path.value() != last_path.value(); path = path.DirName()) {
+        subpaths.push_back(path.BaseName());
+        last_path = path;
+    }
+    base::FilePath full_path = parent_path;
+    for (std::vector<base::FilePath>::reverse_iterator i = subpaths.rbegin();
+            i != subpaths.rend(); ++i) {
+        if (i->value() == "/") {
+            continue;
+        }
+        if (i->value() == ".") {
+            continue;
+        }
+        full_path = full_path.Append(*i);
+        DLOG(INFO) << "Creating " << full_path.value();
+        if (!base::CreateDirectoryAndGetError(full_path, error, false)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 void FileSegData::append(const base::IOBuf& data, uint64_t offset) {
     uint32_t len = data.size();
     if (0 != _seg_offset && offset == (_seg_offset + _seg_len)) {
