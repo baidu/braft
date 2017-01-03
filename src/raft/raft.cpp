@@ -19,8 +19,8 @@
 
 namespace raft {
 
-#if defined(__RAFT_VERSION_ID__)
-static const char* s_libraft_version = "libraft_version_" __RAFT_VERSION_ID__;
+#if defined(RAFT_REVISION)
+static const char* s_libraft_version = "libraft_version_" RAFT_REVISION;
 #else
 static const char* s_libraft_version = "libraft_version_unknown";
 #endif  // __RAFT_VERSION_ID__

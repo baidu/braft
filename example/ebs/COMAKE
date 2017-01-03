@@ -1,7 +1,20 @@
 #edit-mode: -*- python -*-
 #coding:gbk
 
-WORKROOT('../../../../')
+import os
+is_svn = False
+if os.system("svn info 2>/dev/null") == 0:
+    print "is svn"
+    is_svn = True
+else:
+    print "is git"
+    is_svn = False
+
+if is_svn:
+    WORKROOT('../../../../')
+else:
+    WORKROOT('../../../../../')
+
 
 CPPFLAGS('-D__const__=  -D_GNU_SOURCE -D__STDC_LIMIT_MACROS -DNDEBUG -Wno-unused-parameter -Werror')
 CFLAGS('-g -O2 -pipe -W -Wall -fPIC')
