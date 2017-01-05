@@ -10,7 +10,7 @@
 #include <base/iobuf.h>                         // base::IOBuf
 #include <base/memory/ref_counted.h>            // base::RefCountedThreadSafe
 #include <bvar/bvar.h>
-#include <murmurhash3.h>                        // fmix64
+#include <base/third_party/murmurhash3/murmurhash3.h>  // fmix64
 #include "raft/configuration.h"
 #include "raft/raft.pb.h"
 
@@ -74,7 +74,7 @@ inline bool operator>=(const LogId& lhs, const LogId& rhs) {
 
 struct LogIdHasher {
     size_t operator()(const LogId& id) const {
-        return fmix64(id.index) ^ fmix64(id.term);
+        return base::fmix64(id.index) ^ base::fmix64(id.term);
     }
 };
 

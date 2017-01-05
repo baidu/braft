@@ -10,13 +10,13 @@ else:
     print "is git"
     is_svn = False
 
-get_rev_cmd = ""
-if is_svn:
-    WORKROOT('../../')
-    get_rev_cmd ='$(shell LC_ALL=en_US svn info | grep "Last Changed Rev:" | awk \'{print $$4}\')'
-else:
-    WORKROOT('../../../')
-    get_rev_cmd = '$(shell git rev-parse --short HEAD)'
+#get_rev_cmd = ""
+#if is_svn:
+WORKROOT('../../')
+get_rev_cmd ='$(shell LC_ALL=en_US svn info | grep "Last Changed Rev:" | awk \'{print $$4}\')'
+#else:
+#    WORKROOT('../../../')
+#    get_rev_cmd = '$(shell git rev-parse --short HEAD)'
 
 CPPFLAGS('$(ENV_CXXFLAGS) -D_GNU_SOURCE -D__const__= -DNDEBUG')
 CPPFLAGS(' -DRAFT_REVISION=\\\"%s\\\"' % get_rev_cmd);

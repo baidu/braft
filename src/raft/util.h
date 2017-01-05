@@ -14,7 +14,7 @@
 #include <stdlib.h>
 #include <string>
 #include <set>
-#include <iterative_murmurhash3.h>
+#include <base/third_party/murmurhash3/murmurhash3.h>
 #include <base/endpoint.h>
 #include <base/scoped_lock.h>
 #include <base/fast_rand.h>
@@ -110,22 +110,22 @@ inline bool is_zero(const char* buff, const size_t size) {
 
 inline uint32_t murmurhash32(const void *key, int len) {
     uint32_t hash = 0;
-    MurmurHash3_x86_32(key, len, 0, &hash);
+    base::MurmurHash3_x86_32(key, len, 0, &hash);
     return hash;
 }
 
 inline uint32_t murmurhash32(const base::IOBuf& buf) {
-    MurmurHash3_x86_32_Context ctx;
-    MurmurHash3_x86_32_Init(&ctx, 0);
+    base::MurmurHash3_x86_32_Context ctx;
+    base::MurmurHash3_x86_32_Init(&ctx, 0);
     const size_t block_num = buf.backing_block_num();
     for (size_t i = 0; i < block_num; ++i) {
         base::StringPiece sp = buf.backing_block(i);
         if (!sp.empty()) {
-            MurmurHash3_x86_32_Update(&ctx, sp.data(), sp.size());
+            base::MurmurHash3_x86_32_Update(&ctx, sp.data(), sp.size());
         }
     }
     uint32_t hash = 0;
-    MurmurHash3_x86_32_Final(&hash, &ctx);
+    base::MurmurHash3_x86_32_Final(&hash, &ctx);
     return hash;
 }
 
