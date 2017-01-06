@@ -20,7 +20,7 @@
 
 #include <stdint.h>
 #include <base/containers/mru_cache.h>
-#include <murmurhash3.h>
+#include <base/third_party/murmurhash3/murmurhash3.h>
 
 namespace counter {
 
