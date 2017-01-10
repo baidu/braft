@@ -83,6 +83,15 @@ public:
     // |log_index|
     static int transfer_leadership(ReplicatorId id, int64_t log_index);
     static int stop_transfer_leadership(ReplicatorId id);
+
+    // Send TimeoutNowRequest to the very follower to make it become
+    // CANDIDATE. And the replicator would stop automatically after the RPC
+    // finishes no matter it succes or fails.
+    static int send_timeout_now_and_stop(ReplicatorId id, int timeout_ms);
+
+    // Get the next index of this Replica if we know the correct value is
+    // Return the correct value on success, 0 otherwise.
+    static int64_t get_next_index(ReplicatorId id);
     
 private:
 
@@ -96,7 +105,8 @@ private:
     void _block(long start_time_us, int error_code);
     void _install_snapshot();
     void _start_heartbeat_timer(long start_time_us);
-    void _send_timeout_now(bool unlock_id);
+    void _send_timeout_now(bool unlock_id, bool stop_after_finish,
+                           int timeout_ms = -1);
     int _transfer_leadership(int64_t log_index);
 
     static void _on_rpc_returned(
@@ -112,7 +122,8 @@ private:
     static void _on_timeout_now_returned(
                 ReplicatorId id, baidu::rpc::Controller* cntl,
                 TimeoutNowRequest* request, 
-                TimeoutNowResponse* response);
+                TimeoutNowResponse* response,
+                bool stop_after_finish);
 
     static void _on_timedout(void* arg);
 
@@ -155,11 +166,11 @@ struct ReplicatorGroupOptions {
     SnapshotStorage* snapshot_storage;
 };
 
-// Maintains the replicators attached to followers
+// Maintains the replicators attached to all the followers
 //  - Invoke reset_term when term changes, which affects the term in the RPC to
 //    the adding replicators
-//  - Invoke add_replicator for every single followers when the candidate
-//    becomes the leader
+//  - Invoke add_replicator for every single follower when nodes becomes LEADER
+//    from CANDIDATE
 //  - Invoke stop_all when the leader steps down.
 //
 // Note: The methods of ReplicatorGroup are NOT thread-safe
@@ -209,8 +220,17 @@ public:
     // Stop transfering leadership to the given |peer|
     int stop_transfer_leadership(const PeerId& peer);
 
-private:
+    // Stop all the replicators except for the one that we think can be the
+    // candidate of the next leader, which has the largest `last_log_id' among
+    // peers in |current_conf|. 
+    // |candidate| would be assigned to a valid ReplicatorId if we found one and
+    // the caller is responsible for stopping it, or an invalid value if we
+    // found none.
+    // Returns 0 on success and -1 otherwise.
+    int stop_all_and_find_the_next_candidate(ReplicatorId* candidate,
+                                             const Configuration& current_conf);
 
+private:
 
     int _add_replicator(const PeerId& peer, ReplicatorId *rid);
 

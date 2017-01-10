@@ -51,7 +51,6 @@ public:
 
     virtual void on_shutdown() {
         LOG(TRACE) << "addr " << address << " shutdowned";
-        delete this;
     }
 
     virtual void on_snapshot_save(raft::SnapshotWriter* writer, raft::Closure* done) {
@@ -188,6 +187,7 @@ public:
         }
         MockFSM* fsm = new MockFSM(listen_addr);
         options.fsm = fsm;
+        options.node_owns_fsm = true;
         base::string_printf(&options.log_uri, "local://./data/%s/log",
                             base::endpoint2str(listen_addr).c_str());
         base::string_printf(&options.stable_uri, "local://./data/%s/stable",
@@ -216,16 +216,19 @@ public:
         
         bthread::CountdownEvent cond;
         raft::Node* node = remove_node(listen_addr);
-        cond.init(1);
-        node->shutdown(NEW_SHUTDOWNCLOSURE(&cond));
-        cond.wait();
-        node->join();
+        if (node) {
+            cond.init(1);
+            node->shutdown(NEW_SHUTDOWNCLOSURE(&cond));
+            cond.wait();
+            node->join();
+        }
 
         if (_server_map[listen_addr] != NULL) {
             delete _server_map[listen_addr];
+            _server_map.erase(listen_addr);
         }
         _server_map.erase(listen_addr);
-
+        delete node;
         return 0;
     }
 
@@ -240,7 +243,7 @@ public:
 
     void clean(const base::EndPoint& listen_addr) {
         std::string data_path;
-        base::string_printf(&data_path, "local://./data/%s",
+        base::string_printf(&data_path, "./data/%s",
                             base::endpoint2str(listen_addr).c_str());
 
         if (!base::DeleteFile(base::FilePath(data_path), true)) {
@@ -393,6 +396,7 @@ protected:
     void SetUp() {
         //logging::FLAGS_verbose = 90;
         ::system("rm -rf data");
+        ::google::SetCommandLineOption("health_check_interval", "1");
     }
     void TearDown() {
         ::system("rm -rf data");
@@ -401,9 +405,9 @@ protected:
 
 TEST_F(RaftTestSuits, InitShutdown) {
     baidu::rpc::Server server;
-    int ret = raft::add_service(&server, "0.0.0.0:60006");
+    int ret = raft::add_service(&server, "0.0.0.0:5006");
     ASSERT_EQ(0, ret);
-    ASSERT_EQ(0, server.Start("0.0.0.0:60006", NULL));
+    ASSERT_EQ(0, server.Start("0.0.0.0:5006", NULL));
 
     raft::NodeOptions options;
     options.fsm = new MockFSM(base::EndPoint());
@@ -411,7 +415,7 @@ TEST_F(RaftTestSuits, InitShutdown) {
     options.stable_uri = "local://./data/stable";
     options.snapshot_uri = "local://./data/snapshot";
 
-    raft::Node node("unittest", raft::PeerId(base::EndPoint(base::get_host_ip(), 60006), 0));
+    raft::Node node("unittest", raft::PeerId(base::EndPoint(base::get_host_ip(), 5006), 0));
     ASSERT_EQ(0, node.init(options));
 
     node.shutdown(NULL);
@@ -432,22 +436,22 @@ TEST_F(RaftTestSuits, InitShutdown) {
 TEST_F(RaftTestSuits, Server) {
     baidu::rpc::Server server1;
     baidu::rpc::Server server2;
-    ASSERT_EQ(0, raft::add_service(&server1, "0.0.0.0:60006"));
-    ASSERT_EQ(0, raft::add_service(&server1, "0.0.0.0:60006"));
-    ASSERT_EQ(0, raft::add_service(&server2, "0.0.0.0:60007"));
-    server1.Start("0.0.0.0:60006", NULL);
-    server2.Start("0.0.0.0:60007", NULL);
+    ASSERT_EQ(0, raft::add_service(&server1, "0.0.0.0:5006"));
+    ASSERT_EQ(0, raft::add_service(&server1, "0.0.0.0:5006"));
+    ASSERT_EQ(0, raft::add_service(&server2, "0.0.0.0:5007"));
+    server1.Start("0.0.0.0:5006", NULL);
+    server2.Start("0.0.0.0:5007", NULL);
 }
 
 TEST_F(RaftTestSuits, SingleNode) {
     baidu::rpc::Server server;
-    int ret = raft::add_service(&server, 60006);
-    server.Start(60006, NULL);
+    int ret = raft::add_service(&server, 5006);
+    server.Start(5006, NULL);
     ASSERT_EQ(0, ret);
 
     raft::PeerId peer;
     peer.addr.ip = base::get_host_ip();
-    peer.addr.port = 60006;
+    peer.addr.port = 5006;
     peer.idx = 0;
     std::vector<raft::PeerId> peers;
     peers.push_back(peer);
@@ -492,7 +496,7 @@ TEST_F(RaftTestSuits, NoLeader) {
     for (int i = 0; i < 3; i++) {
         raft::PeerId peer;
         peer.addr.ip = base::get_host_ip();
-        peer.addr.port = 60006 + i;
+        peer.addr.port = 5006 + i;
         peer.idx = 0;
 
         peers.push_back(peer);
@@ -526,7 +530,7 @@ TEST_F(RaftTestSuits, NoLeader) {
     // add peer1
     raft::PeerId peer3;
     peer3.addr.ip = base::get_host_ip();
-    peer3.addr.port = 60006 + 3;
+    peer3.addr.port = 5006 + 3;
     peer3.idx = 0;
 
     cond.init(1);
@@ -537,7 +541,7 @@ TEST_F(RaftTestSuits, NoLeader) {
     // remove peer1
     raft::PeerId peer0;
     peer0.addr.ip = base::get_host_ip();
-    peer0.addr.port = 60006 + 0;
+    peer0.addr.port = 5006 + 0;
     peer0.idx = 0;
 
     cond.init(1);
@@ -551,7 +555,7 @@ TEST_F(RaftTestSuits, TripleNode) {
     for (int i = 0; i < 3; i++) {
         raft::PeerId peer;
         peer.addr.ip = base::get_host_ip();
-        peer.addr.port = 60006 + i;
+        peer.addr.port = 5006 + i;
         peer.idx = 0;
 
         peers.push_back(peer);
@@ -641,7 +645,7 @@ TEST_F(RaftTestSuits, LeaderFail) {
     for (int i = 0; i < 3; i++) {
         raft::PeerId peer;
         peer.addr.ip = base::get_host_ip();
-        peer.addr.port = 60006 + i;
+        peer.addr.port = 5006 + i;
         peer.idx = 0;
 
         peers.push_back(peer);
@@ -755,7 +759,7 @@ TEST_F(RaftTestSuits, JoinNode) {
     std::vector<raft::PeerId> peers;
     raft::PeerId peer0;
     peer0.addr.ip = base::get_host_ip();
-    peer0.addr.port = 60006;
+    peer0.addr.port = 5006;
     peer0.idx = 0;
 
     // start cluster
@@ -791,7 +795,7 @@ TEST_F(RaftTestSuits, JoinNode) {
     // start peer1
     raft::PeerId peer1;
     peer1.addr.ip = base::get_host_ip();
-    peer1.addr.port = 60006 + 1;
+    peer1.addr.port = 5006 + 1;
     peer1.idx = 0;
     ASSERT_EQ(0, cluster.start(peer1.addr, true));
     LOG(NOTICE) << "start peer " << peer1;
@@ -809,7 +813,7 @@ TEST_F(RaftTestSuits, JoinNode) {
     // add peer2 when peer not start
     raft::PeerId peer2;
     peer2.addr.ip = base::get_host_ip();
-    peer2.addr.port = 60006 + 2;
+    peer2.addr.port = 5006 + 2;
     peer2.idx = 0;
 
     cond.init(1);
@@ -853,7 +857,7 @@ TEST_F(RaftTestSuits, RemoveFollower) {
     for (int i = 0; i < 3; i++) {
         raft::PeerId peer;
         peer.addr.ip = base::get_host_ip();
-        peer.addr.port = 60006 + i;
+        peer.addr.port = 5006 + i;
         peer.idx = 0;
 
         peers.push_back(peer);
@@ -905,7 +909,7 @@ TEST_F(RaftTestSuits, RemoveFollower) {
     leader->remove_peer(peers, follower_id, NEW_REMOVEPEERCLOSURE(&cond, 0));
     cond.wait();
 
-    // stop and clean one follower
+    //stop and clean one follower
     //LOG(WARNING) << "stop follower " << follower_addr;
     //cluster.stop(follower_addr);
     //LOG(WARNING) << "clean follower data " << follower_addr;
@@ -933,7 +937,7 @@ TEST_F(RaftTestSuits, RemoveFollower) {
     for (int i = 0; i < 3; i++) {
         raft::PeerId peer;
         peer.addr.ip = base::get_host_ip();
-        peer.addr.port = 60006 + i;
+        peer.addr.port = 5006 + i;
         peer.idx = 0;
 
         if (peer.addr != follower_addr) {
@@ -962,7 +966,7 @@ TEST_F(RaftTestSuits, RemoveLeader) {
     for (int i = 0; i < 3; i++) {
         raft::PeerId peer;
         peer.addr.ip = base::get_host_ip();
-        peer.addr.port = 60006 + i;
+        peer.addr.port = 5006 + i;
         peer.idx = 0;
 
         peers.push_back(peer);
@@ -1035,7 +1039,7 @@ TEST_F(RaftTestSuits, RemoveLeader) {
     for (int i = 0; i < 3; i++) {
         raft::PeerId peer;
         peer.addr.ip = base::get_host_ip();
-        peer.addr.port = 60006 + i;
+        peer.addr.port = 5006 + i;
         peer.idx = 0;
 
         if (peer.addr != old_leader_addr) {
@@ -1057,7 +1061,7 @@ TEST_F(RaftTestSuits, TriggerVote) {
     for (int i = 0; i < 3; i++) {
         raft::PeerId peer;
         peer.addr.ip = base::get_host_ip();
-        peer.addr.port = 60006 + i;
+        peer.addr.port = 5006 + i;
         peer.idx = 0;
 
         peers.push_back(peer);
@@ -1123,7 +1127,7 @@ TEST_F(RaftTestSuits, PreVote) {
     for (int i = 0; i < 3; i++) {
         raft::PeerId peer;
         peer.addr.ip = base::get_host_ip();
-        peer.addr.port = 60006 + i;
+        peer.addr.port = 5006 + i;
         peer.idx = 0;
 
         peers.push_back(peer);
@@ -1194,7 +1198,7 @@ TEST_F(RaftTestSuits, PreVote) {
     for (int i = 0; i < 3; i++) {
         raft::PeerId peer;
         peer.addr.ip = base::get_host_ip();
-        peer.addr.port = 60006 + i;
+        peer.addr.port = 5006 + i;
         peer.idx = 0;
 
         if (peer.addr != follower_addr) {
@@ -1216,7 +1220,7 @@ TEST_F(RaftTestSuits, SetPeer1) {
     Cluster cluster("unittest", std::vector<raft::PeerId>());
     raft::PeerId boot_peer;
     boot_peer.addr.ip = base::get_host_ip();
-    boot_peer.addr.port = 60006;
+    boot_peer.addr.port = 5006;
     boot_peer.idx = 0;
 
     ASSERT_EQ(0, cluster.start(boot_peer.addr));
@@ -1237,7 +1241,7 @@ TEST_F(RaftTestSuits, SetPeer2) {
     for (int i = 0; i < 3; i++) {
         raft::PeerId peer;
         peer.addr.ip = base::get_host_ip();
-        peer.addr.port = 60006 + i;
+        peer.addr.port = 5006 + i;
         peer.idx = 0;
 
         peers.push_back(peer);
@@ -1308,7 +1312,7 @@ TEST_F(RaftTestSuits, SetPeer2) {
     for (int i = 0; i < 3; i++) {
         raft::PeerId peer;
         peer.addr.ip = base::get_host_ip();
-        peer.addr.port = 60006 + i;
+        peer.addr.port = 5006 + i;
         peer.idx = 0;
 
         if (peer != follower_peer1) {
@@ -1352,9 +1356,9 @@ TEST_F(RaftTestSuits, SetPeer2) {
     ASSERT_EQ(leader->node_id().peer_id.addr, leader_addr);
 
     LOG(WARNING) << "start old follower " << follower_peer1;
-    ASSERT_EQ(0, cluster.start(follower_peer1.addr));
+    ASSERT_EQ(0, cluster.start(follower_peer1.addr, true));
     LOG(WARNING) << "start old follower " << follower_peer2;
-    ASSERT_EQ(0, cluster.start(follower_peer2.addr));
+    ASSERT_EQ(0, cluster.start(follower_peer2.addr, true));
 
     LOG(WARNING) << "add old follower " << follower_peer1;
     cond.init(1);
@@ -1378,7 +1382,7 @@ TEST_F(RaftTestSuits, RestoreSnapshot) {
     for (int i = 0; i < 3; i++) {
         raft::PeerId peer;
         peer.addr.ip = base::get_host_ip();
-        peer.addr.port = 60006 + i;
+        peer.addr.port = 5006 + i;
         peer.idx = 0;
 
         peers.push_back(peer);
@@ -1441,7 +1445,7 @@ TEST_F(RaftTestSuits, InstallSnapshot) {
     for (int i = 0; i < 3; i++) {
         raft::PeerId peer;
         peer.addr.ip = base::get_host_ip();
-        peer.addr.port = 60006 + i;
+        peer.addr.port = 5006 + i;
         peer.idx = 0;
 
         peers.push_back(peer);
@@ -1536,13 +1540,13 @@ TEST_F(RaftTestSuits, InstallSnapshot) {
 TEST_F(RaftTestSuits, NoSnapshot) {
     baidu::rpc::Server server;
     baidu::rpc::ServerOptions server_options;
-    int ret = raft::add_service(&server, "0.0.0.0:60006");
+    int ret = raft::add_service(&server, "0.0.0.0:5006");
     ASSERT_EQ(0, ret);
-    ASSERT_EQ(0, server.Start(60006, &server_options));
+    ASSERT_EQ(0, server.Start(5006, &server_options));
 
     raft::PeerId peer;
     peer.addr.ip = base::get_host_ip();
-    peer.addr.port = 60006;
+    peer.addr.port = 5006;
     peer.idx = 0;
     std::vector<raft::PeerId> peers;
     peers.push_back(peer);
@@ -1594,13 +1598,13 @@ TEST_F(RaftTestSuits, NoSnapshot) {
 TEST_F(RaftTestSuits, AutoSnapshot) {
     baidu::rpc::Server server;
     baidu::rpc::ServerOptions server_options;
-    int ret = raft::add_service(&server, "0.0.0.0:60006");
+    int ret = raft::add_service(&server, "0.0.0.0:5006");
     ASSERT_EQ(0, ret);
-    ASSERT_EQ(0, server.Start(60006, &server_options));
+    ASSERT_EQ(0, server.Start(5006, &server_options));
 
     raft::PeerId peer;
     peer.addr.ip = base::get_host_ip();
-    peer.addr.port = 60006;
+    peer.addr.port = 5006;
     peer.idx = 0;
     std::vector<raft::PeerId> peers;
     peers.push_back(peer);
@@ -1654,7 +1658,7 @@ TEST_F(RaftTestSuits, LeaderShouldNotChange) {
     for (int i = 0; i < 3; i++) {
         raft::PeerId peer;
         peer.addr.ip = base::get_host_ip();
-        peer.addr.port = 60006 + i;
+        peer.addr.port = 5006 + i;
         peer.idx = 0;
 
         peers.push_back(peer);
@@ -1686,7 +1690,7 @@ TEST_F(RaftTestSuits, RecoverFollower) {
     for (int i = 0; i < 3; i++) {
         raft::PeerId peer;
         peer.addr.ip = base::get_host_ip();
-        peer.addr.port = 60006 + i;
+        peer.addr.port = 5006 + i;
         peer.idx = 0;
 
         peers.push_back(peer);
@@ -1750,7 +1754,7 @@ TEST_F(RaftTestSuits, leader_transfer) {
     for (int i = 0; i < 3; i++) {
         raft::PeerId peer;
         peer.addr.ip = base::get_host_ip();
-        peer.addr.port = 60006 + i;
+        peer.addr.port = 5006 + i;
         peer.idx = 0;
 
         peers.push_back(peer);
@@ -1783,7 +1787,7 @@ TEST_F(RaftTestSuits, leader_transfer_before_log_is_compleleted) {
     for (int i = 0; i < 3; i++) {
         raft::PeerId peer;
         peer.addr.ip = base::get_host_ip();
-        peer.addr.port = 60006 + i;
+        peer.addr.port = 5006 + i;
         peer.idx = 0;
 
         peers.push_back(peer);
@@ -1841,7 +1845,7 @@ TEST_F(RaftTestSuits, leader_transfer_resume_on_failure) {
     for (int i = 0; i < 3; i++) {
         raft::PeerId peer;
         peer.addr.ip = base::get_host_ip();
-        peer.addr.port = 60006 + i;
+        peer.addr.port = 5006 + i;
         peer.idx = 0;
 
         peers.push_back(peer);
@@ -1895,6 +1899,7 @@ TEST_F(RaftTestSuits, leader_transfer_resume_on_failure) {
     usleep(1000 * 1000);
     data.resize(5, 'a');
     task.data = &data;
+    cond.init(1);
     task.done = NEW_APPLYCLOSURE(&cond, 0);
     leader->apply(task);
     cond.wait();
@@ -1913,13 +1918,13 @@ protected:
 
 TEST_F(RaftTestSuits, shutdown_and_join_work_after_init_fails) {
     baidu::rpc::Server server;
-    int ret = raft::add_service(&server, 60006);
-    server.Start(60006, NULL);
+    int ret = raft::add_service(&server, 5006);
+    server.Start(5006, NULL);
     ASSERT_EQ(0, ret);
 
     raft::PeerId peer;
     peer.addr.ip = base::get_host_ip();
-    peer.addr.port = 60006;
+    peer.addr.port = 5006;
     peer.idx = 0;
     std::vector<raft::PeerId> peers;
     peers.push_back(peer);
@@ -1970,3 +1975,63 @@ TEST_F(RaftTestSuits, shutdown_and_join_work_after_init_fails) {
     server.Stop(200);
     server.Join();
 }
+
+TEST_F(RaftTestSuits, shutting_leader_triggers_timeout_now) {
+    google::SetCommandLineOption("raft_sync", "false");
+    std::vector<raft::PeerId> peers;
+    for (int i = 0; i < 3; i++) {
+        raft::PeerId peer;
+        peer.addr.ip = base::get_host_ip();
+        peer.addr.port = 5006 + i;
+        peer.idx = 0;
+        peers.push_back(peer);
+    }
+    // start cluster
+    Cluster cluster("unittest", peers, 1000);
+    for (size_t i = 0; i < peers.size(); i++) {
+        ASSERT_EQ(0, cluster.start(peers[i].addr));
+    }
+    cluster.wait_leader();
+    raft::Node* leader = cluster.leader();
+    ASSERT_TRUE(leader != NULL);
+    LOG(INFO) << "shutdown leader" << leader->node_id();
+    leader->shutdown(NULL);
+    leader->join();
+    LOG(INFO) << "join";
+    usleep(100 * 1000);
+    leader = cluster.leader();
+    ASSERT_TRUE(leader != NULL);
+    google::SetCommandLineOption("raft_sync", "true");
+}
+
+TEST_F(RaftTestSuits, removing_leader_triggers_timeout_now) {
+    google::SetCommandLineOption("raft_sync", "false");
+    std::vector<raft::PeerId> peers;
+    for (int i = 0; i < 3; i++) {
+        raft::PeerId peer;
+        peer.addr.ip = base::get_host_ip();
+        peer.addr.port = 5006 + i;
+        peer.idx = 0;
+        peers.push_back(peer);
+    }
+    // start cluster
+    Cluster cluster("unittest", peers, 1000);
+    for (size_t i = 0; i < peers.size(); i++) {
+        ASSERT_EQ(0, cluster.start(peers[i].addr));
+    }
+    cluster.wait_leader();
+    raft::Node* leader = cluster.leader();
+    ASSERT_TRUE(leader != NULL);
+    raft::PeerId old_leader_id = leader->node_id().peer_id;
+    LOG(WARNING) << "remove leader " << old_leader_id;
+    bthread::CountdownEvent cond;
+    cond.init(1);
+    leader->remove_peer(peers, old_leader_id, NEW_REMOVEPEERCLOSURE(&cond, 0));
+    cond.wait();
+    usleep(100 * 1000);
+    leader = cluster.leader();
+    ASSERT_TRUE(leader != NULL);
+    ASSERT_NE(old_leader_id, leader->node_id().peer_id);
+    google::SetCommandLineOption("raft_sync", "true");
+}
+

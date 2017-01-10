@@ -85,7 +85,8 @@ NodeImpl::NodeImpl(const GroupId& group_id, const PeerId& peer_id)
     , _commit_manager(NULL)
     , _snapshot_executor(NULL)
     , _stop_transfer_arg(NULL)
-    , _vote_triggered(false) {
+    , _vote_triggered(false)
+    , _waking_candidate(0) {
         _server_id = peer_id;
         AddRef();
     g_num_nodes << 1;
@@ -357,7 +358,7 @@ int NodeImpl::init(const NodeOptions& options) {
             << " last_log_id: " << _log_manager->last_log_id()
             << " conf: " << _conf.second;
         if (!_conf.second.empty()) {
-            step_down(_current_term);
+            step_down(_current_term, false);
         }
 
         // add node to NodeManager
@@ -447,7 +448,7 @@ void NodeImpl::on_configuration_change_done(int64_t term) {
         _replicator_group.stop_replicator(*iter);
     }
     if (removed.contains(_server_id)) {
-        step_down(_current_term);
+        step_down(_current_term, true);
     }
     _conf_ctx.reset();
 }
@@ -606,7 +607,7 @@ void NodeImpl::handle_stepdown_timeout() {
     LOG(INFO) << "node " << _group_id << ":" << _server_id
         << " term " << _current_term << " stepdown when alive nodes don't satisfy quorum"
         << " dead_nodes: " << dead_nodes;
-    step_down(_current_term);
+    step_down(_current_term, false);
 }
 
 bool NodeImpl::unsafe_register_conf_change(const std::vector<PeerId>& old_peers,
@@ -756,7 +757,7 @@ int NodeImpl::set_peer(const std::vector<PeerId>& old_peers, const std::vector<P
             LOG(INFO) << "node " << _group_id << ":" << _server_id << " set_peer boot from "
                 << new_conf;
             _conf.second = new_conf;
-            step_down(_current_term + 1);
+            step_down(_current_term + 1, false);
             return 0;
         } else {
             LOG(WARNING) << "node " << _group_id << ":" << _server_id
@@ -799,7 +800,7 @@ int NodeImpl::set_peer(const std::vector<PeerId>& old_peers, const std::vector<P
         << " to " << new_conf;
     // change conf and step_down
     _conf.second = new_conf;
-    step_down(_current_term + 1);
+    step_down(_current_term + 1, false);
     return 0;
 }
 
@@ -830,7 +831,7 @@ void NodeImpl::shutdown(Closure* done) {
 
         if (_state < STATE_SHUTTING) {
             if (_state < STATE_FOLLOWER) {
-                step_down(_current_term);
+                step_down(_current_term, _state == STATE_LEADER);
             }
             // change state to shutdown
             _state = STATE_SHUTTING;
@@ -862,7 +863,6 @@ void NodeImpl::shutdown(Closure* done) {
             return;
         }
     }  // out of _mutex;
-
     run_closure_in_bthread(done);
 }
 
@@ -873,6 +873,10 @@ void NodeImpl::join() {
     if (_snapshot_executor) {
         _snapshot_executor->join();
     }
+    // We have to join the _waking_candidate which is sending TimeoutNowRequest,
+    // otherwise the process is likely going to quit and the RPC would be stop
+    // as the working threads are stopped as well
+    Replicator::join(_waking_candidate);
 }
 
 void NodeImpl::handle_election_timeout() {
@@ -905,7 +909,7 @@ void NodeImpl::handle_timeout_now_request(baidu::rpc::Controller* controller,
     if (request->term() != _current_term) {
         const int64_t saved_current_term = _current_term;
         if (request->term() > _current_term) {
-            step_down(request->term());
+            step_down(request->term(), false);
         }
         response->set_term(_current_term);
         response->set_success(false);
@@ -918,22 +922,36 @@ void NodeImpl::handle_timeout_now_request(baidu::rpc::Controller* controller,
         return;
     }
     if (_state != STATE_FOLLOWER) {
-        LOG(INFO) << "node " << _group_id << ":" << _server_id
-                  << " received handle_timeout_now_request " 
-                     "while state is " << state2str(_state);
+        const State saved_state = _state;
+        const int64_t saved_term = _current_term;
         response->set_term(_current_term);
         response->set_success(false);
+        lck.unlock();
+        LOG(INFO) << "node " << _group_id << ":" << _server_id
+                  << " received handle_timeout_now_request " 
+                     "while state is " << state2str(saved_state)
+                  << " at term=" << saved_term;
         return;
     }
-    LOG(INFO) << "node " << _group_id << ":" << _server_id
-              << " received handle_timeout_now_request from " 
-              << controller->remote_side();
+    const base::EndPoint remote_side = controller->remote_side();
+    const int64_t saved_term = _current_term;
     // Increase term to make leader step down
     response->set_term(_current_term + 1);
     response->set_success(true);
     // Parallelize Response and election
     run_closure_in_bthread(done_guard.release());
-    return elect_self(&lck);
+    elect_self(&lck);
+    // Don't touch any mutable field after this point, it's likely out of the
+    // critical section
+    if (lck.owns_lock()) {
+        lck.unlock();
+    }
+    // Note: don't touch controller, request, response, done anymore since they
+    // were dereferenced at this point
+    LOG(INFO) << "node " << _group_id << ":" << _server_id
+              << " received handle_timeout_now_request from " 
+              << remote_side << " at term=" << saved_term;
+
 }
 
 class StopTransferArg {
@@ -1049,7 +1067,7 @@ void NodeImpl::on_error(const Error& e) {
                  << " got error=" << e;
     std::unique_lock<raft_mutex_t> lck(_mutex);
     if (_state < STATE_FOLLOWER) {
-        step_down(_current_term);
+        step_down(_current_term, _state == STATE_LEADER);
     }
     if (_state < STATE_ERROR) {
         _state = STATE_ERROR;
@@ -1092,7 +1110,7 @@ void NodeImpl::handle_request_vote_response(const PeerId& peer_id, const int64_t
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
             << " received invalid RequestVoteResponse from " << peer_id
             << " term " << response.term() << " expect " << _current_term;
-        step_down(response.term());
+        step_down(response.term(), false);
         return;
     }
 
@@ -1159,7 +1177,7 @@ void NodeImpl::handle_pre_vote_response(const PeerId& peer_id, const int64_t ter
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
             << " received invalid PreVoteResponse from " << peer_id
             << " term " << response.term() << " expect " << _current_term;
-        step_down(response.term());
+        step_down(response.term(), false);
         return;
     }
 
@@ -1351,11 +1369,14 @@ void NodeImpl::elect_self(std::unique_lock<raft_mutex_t>* lck) {
 }
 
 // in lock
-void NodeImpl::step_down(const int64_t term) {
+void NodeImpl::step_down(const int64_t term, bool wakeup_a_candidate) {
     LOG(INFO) << "node " << _group_id << ":" << _server_id
         << " term " << _current_term << " stepdown from " << state2str(_state)
-        << " new_term " << term;
+        << " new_term " << term << " wakeup_a_candidate=" << wakeup_a_candidate;
 
+    if (!is_active_state(_state)) {
+        return;
+    }
     // delete timer and something else
     if (_state == STATE_CANDIDATE) {
         RAFT_VLOG << "node " << _group_id << ":" << _server_id
@@ -1395,7 +1416,16 @@ void NodeImpl::step_down(const int64_t term) {
     }
 
     // stop stagging new node
-    _replicator_group.stop_all();
+    if (wakeup_a_candidate) {
+        _replicator_group.stop_all_and_find_the_next_candidate(
+                                            &_waking_candidate, _conf.second);
+        // FIXME: We issue the RPC in the critical section, which is fine now
+        // since the Node is going to quit when reaching the branch
+        Replicator::send_timeout_now_and_stop(
+                _waking_candidate, _options.election_timeout_ms);
+    } else {
+        _replicator_group.stop_all();
+    }
     RAFT_VLOG << "node " << _group_id << ":" << _server_id
         << " term " << _current_term << " restart election_timer";
     _election_timer.start();
@@ -1642,7 +1672,7 @@ int NodeImpl::handle_request_vote_request(const RequestVoteRequest* request,
                 << " current_term " << _current_term;
             // incress current term, change state to follower
             if (request->term() > _current_term) {
-                step_down(request->term());
+                step_down(request->term(), false);
             }
         } else {
             // ignore older term
@@ -1668,7 +1698,7 @@ int NodeImpl::handle_request_vote_request(const RequestVoteRequest* request,
                           >= last_log_id);
         // save
         if (log_is_ok && _voted_id.is_empty()) {
-            step_down(request->term());
+            step_down(request->term(), false);
             _voted_id = candidate_id;
             //TODO: outof lock
             _stable_storage->set_votedfor(candidate_id);
@@ -1806,7 +1836,7 @@ void NodeImpl::handle_append_entries_request(baidu::rpc::Controller* cntl,
     // check term and state to step down
     if (request->term() > _current_term || _state != STATE_FOLLOWER 
                 || _leader_id.is_empty()) {
-        step_down(request->term());
+        step_down(request->term(), false);
     }
 
     // save current leader
@@ -1821,7 +1851,7 @@ void NodeImpl::handle_append_entries_request(baidu::rpc::Controller* cntl,
                    << _leader_id;
         // Increase the term by 1 and make both leaders step down to minimize the
         // loss of split brain
-        step_down(request->term() + 1);
+        step_down(request->term() + 1, false);
         response->set_success(false);
         response->set_term(request->term() + 1);
         return;
@@ -1843,16 +1873,18 @@ void NodeImpl::handle_append_entries_request(baidu::rpc::Controller* cntl,
     const int64_t local_prev_log_term = _log_manager->get_term(prev_log_index);
     if (local_prev_log_term != prev_log_term) {
         int64_t last_index = _log_manager->last_log_index();
+        response->set_success(false);
+        response->set_term(_current_term);
+        response->set_last_log_index(last_index);
+        lck.unlock();
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
             << " reject term_unmatched AppendEntries from " << request->server_id()
             << " in term " << request->term()
             << " prev_log_index " << request->prev_log_index()
             << " prev_log_term " << request->prev_log_term()
             << " local_prev_log_term " << local_prev_log_term
-            << " last_log_index " << last_index;
-        response->set_success(false);
-        response->set_term(_current_term);
-        response->set_last_log_index(last_index);
+            << " last_log_index " << last_index
+            << " entries_size " << request->entries_size();
         return;
     }
 
@@ -1909,7 +1941,7 @@ int NodeImpl::increase_term_to(int64_t new_term) {
     if (new_term <= _current_term) {
         return EINVAL;
     }
-    step_down(new_term);
+    step_down(new_term, false);
     return 0;
 }
 
@@ -1963,7 +1995,7 @@ void NodeImpl::handle_install_snapshot_request(baidu::rpc::Controller* controlle
     }
     if (request->term() > _current_term || _state != STATE_FOLLOWER 
                 || _leader_id.is_empty()) {
-        step_down(request->term());
+        step_down(request->term(), false);
         response->set_term(request->term());
     }
 
@@ -1979,7 +2011,7 @@ void NodeImpl::handle_install_snapshot_request(baidu::rpc::Controller* controlle
                    << _leader_id;
         // Increase the term by 1 and make both leaders step down to minimize the
         // loss of split brain
-        step_down(request->term() + 1);
+        step_down(request->term() + 1, false);
         response->set_success(false);
         response->set_term(request->term() + 1);
         return;

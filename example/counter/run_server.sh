@@ -6,7 +6,7 @@
 # source shflags from current directory
 mydir="${BASH_SOURCE%/*}"
 if [[ ! -d "$mydir" ]]; then mydir="$PWD"; fi
-. $mydir/../../../baidu-rpc/tools/shflags
+. $mydir/../common/shflags
 
 # define command-line flags
 DEFINE_string crash_on_fatal 'true' 'Crash on fatal log'

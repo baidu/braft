@@ -65,9 +65,9 @@ template <>
 struct hash<counter::ClientRequestId> {
     std::size_t operator()(const counter::ClientRequestId& id) const {
         int64_t v1 = ((int64_t)id.ip << 32) | id.pid;
-        v1 = fmix64(v1);
+        v1 = base::fmix64(v1);
         int64_t v2 = id.req_id;
-        v2 = fmix64(v2);
+        v2 = base::fmix64(v2);
         return base::HashInts64(v1, v2);
     }
 };

@@ -218,7 +218,7 @@ private:
     void become_leader();
 
     // step down to follower
-    void step_down(const int64_t term);
+    void step_down(const int64_t term, bool wakeup_a_candidate);
 
     // pre vote before elect_self
     void pre_vote(std::unique_lock<raft_mutex_t>* lck);
@@ -320,6 +320,7 @@ private:
     raft_timer_t _transfer_timer;
     StopTransferArg* _stop_transfer_arg;
     bool _vote_triggered;
+    ReplicatorId _waking_candidate;
     bthread::ExecutionQueueId<LogEntryAndClosure> _apply_queue_id;
     bthread::ExecutionQueue<LogEntryAndClosure>::scoped_ptr_t _apply_queue;
 };
