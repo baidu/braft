@@ -820,16 +820,18 @@ void NodeImpl::do_snapshot(Closure* done) {
 }
 
 void NodeImpl::shutdown(Closure* done) {
-    // remove node from NodeManager, rpc will not touch Node
-    NodeManager::GetInstance()->remove(this);
-
+    // Note: shutdown is probably invoked more than once, make sure this method
+    // is idempotent
     {
         BAIDU_SCOPED_LOCK(_mutex);
 
         LOG(INFO) << "node " << _group_id << ":" << _server_id << " shutdown,"
             " current_term " << _current_term << " state " << state2str(_state);
 
-        if (_state < STATE_SHUTTING) {
+        if (_state < STATE_SHUTTING) {  // Got the right to shut
+            // Remove node from NodeManager and |this| would not be accessed by
+            // the comming RPCs
+            NodeManager::GetInstance()->remove(this);
             if (_state < STATE_FOLLOWER) {
                 step_down(_current_term, _state == STATE_LEADER);
             }
@@ -858,12 +860,23 @@ void NodeImpl::shutdown(Closure* done) {
                 _fsm_caller->shutdown();
             }
         }
+
         if (_state != STATE_SHUTDOWN) {
-            _shutdown_continuations.push_back(done);
+            // This node is shutting, push done into the _shutdown_continuations
+            // and after_shutdown would invoked this callbacks.
+            if (done) {
+                _shutdown_continuations.push_back(done);
+            }
             return;
         }
     }  // out of _mutex;
-    run_closure_in_bthread(done);
+
+    // This node is down, it's ok to invoke done right now. Don't inovke this
+    // inplace to avoid the dead lock issue when done->Run() is going to acquire
+    // a mutex which was held by the caller itself
+    if (done) {
+        run_closure_in_bthread(done);
+    }
 }
 
 void NodeImpl::join() {
