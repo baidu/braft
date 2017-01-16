@@ -58,8 +58,6 @@ friend class Replicator;
 
 class BAIDU_CACHELINE_ALIGNMENT Replicator {
 public:
-    Replicator();
-    ~Replicator();
     // Called by the leader, otherwise the behavior is undefined
     // Start to replicate the log to the given follower
     static int start(const ReplicatorOptions&, ReplicatorId* id);
@@ -94,6 +92,8 @@ public:
     static int64_t get_next_index(ReplicatorId id);
     
 private:
+    Replicator();
+    ~Replicator();
 
     int _prepare_entry(int offset, EntryMeta* em, base::IOBuf* data);
     void _wait_more_entries();
@@ -137,6 +137,7 @@ private:
                 ReplicatorId id, baidu::rpc::Controller* cntl,
                 InstallSnapshotRequest* request, 
                 InstallSnapshotResponse* response);
+    void _destroy();
 
 private:
     

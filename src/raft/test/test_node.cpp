@@ -396,7 +396,6 @@ protected:
     void SetUp() {
         //logging::FLAGS_verbose = 90;
         ::system("rm -rf data");
-        ::google::SetCommandLineOption("health_check_interval", "1");
     }
     void TearDown() {
         ::system("rm -rf data");

@@ -74,16 +74,13 @@ int Replicator::start(const ReplicatorOptions& options, ReplicatorId *id) {
         LOG(ERROR) << "Invalid arguments";
         return -1;
     }
-    std::unique_ptr<Replicator> r(new (std::nothrow) Replicator());
-    if (!r) {
-        LOG(ERROR) << "Fail to new Replicator, " << berror();
-        return -1;
-    }
+    Replicator* r = new Replicator();
     baidu::rpc::ChannelOptions channel_opt;
     //channel_opt.connect_timeout_ms = *options.heartbeat_timeout_ms;
     channel_opt.timeout_ms = -1; // We don't need RPC timeout
     if (r->_sending_channel.Init(options.peer_id.addr, &channel_opt) != 0) {
         LOG(ERROR) << "Fail to init sending channel";
+        delete r;
         return -1;
     }
 
@@ -93,20 +90,21 @@ int Replicator::start(const ReplicatorOptions& options, ReplicatorId *id) {
 
     r->_options = options;
     r->_next_index = r->_options.log_manager->last_log_index() + 1;
-    if (bthread_id_create(&r->_id, r.get(), _on_error) != 0) {
+    if (bthread_id_create(&r->_id, r, _on_error) != 0) {
         LOG(ERROR) << "Fail to create bthread_id";
+        delete r;
         return -1;
     }
     bthread_id_lock(r->_id, NULL);
     if (id) {
         *id = r->_id.value;
     }
+    LOG(INFO) << "Replicator=" << r->_id << "@" << r->_options.peer_id << " is started";
     r->_catchup_closure = NULL;
     r->_last_response_timestamp = base::monotonic_time_ms();
     r->_start_heartbeat_timer(base::gettimeofday_us());
+    // Note: r->_id is unlock in _send_empty_entries, don't touch r ever after
     r->_send_empty_entries(false);
-    LOG(INFO) << "Replicator=" << r->_id << "@" << r->_options.peer_id << " is started";
-    r.release();
     return 0;
 }
 
@@ -252,10 +250,9 @@ void Replicator::_on_heartbeat_returned(
         node_impl->AddRef();
         r->_notify_on_caught_up(EPERM, true);
         LOG(INFO) << "Replicator=" << dummy_id << " is going to quit";
-        CHECK_EQ(0, bthread_id_unlock_and_destroy(dummy_id));
+        r->_destroy();
         node_impl->increase_term_to(response->term());
         node_impl->Release();
-        delete r;
         return;
     }
     RAFT_VLOG;
@@ -309,11 +306,9 @@ void Replicator::_on_rpc_returned(ReplicatorId id, baidu::rpc::Controller* cntl,
             // after _notify_on_caught_up.
             node_impl->AddRef();
             r->_notify_on_caught_up(EPERM, true);
-            LOG(INFO) << "Replicator=" << dummy_id << " is going to quit";
-            CHECK_EQ(0, bthread_id_unlock_and_destroy(dummy_id));
+            r->_destroy();
             node_impl->increase_term_to(response->term());
             node_impl->Release();
-            delete r;
             return;
         }
         RAFT_VLOG << " fail, find next_index remote last_log_index " << response->last_log_index()
@@ -678,10 +673,8 @@ int Replicator::_on_error(bthread_id_t id, void* arg, int error_code) {
         r->_options.log_manager->remove_waiter(r->_wait_id);
         r->_notify_on_caught_up(error_code, true);
         LOG(INFO) << "Replicator=" << id << " is going to quit";
-        const int rc = bthread_id_unlock_and_destroy(id);
-        CHECK_EQ(0, rc) << "Fail to unlock " << id;
-        delete r;
-        return rc;
+        r->_destroy();
+        return 0;
     } else if (error_code == ETIMEDOUT) {
         // id is unlock in _send_empty_entries
         r->_send_empty_entries(true);
@@ -791,8 +784,7 @@ void Replicator::_on_timeout_now_returned(
         RAFT_VLOG << " fail : " << cntl->ErrorText();
         if (stop_after_finish) {
             r->_notify_on_caught_up(ESTOP, true);
-            LOG(INFO) << "Replicator=" << dummy_id << " is going to quit";
-            CHECK_EQ(0, bthread_id_unlock_and_destroy(dummy_id));
+            r->_destroy();
         } else {
             CHECK_EQ(0, bthread_id_unlock(dummy_id));
         }
@@ -805,17 +797,14 @@ void Replicator::_on_timeout_now_returned(
         // after _notify_on_caught_up.
         node_impl->AddRef();
         r->_notify_on_caught_up(EPERM, true);
-        LOG(INFO) << "Replicator=" << dummy_id << " is going to quit";
-        CHECK_EQ(0, bthread_id_unlock_and_destroy(dummy_id));
+        r->_destroy();
         node_impl->increase_term_to(response->term());
         node_impl->Release();
-        delete r;
         return;
     }
     if (stop_after_finish) {
         r->_notify_on_caught_up(ESTOP, true);
-        LOG(INFO) << "Replicator=" << dummy_id << " is going to quit";
-        CHECK_EQ(0, bthread_id_unlock_and_destroy(dummy_id));
+        r->_destroy();
     } else {
         CHECK_EQ(0, bthread_id_unlock(dummy_id));
     }
@@ -844,6 +833,14 @@ int64_t Replicator::get_next_index(ReplicatorId id) {
     }
     CHECK_EQ(0, bthread_id_unlock(dummy_id)) << "Fail to unlock " << dummy_id;
     return next_index;
+}
+
+void Replicator::_destroy() {
+    bthread_id_t saved_id = _id;
+    CHECK_EQ(0, bthread_id_unlock_and_destroy(saved_id));
+    // TODO: Add more infomation
+    LOG(INFO) << "Replicator=" << saved_id << " is going to quit";
+    delete this;
 }
 
 // ==================== ReplicatorGroup ==========================
