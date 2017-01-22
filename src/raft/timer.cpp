@@ -54,25 +54,9 @@ int TimerManager::del(const raft_timer_t& id) {
     }
 }
 
-static void open_comlog_at_beginning(void*) {
-    // Initialize comlog for this thread
-    if (com_logstatus() != LOG_NOT_DEFINED) {
-        com_openlog_r();
-    }
-}
-
-static void close_comlog_at_end(void*) {
-    if (com_logstatus() != LOG_NOT_DEFINED) {
-        com_closelog_r();
-    }
-}
-
 int TimerManager::init(bthread::TimerThread* timer_thread, int index) {
     bthread::TimerThreadOptions options;
     base::string_printf(&options.bvar_prefix, "raft_timer%d", index);
-    //options.bvar_prefix = "raft_timer";
-    options.begin_fn = open_comlog_at_beginning;
-    options.end_fn = close_comlog_at_end;
     const int rc = timer_thread->start(&options);
     CHECK_EQ(0, rc) << "Fail to start timer_thread, " << berror(rc);
 
