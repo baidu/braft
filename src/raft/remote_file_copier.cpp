@@ -203,7 +203,7 @@ void RemoteFileCopier::Session::on_rpc_returned() {
             }
         }
         AddRef();
-        if (raft_timer_add(
+        if (bthread_timer_add(
                     &_timer, 
                     base::milliseconds_from_now(_options.retry_interval_ms),
                     on_timer, this) != 0) {
@@ -245,10 +245,20 @@ void RemoteFileCopier::Session::on_rpc_returned() {
     return send_next_rpc();
 }
 
-void RemoteFileCopier::Session::on_timer(void* arg) {
+void* RemoteFileCopier::Session::send_next_rpc_on_timedout(void* arg) {
     Session* m = (Session*)arg;
     m->send_next_rpc();
     m->Release();
+    return NULL;
+}
+
+void RemoteFileCopier::Session::on_timer(void* arg) {
+    bthread_t tid;
+    if (bthread_start_background(
+                &tid, NULL, send_next_rpc_on_timedout, arg) != 0) {
+        PLOG(ERROR) << "Fail to start bthread";
+        send_next_rpc_on_timedout(arg);
+    }
 }
 
 void RemoteFileCopier::Session::on_finished() {
@@ -268,7 +278,7 @@ void RemoteFileCopier::Session::cancel() {
         return; 
     }
     baidu::rpc::StartCancel(_rpc_call);
-    if (raft_timer_del(_timer) == 0) {
+    if (bthread_timer_del(_timer) == 0) {
         // Release reference of the timer task
         Release();
     }

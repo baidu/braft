@@ -15,7 +15,6 @@
 #include "raft/configuration.h"                 // Configuration
 #include "raft/raft.pb.h"                       // AppendEntriesRequest
 #include "raft/log_manager.h"                   // LogManager
-#include "raft/timer.h"                         // raft_time_t
 
 namespace raft {
 
@@ -50,7 +49,7 @@ protected:
 private:
 friend class Replicator;
     int64_t _max_margin;
-    raft_timer_t _timer;
+    bthread_timer_t _timer;
     bool _has_timer;
     bool _error_was_set;
     void _run();
@@ -126,6 +125,7 @@ private:
                 bool stop_after_finish);
 
     static void _on_timedout(void* arg);
+    static void* _send_heartbeat(void* arg);
 
     static int _on_error(bthread_id_t id, void* arg, int error_code);
     static int _continue_sending(void* arg, int error_code);
@@ -153,7 +153,7 @@ private:
     LogManager::WaitId _wait_id;
     bthread_id_t _id;
     ReplicatorOptions _options;
-    raft_timer_t _heartbeat_timer;
+    bthread_timer_t _heartbeat_timer;
     SnapshotReader* _reader;
     CatchupClosure *_catchup_closure;
 };

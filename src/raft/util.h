@@ -27,8 +27,8 @@
 #include <base/crc32c.h>
 #include <base/file_util.h>
 #include <bthread.h>
+#include <bthread_unstable.h>
 #include "raft/macros.h"
-#include "raft/timer.h"
 
 #define RAFT_GET_ARG3(arg1, arg2, arg3, ...)  arg3
 

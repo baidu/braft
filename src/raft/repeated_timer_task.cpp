@@ -28,7 +28,7 @@ int RepeatedTimerTask::init(int timeout_ms) {
     _destroyed = false;
     _stopped = true;
     _running = false;
-    _timer = raft_timer_t();
+    _timer = bthread_timer_t();
     return 0;
 }
 
@@ -37,7 +37,7 @@ void RepeatedTimerTask::stop() {
     RAFT_RETURN_IF(_stopped);
     _stopped = true;
     CHECK(_running);
-    const int rc = raft_timer_del(_timer);
+    const int rc = bthread_timer_del(_timer);
     if (rc == 0) {
         _running = false;
         return;
@@ -105,7 +105,7 @@ void RepeatedTimerTask::on_timedout(void* arg) {
 void RepeatedTimerTask::schedule(std::unique_lock<raft_mutex_t>& lck) {
     _next_duetime = 
             base::milliseconds_from_now(adjust_timeout_ms(_timeout_ms));
-    if (raft_timer_add(&_timer, _next_duetime, on_timedout, this) != 0) {
+    if (bthread_timer_add(&_timer, _next_duetime, on_timedout, this) != 0) {
         lck.unlock();
         LOG(ERROR) << "Fail to add timer";
         return on_timedout(this);
@@ -116,7 +116,7 @@ void RepeatedTimerTask::reset() {
     std::unique_lock<raft_mutex_t> lck(_mutex);
     RAFT_RETURN_IF(_stopped);
     CHECK(_running);
-    const int rc = raft_timer_del(_timer);
+    const int rc = bthread_timer_del(_timer);
     if (rc == 0) {
         return schedule(lck);
     }
@@ -128,7 +128,7 @@ void RepeatedTimerTask::reset(int timeout_ms) {
     _timeout_ms = timeout_ms;
     RAFT_RETURN_IF(_stopped);
     CHECK(_running);
-    const int rc = raft_timer_del(_timer);
+    const int rc = bthread_timer_del(_timer);
     if (rc == 0) {
         return schedule(lck);
     }
@@ -147,7 +147,7 @@ void RepeatedTimerTask::destroy() {
     }
     RAFT_RETURN_IF(_stopped);
     _stopped = true;
-    const int rc = raft_timer_del(_timer);
+    const int rc = bthread_timer_del(_timer);
     if (rc == 0) {
         _running = false;
         lck.unlock();

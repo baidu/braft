@@ -1048,7 +1048,7 @@ int NodeImpl::transfer_leadership_to(const PeerId& peer) {
     LOG(INFO) << "node " << _group_id << ":" << _server_id 
               << "starts to transfer leadership to " << peer;
     _stop_transfer_arg = new StopTransferArg(this, _current_term, peer);
-    if (raft_timer_add(&_transfer_timer, 
+    if (bthread_timer_add(&_transfer_timer, 
                        base::milliseconds_from_now(_options.election_timeout_ms),
                        on_transfer_timeout, _stop_transfer_arg) != 0) {
         lck.unlock();
@@ -1443,7 +1443,7 @@ void NodeImpl::step_down(const int64_t term, bool wakeup_a_candidate) {
         << " term " << _current_term << " restart election_timer";
     _election_timer.start();
     if (_stop_transfer_arg != NULL) {
-        const int rc = raft_timer_del(_transfer_timer);
+        const int rc = bthread_timer_del(_transfer_timer);
         if (rc == 0) {
             // Get the right to delete _stop_transfer_arg.
             delete _stop_transfer_arg;

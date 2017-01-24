@@ -152,7 +152,7 @@ void Replicator::wait_for_caught_up(ReplicatorId id,
     done->_max_margin = max_margin;
     if (due_time != NULL) {
         done->_has_timer = true;
-        if (raft_timer_add(&done->_timer,
+        if (bthread_timer_add(&done->_timer,
                               *due_time,
                               _on_catch_up_timedout,
                               (void*)id) != 0) {
@@ -193,8 +193,8 @@ void Replicator::_block(long start_time_us, int /*error_code NOTE*/) {
     const timespec due_time = base::milliseconds_from(
             base::microseconds_to_timespec(start_time_us), 
             *_options.dynamic_heartbeat_timeout_ms);
-    raft_timer_t timer;
-    const int rc = raft_timer_add(&timer, due_time, 
+    bthread_timer_t timer;
+    const int rc = bthread_timer_add(&timer, due_time, 
                                   _on_block_timedout, (void*)_id.value);
     RAFT_VLOG << "Blocking " << _options.peer_id << " for " 
               << *_options.dynamic_heartbeat_timeout_ms << "ms";
@@ -632,7 +632,7 @@ void Replicator::_notify_on_caught_up(int error_code, bool before_destory) {
             _catchup_closure->status().set_error(error_code, "%s", berror(error_code));
         }
         if (_catchup_closure->_has_timer) {
-            if (!before_destory && raft_timer_del(_catchup_closure->_timer) == 1) {
+            if (!before_destory && bthread_timer_del(_catchup_closure->_timer) == 1) {
                 // There's running timer task, let timer task trigger
                 // on_caught_up to void ABA problem
                 return;
@@ -657,10 +657,22 @@ void Replicator::_start_heartbeat_timer(long start_time_us) {
     const timespec due_time = base::milliseconds_from(
             base::microseconds_to_timespec(start_time_us), 
             *_options.dynamic_heartbeat_timeout_ms);
-    if (raft_timer_add(&_heartbeat_timer, due_time,
+    if (bthread_timer_add(&_heartbeat_timer, due_time,
                        _on_timedout, (void*)_id.value) != 0) {
         _on_timedout((void*)_id.value);
     }
+}
+
+void* Replicator::_send_heartbeat(void* arg) {
+    Replicator* r = NULL;
+    bthread_id_t id = { (uint64_t)arg };
+    if (bthread_id_lock(id, (void**)&r) != 0) {
+        // This replicator is stopped
+        return NULL;
+    }
+    // id is unlock in _send_empty_entries;
+    r->_send_empty_entries(true);
+    return NULL;
 }
 
 int Replicator::_on_error(bthread_id_t id, void* arg, int error_code) {
@@ -669,15 +681,23 @@ int Replicator::_on_error(bthread_id_t id, void* arg, int error_code) {
         baidu::rpc::StartCancel(r->_rpc_in_fly);
         baidu::rpc::StartCancel(r->_heartbeat_in_fly);
         baidu::rpc::StartCancel(r->_timeout_now_in_fly);
-        raft_timer_del(r->_heartbeat_timer);
+        bthread_timer_del(r->_heartbeat_timer);
         r->_options.log_manager->remove_waiter(r->_wait_id);
         r->_notify_on_caught_up(error_code, true);
         LOG(INFO) << "Replicator=" << id << " is going to quit";
         r->_destroy();
         return 0;
     } else if (error_code == ETIMEDOUT) {
-        // id is unlock in _send_empty_entries
-        r->_send_empty_entries(true);
+        // This error is issued in the TimerThread, start a new bthread to avoid
+        // blocking the caller.
+        // Unlock id to remove the context-switch out of the critical section
+        CHECK_EQ(0, bthread_id_unlock(id)) << "Fail to unlock" << id;
+        bthread_t tid;
+        if (bthread_start_urgent(&tid, NULL, _send_heartbeat,
+                                 reinterpret_cast<void*>(id.value)) != 0) {
+            PLOG(ERROR) << "Fail to start bthread";
+            _send_heartbeat(reinterpret_cast<void*>(id.value));
+        }
         return 0;
     } else {
         CHECK(false) << "Unknown error_code=" << error_code;

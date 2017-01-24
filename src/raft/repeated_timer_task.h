@@ -7,7 +7,6 @@
 #ifndef  PUBLIC_RAFT_REPEATED_TIMER_TASK_H
 #define  PUBLIC_RAFT_REPEATED_TIMER_TASK_H
 
-#include "raft/timer.h"
 #include "raft/macros.h"
 
 namespace raft {
@@ -59,7 +58,7 @@ private:
     void schedule(std::unique_lock<raft_mutex_t>& lck);
 
     raft_mutex_t _mutex;
-    raft_timer_t _timer;
+    bthread_timer_t _timer;
     timespec _next_duetime;
     int  _timeout_ms;
     bool _stopped;

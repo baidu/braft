@@ -317,7 +317,7 @@ private:
     VoteTimer _vote_timer;
     StepdownTimer _stepdown_timer;
     SnapshotTimer _snapshot_timer;
-    raft_timer_t _transfer_timer;
+    bthread_timer_t _transfer_timer;
     StopTransferArg* _stop_transfer_arg;
     bool _vote_triggered;
     ReplicatorId _waking_candidate;

@@ -53,6 +53,7 @@ public:
         void send_next_rpc();
         void on_finished();
         static void on_timer(void* arg);
+        static void* send_next_rpc_on_timedout(void* arg);
 
         raft_mutex_t _mutex;
         base::Status _st;
@@ -62,7 +63,7 @@ public:
         bool _finished;
         baidu::rpc::CallId _rpc_call;
         base::IOBuf* _buf;
-        raft_timer_t _timer;
+        bthread_timer_t _timer;
         CopyOptions _options;
         Closure _done;
         baidu::rpc::Controller _cntl;
