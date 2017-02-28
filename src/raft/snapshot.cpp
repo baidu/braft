@@ -753,12 +753,19 @@ void LocalSnapshotCopier::copy_file(const std::string& filename) {
     base::FilePath sub_path(filename);
     if (sub_path != sub_path.DirName() && sub_path.DirName().value() != ".") {
         base::File::Error e;
-        if (!create_sub_directory(
-                base::FilePath(_writer->get_path()), sub_path.DirName(), &e)) {
+        bool rc = false;
+        if (FLAGS_raft_create_parent_directories) {
+            base::FilePath sub_dir =
+                    base::FilePath(_writer->get_path()).Append(sub_path.DirName());
+            rc = base::CreateDirectoryAndGetError(sub_dir, &e);
+        } else {
+            rc = create_sub_directory(
+                    base::FilePath(_writer->get_path()), sub_path.DirName(), &e);
+        }
+        if (!rc) {
             LOG(ERROR) << "Fail to create directory for " << file_path
                        << " : " << base::File::ErrorToString(e);
             set_error(EIO, "Fail to create directory");
-            return;
         }
     }
     LocalFileMeta meta;

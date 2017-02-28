@@ -18,6 +18,7 @@
 
 #include <gtest/gtest.h>
 #include <base/logging.h>
+#include <base/file_util.h>
 #include <errno.h>
 #include <baidu/rpc/server.h>
 #include "raft/snapshot.h"
@@ -150,6 +151,58 @@ TEST_F(TestUsageSuits, copy) {
     ASSERT_TRUE(reader2 != NULL);
     ASSERT_EQ(0, storage1->close(reader1));
     ASSERT_EQ(0, storage2->close(reader2));
+    delete storage2;
+    delete storage1;
+}
+
+TEST_F(TestUsageSuits, file_escapes_directory) {
+    ::system("rm -rf data");
+
+    baidu::rpc::Server server;
+    ASSERT_EQ(0, raft::add_service(&server, "0.0.0.0:60006"));
+    ASSERT_EQ(0, server.Start(60006, NULL));
+
+    std::vector<raft::PeerId> peers;
+    peers.push_back(raft::PeerId("1.2.3.4:1000"));
+    peers.push_back(raft::PeerId("1.2.3.4:2000"));
+    peers.push_back(raft::PeerId("1.2.3.4:3000"));
+
+    raft::SnapshotMeta meta;
+    meta.set_last_included_index(1000);
+    meta.set_last_included_term(2);
+    for (size_t i = 0; i < peers.size(); ++i) {
+        *meta.add_peers() = peers[i].to_string();
+    }
+
+    // storage1
+    raft::LocalSnapshotStorage* storage1
+            = new raft::LocalSnapshotStorage("./data/snapshot1/data");
+    ASSERT_TRUE(storage1);
+    ASSERT_EQ(0, storage1->init());
+    ASSERT_EQ(0, system("mkdir -p ./data/snapshot1/dir1/ && touch ./data/snapshot1/dir1/file"));
+    storage1->set_server_addr(base::EndPoint(base::get_host_ip(), 60006));
+    // normal create writer
+    raft::SnapshotWriter* writer1 = storage1->create();
+    ASSERT_TRUE(writer1 != NULL);
+    ASSERT_EQ(0, writer1->add_file("../../dir1/file"));
+    ASSERT_EQ(0, writer1->save_meta(meta));
+    ASSERT_EQ(0, storage1->close(writer1));
+
+    raft::SnapshotReader* reader1 = storage1->open();
+    ASSERT_TRUE(reader1 != NULL);
+    std::string uri = reader1->generate_uri_for_copy();
+
+    // storage2
+    raft::LocalSnapshotStorage* storage2
+            = new raft::LocalSnapshotStorage("./data/snapshot2/data");
+    ASSERT_EQ(0, storage2->init());
+    raft::SnapshotReader* reader2 = storage2->copy_from(uri);
+    ASSERT_TRUE(base::PathExists(base::FilePath("./data/snapshot2/dir1/file")));
+    ASSERT_TRUE(reader2 != NULL);
+    ASSERT_EQ(0, storage1->close(reader1));
+    ASSERT_EQ(0, storage2->close(reader2));
+    delete storage2;
+    delete storage1;
 }
 
 struct Arg {
@@ -217,7 +270,7 @@ TEST_F(TestUsageSuits, thread_safety) {
     pthread_t writer;
     pthread_t reader;
     ASSERT_EQ(0, pthread_create(&writer, NULL, write_thread, &arg));
-    usleep(10 * 1000);
+    usleep(100 * 1000);
     ASSERT_EQ(0, pthread_create(&reader, NULL, read_thread, &arg));
     usleep(1L * 1000 * 1000);
     arg.stopped = true;
