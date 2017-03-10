@@ -506,12 +506,12 @@ int on_new_log(void* arg, int /*error_code*/) {
     return 0;
 }
 
-int append_entry(raft::LogManager* lm, base::StringPiece data, int64_t index) {
+int append_entry(raft::LogManager* lm, base::StringPiece data, int64_t index, int64_t term = 1) {
     raft::LogEntry* entry = new raft::LogEntry;
     entry->AddRef();
     entry->type = raft::ENTRY_TYPE_DATA;
     entry->data.append(data.data(), data.size());
-    entry->id = raft::LogId(index, 1);
+    entry->id = raft::LogId(index, term);
     SyncClosure sc;
     std::vector<raft::LogEntry*> entries;
     entries.push_back(entry);
@@ -633,4 +633,27 @@ TEST_F(LogManagerTest, check_consistency) {
         LOG(INFO) << "st : " << st;
         ASSERT_FALSE(st.ok()) << st;
     }
+}
+
+TEST_F(LogManagerTest, truncate_suffix_to_last_snapshot) {
+    system("rm -rf ./data");
+    scoped_ptr<raft::ConfigurationManager> cm(
+            new raft::ConfigurationManager);
+    scoped_ptr<raft::SegmentLogStorage> storage(
+            new raft::SegmentLogStorage("./data"));
+    scoped_ptr<raft::LogManager> lm(new raft::LogManager());
+    raft::LogManagerOptions opt;
+    opt.log_storage = storage.get();
+    opt.configuration_manager = cm.get();
+    ASSERT_EQ(0, lm->init(opt));
+    base::Status st;
+    ASSERT_TRUE(st.ok()) << st;
+    raft::SnapshotMeta meta;
+    meta.set_last_included_index(1000);
+    meta.set_last_included_term(2);
+    lm->set_snapshot(&meta);
+    ASSERT_EQ(raft::LogId(1000, 2), lm->last_log_id(true));
+    ASSERT_EQ(0, append_entry(lm.get(), "dummy2", 1001, 2));
+    ASSERT_EQ(0, append_entry(lm.get(), "dummy3", 1001, 3));
+    ASSERT_EQ(raft::LogId(1001, 3), lm->last_log_id(true));
 }

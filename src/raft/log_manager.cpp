@@ -196,15 +196,18 @@ private:
 
 class TruncateSuffixClosure : public LogManager::StableClosure {
 public:
-    explicit TruncateSuffixClosure(const int64_t last_index_kept)
+    TruncateSuffixClosure(int64_t last_index_kept, int64_t last_term_kept)
         : _last_index_kept(last_index_kept)
+        , _last_term_kept(last_term_kept)
     {}
     void Run() {
         delete this;
     }
     int64_t last_index_kept() const { return _last_index_kept; }
+    int64_t last_term_kept() const { return _last_term_kept; }
 private:
     int64_t _last_index_kept;
+    int64_t _last_term_kept;
 };
 
 class ResetClosure : public LogManager::StableClosure {
@@ -294,8 +297,12 @@ void LogManager::unsafe_truncate_suffix(const int64_t last_index_kept) {
         }
     }
     _last_log_index = last_index_kept;
+    const int64_t last_term_kept = unsafe_get_term(last_index_kept);
+    CHECK(last_index_kept == 0 || last_term_kept != 0)
+        << "last_index_kept=" << last_index_kept;
     _config_manager->truncate_suffix(last_index_kept);
-    TruncateSuffixClosure* tsc = new TruncateSuffixClosure(last_index_kept);
+    TruncateSuffixClosure* tsc = new
+            TruncateSuffixClosure(last_index_kept, last_term_kept);
     CHECK_EQ(0, bthread::execution_queue_execute(_disk_queue, tsc));
 }
 
@@ -553,10 +560,9 @@ int LogManager::disk_thread(void* meta,
                     if (ret == 0) {
                         // update last_id after truncate_suffix
                         last_id.index = tsc->last_index_kept();
-                        last_id.term = log_manager->_log_storage->get_term(last_id.index);
-                        if (last_id.index != 0) {
-                            CHECK_NE(0, last_id.term);
-                        }
+                        last_id.term = tsc->last_term_kept();
+                        CHECK(last_id.index == 0 || last_id.term != 0)
+                                << "last_id=" << last_id;
                     }
                     break;
                 }

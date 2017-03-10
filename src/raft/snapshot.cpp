@@ -610,6 +610,7 @@ SnapshotReader* LocalSnapshotStorage::open() {
         }
         return reader;
     } else {
+        errno = ENODATA;
         return NULL;
     }
 }
