@@ -23,6 +23,9 @@ public:
     // Start the timer
     void start();
 
+    // Run timer function once now
+    void run_once_now();
+
     // Stop the timer
     void stop();
 

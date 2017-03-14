@@ -66,7 +66,7 @@ void RepeatedTimerTask::on_timedout() {
 void RepeatedTimerTask::start() {
     // Implementation considers the following conditions:
     //   - The first time start() was invoked
-    //   - stop() was not invoked() 
+    //   - stop() was not invoked()
     //   - stop() was invoked and _timer was successfully deleted
     //   - stop() was invoked but _timer was not successfully deleted:
     //       a) _timer is still running right now
@@ -82,6 +82,14 @@ void RepeatedTimerTask::start() {
                  // schedule as it would not see _stopped
     _running = true;
     schedule(lck);
+}
+
+void RepeatedTimerTask::run_once_now() {
+    std::unique_lock<raft_mutex_t> lck(_mutex);
+    if (bthread_timer_del(_timer) == 0) {
+        lck.unlock();
+        on_timedout(this);
+    }
 }
 
 void* RepeatedTimerTask::run_on_timedout_in_new_thread(void* arg) {
@@ -103,7 +111,7 @@ void RepeatedTimerTask::on_timedout(void* arg) {
 }
 
 void RepeatedTimerTask::schedule(std::unique_lock<raft_mutex_t>& lck) {
-    _next_duetime = 
+    _next_duetime =
             base::milliseconds_from_now(adjust_timeout_ms(_timeout_ms));
     if (bthread_timer_add(&_timer, _next_duetime, on_timedout, this) != 0) {
         lck.unlock();
@@ -178,7 +186,7 @@ void RepeatedTimerTask::describe(std::ostream& os, bool use_html) {
         if (invoking) {
             os << " INVOKING";
         } else {
-            os << " SCHEDULING(in " 
+            os << " SCHEDULING(in "
                << base::timespec_to_milliseconds(duetime) - base::gettimeofday_ms()
                << "ms)";
         }
