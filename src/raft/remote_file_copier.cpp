@@ -113,15 +113,15 @@ RemoteFileCopier::start_to_copy_to_file(
     }
     base::make_close_on_exec(fd);
 
-    Session *session = new Session();
+    scoped_refptr<Session> session(new Session());
     session->_fd = fd.release();
     session->_request.set_filename(source);
     session->_request.set_reader_id(_reader_id);
     session->_channel = &_channel;
-    session->send_next_rpc();
     if (options) {
         session->_options = *options;
     }
+    session->send_next_rpc();
     return session;
 }
 
@@ -131,16 +131,16 @@ RemoteFileCopier::start_to_copy_to_iobuf(
                       base::IOBuf* dest_buf,
                       const CopyOptions* options) {
     dest_buf->clear();
-    Session *session = new Session();
+    scoped_refptr<Session> session(new Session());
     session->_fd = -1;
     session->_buf = dest_buf;
     session->_request.set_filename(source);
     session->_request.set_reader_id(_reader_id);
     session->_channel = &_channel;
-    session->send_next_rpc();
     if (options) {
         session->_options = *options;
     }
+    session->send_next_rpc();
     return session;
 }
 

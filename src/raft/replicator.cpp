@@ -546,7 +546,7 @@ void Replicator::_install_snapshot() {
     request->mutable_meta()->CopyFrom(meta);
     request->set_uri(uri);
 
-    RAFT_VLOG << "node " << _options.group_id << ":" << _options.server_id
+    LOG(INFO) << "node " << _options.group_id << ":" << _options.server_id
         << " send InstallSnapshotRequest to " << _options.peer_id
         << " term " << _options.term << " last_included_term " << meta.last_included_term()
         << " last_included_index " << meta.last_included_index() << " uri " << uri;
@@ -579,14 +579,14 @@ void Replicator::_on_install_snapshot_returned(
         r->_options.snapshot_storage->close(r->_reader);
         r->_reader = NULL;
     }
-    RAFT_VLOG << "received InstallSnapshotResponse from "
+    LOG(INFO) << "received InstallSnapshotResponse from "
         << r->_options.group_id << ":" << r->_options.peer_id
         << " last_included_index " << request->meta().last_included_index()
         << " last_included_term " << request->meta().last_included_term()
         << noflush;
     do {
         if (cntl->Failed()) {
-            RAFT_VLOG << " error: " << cntl->ErrorText();
+            LOG(INFO) << " error: " << cntl->ErrorText();
             LOG_IF(WARNING, (r->_consecutive_error_times++) % 10 == 0) 
                             << "Fail to install snapshot at peer=" 
                             << r->_options.peer_id
@@ -602,7 +602,7 @@ void Replicator::_on_install_snapshot_returned(
         }
         // Success 
         r->_next_index = request->meta().last_included_index() + 1;
-        RAFT_VLOG << " success.";
+        LOG(INFO) << " success.";
     } while (0);
 
     // We don't retry installing the snapshot explicitly. 
