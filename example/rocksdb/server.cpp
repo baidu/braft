@@ -38,8 +38,8 @@ bool copy_snapshot(const std::string& from_path, const std::string& to_path) {
         DLOG(WARNING) << "stat " << from_path << " failed";
         return false;
     }
-    if (0 != mkdir(to_path.c_str(), 0755) && errno != ENOENT) {
-        DLOG(WARNING) << "mkdir " << to_path << " failed";
+    if (!base::CreateDirectory(base::FilePath(to_path))) {
+        DLOG(WARNING) << "CreateDirectory " << to_path << " failed";
         return false;
     }
 
@@ -186,7 +186,6 @@ public:
         snapshot_path.append("/rocksdb_snapshot");
 
         // 先删除原来的db 使用snapshot和wal还原一个最新的db
-
         std::string db_path = "./data/rocksdb_data";
         if (!base::DeleteFile(base::FilePath(db_path), true)) {
             LOG(WARNING) << "rm " << db_path << " failed";
@@ -225,19 +224,25 @@ public:
 
     int init_rocksdb() {
         if (_db != NULL) {
-            LOG(INFO) << "rocksdb already opened";
+            LOG(NOTICE) << "rocksdb already opened";
             return 0;
         }
-        rocksdb::Options options;
-        options.create_if_missing = true;
-        std::string db_path = "./data/rocksdb_data";
-        rocksdb::Status status = rocksdb::DB::Open(options, db_path, &_db);
 
+        std::string db_path = "./data/rocksdb_data";
+        if (!base::CreateDirectory(base::FilePath(db_path))) {
+            DLOG(WARNING) << "CreateDirectory " << db_path << " failed";
+            return -1;
+        }
+
+        rocksdb::Options options;
+        options.create_if_missing = false;
+        rocksdb::Status status = rocksdb::DB::Open(options, db_path, &_db);
         if (!status.ok()) {
             LOG(WARNING) << "open rocksdb " << db_path << " failed, msg: " << status.ToString();
             return -1;
         }
-        LOG(INFO) << "rocksdb open success!";
+
+        LOG(NOTICE) << "rocksdb open success!";
         return 0;
     }
 
@@ -360,17 +365,28 @@ int main(int argc, char* argv[]) {
     node_options.stable_uri = "local://./data/stable";
     node_options.snapshot_uri = "local://./data/snapshot";
 
+    //删除rocksdb从空DB启动
+    std::string db_path = "./data/rocksdb_data";
+    if (!base::DeleteFile(base::FilePath(db_path), true)) {
+        LOG(WARNING) << "rm " << db_path << " failed";
+        return -1;
+    }
+    // 打开rocksdb
+    // init_rocksdb MUST before Node::init, maybe single node become leader
+    // and restore log but db not inited
+    if (state_machine->init_rocksdb() != 0) {
+        LOG(WARNING) << "init_rocksdb failed";
+        return -1;
+    }
+
+    // 初始化state_machine
+    // init will call on_snapshot_load if has snapshot,
+    // rocksdb restore from raft's snapshot, then restore log
     if (0 != state_machine->init(node_options)) {
         LOG(FATAL) << "Fail to init node";
         return -1;
     }
     LOG(INFO) << "init Node success";
-
-    // 打开rocksdb
-    if (state_machine->init_rocksdb() != 0) {
-        LOG(WARNING) << "init_rocksdb failed";
-        return -1;
-    }
 
     example::DbServiceImpl service(state_machine);
     if (0 != server.AddService(&service, 
