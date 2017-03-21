@@ -1,0 +1,26 @@
+syntax="proto2";
+package example;
+option cc_generic_services = true;
+
+// logic request/response
+message PutRequest {
+    required string key = 1;
+    required string value = 2;
+};
+
+message PutResponse {
+};
+
+message GetRequest {
+    required string key = 1;
+};
+
+message GetResponse {
+    optional string value = 1;
+};
+
+// service
+service DbService {
+    rpc put(PutRequest) returns (PutResponse);
+    rpc get(GetRequest) returns (GetResponse);
+};
