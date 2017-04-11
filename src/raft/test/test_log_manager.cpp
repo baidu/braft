@@ -657,3 +657,29 @@ TEST_F(LogManagerTest, truncate_suffix_to_last_snapshot) {
     ASSERT_EQ(0, append_entry(lm.get(), "dummy3", 1001, 3));
     ASSERT_EQ(raft::LogId(1001, 3), lm->last_log_id(true));
 }
+
+TEST_F(LogManagerTest, set_snapshot_and_get_log_term) {
+    system("rm -rf ./data");
+    scoped_ptr<raft::ConfigurationManager> cm(
+            new raft::ConfigurationManager);
+    scoped_ptr<raft::SegmentLogStorage> storage(
+            new raft::SegmentLogStorage("./data"));
+    scoped_ptr<raft::LogManager> lm(new raft::LogManager());
+    raft::LogManagerOptions opt;
+    opt.log_storage = storage.get();
+    opt.configuration_manager = cm.get();
+    ASSERT_EQ(0, lm->init(opt));
+    const int N = 10;
+    for (int i = 0; i < N; ++i) {
+        append_entry(lm.get(), "test", i + 1, 1);
+    }
+    raft::SnapshotMeta meta;
+    meta.set_last_included_index(N - 1);
+    meta.set_last_included_term(1);
+    lm->set_snapshot(&meta);
+    lm->set_snapshot(&meta);
+    ASSERT_EQ(raft::LogId(N, 1), lm->last_log_id());
+    ASSERT_EQ(1L, lm->get_term(N - 1));
+    LOG(INFO) << "Last_index=" << lm->last_log_index();
+}
+

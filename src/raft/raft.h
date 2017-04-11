@@ -390,13 +390,11 @@ public:
     // done is user defined function, maybe response to client
     // [NOTE] code after apply can't access resource in done
     void add_peer(const std::vector<PeerId>& old_peers, const PeerId& peer, Closure* done);
-    void add_peer(const PeerId& peer, Closure* done);
 
     // remove peer from replicated-state-machine [thread-safe]
     // done is user defined function, maybe response to client
     // [NOTE] code after apply can't access resource in done
     void remove_peer(const std::vector<PeerId>& old_peers, const PeerId& peer, Closure* done);
-    void remove_peer(const PeerId& peer, Closure* done);
 
     // set peer to local replica [thread-safe]
     // done is user defined function, maybe response to client

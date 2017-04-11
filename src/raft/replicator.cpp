@@ -607,12 +607,16 @@ void Replicator::_on_install_snapshot_returned(
 
     // We don't retry installing the snapshot explicitly. 
     // dummy_id is unlock in _send_entries
-    if (succ) {
-        r->_notify_on_caught_up(0, false);
-        r->_send_entries();
-    } else {
-        r->_block(base::gettimeofday_us(), cntl->ErrorCode());
+    if (!succ) {
+        return r->_block(base::gettimeofday_us(), cntl->ErrorCode());
     }
+    r->_has_succeeded = true;
+    r->_notify_on_caught_up(0, false);
+    if (r->_timeout_now_index > 0 && r->_timeout_now_index < r->_next_index) {
+        r->_send_timeout_now(false, false);
+    }
+    // dummy_id is unlock in _send_entries
+    return r->_send_entries();
 }
 
 void Replicator::_notify_on_caught_up(int error_code, bool before_destory) {

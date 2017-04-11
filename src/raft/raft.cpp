@@ -133,16 +133,8 @@ void Node::add_peer(const std::vector<PeerId>& old_peers, const PeerId& peer, Cl
     _impl->add_peer(old_peers, peer, done);
 }
 
-void Node::add_peer(const PeerId& peer, Closure* done) {
-    _impl->add_peer(std::vector<PeerId>(), peer, done);
-}
-
 void Node::remove_peer(const std::vector<PeerId>& old_peers, const PeerId& peer, Closure* done) {
     _impl->remove_peer(old_peers, peer, done);
-}
-
-void Node::remove_peer(const PeerId& peer, Closure* done) {
-    _impl->remove_peer(std::vector<PeerId>(), peer, done);
 }
 
 int Node::set_peer(const std::vector<PeerId>& old_peers, const std::vector<PeerId>& new_peers) {

@@ -2034,3 +2034,60 @@ TEST_F(RaftTestSuits, removing_leader_triggers_timeout_now) {
     google::SetCommandLineOption("raft_sync", "true");
 }
 
+TEST_F(RaftTestSuits, transfer_should_work_after_install_snapshot) {
+    std::vector<raft::PeerId> peers;
+    for (size_t i = 0; i < 3; ++i) {
+        raft::PeerId peer;
+        peer.addr.ip = base::get_host_ip();
+        peer.addr.port = 5006 + i;
+        peer.idx = 0;
+        peers.push_back(peer);
+    }
+    // start cluster
+    Cluster cluster("unittest", peers, 1000);
+    for (size_t i = 0; i < peers.size() - 1; i++) {
+        ASSERT_EQ(0, cluster.start(peers[i].addr));
+    }
+    cluster.wait_leader();
+    raft::Node* leader = cluster.leader();
+    ASSERT_TRUE(leader != NULL);
+    bthread::CountdownEvent cond;
+    cond.init(10);
+    for (int i = 0; i < 10; i++) {
+        base::IOBuf data;
+        char data_buf[128];
+        snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
+        data.append(data_buf);
+        raft::Task task;
+        task.data = &data;
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
+        leader->apply(task);
+    }
+    cond.wait();
+    std::vector<raft::Node*> nodes;
+    cluster.followers(&nodes);
+    ASSERT_EQ(1, nodes.size());
+    raft::PeerId follower = nodes[0]->node_id().peer_id;
+    leader->transfer_leadership_to(follower);
+    usleep(2000 * 1000);
+    leader = cluster.leader();
+    ASSERT_EQ(follower, leader->node_id().peer_id);
+    cond.init(1);
+    leader->snapshot(NEW_SNAPSHOTCLOSURE(&cond, 0));
+    cond.wait();
+    cond.init(1);
+    leader->snapshot(NEW_SNAPSHOTCLOSURE(&cond, 0));
+    cond.wait();
+
+    // Start the last peer which should be recover with snapshot
+    raft::PeerId last_peer = peers.back(); 
+    cluster.start(last_peer.addr);
+    usleep(5000 * 1000);
+
+    ASSERT_EQ(0, leader->transfer_leadership_to(last_peer));
+    usleep(2000 * 1000);
+    leader = cluster.leader();
+    ASSERT_TRUE(leader != NULL);
+    ASSERT_EQ(last_peer, leader->node_id().peer_id);
+}
+
