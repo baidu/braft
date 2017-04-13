@@ -78,7 +78,7 @@
 [module_info]
 
 build-master-type = linux64-STD
-release-path = public/baidu-rpc
+release-path = public/raft
 cleanup-period-on-build-product = 7
 # modules-exposed-as-dependency=dir1,dir2
 

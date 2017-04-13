@@ -3,39 +3,24 @@
 
 WORKROOT('../../../../')
 
-CC("/opt/compiler/gcc-4.8.2/bin/gcc")
-CXX("/opt/compiler/gcc-4.8.2/bin/g++")
-
-CPPFLAGS('-D__const__=  -D_GNU_SOURCE -D__STDC_LIMIT_MACROS -DNDEBUG -Wno-unused-parameter')
-CPPFLAGS('-g -gdwarf-2 -std=c++11 -Dtypeof=__typeof__ -Werror')
-CFLAGS('-g -O2 -pipe -W -Wall -fPIC')
-
-CXXFLAGS('-g -O2 -pipe -W -Wall -fPIC')
-CXXFLAGS('-fPIC ')
-#CXXFLAGS('-fsanitize=address  -fno-omit-frame-pointer')
-CPPFLAGS('-D__const__= ')
+CPPFLAGS('-D__const__=  -D_GNU_SOURCE -D__STDC_LIMIT_MACROS -DNDEBUG -Wno-unused-parameter -Wall -W -Werror')
+CPPFLAGS('-g -O2 -fno-omit-frame-pointer')
+CPPFLAGS('-DBAIDU_RPC_ENABLE_CPU_PROFILER -DBAIDU_RPC_ENABLE_HEAP_PROFILER')
+CXXFLAGS('-std=c++11')
 
 INCPATHS('./ ../../src ../common')
 
 ImportConfigsFrom('../..')
 
-CPPFLAGS('-DBAIDU_RPC_ENABLE_CPU_PROFILER -DBAIDU_RPC_ENABLE_HEAP_PROFILER')
 CONFIGS('third-64/tcmalloc@1.7.0.200',Libraries('lib/libtcmalloc_and_profiler.a'))
-#CONFIGS('app/search/lbs-api/server/public/rocksdb@rocksdb_1-0-8-47523_PD_BL@BCLOUD')
 CONFIGS('baidu/public/rocksdb@ci-base@null')
 
 LDFLAGS('-lpthread -lrt -ldl -lbz2 -lz -lssl -lcrypto')
-#LDFLAGS('-lasan')
 
 PROTOC(ENV.WorkRoot() + '/third-64/protobuf/bin/protoc')
 LIBS('../../output/lib/libraft.a')
 
 common_sources = (GLOB('../common/*.proto ../common/*.cpp'))
-
-TARGET('.copy_files', 
-    CleanCommands(
-        '/bin/rm -rf output'))
-
 
 Application('db_server',Sources(common_sources, 'db.proto server.cpp'))
 Application('db_client',Sources(common_sources, 'db.proto client.cpp'))

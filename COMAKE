@@ -1,6 +1,8 @@
 #edit-mode: -*- python -*-
 #coding:gbk
 
+WORKROOT('../../')
+
 import os
 is_svn = False
 if os.system("svn info 2>/dev/null") == 0:
@@ -10,18 +12,16 @@ else:
     print "is git"
     is_svn = False
 
-#get_rev_cmd = ""
-#if is_svn:
-WORKROOT('../../')
-get_rev_cmd ='$(shell LC_ALL=en_US svn info | grep "Last Changed Rev:" | awk \'{print $$4}\')'
-#else:
-#    WORKROOT('../../../')
-#    get_rev_cmd = '$(shell git rev-parse --short HEAD)'
+get_rev_cmd = ""
+if is_svn:
+    get_rev_cmd ='$(shell LC_ALL=en_US svn info | grep "Last Changed Rev:" | awk \'{print $$4}\')'
+else:
+    WORKROOT('../../../')
+    get_rev_cmd = '$(shell git rev-parse --short HEAD)'
 
-CPPFLAGS('$(ENV_CXXFLAGS) -D_GNU_SOURCE -D__const__= -DNDEBUG')
+CPPFLAGS('-D_GNU_SOURCE -D__const__= -DNDEBUG')
 CPPFLAGS(' -DRAFT_REVISION=\\\"%s\\\"' % get_rev_cmd);
-CXXFLAGS('-O2 -g -pipe -Werror -Wall -W -fPIC -Wno-unused-parameter -Wno-strict-aliasing -Wno-invalid-offsetof -D__STDC_CONSTANT_MACROS')
-CXXFLAGS(' -fPIC')
+CPPFLAGS('-O2 -g -pipe -Werror -Wall -W -fPIC -Wno-unused-parameter -Wno-strict-aliasing -Wno-invalid-offsetof -D__STDC_CONSTANT_MACROS')
 CPPFLAGS('-fno-omit-frame-pointer')
 
 import os
