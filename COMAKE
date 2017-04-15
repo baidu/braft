@@ -16,7 +16,6 @@ get_rev_cmd = ""
 if is_svn:
     get_rev_cmd ='$(shell LC_ALL=en_US svn info | grep "Last Changed Rev:" | awk \'{print $$4}\')'
 else:
-    WORKROOT('../../../')
     get_rev_cmd = '$(shell git rev-parse --short HEAD)'
 
 CPPFLAGS('-D_GNU_SOURCE -D__const__= -DNDEBUG')
