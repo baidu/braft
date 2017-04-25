@@ -18,6 +18,7 @@ else:
 
 ImportConfigsFrom('../../../')
 CONFIGS('third-64/tcmalloc@1.7.0.200',Libraries('lib/libprofiler.a'))
+CONFIGS('thirdsrc/leveldb');
 CPPFLAGS('-D_GNU_SOURCE -D__const__=')
 CPPFLAGS('-DUNIT_TEST')
 CPPFLAGS('$(ENV_CXXFLAGS)')
@@ -237,8 +238,6 @@ class AppGen:
             sys.exit(0)
         self._optFiles.add(filename)
 
-ag = AppGen("auto")
-
 def PathDiff(pathStr1, pathStr2):
     return string.join(set(map(os.path.normpath, pathStr1.split())) - set(map(os.path.normpath, pathStr2.split())))
 
@@ -256,10 +255,16 @@ def PathDiff(pathStr1, pathStr2):
 #        CleanFiles(''))
 #
 #GenProtoCpp('echo.proto')
+#
+if not UPDATE_CONFIGS and not BUILD_CONFIGS:
 
-ag.AddOptFile('test_commitment_manager.cpp')
-ag.AddOptFile('test_checksum.cpp')
-ag.AddOptFile('test_util.cpp')
-ag.AddOptFile('../../raft/util.cpp')
-ag.AutoTargetForSourceFiles()
-ag.GenerateApps(GLOB('test_*.cpp'))
+    ag = AppGen("auto")
+    ## Generally you call two methods of ag (declared upper) to generate applications
+    ## 1. ag.GenerateApps(fileListStr, *extraArgs)          # The application links to shared .o
+    ## 2. ag.GenerateSeparateApps(fileListStr, *extraArgs)  # The application compiles sources separately
+    ag.AddOptFile('test_commitment_manager.cpp')
+    ag.AddOptFile('test_checksum.cpp')
+    ag.AddOptFile('test_util.cpp')
+    ag.AddOptFile('../../raft/util.cpp')
+    ag.AutoTargetForSourceFiles()
+    ag.GenerateApps(GLOB('test_*.cpp'))
