@@ -29,7 +29,7 @@ class TestUsageSuits : public testing::Test {
 protected:
     void SetUp() {
         raft::FLAGS_raft_sync = false;
-	}
+    }
     void TearDown() {}
 };
 
