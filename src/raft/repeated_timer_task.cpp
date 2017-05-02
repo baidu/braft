@@ -54,10 +54,13 @@ void RepeatedTimerTask::on_timedout() {
     _invoking = false;
     CHECK(_running);
     if (_stopped) {
+        _running = false;
         if (_destroyed) {
+            // this may call the destruction,
+            // so do this after setting _running to false
+            lck.unlock();
             on_destroy();
         }
-        _running = false;
         return;
     }
     return schedule(lck);

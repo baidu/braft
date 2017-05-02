@@ -244,10 +244,10 @@ int NodeImpl::init(const NodeOptions& options) {
     CHECK_EQ(0, _snapshot_timer.init(this, options.snapshot_interval_s * 1000));
 
     _config_manager = new ConfigurationManager();
-    
+
     bthread::ExecutionQueueOptions opt;
     opt.max_tasks_size = 256;
-    if (bthread::execution_queue_start(&_apply_queue_id, &opt, 
+    if (bthread::execution_queue_start(&_apply_queue_id, &opt,
                                        execute_applying_tasks, this) != 0) {
         LOG(ERROR) << "Fail to start execution_queue";
         return -1;
@@ -285,7 +285,7 @@ int NodeImpl::init(const NodeOptions& options) {
         FSMCallerOptions fsm_caller_options;
         fsm_caller_options.usercode_in_pthread = _options.usercode_in_pthread;
         this->AddRef();
-        fsm_caller_options.after_shutdown = 
+        fsm_caller_options.after_shutdown =
             baidu::rpc::NewCallback<NodeImpl*>(after_shutdown, this);
         fsm_caller_options.log_manager = _log_manager;
         fsm_caller_options.fsm = _options.fsm;
@@ -433,8 +433,8 @@ void NodeImpl::on_configuration_change_done(int64_t term) {
     Configuration old_conf(_conf_ctx.peers);
     old_conf.diffs(_conf.second, &removed, &added);
     CHECK_GE(1u, removed.size() + added.size());
-    
-    for (Configuration::const_iterator 
+
+    for (Configuration::const_iterator
             iter = added.begin(); iter != added.end(); ++iter) {
         if (!_replicator_group.contains(*iter)) {
             CHECK(false)
@@ -442,8 +442,8 @@ void NodeImpl::on_configuration_change_done(int64_t term) {
             _replicator_group.add_replicator(*iter);
         }
     }
-    
-    for (Configuration::const_iterator 
+
+    for (Configuration::const_iterator
             iter = removed.begin(); iter != removed.end(); ++iter) {
         _replicator_group.stop_replicator(*iter);
     }
@@ -455,7 +455,7 @@ void NodeImpl::on_configuration_change_done(int64_t term) {
 
 class OnCaughtUp : public CatchupClosure {
 public:
-    OnCaughtUp(NodeImpl* node, int64_t term, const PeerId& peer, Closure* done) 
+    OnCaughtUp(NodeImpl* node, int64_t term, const PeerId& peer, Closure* done)
         : _node(node)
         , _term(term)
         , _peer(peer)
@@ -594,7 +594,7 @@ void NodeImpl::handle_stepdown_timeout() {
             continue;
         }
 
-        if (now_timestamp - _replicator_group.last_response_timestamp(peers[i]) <= 
+        if (now_timestamp - _replicator_group.last_response_timestamp(peers[i]) <=
             _options.election_timeout_ms) {
             ++alive_count;
             continue;
@@ -630,7 +630,7 @@ bool NodeImpl::unsafe_register_conf_change(const std::vector<PeerId>& old_peers,
 
     // check concurrent conf change
     if (!_conf_ctx.empty()) {
-        LOG(WARNING) << "[" << node_id() 
+        LOG(WARNING) << "[" << node_id()
                      << " ] Refusing concurrent configuration changing";
         if (done) {
             done->status().set_error(EBUSY, "Doing another configuration change");
@@ -645,7 +645,7 @@ bool NodeImpl::unsafe_register_conf_change(const std::vector<PeerId>& old_peers,
     }
     // check not equal
     if (!_conf.second.equals(old_peers)) {
-        LOG(WARNING) << "[" << node_id() 
+        LOG(WARNING) << "[" << node_id()
                      << "] Refusing configuration changing based on wrong configuration ,"
                      << " expect: " << _conf.second << " recv: " << Configuration(old_peers);
         if (done) {
@@ -848,7 +848,7 @@ void NodeImpl::shutdown(Closure* done) {
             if (_log_manager) {
                 _log_manager->shutdown();
             }
-            
+
             if (_snapshot_executor) {
                 _snapshot_executor->shutdown();
             }
@@ -900,7 +900,7 @@ void NodeImpl::handle_election_timeout() {
         return;
     }
     // check timestamp, skip one cycle check when trigger vote
-    if (!_vote_triggered && 
+    if (!_vote_triggered &&
             (base::monotonic_time_ms() - _last_leader_timestamp
                     < _options.election_timeout_ms)) {
         return;
@@ -928,7 +928,7 @@ void NodeImpl::handle_timeout_now_request(baidu::rpc::Controller* controller,
         response->set_success(false);
         lck.unlock();
         LOG(INFO) << "node " << _group_id << ":" << _server_id
-                  << " received handle_timeout_now_request " 
+                  << " received handle_timeout_now_request "
                      "while _current_term="
                   << saved_current_term << " didn't match request_term="
                   << request->term();
@@ -941,7 +941,7 @@ void NodeImpl::handle_timeout_now_request(baidu::rpc::Controller* controller,
         response->set_success(false);
         lck.unlock();
         LOG(INFO) << "node " << _group_id << ":" << _server_id
-                  << " received handle_timeout_now_request " 
+                  << " received handle_timeout_now_request "
                      "while state is " << state2str(saved_state)
                   << " at term=" << saved_term;
         return;
@@ -962,7 +962,7 @@ void NodeImpl::handle_timeout_now_request(baidu::rpc::Controller* controller,
     // Note: don't touch controller, request, response, done anymore since they
     // were dereferenced at this point
     LOG(INFO) << "node " << _group_id << ":" << _server_id
-              << " received handle_timeout_now_request from " 
+              << " received handle_timeout_now_request from "
               << remote_side << " at term=" << saved_term;
 
 }
@@ -1045,10 +1045,10 @@ int NodeImpl::transfer_leadership_to(const PeerId& peer) {
     }
     _state = STATE_TRANSFERING;
     _fsm_caller->on_leader_stop();
-    LOG(INFO) << "node " << _group_id << ":" << _server_id 
+    LOG(INFO) << "node " << _group_id << ":" << _server_id
               << "starts to transfer leadership to " << peer;
     _stop_transfer_arg = new StopTransferArg(this, _current_term, peer);
-    if (bthread_timer_add(&_transfer_timer, 
+    if (bthread_timer_add(&_transfer_timer,
                        base::milliseconds_from_now(_options.election_timeout_ms),
                        on_transfer_timeout, _stop_transfer_arg) != 0) {
         lck.unlock();
@@ -1504,7 +1504,7 @@ void NodeImpl::become_leader() {
     // is committed.
     CHECK(_conf_ctx.empty());
     _conf.second.list_peers(&_conf_ctx.peers);
-    unsafe_apply_configuration(_conf.second, 
+    unsafe_apply_configuration(_conf.second,
                                new LeaderStartClosure(_options.fsm, _current_term));
     _stepdown_timer.start();
 }
@@ -1513,7 +1513,7 @@ class LeaderStableClosure : public LogManager::StableClosure {
 public:
     void Run();
 private:
-    LeaderStableClosure(const NodeId& node_id, 
+    LeaderStableClosure(const NodeId& node_id,
                         size_t nentries,
                         CommitmentManager* commit_manager);
     ~LeaderStableClosure() {}
@@ -1523,7 +1523,7 @@ friend class NodeImpl;
     CommitmentManager* _commit_manager;
 };
 
-LeaderStableClosure::LeaderStableClosure(const NodeId& node_id, 
+LeaderStableClosure::LeaderStableClosure(const NodeId& node_id,
                                          size_t nentries,
                                          CommitmentManager* commit_manager)
     : _node_id(node_id), _nentries(nentries), _commit_manager(commit_manager)
@@ -1583,16 +1583,16 @@ void NodeImpl::apply(LogEntryAndClosure tasks[], size_t size) {
         entries.back()->type = ENTRY_TYPE_DATA;
         _commit_manager->append_pending_task(_conf.second, tasks[i].done);
     }
-    _log_manager->append_entries(&entries, 
+    _log_manager->append_entries(&entries,
                                new LeaderStableClosure(
-                                        NodeId(_group_id, _server_id), 
+                                        NodeId(_group_id, _server_id),
                                         entries.size(),
                                         _commit_manager));
     // update _conf.first
     _log_manager->check_and_set_configuration(&_conf);
 }
 
-void NodeImpl::unsafe_apply_configuration(const Configuration& new_conf, 
+void NodeImpl::unsafe_apply_configuration(const Configuration& new_conf,
                                           Closure* done) {
     CHECK(!_conf_ctx.empty());
     LogEntry* entry = new LogEntry();
@@ -1601,18 +1601,18 @@ void NodeImpl::unsafe_apply_configuration(const Configuration& new_conf,
     entry->type = ENTRY_TYPE_CONFIGURATION;
     entry->peers = new std::vector<PeerId>;
     new_conf.list_peers(entry->peers);
-    ConfigurationChangeDone* configuration_change_done = 
+    ConfigurationChangeDone* configuration_change_done =
             new ConfigurationChangeDone(this, _current_term, done);
     // Use the new_conf to deal the quorum of this very log
     std::vector<PeerId> old_peers;
     _conf.second.list_peers(&old_peers);
     _commit_manager->append_pending_task(new_conf, configuration_change_done);
-    
+
     std::vector<LogEntry*> entries;
     entries.push_back(entry);
-    _log_manager->append_entries(&entries, 
+    _log_manager->append_entries(&entries,
                                  new LeaderStableClosure(
-                                        NodeId(_group_id, _server_id), 
+                                        NodeId(_group_id, _server_id),
                                         1u,
                                         _commit_manager));
     // update _conf.first
@@ -1648,7 +1648,7 @@ int NodeImpl::handle_pre_vote_request(const RequestVoteRequest* request,
         lck.lock();
         // pre_vote not need ABA check after unlock&lock
 
-        granted = (LogId(request->last_log_index(), request->last_log_term()) 
+        granted = (LogId(request->last_log_index(), request->last_log_term())
                         >= last_log_id);
 
         LOG(INFO) << "node " << _group_id << ":" << _server_id
@@ -1707,7 +1707,7 @@ int NodeImpl::handle_request_vote_request(const RequestVoteRequest* request,
             break;
         }
 
-        bool log_is_ok = (LogId(request->last_log_index(), request->last_log_term()) 
+        bool log_is_ok = (LogId(request->last_log_index(), request->last_log_term())
                           >= last_log_id);
         // save
         if (log_is_ok && _voted_id.is_empty()) {
@@ -1786,13 +1786,13 @@ private:
         _response->set_success(true);
         _response->set_term(_term);
 
-        const int64_t committed_index = 
+        const int64_t committed_index =
                 std::min(_request->committed_index(),
                          // ^^^ committed_index is likely less than the
                          // last_log_index
                          _request->prev_log_index() + _request->entries_size()
                          // ^^^ The logs after the appended entries are
-                         // untrustable so we can't commit them even if their 
+                         // untrustable so we can't commit them even if their
                          // indexes are less than request->committed_index()
                         );
         //_commit_manager is thread safe and tolerats disorder.
@@ -1817,7 +1817,7 @@ void NodeImpl::handle_append_entries_request(baidu::rpc::Controller* cntl,
     entries.reserve(request->entries_size());
     baidu::rpc::ClosureGuard done_guard(done);
     std::unique_lock<raft_mutex_t> lck(_mutex);
-    
+
     // pre set term, to avoid get term in lock
     response->set_term(_current_term);
 
@@ -1828,7 +1828,7 @@ void NodeImpl::handle_append_entries_request(baidu::rpc::Controller* cntl,
             << " received AppendEntries from " << request->server_id()
             << " server_id bad format";
         cntl->SetFailed(baidu::rpc::EREQUEST,
-                        "Fail to parse server_id `%s'", 
+                        "Fail to parse server_id `%s'",
                         request->server_id().c_str());
         return;
     }
@@ -1847,7 +1847,7 @@ void NodeImpl::handle_append_entries_request(baidu::rpc::Controller* cntl,
     }
 
     // check term and state to step down
-    if (request->term() > _current_term || _state != STATE_FOLLOWER 
+    if (request->term() > _current_term || _state != STATE_FOLLOWER
                 || _leader_id.is_empty()) {
         step_down(request->term(), false);
     }
@@ -1858,7 +1858,7 @@ void NodeImpl::handle_append_entries_request(baidu::rpc::Controller* cntl,
     }
 
     if (server_id != _leader_id) {
-        LOG(ERROR) << "Another peer=" << server_id 
+        LOG(ERROR) << "Another peer=" << server_id
                    << " declares that it is the leader at term="
                    << _current_term << " which was occupied by leader="
                    << _leader_id;
@@ -1872,8 +1872,8 @@ void NodeImpl::handle_append_entries_request(baidu::rpc::Controller* cntl,
 
     _last_leader_timestamp = base::monotonic_time_ms();
 
-    if (request->entries_size() > 0 && 
-            (_snapshot_executor 
+    if (request->entries_size() > 0 &&
+            (_snapshot_executor
                 && _snapshot_executor->is_installing_snapshot())) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
             << " received append entries while installing snapshot";
@@ -1941,7 +1941,7 @@ void NodeImpl::handle_append_entries_request(baidu::rpc::Controller* cntl,
         }
     }
     FollowerStableClosure* c = new FollowerStableClosure(
-            cntl, request, response, done_guard.release(), 
+            cntl, request, response, done_guard.release(),
             this, _current_term);
     _log_manager->append_entries(&entries, c);
 
@@ -2006,7 +2006,7 @@ void NodeImpl::handle_install_snapshot_request(baidu::rpc::Controller* controlle
         response->set_success(false);
         return;
     }
-    if (request->term() > _current_term || _state != STATE_FOLLOWER 
+    if (request->term() > _current_term || _state != STATE_FOLLOWER
                 || _leader_id.is_empty()) {
         step_down(request->term(), false);
         response->set_term(request->term());
@@ -2018,7 +2018,7 @@ void NodeImpl::handle_install_snapshot_request(baidu::rpc::Controller* controlle
     }
 
     if (server_id != _leader_id) {
-        LOG(ERROR) << "Another peer=" << server_id 
+        LOG(ERROR) << "Another peer=" << server_id
                    << " declares that it is the leader at term="
                    << _current_term << " which was occupied by leader="
                    << _leader_id;
@@ -2032,9 +2032,9 @@ void NodeImpl::handle_install_snapshot_request(baidu::rpc::Controller* controlle
     lck.unlock();
     LOG(INFO) << "node " << _group_id << ":" << _server_id
               << " received InstallSnapshotRequest"
-              << " last_included_log_index=" 
+              << " last_included_log_index="
               << request->meta().last_included_index()
-              << " last_include_log_term=" 
+              << " last_include_log_term="
               << request->meta().last_included_term()
               << " from " << server_id
               << " when last_log_id=" << _log_manager->last_log_id();
@@ -2068,7 +2068,7 @@ void NodeImpl::describe(std::ostream& os, bool use_html) {
     for (size_t j = 0; j < peers.size(); ++j) {
         os << ' ';
         if (use_html && peers[j] != _server_id) {
-            os << "<a href=\"http://" << peers[j].addr 
+            os << "<a href=\"http://" << peers[j].addr
                << "/raft_stat/" << _group_id << "\">";
         }
         os << peers[j];
@@ -2089,7 +2089,7 @@ void NodeImpl::describe(std::ostream& os, bool use_html) {
         }
         os << newline;
     }
-    
+
     // Show timers
     os << "election_timer: ";
     _election_timer.describe(os, use_html);
