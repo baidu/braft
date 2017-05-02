@@ -34,7 +34,8 @@ protected:
 };
 
 TEST_F(TestUsageSuits, open_segment) {
-    // open segment operation
+    // open segment operatio
+    ::system("mkdir data/");
     raft::Segment* seg1 = new raft::Segment("./data", 1L, 0);
 
     // not open
