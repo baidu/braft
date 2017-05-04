@@ -2049,6 +2049,7 @@ void NodeImpl::update_configuration_after_installing_snapshot() {
 
 void NodeImpl::describe(std::ostream& os, bool use_html) {
     PeerId leader;
+    std::vector<ReplicatorId> replicators;
     std::unique_lock<raft_mutex_t> lck(_mutex);
     const State st = _state;
     if (st == STATE_FOLLOWER) {
@@ -2059,6 +2060,8 @@ void NodeImpl::describe(std::ostream& os, bool use_html) {
     //const int ref_count = ref_count_;
     std::vector<PeerId> peers;
     _conf.second.list_peers(&peers);
+    // No replicator attached to nodes that are not leader;
+    _replicator_group.list_replicators(&replicators);
     lck.unlock();
     const char *newline = use_html ? "<br>" : "\r\n";
     os << "state: " << state2str(st) << newline;
@@ -2109,6 +2112,9 @@ void NodeImpl::describe(std::ostream& os, bool use_html) {
     _commit_manager->describe(os, use_html);
     if (_snapshot_executor) {
         _snapshot_executor->describe(os, use_html);
+    }
+    for (size_t i = 0; i < replicators.size(); ++i) {
+        Replicator::describe(replicators[i], os, use_html);
     }
 }
 

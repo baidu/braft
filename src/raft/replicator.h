@@ -89,8 +89,28 @@ public:
     // Get the next index of this Replica if we know the correct value is
     // Return the correct value on success, 0 otherwise.
     static int64_t get_next_index(ReplicatorId id);
+
+    static void describe(ReplicatorId id, std::ostream& os, bool use_html);
     
 private:
+    enum St {
+        IDLE,
+        BLOCKING,
+        APPENDING_ENTRIES,
+        INSTALLING_SNAPSHOT,
+    };
+    struct Stat {
+        St st;
+        union {
+            int64_t first_log_index;
+            int64_t last_log_included;
+        };
+        union {
+            int64_t last_log_index;
+            int64_t last_term_included;
+        };
+    };
+
     Replicator();
     ~Replicator();
 
@@ -138,6 +158,7 @@ private:
                 InstallSnapshotRequest* request, 
                 InstallSnapshotResponse* response);
     void _destroy();
+    void _describe(std::ostream& os, bool use_html);
 
 private:
     
@@ -147,6 +168,7 @@ private:
     bool _has_succeeded;
     int64_t _timeout_now_index;
     int64_t _last_response_timestamp;
+    Stat _st;
     baidu::rpc::CallId _rpc_in_fly;
     baidu::rpc::CallId _heartbeat_in_fly;
     baidu::rpc::CallId _timeout_now_in_fly;
@@ -230,6 +252,9 @@ public:
     // Returns 0 on success and -1 otherwise.
     int stop_all_and_find_the_next_candidate(ReplicatorId* candidate,
                                              const Configuration& current_conf);
+
+    // List all the existing replicators
+    void list_replicators(std::vector<ReplicatorId>* out) const;
 
 private:
 
