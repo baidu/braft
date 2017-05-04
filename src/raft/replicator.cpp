@@ -36,7 +36,8 @@ ReplicatorOptions::ReplicatorOptions()
     , node(NULL)
     , term(0)
     , snapshot_storage(NULL)
-{}
+{
+}
 
 const int ERROR_CODE_UNSET_MAGIC = 0x1234;
 
@@ -53,6 +54,7 @@ Replicator::Replicator()
     _rpc_in_fly.value = 0;
     _heartbeat_in_fly.value = 0;
     _timeout_now_in_fly.value = 0;
+    memset(&_st, 0, sizeof(_st));
 }
 
 Replicator::~Replicator() {
@@ -199,6 +201,7 @@ void Replicator::_block(long start_time_us, int /*error_code NOTE*/) {
     RAFT_VLOG << "Blocking " << _options.peer_id << " for " 
               << *_options.dynamic_heartbeat_timeout_ms << "ms";
     if (rc == 0) {
+        _st.st = BLOCKING;
         CHECK_EQ(0, bthread_id_unlock(_id)) << "Fail to unlock " << _id;
         return;
     } else {
@@ -410,6 +413,9 @@ void Replicator::_send_empty_entries(bool is_heartbeat) {
     if (is_heartbeat) {
         _heartbeat_in_fly = cntl->call_id();
     } else {
+        _st.st = APPENDING_ENTRIES;
+        _st.first_log_index = _next_index;
+        _st.last_log_index = _next_index - 1;
         _rpc_in_fly = cntl->call_id();
     }
 
@@ -484,7 +490,9 @@ void Replicator::_send_entries() {
         << " prev_log_index " << request->prev_log_index()
         << " prev_log_term " << request->prev_log_term()
         << " log_index " << _next_index << " count " << request->entries_size();
-
+    _st.st = APPENDING_ENTRIES;
+    _st.first_log_index = request->prev_log_index() + 1;
+    _st.last_log_index = request->prev_log_index() + request->entries_size();
     google::protobuf::Closure* done = baidu::rpc::NewCallback<
         ReplicatorId, baidu::rpc::Controller*, AppendEntriesRequest*,
         AppendEntriesResponse*>(
@@ -523,6 +531,7 @@ void Replicator::_wait_more_entries() {
             _next_index - 1, _continue_sending, (void*)_id.value);
     RAFT_VLOG << "node " << _options.group_id << ":" << _options.peer_id
         << " wait more entries";
+    _st.st = IDLE;
     CHECK_EQ(0, bthread_id_unlock(_id)) << "Fail to unlock " << _id;
 }
 
@@ -552,6 +561,9 @@ void Replicator::_install_snapshot() {
         << " last_included_index " << meta.last_included_index() << " uri " << uri;
 
     _rpc_in_fly = cntl->call_id();
+    _st.st = INSTALLING_SNAPSHOT;
+    _st.last_log_included = meta.last_included_index();
+    _st.last_term_included = meta.last_included_term();
     google::protobuf::Closure* done = baidu::rpc::NewCallback<
                 ReplicatorId, baidu::rpc::Controller*,
                 InstallSnapshotRequest*, InstallSnapshotResponse*>(
@@ -867,6 +879,45 @@ void Replicator::_destroy() {
     delete this;
 }
 
+void Replicator::_describe(std::ostream& os, bool use_html) {
+    const Stat st = _st;
+    const PeerId peer_id = _options.peer_id;
+    const int64_t next_index = _next_index;
+    const bthread_id_t id = _id;
+    const int consecutive_error_times = _consecutive_error_times;
+    CHECK_EQ(0, bthread_id_unlock(_id));
+    // Don't touch *this ever after
+    const char* new_line = use_html ? "<br>" : "\r\n";
+    os << "replicator_" << id << '@' << peer_id << ':';
+    os << " next_index=" << next_index << ' ';
+    switch (st.st) {
+    case IDLE:
+        os << "idle";
+        break;
+    case BLOCKING:
+        os << "blocking consecutive_error_times=" << consecutive_error_times;
+        break;
+    case APPENDING_ENTRIES:
+        os << "appending [" << st.first_log_index << ", " << st.last_log_index << ']';
+        break;
+    case INSTALLING_SNAPSHOT:
+        os << "installing snapshot {" << st.last_log_included
+           << ", " << st.last_term_included  << '}';
+        break;
+    }
+    os << new_line;
+}
+
+void Replicator::describe(ReplicatorId id, std::ostream& os, bool use_html) {
+    bthread_id_t dummy_id = { id };
+    Replicator* r = NULL;
+    if (bthread_id_lock(dummy_id, (void**)&r) != 0) {
+        return;
+    }
+    // dummy_id is unlock in _describe
+    return r->_describe(os, use_html);
+}
+
 // ==================== ReplicatorGroup ==========================
 
 ReplicatorGroupOptions::ReplicatorGroupOptions()
@@ -1022,6 +1073,15 @@ int ReplicatorGroup::stop_all_and_find_the_next_candidate(
     }
     _rmap.clear();
     return 0;
+}
+
+void ReplicatorGroup::list_replicators(std::vector<ReplicatorId>* out) const {
+    out->clear();
+    out->reserve(_rmap.size());
+    for (std::map<PeerId, ReplicatorId>::const_iterator
+            iter = _rmap.begin();  iter != _rmap.end(); ++iter) {
+        out->push_back(iter->second);
+    }
 }
 
 } // namespace raft
