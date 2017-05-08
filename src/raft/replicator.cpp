@@ -16,8 +16,6 @@
 #include "raft/commitment_manager.h"            // CommitmentManager
 #include "raft/log_entry.h"                     // LogEntry
 
-#include "raft.h"
-
 namespace raft {
 
 DEFINE_int32(raft_max_entries_size, 1024,
@@ -535,8 +533,9 @@ void Replicator::_install_snapshot() {
         NodeImpl *node_impl = _options.node;
         node_impl->AddRef();
         CHECK_EQ(0, bthread_id_unlock(_id)) << "Fail to unlock " << _id;
-        raft::Error e = raft::Error();
-        e.set_type(ERROR_TYPE_SNAPSHOT); 
+        raft::Error e;
+        e.set_type(ERROR_TYPE_SNAPSHOT);
+        e.status().set_error(EINVAL,"Fail to open snapshot ");
         node_impl->on_error(e);
         node_impl->Release();
         return;
@@ -548,8 +547,9 @@ void Replicator::_install_snapshot() {
         NodeImpl *node_impl = _options.node;
         node_impl->AddRef();
         CHECK_EQ(0, bthread_id_unlock(_id)) << "Fail to unlock " << _id;
-        raft::Error e = raft::Error();
-        e.set_type(ERROR_TYPE_SNAPSHOT); 
+        raft::Error e;
+        e.set_type(ERROR_TYPE_SNAPSHOT);
+        e.status().set_error(EINVAL,"Fail to load meta ");
         node_impl->on_error(e);
         node_impl->Release();
         return;
