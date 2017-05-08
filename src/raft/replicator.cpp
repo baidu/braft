@@ -535,7 +535,7 @@ void Replicator::_install_snapshot() {
         CHECK_EQ(0, bthread_id_unlock(_id)) << "Fail to unlock " << _id;
         raft::Error e;
         e.set_type(ERROR_TYPE_SNAPSHOT);
-        e.status().set_error(EINVAL,"Fail to open snapshot ");
+        e.status().set_error(EIO, "Fail to open snapshot ");
         node_impl->on_error(e);
         node_impl->Release();
         return;
@@ -544,12 +544,13 @@ void Replicator::_install_snapshot() {
     SnapshotMeta meta;
     // report error on failure
     if (_reader->load_meta(&meta) != 0){
+        std::string snapshot_path = _reader->get_path();
         NodeImpl *node_impl = _options.node;
         node_impl->AddRef();
         CHECK_EQ(0, bthread_id_unlock(_id)) << "Fail to unlock " << _id;
         raft::Error e;
         e.set_type(ERROR_TYPE_SNAPSHOT);
-        e.status().set_error(EINVAL,"Fail to load meta ");
+        e.status().set_error(EIO, "Fail to load meta in : " + snapshot_path);
         node_impl->on_error(e);
         node_impl->Release();
         return;
