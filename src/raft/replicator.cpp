@@ -534,7 +534,7 @@ void Replicator::_install_snapshot() {
     if (!_reader){
         NodeImpl *node_impl = _options.node;
         node_impl->AddRef();
-        bthread_id_unlock(_id);
+        CHECK_EQ(0, bthread_id_unlock(_id)) << "Fail to unlock " << _id;
         raft::Error e = raft::Error();
         e.set_type(ERROR_TYPE_SNAPSHOT); 
         node_impl->on_error(e);
@@ -547,7 +547,7 @@ void Replicator::_install_snapshot() {
     if (_reader->load_meta(&meta) != 0){
         NodeImpl *node_impl = _options.node;
         node_impl->AddRef();
-        bthread_id_unlock(_id);
+        CHECK_EQ(0, bthread_id_unlock(_id)) << "Fail to unlock " << _id;
         raft::Error e = raft::Error();
         e.set_type(ERROR_TYPE_SNAPSHOT); 
         node_impl->on_error(e);
