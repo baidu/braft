@@ -534,7 +534,7 @@ void Replicator::_install_snapshot() {
     // CHECK(_reader);
     // Added by xiongkai 20170505
     Replicator *r = NULL;
-    if(!_reader){
+    if (!_reader){
         NodeImpl *node_impl = r->_options.node;
         raft::Error e = raft::Error();
         e.set_type(ERROR_TYPE_SNAPSHOT); 
@@ -546,7 +546,7 @@ void Replicator::_install_snapshot() {
     // TODO: report error on failure
     // Added by xiongkai
     // CHECK_EQ(0, _reader->load_meta(&meta));
-    if(_reader->load_meta(&meta) != 0){
+    if (_reader->load_meta(&meta) != 0){
         NodeImpl *node_impl = r->_options.node;
         raft::Error e = raft::Error();
         e.set_type(ERROR_TYPE_SNAPSHOT); 
