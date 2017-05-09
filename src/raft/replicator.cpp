@@ -535,7 +535,7 @@ void Replicator::_install_snapshot() {
         CHECK_EQ(0, bthread_id_unlock(_id)) << "Fail to unlock " << _id;
         raft::Error e;
         e.set_type(ERROR_TYPE_SNAPSHOT);
-        e.status().set_error(EIO, "Fail to open snapshot ");
+        e.status().set_error(EIO, "Fail to open snapshot");
         node_impl->on_error(e);
         node_impl->Release();
         return;
@@ -550,7 +550,7 @@ void Replicator::_install_snapshot() {
         CHECK_EQ(0, bthread_id_unlock(_id)) << "Fail to unlock " << _id;
         raft::Error e;
         e.set_type(ERROR_TYPE_SNAPSHOT);
-        e.status().set_error(EIO, "Fail to load meta in : " + snapshot_path);
+        e.status().set_error(EIO, "Fail to load meta from " + snapshot_path);
         node_impl->on_error(e);
         node_impl->Release();
         return;
