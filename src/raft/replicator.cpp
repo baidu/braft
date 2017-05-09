@@ -538,11 +538,32 @@ void Replicator::_wait_more_entries() {
 void Replicator::_install_snapshot() {
     CHECK(!_reader);
     _reader = _options.snapshot_storage->open();
-    CHECK(_reader);
+    if (!_reader){
+        NodeImpl *node_impl = _options.node;
+        node_impl->AddRef();
+        CHECK_EQ(0, bthread_id_unlock(_id)) << "Fail to unlock " << _id;
+        raft::Error e;
+        e.set_type(ERROR_TYPE_SNAPSHOT);
+        e.status().set_error(EIO, "Fail to open snapshot");
+        node_impl->on_error(e);
+        node_impl->Release();
+        return;
+    } 
     std::string uri = _reader->generate_uri_for_copy();
     SnapshotMeta meta;
-    // TODO: report error on failure
-    CHECK_EQ(0, _reader->load_meta(&meta));
+    // report error on failure
+    if (_reader->load_meta(&meta) != 0){
+        std::string snapshot_path = _reader->get_path();
+        NodeImpl *node_impl = _options.node;
+        node_impl->AddRef();
+        CHECK_EQ(0, bthread_id_unlock(_id)) << "Fail to unlock " << _id;
+        raft::Error e;
+        e.set_type(ERROR_TYPE_SNAPSHOT);
+        e.status().set_error(EIO, "Fail to load meta from " + snapshot_path);
+        node_impl->on_error(e);
+        node_impl->Release();
+        return;
+    } 
     baidu::rpc::Controller* cntl = new baidu::rpc::Controller;
     cntl->set_max_retry(0);
     cntl->set_timeout_ms(-1);
