@@ -13,6 +13,7 @@
 #include "raft/storage.h"
 #include "raft/node_manager.h"
 #include "raft/log.h"
+#include "raft/memory_log.h"
 #include "raft/stable.h"
 #include "raft/snapshot.h"
 #include "raft/fsm_caller.h"            // IteratorImpl
@@ -40,7 +41,8 @@ static bvar::PassiveStatus<std::string> s_raft_revision(
 static pthread_once_t global_init_once = PTHREAD_ONCE_INIT;
 
 struct GlobalExtension {
-    SegmentLogStorage local_log; 
+    SegmentLogStorage local_log;
+    MemoryLogStorage memory_log;
     LocalStableStorage local_stable;
     LocalSnapshotStorage local_snapshot;
 };
@@ -49,9 +51,10 @@ int __attribute__((weak)) register_rocksdb_extension();
 
 static void global_init_or_die_impl() {
     static GlobalExtension s_ext;
-    
+
     LOG(TRACE) << "init libraft ver: " << s_libraft_version;
     log_storage_extension()->RegisterOrDie("local", &s_ext.local_log);
+    log_storage_extension()->RegisterOrDie("memory", &s_ext.memory_log);
     stable_storage_extension()->RegisterOrDie("local", &s_ext.local_stable);
     snapshot_storage_extension()->RegisterOrDie("local", &s_ext.local_snapshot);
 
@@ -158,14 +161,14 @@ int Node::transfer_leadership_to(const PeerId& peer) {
 }
 
 // ------------- Iterator
-void Iterator::next() { 
+void Iterator::next() {
     if (valid()) {
-        _impl->next(); 
+        _impl->next();
     }
 }
 
-bool Iterator::valid() const { 
-    return _impl->is_good() && _impl->entry()->type == ENTRY_TYPE_DATA; 
+bool Iterator::valid() const {
+    return _impl->is_good() && _impl->entry()->type == ENTRY_TYPE_DATA;
 }
 
 int64_t Iterator::index() const { return _impl->index(); }
@@ -191,7 +194,7 @@ void StateMachine::on_shutdown() {}
 void StateMachine::on_snapshot_save(SnapshotWriter* writer, Closure* done) {
     (void)writer;
     CHECK(done);
-    LOG(ERROR) << base::class_name_str(*this) 
+    LOG(ERROR) << base::class_name_str(*this)
                << " didn't implement on_snapshot_save";
     done->status().set_error(-1, "%s didn't implement on_snapshot_save",
                                  base::class_name_str(*this).c_str());
@@ -200,7 +203,7 @@ void StateMachine::on_snapshot_save(SnapshotWriter* writer, Closure* done) {
 
 int StateMachine::on_snapshot_load(SnapshotReader* reader) {
     (void)reader;
-    LOG(ERROR) << base::class_name_str(*this) 
+    LOG(ERROR) << base::class_name_str(*this)
                << " didn't implement on_snapshot_load"
                << " while a snapshot is saved in " << reader->get_path();
     return -1;
