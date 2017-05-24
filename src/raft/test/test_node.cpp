@@ -13,6 +13,7 @@
 #include <bthread.h>
 #include <bthread/countdown_event.h>
 #include "raft/node.h"
+#include "raft/enum.pb.h"
 
 class MockFSM : public raft::StateMachine {
 public:
@@ -544,7 +545,7 @@ TEST_F(RaftTestSuits, NoLeader) {
     peer0.idx = 0;
 
     cond.init(1);
-    follower->add_peer(peers, peer0, NEW_REMOVEPEERCLOSURE(&cond, EPERM));
+    follower->remove_peer(peers, peer0, NEW_REMOVEPEERCLOSURE(&cond, EPERM));
     cond.wait();
     LOG(NOTICE) << "remove peer " << peer0;
 }
@@ -2091,3 +2092,98 @@ TEST_F(RaftTestSuits, transfer_should_work_after_install_snapshot) {
     ASSERT_EQ(last_peer, leader->node_id().peer_id);
 }
 
+TEST_F(RaftTestSuits, append_entries_when_follower_is_in_error_state) {
+    std::vector<raft::PeerId> peers;
+    // five nodes
+    for (int i = 0; i < 5; i++) {
+        raft::PeerId peer;
+        peer.addr.ip = base::get_host_ip();
+        peer.addr.port = 5006 + i;
+        peer.idx = 0;
+        peers.push_back(peer);
+    }
+
+    // start cluster
+    Cluster cluster("unittest", peers);
+    for (size_t i = 0; i < peers.size(); i++) {
+        ASSERT_EQ(0, cluster.start(peers[i].addr));
+    }
+
+    // elect leader
+    cluster.wait_leader();
+    raft::Node* leader = cluster.leader();
+    ASSERT_TRUE(leader != NULL);
+    LOG(WARNING) << "leader is " << leader->node_id();
+
+    // apply something
+    bthread::CountdownEvent cond;
+    cond.init(10);
+    for (int i = 0; i < 10; i++) {
+        base::IOBuf data;
+        char data_buf[128];
+        snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
+        data.append(data_buf);
+        raft::Task task;
+        task.data = &data;
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
+        leader->apply(task);
+    }
+    cond.wait();
+
+    // set the first Follower to Error state
+    std::vector<raft::Node*> nodes;
+    cluster.followers(&nodes);
+    ASSERT_EQ(nodes.size(), 4);
+    base::EndPoint error_follower = nodes[0]->node_id().peer_id.addr;
+    raft::Node* error_follower_node = nodes[0];
+    LOG(WARNING) << "set follower error " << nodes[0]->node_id();
+    raft::NodeImpl *node_impl = nodes[0]->_impl;
+    node_impl->AddRef();
+    raft::Error e;
+    e.set_type(raft::ERROR_TYPE_STATE_MACHINE);
+    e.status().set_error(EINVAL, "Follower has something wrong");
+    node_impl->on_error(e);
+    node_impl->Release();
+
+    // increase term  by stopping leader and electing a new leader again
+    base::EndPoint old_leader = leader->node_id().peer_id.addr;
+    LOG(WARNING) << "stop leader " << leader->node_id();
+    cluster.stop(old_leader);
+    // elect new leader
+    cluster.wait_leader();
+    leader = cluster.leader();
+    ASSERT_TRUE(leader != NULL);
+    LOG(WARNING) << "elect new leader " << leader->node_id();
+
+    // apply something again 
+    cond.init(10);
+    for (int i = 10; i < 20; i++) {
+        base::IOBuf data;
+        char data_buf[128];
+        snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
+        data.append(data_buf);
+        raft::Task task;
+        task.data = &data;
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
+        leader->apply(task);
+    }
+    cond.wait();
+
+    sleep(2);
+    // stop error follower
+    LOG(WARNING) << "stop wrong follower " << error_follower_node->node_id();
+    cluster.stop(error_follower);
+    
+    sleep(5);
+    // restart error follower
+    ASSERT_EQ(0, cluster.start(error_follower));
+    LOG(WARNING) << "restart error follower " << error_follower;
+
+    // restart old leader
+    ASSERT_EQ(0, cluster.start(old_leader));
+    LOG(WARNING) << "restart old leader " << old_leader;
+
+    cluster.ensure_same();
+
+    cluster.stop_all();
+}
