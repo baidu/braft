@@ -1622,6 +1622,15 @@ void NodeImpl::unsafe_apply_configuration(const Configuration& new_conf,
 int NodeImpl::handle_pre_vote_request(const RequestVoteRequest* request,
                                       RequestVoteResponse* response) {
     std::unique_lock<raft_mutex_t> lck(_mutex);
+    
+    if (!is_active_state(_state)) {
+        const int64_t saved_current_term = _current_term;
+        const State saved_state = _state;
+        lck.unlock();
+        LOG(WARNING) << "node " << _group_id << ":" << _server_id << " is not in active state " << "current_term " << saved_current_term 
+            << " state " << state2str(saved_state);
+        return EINVAL;
+    }
 
     PeerId candidate_id;
     if (0 != candidate_id.parse(request->server_id())) {
@@ -1667,6 +1676,15 @@ int NodeImpl::handle_pre_vote_request(const RequestVoteRequest* request,
 int NodeImpl::handle_request_vote_request(const RequestVoteRequest* request,
                                           RequestVoteResponse* response) {
     std::unique_lock<raft_mutex_t> lck(_mutex);
+
+    if (!is_active_state(_state)) {
+        const int64_t saved_current_term = _current_term;
+        const State saved_state = _state;
+        lck.unlock();
+        LOG(WARNING) << "node " << _group_id << ":" << _server_id << " is not in active state " << "current_term " << saved_current_term 
+            << " state " << state2str(saved_state);
+        return EINVAL;
+    }
 
     PeerId candidate_id;
     if (0 != candidate_id.parse(request->server_id())) {
@@ -1821,6 +1839,16 @@ void NodeImpl::handle_append_entries_request(baidu::rpc::Controller* cntl,
     // pre set term, to avoid get term in lock
     response->set_term(_current_term);
 
+    if (!is_active_state(_state)) {
+        const int64_t saved_current_term = _current_term;
+        const State saved_state = _state;
+        lck.unlock();
+        LOG(WARNING) << "node " << _group_id << ":" << _server_id << " is not in active state " << "current_term " << saved_current_term 
+            << " state " << state2str(saved_state);
+        cntl->SetFailed(EINVAL, "node %s:%s is not in active state, state %s", _group_id.c_str(), _server_id.to_string().c_str(), state2str(saved_state));
+        return;
+    }
+
     PeerId server_id;
     if (0 != server_id.parse(request->server_id())) {
         lck.unlock();
@@ -1840,7 +1868,7 @@ void NodeImpl::handle_append_entries_request(baidu::rpc::Controller* cntl,
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
             << " ignore stale AppendEntries from " << request->server_id()
             << " in term " << request->term()
-            << " current_term " << _current_term;
+            << " current_term " << saved_current_term;
         response->set_success(false);
         response->set_term(saved_current_term);
         return;
@@ -1985,6 +2013,7 @@ void NodeImpl::handle_install_snapshot_request(baidu::rpc::Controller* controlle
                                     google::protobuf::Closure* done) {
     baidu::rpc::ClosureGuard done_guard(done);
     baidu::rpc::Controller* cntl = (baidu::rpc::Controller*)controller;
+
     if (_snapshot_executor == NULL) {
         cntl->SetFailed(EINVAL, "Not support snapshot");
         return;
@@ -1996,6 +2025,17 @@ void NodeImpl::handle_install_snapshot_request(baidu::rpc::Controller* controlle
         return;
     }
     std::unique_lock<raft_mutex_t> lck(_mutex);
+    
+    if (!is_active_state(_state)) {
+        const int64_t saved_current_term = _current_term;
+        const State saved_state = _state;
+        lck.unlock();
+        LOG(WARNING) << "node " << _group_id << ":" << _server_id << " is not in active state " << "current_term " << saved_current_term 
+            << " state " << state2str(saved_state);
+        cntl->SetFailed(EINVAL, "node %s:%s is not in active state, state %s", _group_id.c_str(), _server_id.to_string().c_str(), state2str(saved_state));
+        return;
+    }
+
     // check stale term
     if (request->term() < _current_term) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id

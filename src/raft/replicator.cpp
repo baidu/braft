@@ -343,8 +343,11 @@ void Replicator::_on_rpc_returned(ReplicatorId id, baidu::rpc::Controller* cntl,
     }
 
     RAFT_VLOG << " success";
-
-    CHECK_EQ(response->term(), r->_options.term);
+    
+    if (response->term() != r->_options.term) {
+        LOG(ERROR) << "Fail, response term " << response->term() << " dismatch, expect term " << r->_options.term;
+        return;
+    }
     r->_last_response_timestamp = base::monotonic_time_ms();
     const int entries_size = request->entries_size();
     RAFT_VLOG_IF(entries_size > 0) << "Replicated logs in [" 
