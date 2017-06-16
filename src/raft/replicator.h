@@ -25,6 +25,7 @@ class NodeImpl;
 struct ReplicatorOptions {
     ReplicatorOptions();
     int* dynamic_heartbeat_timeout_ms;
+    int* election_timeout_ms;
     GroupId group_id;
     PeerId server_id;
     PeerId peer_id;
@@ -67,7 +68,7 @@ public:
 
     static int join(ReplicatorId);
 
-    static int64_t last_response_timestamp(ReplicatorId id);
+    static int64_t last_rpc_send_timestamp(ReplicatorId id);
 
     // Wait until the margin between |last_log_index| from leader and the peer
     // is less than |max_margin| or error occurs. 
@@ -131,12 +132,14 @@ private:
     static void _on_rpc_returned(
                 ReplicatorId id, baidu::rpc::Controller* cntl,
                 AppendEntriesRequest* request, 
-                AppendEntriesResponse* response);
+                AppendEntriesResponse* response,
+                int64_t);
 
     static void _on_heartbeat_returned(
                 ReplicatorId id, baidu::rpc::Controller* cntl,
                 AppendEntriesRequest* request, 
-                AppendEntriesResponse* response);
+                AppendEntriesResponse* response,
+                int64_t);
 
     static void _on_timeout_now_returned(
                 ReplicatorId id, baidu::rpc::Controller* cntl,
@@ -167,7 +170,11 @@ private:
     int _consecutive_error_times;
     bool _has_succeeded;
     int64_t _timeout_now_index;
-    int64_t _last_response_timestamp;
+    // the sending time of last successful RPC
+    int64_t _last_rpc_send_timestamp;
+    int64_t _heartbeat_counter;
+    int64_t _append_entries_counter;
+    int64_t _install_snapshot_counter;
     Stat _st;
     baidu::rpc::CallId _rpc_in_fly;
     baidu::rpc::CallId _heartbeat_in_fly;
@@ -183,6 +190,7 @@ private:
 struct ReplicatorGroupOptions {
     ReplicatorGroupOptions();
     int heartbeat_timeout_ms;
+    int election_timeout_ms;
     LogManager* log_manager;
     CommitmentManager* commit_manager;
     NodeImpl* node;
@@ -215,7 +223,7 @@ public:
     int wait_caughtup(const PeerId& peer, int64_t max_margin,
                       const timespec* due_time, CatchupClosure* done);
 
-    int64_t last_response_timestamp(const PeerId& peer);
+    int64_t last_rpc_send_timestamp(const PeerId& peer);
 
     // Stop all the replicators
     int stop_all();
@@ -263,6 +271,7 @@ private:
     std::map<PeerId, ReplicatorId> _rmap;
     ReplicatorOptions _common_options;
     int _dynamic_timeout_ms;
+    int _election_timeout_ms;
 };
 
 }  // namespace raft

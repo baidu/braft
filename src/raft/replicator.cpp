@@ -46,7 +46,10 @@ Replicator::Replicator()
     , _consecutive_error_times(0)
     , _has_succeeded(false)
     , _timeout_now_index(0)
-    , _last_response_timestamp(0)
+    , _last_rpc_send_timestamp(0)
+    , _heartbeat_counter(0)
+    , _append_entries_counter(0)
+    , _install_snapshot_counter(0)
     , _wait_id(0)
     , _reader(NULL)
     , _catchup_closure(NULL)
@@ -103,7 +106,7 @@ int Replicator::start(const ReplicatorOptions& options, ReplicatorId *id) {
     }
     LOG(INFO) << "Replicator=" << r->_id << "@" << r->_options.peer_id << " is started";
     r->_catchup_closure = NULL;
-    r->_last_response_timestamp = base::monotonic_time_ms();
+    r->_last_rpc_send_timestamp = base::monotonic_time_ms();
     r->_start_heartbeat_timer(base::gettimeofday_us());
     // Note: r->_id is unlock in _send_empty_entries, don't touch r ever after
     r->_send_empty_entries(false);
@@ -120,13 +123,13 @@ int Replicator::join(ReplicatorId id) {
     return bthread_id_join(dummy_id);
 }
 
-int64_t Replicator::last_response_timestamp(ReplicatorId id) {
+int64_t Replicator::last_rpc_send_timestamp(ReplicatorId id) {
     bthread_id_t dummy_id = { id };
     Replicator* r = NULL;
     if (bthread_id_lock(dummy_id, (void**)&r) != 0) {
         return 0;
     }
-    int64_t timestamp = r->_last_response_timestamp;
+    int64_t timestamp = r->_last_rpc_send_timestamp;
     CHECK_EQ(0, bthread_id_unlock(dummy_id))
         << "Fail to unlock " << dummy_id;
     return timestamp;
@@ -214,7 +217,8 @@ void Replicator::_block(long start_time_us, int /*error_code NOTE*/) {
 void Replicator::_on_heartbeat_returned(
         ReplicatorId id, baidu::rpc::Controller* cntl,
         AppendEntriesRequest* request, 
-        AppendEntriesResponse* response) {
+        AppendEntriesResponse* response,
+        int64_t rpc_send_time) {
     std::unique_ptr<baidu::rpc::Controller> cntl_gurad(cntl);
     std::unique_ptr<AppendEntriesRequest>  req_gurad(request);
     std::unique_ptr<AppendEntriesResponse> res_gurad(response);
@@ -259,7 +263,9 @@ void Replicator::_on_heartbeat_returned(
         return;
     }
     RAFT_VLOG;
-    r->_last_response_timestamp = base::monotonic_time_ms();
+    if (rpc_send_time > r->_last_rpc_send_timestamp){
+        r->_last_rpc_send_timestamp = rpc_send_time; 
+    }
     r->_start_heartbeat_timer(start_time_us);
     CHECK_EQ(0, bthread_id_unlock(dummy_id)) << "Fail to unlock " << dummy_id;
     return;
@@ -267,7 +273,8 @@ void Replicator::_on_heartbeat_returned(
 
 void Replicator::_on_rpc_returned(ReplicatorId id, baidu::rpc::Controller* cntl,
                      AppendEntriesRequest* request, 
-                     AppendEntriesResponse* response) {
+                     AppendEntriesResponse* response,
+                     int64_t rpc_send_time) {
     std::unique_ptr<baidu::rpc::Controller> cntl_gurad(cntl);
     std::unique_ptr<AppendEntriesRequest>  req_gurad(request);
     std::unique_ptr<AppendEntriesResponse> res_gurad(response);
@@ -316,16 +323,16 @@ void Replicator::_on_rpc_returned(ReplicatorId id, baidu::rpc::Controller* cntl,
         }
         RAFT_VLOG << " fail, find next_index remote last_log_index " << response->last_log_index()
             << " local next_index " << r->_next_index;
-
+        if (rpc_send_time > r->_last_rpc_send_timestamp) {
+            r->_last_rpc_send_timestamp = rpc_send_time; 
+        }
         // prev_log_index and prev_log_term doesn't match
         if (response->last_log_index() + 1 < r->_next_index) {
             LOG(INFO) << "last_log_index at peer=" << r->_options.peer_id 
                       << " is " << response->last_log_index();
-            r->_last_response_timestamp = base::monotonic_time_ms();
             // The peer contains less logs than leader
             r->_next_index = response->last_log_index() + 1;
         } else {  
-            r->_last_response_timestamp = base::monotonic_time_ms();
             // The peer contains logs from old term which should be truncated,
             // decrease _last_log_at_peer by one to test the right index to keep
             if (BAIDU_LIKELY(r->_next_index > 1)) {
@@ -348,7 +355,9 @@ void Replicator::_on_rpc_returned(ReplicatorId id, baidu::rpc::Controller* cntl,
         LOG(ERROR) << "Fail, response term " << response->term() << " dismatch, expect term " << r->_options.term;
         return;
     }
-    r->_last_response_timestamp = base::monotonic_time_ms();
+    if (rpc_send_time > r->_last_rpc_send_timestamp) {
+        r->_last_rpc_send_timestamp = rpc_send_time; 
+    }
     const int entries_size = request->entries_size();
     RAFT_VLOG_IF(entries_size > 0) << "Replicated logs in [" 
                                    << r->_next_index << ", " 
@@ -415,11 +424,15 @@ void Replicator::_send_empty_entries(bool is_heartbeat) {
     }
     if (is_heartbeat) {
         _heartbeat_in_fly = cntl->call_id();
+        _heartbeat_counter++;
+        // set RPC timeout for heartbeat, how long should timeout be is waiting to be optimized.
+        cntl->set_timeout_ms(*_options.election_timeout_ms / 2);
     } else {
         _st.st = APPENDING_ENTRIES;
         _st.first_log_index = _next_index;
         _st.last_log_index = _next_index - 1;
         _rpc_in_fly = cntl->call_id();
+        _append_entries_counter++;
     }
 
     RAFT_VLOG << "node " << _options.group_id << ":" << _options.server_id
@@ -429,7 +442,7 @@ void Replicator::_send_empty_entries(bool is_heartbeat) {
 
     google::protobuf::Closure* done = baidu::rpc::NewCallback(
                 is_heartbeat ? _on_heartbeat_returned :  _on_rpc_returned, 
-                _id.value, cntl.get(), request.get(), response.get());
+                _id.value, cntl.get(), request.get(), response.get(), base::monotonic_time_ms());
 
     RaftService_Stub stub(&_sending_channel);
     stub.append_entries(cntl.release(), request.release(), 
@@ -486,6 +499,7 @@ void Replicator::_send_entries() {
     }
 
     _rpc_in_fly = cntl->call_id();
+    _append_entries_counter++;
 
     RAFT_VLOG << "node " << _options.group_id << ":" << _options.server_id
         << " send AppendEntriesRequest to " << _options.peer_id << " term " << _options.term
@@ -496,11 +510,9 @@ void Replicator::_send_entries() {
     _st.st = APPENDING_ENTRIES;
     _st.first_log_index = request->prev_log_index() + 1;
     _st.last_log_index = request->prev_log_index() + request->entries_size();
-    google::protobuf::Closure* done = baidu::rpc::NewCallback<
-        ReplicatorId, baidu::rpc::Controller*, AppendEntriesRequest*,
-        AppendEntriesResponse*>(
+    google::protobuf::Closure* done = baidu::rpc::NewCallback(
                 _on_rpc_returned, _id.value, cntl.get(), 
-                request.get(), response.get());
+                request.get(), response.get(), base::monotonic_time_ms());
     RaftService_Stub stub(&_sending_channel);
     stub.append_entries(cntl.release(), request.release(), 
                         response.release(), done);
@@ -585,6 +597,7 @@ void Replicator::_install_snapshot() {
         << " last_included_index " << meta.last_included_index() << " uri " << uri;
 
     _rpc_in_fly = cntl->call_id();
+    _install_snapshot_counter++;
     _st.st = INSTALLING_SNAPSHOT;
     _st.last_log_included = meta.last_included_index();
     _st.last_term_included = meta.last_included_term();
@@ -787,7 +800,7 @@ int Replicator::_transfer_leadership(int64_t log_index) {
         _send_timeout_now(true, false);
         return 0;
     }
-    // Register log_index so that _on_rpc_returned would trigger
+    // Register log_index so that _on_rpc_returne trigger
     // _send_timeout_now if _next_index reaches log_index
     _timeout_now_index = log_index;
     CHECK_EQ(0, bthread_id_unlock(_id)) << "Fail to unlock " << _id;
@@ -909,6 +922,9 @@ void Replicator::_describe(std::ostream& os, bool use_html) {
     const int64_t next_index = _next_index;
     const bthread_id_t id = _id;
     const int consecutive_error_times = _consecutive_error_times;
+    const int64_t heartbeat_counter = _heartbeat_counter;
+    const int64_t append_entries_counter = _append_entries_counter;
+    const int64_t install_snapshot_counter = _install_snapshot_counter;
     CHECK_EQ(0, bthread_id_unlock(_id));
     // Don't touch *this ever after
     const char* new_line = use_html ? "<br>" : "\r\n";
@@ -929,7 +945,7 @@ void Replicator::_describe(std::ostream& os, bool use_html) {
            << ", " << st.last_term_included  << '}';
         break;
     }
-    os << new_line;
+    os << new_line << "hc=" << heartbeat_counter << " ac=" << append_entries_counter << " ic" << install_snapshot_counter << new_line;
 }
 
 void Replicator::describe(ReplicatorId id, std::ostream& os, bool use_html) {
@@ -946,6 +962,7 @@ void Replicator::describe(ReplicatorId id, std::ostream& os, bool use_html) {
 
 ReplicatorGroupOptions::ReplicatorGroupOptions()
     : heartbeat_timeout_ms(-1)
+    , election_timeout_ms(-1)
     , log_manager(NULL)
     , commit_manager(NULL)
     , node(NULL)
@@ -954,8 +971,10 @@ ReplicatorGroupOptions::ReplicatorGroupOptions()
 
 ReplicatorGroup::ReplicatorGroup() 
     : _dynamic_timeout_ms(-1)
+    , _election_timeout_ms(-1)
 {
     _common_options.dynamic_heartbeat_timeout_ms = &_dynamic_timeout_ms;
+    _common_options.election_timeout_ms = &_election_timeout_ms;
 }
 
 ReplicatorGroup::~ReplicatorGroup() {
@@ -964,6 +983,7 @@ ReplicatorGroup::~ReplicatorGroup() {
 
 int ReplicatorGroup::init(const NodeId& node_id, const ReplicatorGroupOptions& options) {
     _dynamic_timeout_ms = options.heartbeat_timeout_ms;
+    _election_timeout_ms = options.election_timeout_ms;
     _common_options.log_manager = options.log_manager;
     _common_options.commit_manager = options.commit_manager;
     _common_options.node = options.node;
@@ -1002,13 +1022,13 @@ int ReplicatorGroup::wait_caughtup(const PeerId& peer,
     return 0;
 }
 
-int64_t ReplicatorGroup::last_response_timestamp(const PeerId& peer) {
+int64_t ReplicatorGroup::last_rpc_send_timestamp(const PeerId& peer) {
     std::map<PeerId, ReplicatorId>::iterator iter = _rmap.find(peer);
     if (iter == _rmap.end()) {
         return 0;
     }
     ReplicatorId rid = iter->second;
-    return Replicator::last_response_timestamp(rid);
+    return Replicator::last_rpc_send_timestamp(rid);
 }
 
 int ReplicatorGroup::stop_replicator(const PeerId &peer) {

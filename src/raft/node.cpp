@@ -342,6 +342,7 @@ int NodeImpl::init(const NodeOptions& options) {
         // init replicator
         ReplicatorGroupOptions options;
         options.heartbeat_timeout_ms = heartbeat_timeout(_options.election_timeout_ms);
+        options.election_timeout_ms = _options.election_timeout_ms;
         options.log_manager = _log_manager;
         options.commit_manager = _commit_manager;
         options.node = this;
@@ -540,7 +541,7 @@ void NodeImpl::on_caughtup(const PeerId& peer, int64_t term,
 
         // Retry if the node doesn't step down
         if (error_code == ETIMEDOUT &&
-            (base::monotonic_time_ms() -  _replicator_group.last_response_timestamp(peer)) <=
+            (base::monotonic_time_ms() -  _replicator_group.last_rpc_send_timestamp(peer)) <=
             _options.election_timeout_ms) {
 
             LOG(INFO) << "node " << _group_id << ":" << _server_id << " catching up " << peer;
@@ -594,7 +595,7 @@ void NodeImpl::handle_stepdown_timeout() {
             continue;
         }
 
-        if (now_timestamp - _replicator_group.last_response_timestamp(peers[i]) <=
+        if (now_timestamp - _replicator_group.last_rpc_send_timestamp(peers[i]) <=
             _options.election_timeout_ms) {
             ++alive_count;
             continue;
