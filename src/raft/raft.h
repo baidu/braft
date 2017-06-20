@@ -143,11 +143,11 @@ public:
     // task no matter this operation succeeds or fails, otherwise the
     // corresponding resources would leak.
     //
-    // If this task is propased by this Node when it was the leader of group and
-    // the leadership has not changed before this point, done() is exactly what
-    // was passed ot Node::apply which may stand for some continuation (such as
-    // respond to the client) after updating the StateMachine with the given
-    // task. Otherweise done() must be NULL.
+    // If this task is proposed by this Node when it was the leader of this 
+    // group and the leadership has not changed before this point, done() is 
+    // exactly what was passed to Node::apply which may stand for some 
+    // continuation (such as respond to the client) after updating the 
+    // StateMachine with the given task. Otherweise done() must be NULL.
     Closure* done() const;
 
     // Return true this iterator is currently references to a valid task, false
