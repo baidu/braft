@@ -945,7 +945,7 @@ void Replicator::_describe(std::ostream& os, bool use_html) {
            << ", " << st.last_term_included  << '}';
         break;
     }
-    os << new_line << "hc=" << heartbeat_counter << " ac=" << append_entries_counter << " ic" << install_snapshot_counter << new_line;
+    os << " hc=" << heartbeat_counter << " ac=" << append_entries_counter << " ic=" << install_snapshot_counter << new_line;
 }
 
 void Replicator::describe(ReplicatorId id, std::ostream& os, bool use_html) {
