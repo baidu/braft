@@ -153,6 +153,7 @@ int NodeImpl::init_snapshot_storage() {
     opt.log_manager = _log_manager;
     opt.addr = _server_id.addr;
     opt.init_term = _current_term;
+    opt.usercode_in_pthread = _options.usercode_in_pthread;
     if (_options.snapshot_hook) {
         opt.snapshot_hook = *_options.snapshot_hook;
     }

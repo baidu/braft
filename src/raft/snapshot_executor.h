@@ -25,13 +25,14 @@ struct SnapshotExecutorOptions {
     SnapshotExecutorOptions();
     // URI of SnapshotStorage
     std::string uri;
-    
+   
     FSMCaller* fsm_caller;
     NodeImpl* node;
     LogManager* log_manager;
     int64_t init_term;
     base::EndPoint addr;
     scoped_refptr<SnapshotHook> snapshot_hook;
+    bool usercode_in_pthread;
 };
 
 // Executing Snapshot related stuff
@@ -134,6 +135,7 @@ friend class InstallSnapshotDone;
     bool _saving_snapshot;
     bool _loading_snapshot;
     bool _stopped;
+    bool _usercode_in_pthread;
     SnapshotStorage* _snapshot_storage;
     SnapshotCopier* _cur_copier;
     FSMCaller* _fsm_caller;
@@ -154,6 +156,7 @@ inline SnapshotExecutorOptions::SnapshotExecutorOptions()
     , node(NULL)
     , log_manager(NULL)
     , init_term(0)
+    , usercode_in_pthread(false)
 {}
 
 }  // namespace raft

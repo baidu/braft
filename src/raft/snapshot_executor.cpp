@@ -102,7 +102,7 @@ void SnapshotExecutor::do_snapshot(Closure* done) {
         lck.unlock();
         if (done) {
             done->status().set_error(EPERM, "Is stopped");
-            run_closure_in_bthread(done);
+            run_closure_in_bthread(done, _usercode_in_pthread);
         }
         return;
     }
@@ -111,7 +111,7 @@ void SnapshotExecutor::do_snapshot(Closure* done) {
         lck.unlock();
         if (done) {
             done->status().set_error(EBUSY, "Is loading another snapshot");
-            run_closure_in_bthread(done);
+            run_closure_in_bthread(done, _usercode_in_pthread);
         }
         return;
     }
@@ -121,7 +121,7 @@ void SnapshotExecutor::do_snapshot(Closure* done) {
         lck.unlock();
         if (done) {
             done->status().set_error(EBUSY, "Is saving anther snapshot");
-            run_closure_in_bthread(done);
+            run_closure_in_bthread(done, _usercode_in_pthread);
         }
         return;
     }
@@ -132,7 +132,7 @@ void SnapshotExecutor::do_snapshot(Closure* done) {
         lck.unlock();
         _log_manager->clear_bufferred_logs();
         if (done) {
-            run_closure_in_bthread(done);
+            run_closure_in_bthread(done, _usercode_in_pthread);
         }
         return;
     }
@@ -141,7 +141,7 @@ void SnapshotExecutor::do_snapshot(Closure* done) {
         lck.unlock();
         if (done) {
             done->status().set_error(EIO, "Fail to create writer");
-            run_closure_in_bthread(done);
+            run_closure_in_bthread(done, _usercode_in_pthread);
         }
         report_error(EIO, "Fail to create SnapshotWriter");
         return;
@@ -152,7 +152,7 @@ void SnapshotExecutor::do_snapshot(Closure* done) {
         lck.unlock();
         if (done) {
             snapshot_save_done->status().set_error(EHOSTDOWN, "The raft node is down");
-            run_closure_in_bthread(snapshot_save_done);
+            run_closure_in_bthread(snapshot_save_done, _usercode_in_pthread);
         }
         return;
     }
@@ -278,7 +278,7 @@ void* SaveSnapshotDone::continue_run(void* arg) {
         self->_done->status() = self->status();
     }
     if (self->_done) {
-        self->_done->Run();
+        run_closure_in_bthread(self->_done, true);
     }
     return NULL;
 }
@@ -305,6 +305,7 @@ int SnapshotExecutor::init(const SnapshotExecutorOptions& options) {
     _fsm_caller = options.fsm_caller;
     _node = options.node;
     _term = options.init_term;
+    _usercode_in_pthread = options.usercode_in_pthread;
 
     _snapshot_storage = SnapshotStorage::create(options.uri);
     if (!_snapshot_storage) {
