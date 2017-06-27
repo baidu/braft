@@ -145,14 +145,6 @@ inline uint32_t crc32(const base::IOBuf& buf) {
     return hash;
 }
 
-// Create a sub directory of an existing |parent_path|. Requiring that
-// |parent_path| must exist.
-// Returns true on successful creation, or if the directory already exists.
-// Returns false on failure and sets *error appropriately, if it is non-NULL.
-bool create_sub_directory(const base::FilePath& parent_path,
-                          const base::FilePath& sub_path,
-                          base::File::Error* error = NULL);
-
 // Start a bthread to run closure
 void run_closure_in_bthread(::google::protobuf::Closure* closure,
                            bool in_pthread = false);

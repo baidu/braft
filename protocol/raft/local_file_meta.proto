@@ -7,6 +7,7 @@ enum FileSource {
 }
 
 message LocalFileMeta {
-    optional bytes user_meta = 1;
+    optional bytes user_meta   = 1;
     optional FileSource source = 2;
+    optional string checksum   = 3;
 }

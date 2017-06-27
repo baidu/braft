@@ -12,6 +12,7 @@
 #include "raft/file_service.h"
 #include "raft/util.h"
 #include "raft/remote_file_copier.h"
+#include "raft/file_system_adaptor.h"
 
 namespace raft {
 DECLARE_bool(raft_file_check_hole);
@@ -33,17 +34,18 @@ protected:
 };
 
 TEST_F(FileServiceTest, sanity) {
-    scoped_refptr<raft::LocalDirReader> reader(new raft::LocalDirReader("a"));
+    raft::FileSystemAdaptor* fs = raft::default_file_system();
+    scoped_refptr<raft::LocalDirReader> reader(new raft::LocalDirReader(fs, "a"));
     int64_t reader_id = 0;
     ASSERT_EQ(0, raft::file_service_add(reader.get(), &reader_id));
     std::string uri;
     base::string_printf(&uri, "remote://127.0.0.1:60006/%ld", reader_id);
     raft::RemoteFileCopier copier;
-    ASSERT_NE(0, copier.init("local://127.0.0.1:60006/123456"));
-    ASSERT_NE(0, copier.init("remote://127.0.0.1:60006//123456"));
-    ASSERT_NE(0, copier.init("remote://127.0.1:60006//123456"));
-    ASSERT_NE(0, copier.init("remote://127.0.0.1//123456"));
-    ASSERT_EQ(0, copier.init(uri));
+    ASSERT_NE(0, copier.init("local://127.0.0.1:60006/123456", fs));
+    ASSERT_NE(0, copier.init("remote://127.0.0.1:60006//123456", fs));
+    ASSERT_NE(0, copier.init("remote://127.0.1:60006//123456", fs));
+    ASSERT_NE(0, copier.init("remote://127.0.0.1//123456", fs));
+    ASSERT_EQ(0, copier.init(uri, fs));
 
     // normal copy dir
     system("chmod -R 755 ./a; chmod -R 755 ./b");
@@ -85,7 +87,8 @@ TEST_F(FileServiceTest, hole_file) {
         ASSERT_EQ(static_cast<size_t>(nwriten), strlen(buf));
     }
     ::close(fd);
-    scoped_refptr<raft::LocalDirReader> reader(new raft::LocalDirReader("a"));
+    raft::FileSystemAdaptor* fs = raft::default_file_system();
+    scoped_refptr<raft::LocalDirReader> reader(new raft::LocalDirReader(fs, "a"));
     int64_t reader_id = 0;
     ASSERT_EQ(0, raft::file_service_add(reader.get(), &reader_id));
 
@@ -94,7 +97,7 @@ TEST_F(FileServiceTest, hole_file) {
     base::string_printf(&uri, "remote://127.0.0.1:60006/%ld", reader_id);
     // normal init
     raft::FLAGS_raft_file_check_hole = false;
-    ASSERT_EQ(0, copier.init(uri));
+    ASSERT_EQ(0, copier.init(uri, fs));
     ASSERT_TRUE(base::CreateDirectory(base::FilePath("./b")));
     ASSERT_EQ(0, copier.copy_to_file("hole.data", "./b/hole.data", NULL));
     ret = system("diff ./a/hole.data ./b/hole.data");

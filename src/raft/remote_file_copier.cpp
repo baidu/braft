@@ -14,6 +14,7 @@
 #include <bthread.h>
 #include <baidu/rpc/controller.h>
 #include "raft/util.h"
+#include "raft/snapshot.h"
 
 namespace raft {
 
@@ -25,7 +26,7 @@ RemoteFileCopier::RemoteFileCopier()
     : _reader_id(0)
 {}
 
-int RemoteFileCopier::init(const std::string& uri) {
+int RemoteFileCopier::init(const std::string& uri, FileSystemAdaptor* fs) {
     // Parse uri format: remote://ip:port/reader_id
     static const size_t prefix_size = strlen("remote://");
     base::StringPiece uri_str(uri);
@@ -46,6 +47,7 @@ int RemoteFileCopier::init(const std::string& uri) {
         LOG(ERROR) << "Fail to init Channel to " << ip_and_port;
         return -1;
     }
+    _fs = fs;
     return 0;
 }
 
@@ -75,9 +77,9 @@ int RemoteFileCopier::read_piece_of_file(
     return 0;
 }
 
-int RemoteFileCopier::copy_to_file(
-        const std::string& source, const std::string& dest_path,
-        const CopyOptions* options) {
+int RemoteFileCopier::copy_to_file(const std::string& source,
+                                   const std::string& dest_path,
+                                   const CopyOptions* options) {
     scoped_refptr<Session> session = start_to_copy_to_file(
                                         source, dest_path, options);
     if (session == NULL) {
@@ -104,17 +106,18 @@ RemoteFileCopier::start_to_copy_to_file(
                       const std::string& source,
                       const std::string& dest_path,
                       const CopyOptions* options) {
-    base::fd_guard fd(
-            ::open(dest_path.c_str(), O_TRUNC | O_WRONLY | O_CREAT, 0644));
+    base::File::Error e;
+    FileAdaptor* file = _fs->open(dest_path, O_TRUNC | O_WRONLY | O_CREAT | O_CLOEXEC, NULL, &e);
     
-    if (fd < 0) {
-        PLOG(ERROR) << "Fail to open " << dest_path;
+    if (!file) {
+        LOG(ERROR) << "Fail to open " << dest_path 
+                   << ", " << base::File::ErrorToString(e);
         return NULL;
     }
-    base::make_close_on_exec(fd);
 
     scoped_refptr<Session> session(new Session());
-    session->_fd = fd.release();
+    session->_dest_path = dest_path;
+    session->_file = file;
     session->_request.set_filename(source);
     session->_request.set_reader_id(_reader_id);
     session->_channel = &_channel;
@@ -132,7 +135,7 @@ RemoteFileCopier::start_to_copy_to_iobuf(
                       const CopyOptions* options) {
     dest_buf->clear();
     scoped_refptr<Session> session(new Session());
-    session->_fd = -1;
+    session->_file = NULL;
     session->_buf = dest_buf;
     session->_request.set_filename(source);
     session->_request.set_reader_id(_reader_id);
@@ -146,7 +149,7 @@ RemoteFileCopier::start_to_copy_to_iobuf(
 
 RemoteFileCopier::Session::Session() 
     : _channel(NULL)
-    , _fd(-1)
+    , _file(NULL)
     , _retry_times(0)
     , _finished(false)
     , _buf(NULL)
@@ -156,9 +159,9 @@ RemoteFileCopier::Session::Session()
 }
 
 RemoteFileCopier::Session::~Session() {
-    if (_fd >=0 ) {
-        ::close(_fd);
-        _fd = -1;
+    if (_file) {
+        delete _file;
+        _file = NULL;
     }
 }
 
@@ -214,15 +217,15 @@ void RemoteFileCopier::Session::on_rpc_returned() {
         return;
     }
     _retry_times = 0;
-    if (_fd >= 0) {
+    if (_file) {
         FileSegData data(_cntl.response_attachment());
         uint64_t seg_offset = 0;
         base::IOBuf seg_data;
         while (0 != data.next(&seg_offset, &seg_data)) {
-            ssize_t nwritten = file_pwrite(seg_data, _fd, seg_offset);
+            ssize_t nwritten = _file->write(seg_data, seg_offset);
             if (static_cast<size_t>(nwritten) != seg_data.size()) {
-                PLOG(WARNING) << "Fail to write into fd=" << _fd;
-                _st.set_error(errno, "%s", berror(errno));
+                LOG(WARNING) << "Fail to write into file: " << _dest_path;
+                _st.set_error(EIO, "%s", berror(EIO));
                 return on_finished();
             }
             seg_data.clear();
@@ -263,9 +266,9 @@ void RemoteFileCopier::Session::on_timer(void* arg) {
 
 void RemoteFileCopier::Session::on_finished() {
     if (!_finished) {
-        if (_fd >= 0) {
-            ::close(_fd);
-            _fd = -1;
+        if (_file) {
+            delete _file;
+            _file = NULL;
         }
         _finished = true;
         _finish_event.signal();

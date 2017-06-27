@@ -317,27 +317,6 @@ TEST_F(TestUsageSuits, is_zero) {
     free(data);
 }
 
-TEST_F(TestUsageSuits, create_sub_directory) {
-    base::ScopedTempDir temp_dir;
-    ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
-    ASSERT_TRUE(base::CreateDirectory(temp_dir.path()));
-    base::FilePath parent_path = temp_dir.path().Append("sub1");
-    ASSERT_FALSE(raft::create_sub_directory(parent_path, base::FilePath("/")));
-    ASSERT_FALSE(raft::create_sub_directory(parent_path, base::FilePath("")));
-    ASSERT_FALSE(raft::create_sub_directory(parent_path, base::FilePath("/sub2")));
-    ASSERT_FALSE(raft::create_sub_directory(parent_path, base::FilePath("/sub2/sub3")));
-    ASSERT_FALSE(raft::create_sub_directory(parent_path, base::FilePath("sub4/sub5")));
-    ASSERT_FALSE(base::DirectoryExists(parent_path.Append("sub2").Append("sub3")));
-    ASSERT_FALSE(base::DirectoryExists(parent_path.Append("sub4").Append("sub5")));
-    ASSERT_FALSE(base::DirectoryExists(parent_path));
-    ASSERT_TRUE(base::CreateDirectory(parent_path));
-    ASSERT_TRUE(raft::create_sub_directory(parent_path, base::FilePath("/sub2/sub3")));
-    ASSERT_TRUE(raft::create_sub_directory(parent_path, base::FilePath("sub4/sub5")));
-    ASSERT_TRUE(base::DirectoryExists(parent_path.Append("sub2").Append("sub3")));
-    ASSERT_TRUE(base::DirectoryExists(parent_path.Append("sub4").Append("sub5")));
-    ASSERT_FALSE(raft::create_sub_directory(parent_path, base::FilePath("../sub4/sub5")));
-}
-
 TEST_F(TestUsageSuits, file_path) {
     base::FilePath path("dir/");
     LOG(INFO) << "dir_name=" << path.DirName().value()

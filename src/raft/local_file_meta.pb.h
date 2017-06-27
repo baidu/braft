@@ -127,20 +127,34 @@ class LocalFileMeta : public ::google::protobuf::Message {
   inline raft::FileSource source() const;
   inline void set_source(raft::FileSource value);
   
+  // optional string checksum = 3;
+  inline bool has_checksum() const;
+  inline void clear_checksum();
+  static const int kChecksumFieldNumber = 3;
+  inline const ::std::string& checksum() const;
+  inline void set_checksum(const ::std::string& value);
+  inline void set_checksum(const char* value);
+  inline void set_checksum(const char* value, size_t size);
+  inline ::std::string* mutable_checksum();
+  inline ::std::string* release_checksum();
+  
   // @@protoc_insertion_point(class_scope:raft.LocalFileMeta)
  private:
   inline void set_has_user_meta();
   inline void clear_has_user_meta();
   inline void set_has_source();
   inline void clear_has_source();
+  inline void set_has_checksum();
+  inline void clear_has_checksum();
   
   ::google::protobuf::UnknownFieldSet _unknown_fields_;
   
   ::std::string* user_meta_;
+  ::std::string* checksum_;
   int source_;
   
   mutable int _cached_size_;
-  ::google::protobuf::uint32 _has_bits_[(2 + 31) / 32];
+  ::google::protobuf::uint32 _has_bits_[(3 + 31) / 32];
   
   friend void  protobuf_AddDesc_raft_2flocal_5ffile_5fmeta_2eproto();
   friend void protobuf_AssignDesc_raft_2flocal_5ffile_5fmeta_2eproto();
@@ -235,6 +249,64 @@ inline void LocalFileMeta::set_source(raft::FileSource value) {
   GOOGLE_DCHECK(raft::FileSource_IsValid(value));
   set_has_source();
   source_ = value;
+}
+
+// optional string checksum = 3;
+inline bool LocalFileMeta::has_checksum() const {
+  return (_has_bits_[0] & 0x00000004u) != 0;
+}
+inline void LocalFileMeta::set_has_checksum() {
+  _has_bits_[0] |= 0x00000004u;
+}
+inline void LocalFileMeta::clear_has_checksum() {
+  _has_bits_[0] &= ~0x00000004u;
+}
+inline void LocalFileMeta::clear_checksum() {
+  if (checksum_ != &::google::protobuf::internal::kEmptyString) {
+    checksum_->clear();
+  }
+  clear_has_checksum();
+}
+inline const ::std::string& LocalFileMeta::checksum() const {
+  return *checksum_;
+}
+inline void LocalFileMeta::set_checksum(const ::std::string& value) {
+  set_has_checksum();
+  if (checksum_ == &::google::protobuf::internal::kEmptyString) {
+    checksum_ = new ::std::string;
+  }
+  checksum_->assign(value);
+}
+inline void LocalFileMeta::set_checksum(const char* value) {
+  set_has_checksum();
+  if (checksum_ == &::google::protobuf::internal::kEmptyString) {
+    checksum_ = new ::std::string;
+  }
+  checksum_->assign(value);
+}
+inline void LocalFileMeta::set_checksum(const char* value, size_t size) {
+  set_has_checksum();
+  if (checksum_ == &::google::protobuf::internal::kEmptyString) {
+    checksum_ = new ::std::string;
+  }
+  checksum_->assign(reinterpret_cast<const char*>(value), size);
+}
+inline ::std::string* LocalFileMeta::mutable_checksum() {
+  set_has_checksum();
+  if (checksum_ == &::google::protobuf::internal::kEmptyString) {
+    checksum_ = new ::std::string;
+  }
+  return checksum_;
+}
+inline ::std::string* LocalFileMeta::release_checksum() {
+  clear_has_checksum();
+  if (checksum_ == &::google::protobuf::internal::kEmptyString) {
+    return NULL;
+  } else {
+    ::std::string* temp = checksum_;
+    checksum_ = const_cast< ::std::string*>(&::google::protobuf::internal::kEmptyString);
+    return temp;
+  }
 }
 
 

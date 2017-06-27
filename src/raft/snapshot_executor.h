@@ -20,6 +20,7 @@
 namespace raft {
 class NodeImpl;
 class SnapshotHook;
+class FileSystemAdaptor;
 
 struct SnapshotExecutorOptions {
     SnapshotExecutorOptions();
@@ -31,8 +32,9 @@ struct SnapshotExecutorOptions {
     LogManager* log_manager;
     int64_t init_term;
     base::EndPoint addr;
-    scoped_refptr<SnapshotHook> snapshot_hook;
+    bool filter_before_copy_remote;
     bool usercode_in_pthread;
+    scoped_refptr<FileSystemAdaptor> file_system_adaptor;
 };
 
 // Executing Snapshot related stuff
@@ -156,6 +158,7 @@ inline SnapshotExecutorOptions::SnapshotExecutorOptions()
     , node(NULL)
     , log_manager(NULL)
     , init_term(0)
+    , filter_before_copy_remote(false)
     , usercode_in_pthread(false)
 {}
 

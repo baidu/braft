@@ -9,6 +9,7 @@
 
 #include <string>
 #include <google/protobuf/message.h>
+#include "raft/file_system_adaptor.h"
 
 namespace raft {
 
@@ -17,14 +18,15 @@ namespace raft {
 // protobuf data
 class ProtoBufFile {
 public:
-    ProtoBufFile(const char* path) : _path(path) {}
-    ProtoBufFile(const std::string& path) : _path(path) {}
+    ProtoBufFile(const char* path, FileSystemAdaptor* fs = NULL);
+    ProtoBufFile(const std::string& path, FileSystemAdaptor* fs = NULL);
     ~ProtoBufFile() {}
 
     int save(const ::google::protobuf::Message* message, bool sync);
     int load(::google::protobuf::Message* message);
 private:
     std::string _path;
+    scoped_refptr<FileSystemAdaptor> _fs;
 };
 
 }

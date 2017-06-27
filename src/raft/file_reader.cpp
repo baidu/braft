@@ -5,9 +5,6 @@
 // Date: 2016/06/16 17:38:42
 
 #include "raft/file_reader.h"
-#include <base/fd_guard.h>          // base::fd_guard
-#include <base/fd_utility.h>
-#include <base/file_util.h>
 #include "raft/util.h"
 
 namespace raft {
@@ -17,32 +14,37 @@ int LocalDirReader::read_file(base::IOBuf* out,
                               off_t offset,
                               size_t max_count,
                               bool* is_eof) const {
+    return read_file_with_meta(out, filename, NULL, offset, max_count, is_eof);
+}
+
+int LocalDirReader::read_file_with_meta(base::IOBuf* out,
+                                        const std::string &filename,
+                                        google::protobuf::Message* file_meta,
+                                        off_t offset,
+                                        size_t max_count,
+                                        bool* is_eof) const {
     out->clear();
-    std::string file_path = _path + "/" + filename;
-    base::File::Info info;
-    if (!base::GetFileInfo(base::FilePath(file_path), &info)) {
-        LOG(WARNING) << "Fail to find path=" << file_path;
-        return ENOENT;
+    std::string file_path(_path + "/" + filename);
+    base::File::Error e;
+    FileAdaptor* file = _fs->open(file_path, O_RDONLY | O_CLOEXEC, file_meta, &e);
+    if (!file) {
+        return file_error_to_os_error(e);
     }
-    if (info.is_directory) {
-        LOG(WARNING) << "path=" << file_path << " is a directory";
-        return EISDIR;
-    }
-    base::fd_guard fd(::open(file_path.c_str(), O_RDONLY));
-    if (fd < 0) {
-        return errno;
-    }
-    base::make_close_on_exec(fd);
+    std::unique_ptr<FileAdaptor> guard(file);
     base::IOPortal buf;
-    ssize_t nread = file_pread(&buf, fd, offset, max_count);
+    ssize_t nread = file->read(&buf, offset, max_count);
     if (nread < 0) {
-        return errno;
+        return EIO;
     }
     *is_eof = false;
     if ((size_t)nread < max_count) {
         *is_eof = true;
     } else {
-        if (lseek(fd, 0, SEEK_END) == (offset + (off_t)max_count)) {
+        ssize_t size = file->size();
+        if (size < 0) {
+            return EIO;
+        }
+        if (size == ssize_t(offset + max_count)) {
             *is_eof = true;
         }
     }

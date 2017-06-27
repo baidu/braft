@@ -27,6 +27,10 @@ inline CopyOptions::CopyOptions()
     , timeout_ms(10L * 1000)   // 10s
 {}
 
+class FileAdaptor;
+class FileSystemAdaptor;
+class LocalSnapshotWriter;
+
 class RemoteFileCopier {
 public:
     // Stands for a copying session
@@ -58,7 +62,8 @@ public:
         raft_mutex_t _mutex;
         base::Status _st;
         baidu::rpc::Channel* _channel;
-        int _fd;
+        std::string _dest_path;
+        FileAdaptor* _file;
         int _retry_times;
         bool _finished;
         baidu::rpc::CallId _rpc_call;
@@ -73,12 +78,14 @@ public:
     };
 
     RemoteFileCopier();
-    int init(const std::string& uri);
+    int init(const std::string& uri, FileSystemAdaptor* fs);
     // Copy `source' from remote to dest
     
-    int copy_to_file(const std::string& source, const std::string& dest_path,
+    int copy_to_file(const std::string& source, 
+                     const std::string& dest_path,
                      const CopyOptions* options);
-    int copy_to_iobuf(const std::string& source, base::IOBuf* dest_buf, 
+    int copy_to_iobuf(const std::string& source,
+                      base::IOBuf* dest_buf, 
                       const CopyOptions* options);
     scoped_refptr<Session> start_to_copy_to_file(
                       const std::string& source,
@@ -95,6 +102,7 @@ private:
     DISALLOW_COPY_AND_ASSIGN(RemoteFileCopier);
     baidu::rpc::Channel _channel;
     int64_t _reader_id;
+    scoped_refptr<FileSystemAdaptor> _fs;
 };
 
 }  // namespace raft

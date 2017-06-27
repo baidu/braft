@@ -48,7 +48,7 @@ void FileServiceImpl::get_file(::google::protobuf::RpcController* controller,
     base::IOBuf buf;
     bool is_eof = false;
     const int rc = reader->read_file(
-                            &buf, request->filename(), 
+                            &buf, request->filename(),
                             request->offset(), request->count(), &is_eof);
     if (rc != 0) {
         cntl->SetFailed(rc, "Fail to read from path=%s filename=%s : %s",

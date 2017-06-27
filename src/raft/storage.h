@@ -178,14 +178,20 @@ public:
 };
 
 class SnapshotHook;
+class FileSystemAdaptor;
 
 class SnapshotStorage {
 public:
     virtual ~SnapshotStorage() {}
 
-    virtual int set_hook(SnapshotHook* hook) {
-        (void)hook;
-        CHECK(false) << base::class_name_str(*this) << " doesn't support hook";
+    virtual int set_filter_before_copy_remote() {
+        CHECK(false) << base::class_name_str(*this) << " doesn't support filter before copy remote";
+        return -1;
+    }
+
+    virtual int set_file_system_adaptor(FileSystemAdaptor* fs) {
+        (void)fs;
+        CHECK(false) << base::class_name_str(*this) << " doesn't support file system adaptor";
         return -1;
     }
 

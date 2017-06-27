@@ -10,6 +10,7 @@
 #include <set>                              // std::set
 #include <base/memory/ref_counted.h>        // base::RefCountedThreadsafe
 #include <base/iobuf.h>                     // base::IOBuf
+#include "raft/file_system_adaptor.h"
 
 namespace raft {
 
@@ -37,8 +38,8 @@ protected:
 // Read files within a local directory
 class LocalDirReader : public FileReader {
 public:
-    LocalDirReader(const std::string& path) 
-        : _path(path)
+    LocalDirReader(FileSystemAdaptor* fs, const std::string& path) 
+        : _path(path), _fs(fs)
     {}
     virtual ~LocalDirReader() {}
     // Read data from filename at |offset| (from the start of the file) for at
@@ -51,8 +52,17 @@ public:
                           size_t max_count,
                           bool* is_eof) const;
     virtual const std::string& path() const { return _path; }
+protected:
+    int read_file_with_meta(base::IOBuf* out,
+                            const std::string &filename,
+                            google::protobuf::Message* file_meta,
+                            off_t offset,
+                            size_t max_count,
+                            bool* is_eof) const;
+    const scoped_refptr<FileSystemAdaptor>& file_system() const { return _fs; }
 private:
     std::string _path;
+    scoped_refptr<FileSystemAdaptor> _fs;
 };
 
 }  // namespace raft

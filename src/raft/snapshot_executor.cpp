@@ -312,8 +312,11 @@ int SnapshotExecutor::init(const SnapshotExecutorOptions& options) {
         LOG(ERROR)  << "Fail to find snapshot storage, uri " << options.uri;
         return -1;
     }
-    if (options.snapshot_hook) {
-        _snapshot_storage->set_hook(options.snapshot_hook.get());
+    if (options.filter_before_copy_remote) {
+        _snapshot_storage->set_filter_before_copy_remote();
+    }
+    if (options.file_system_adaptor) {
+        _snapshot_storage->set_file_system_adaptor(options.file_system_adaptor);
     }
     if (_snapshot_storage->init() != 0) {
         LOG(ERROR) << "Fail to init snapshot storage";

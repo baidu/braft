@@ -33,6 +33,7 @@ namespace raft {
 class SnapshotWriter;
 class SnapshotReader;
 class SnapshotHook;
+class FileSystemAdaptor;
 
 // Raft-specific closure which encloses a base::Status to report if the
 // operation was successful.
@@ -323,9 +324,15 @@ struct NodeOptions {
     // Describe a specific SnapshotStorage in format ${type}://${parameters}
     std::string snapshot_uri;
 
-    // If non-null, we will pass this snapshot_hook to SnapshotStorage
+    // If enable, we will filter duplicate files before copy remote snapshot,
+    // to avoid useless transmission. Two files in local and remote are duplicate,
+    // only if they has the same filename and the same checksum (stored in file meta).
+    // Default: false
+    bool filter_before_copy_remote;
+
+    // If non-null, we will pass this snapshot_file_system_adaptor to SnapshotStorage
     // Default: NULL
-    scoped_refptr<SnapshotHook> *snapshot_hook;
+    scoped_refptr<FileSystemAdaptor> *snapshot_file_system_adaptor;
 
     // Construct a default instance
     NodeOptions();
@@ -339,7 +346,8 @@ inline NodeOptions::NodeOptions()
     , fsm(NULL)
     , node_owns_fsm(false)
     , usercode_in_pthread(false)
-    , snapshot_hook(NULL)
+    , filter_before_copy_remote(false)
+    , snapshot_file_system_adaptor(NULL)
 {}
 
 class NodeImpl;

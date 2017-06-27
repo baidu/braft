@@ -5,8 +5,6 @@
 // Date: 2015/11/05 11:34:03
 
 #include <base/time.h>
-#include <base/file_util.h>                         // base::CreateDirectory
-#include <base/files/dir_reader_posix.h>            // base::DirReaderPosix
 #include <base/string_printf.h>                     // base::string_appendf
 #include <baidu/rpc/uri.h>
 #include "raft/util.h"
@@ -46,7 +44,7 @@ int LocalSnapshotMetaTable::remove_file(const std::string& filename) {
     return 0;
 }
 
-int LocalSnapshotMetaTable::save_to_file(const std::string& path) const {
+int LocalSnapshotMetaTable::save_to_file(FileSystemAdaptor* fs, const std::string& path) const {
     LocalSnapshotPbMeta pb_meta;
     if (_meta.IsInitialized()) {
         *pb_meta.mutable_meta() = _meta;
@@ -57,14 +55,14 @@ int LocalSnapshotMetaTable::save_to_file(const std::string& path) const {
         f->set_name(iter->first);
         *f->mutable_meta() = iter->second;
     }
-    ProtoBufFile pb_file(path);
+    ProtoBufFile pb_file(path, fs);
     int ret = pb_file.save(&pb_meta, FLAGS_raft_sync);
     PLOG_IF(ERROR, ret != 0) << "Fail to save meta to " << path;
     return ret;
 }
 
-int LocalSnapshotMetaTable::load_from_file(const std::string& path) {
-    ProtoBufFile pb_file(path);
+int LocalSnapshotMetaTable::load_from_file(FileSystemAdaptor* fs, const std::string& path) {
+    ProtoBufFile pb_file(path, fs);
     LocalSnapshotPbMeta pb_meta;
     if (pb_file.load(&pb_meta) != 0) {
         PLOG(ERROR) << "Fail to load meta from " << path;
@@ -162,26 +160,24 @@ int LocalSnapshot::get_file_meta(const std::string& filename,
     return _meta_table.get_file_meta(filename, meta);
 }
 
-LocalSnapshotWriter::LocalSnapshotWriter(const std::string& path)
-    : _path(path) {
+LocalSnapshotWriter::LocalSnapshotWriter(const std::string& path,
+                                         FileSystemAdaptor* fs)
+    : _path(path), _fs(fs) {
 }
 
 LocalSnapshotWriter::~LocalSnapshotWriter() {
 }
 
 int LocalSnapshotWriter::init() {
-    base::FilePath dir_path(_path);
     base::File::Error e;
-    if (!base::CreateDirectoryAndGetError(dir_path, &e, false)) {
-        LOG(ERROR) << "Fail to create " << dir_path.value() << " : " << e;
-        return -1;
-        set_error(EIO, "CreateDirectory failed, path: %s %m", _path.c_str());
+    if (!_fs->create_directory(_path, &e, false)) {
+        set_error(EIO, "CreateDirectory failed, path: %s", _path.c_str());
         return EIO;
     }
-    base::FilePath meta_path = dir_path.Append(RAFT_SNAPSHOT_META_FILE);
-    if (base::PathExists(meta_path) && 
-                _meta_table.load_from_file(meta_path.value()) != 0) {
-        set_error(EIO, "Fail to load metatable from %s", meta_path.value().c_str());
+    std::string meta_path = _path + "/" RAFT_SNAPSHOT_META_FILE;
+    if (_fs->path_exists(meta_path) && 
+                _meta_table.load_from_file(_fs, meta_path) != 0) {
+        set_error(EIO, "Fail to load metatable from %s", meta_path.c_str());
         return EIO;
     }
     return 0;
@@ -229,7 +225,7 @@ int LocalSnapshotWriter::save_meta(const SnapshotMeta& meta) {
 }
 
 int LocalSnapshotWriter::sync() {
-    const int rc = _meta_table.save_to_file(_path + "/" + RAFT_SNAPSHOT_META_FILE);
+    const int rc = _meta_table.save_to_file(_fs, _path + "/" RAFT_SNAPSHOT_META_FILE);
     if (rc != 0 && ok()) {
         LOG(ERROR) << "Fail to sync";
         set_error(rc, "Fail to sync : %s", berror(rc));
@@ -239,11 +235,11 @@ int LocalSnapshotWriter::sync() {
 
 LocalSnapshotReader::LocalSnapshotReader(const std::string& path,
                                          base::EndPoint server_addr,
-                                         LocalSnapshotHook* hook)
+                                         FileSystemAdaptor* fs)
     : _path(path)
     , _addr(server_addr)
     , _reader_id(0)
-    , _hook(hook)
+    , _fs(fs)
 {}
 
 LocalSnapshotReader::~LocalSnapshotReader() {
@@ -251,13 +247,12 @@ LocalSnapshotReader::~LocalSnapshotReader() {
 }
 
 int LocalSnapshotReader::init() {
-    base::FilePath dir_path(_path);
-    if (!base::DirectoryExists(dir_path)) {
+    if (!_fs->directory_exists(_path)) {
         set_error(ENOENT, "Not such _path : %s", _path.c_str());
         return ENOENT;
     }
-    if (_meta_table.load_from_file(
-                dir_path.Append(RAFT_SNAPSHOT_META_FILE).value()) != 0) {
+    std::string meta_path = _path + "/" RAFT_SNAPSHOT_META_FILE;
+    if (_meta_table.load_from_file(_fs, meta_path) != 0) {
         set_error(EIO, "Fail to load meta");
         return EIO;
     }
@@ -298,10 +293,9 @@ int LocalSnapshotReader::get_file_meta(const std::string& filename,
 
 class SnapshotFileReader : public LocalDirReader {
 public:
-    SnapshotFileReader(const std::string& path,
-                       LocalSnapshotHook* hook)
-            : LocalDirReader(path)
-            , _hook(hook)
+    SnapshotFileReader(FileSystemAdaptor* fs,
+                       const std::string& path)
+            : LocalDirReader(fs, path)
     {
     }
     void set_meta_table(const LocalSnapshotMetaTable &meta_table) {
@@ -320,18 +314,12 @@ public:
         if (_meta_table.get_file_meta(filename, &file_meta) != 0) {
             return EPERM;
         }
-        if (_hook) {
-            return _hook->read_file(out, 
-                    path(), filename, file_meta, 
-                    offset, max_count, is_eof);
-        }
-        return LocalDirReader::read_file(
-                out, filename, offset, max_count, is_eof);
+        return LocalDirReader::read_file_with_meta(
+                out, filename, &file_meta, offset, max_count, is_eof);
     }
     
 private:
     LocalSnapshotMetaTable _meta_table;
-    scoped_refptr<LocalSnapshotHook> _hook;
 };
 
 std::string LocalSnapshotReader::generate_uri_for_copy() {
@@ -341,7 +329,8 @@ std::string LocalSnapshotReader::generate_uri_for_copy() {
     }
     if (_reader_id == 0) {
         // TODO: handler referenced files
-        scoped_refptr<SnapshotFileReader> reader(new SnapshotFileReader(_path, _hook.get()));
+        scoped_refptr<SnapshotFileReader> reader(
+                new SnapshotFileReader(_fs.get(), _path));
         reader->set_meta_table(_meta_table);
         if (file_service_add(reader.get(), &_reader_id) != 0) {
             LOG(ERROR) << "Fail to add reader to file_service";
@@ -369,39 +358,43 @@ LocalSnapshotStorage::~LocalSnapshotStorage() {
 }
 
 int LocalSnapshotStorage::init() {
-    base::FilePath dir_path(_path);
     base::File::Error e;
-    if (!base::CreateDirectoryAndGetError(
-                dir_path, &e, FLAGS_raft_create_parent_directories)) {
-        LOG(ERROR) << "Fail to create " << dir_path.value() << " : " << e;
+    if (_fs == NULL) {
+        _fs = default_file_system();
+    }
+    if (!_fs->create_directory(
+                _path, &e, FLAGS_raft_create_parent_directories)) {
+        LOG(ERROR) << "Fail to create " << _path << " : " << e;
         return -1;
     }
     // delete temp snapshot
-    if (!_hook) {
+    if (!_filter_before_copy_remote) {
         std::string temp_snapshot_path(_path);
         temp_snapshot_path.append("/");
         temp_snapshot_path.append(_s_temp_path);
         LOG(INFO) << "Deleting " << temp_snapshot_path;
-        if (!base::DeleteFile(base::FilePath(temp_snapshot_path), true)) {
+        if (!_fs->delete_file(temp_snapshot_path, true)) {
             LOG(WARNING) << "delete temp snapshot path failed, path " << temp_snapshot_path;
             return EIO;
         }
     }
 
     // delete old snapshot
-    base::DirReaderPosix dir_reader(_path.c_str());
-    if (!dir_reader.IsValid()) {
+    DirReader* dir_reader = _fs->directory_reader(_path);
+    if (!dir_reader->is_valid()) {
         LOG(WARNING) << "directory reader failed, maybe NOEXIST or PERMISSION. path: " << _path;
+        delete dir_reader;
         return EIO;
     }
     std::set<int64_t> snapshots;
-    while (dir_reader.Next()) {
+    while (dir_reader->next()) {
         int64_t index = 0;
-        int match = sscanf(dir_reader.name(), RAFT_SNAPSHOT_PATTERN, &index);
+        int match = sscanf(dir_reader->name(), RAFT_SNAPSHOT_PATTERN, &index);
         if (match == 1) {
             snapshots.insert(index);
         }
     }
+    delete dir_reader;
 
     // TODO: add snapshot watcher
 
@@ -416,7 +409,7 @@ int LocalSnapshotStorage::init() {
             base::string_appendf(&snapshot_path, "/" RAFT_SNAPSHOT_PATTERN, index);
             LOG(INFO) << "Deleting snapshot `" << snapshot_path << "'";
             // TODO: Notify Watcher before delete directories.
-            if (!base::DeleteFile(base::FilePath(snapshot_path), true)) {
+            if (!_fs->delete_file(snapshot_path, true)) {
                 LOG(WARNING) << "delete old snapshot path failed, path " << snapshot_path;
                 return EIO;
             }
@@ -434,21 +427,11 @@ void LocalSnapshotStorage::ref(const int64_t index) {
     _ref_map[index]++;
 }
 
-int LocalSnapshotStorage::destroy_snapshot(
-        const std::string& path, Snapshot* open_snapshot) {
-    LocalSnapshotReader snapshot_reader(path, _addr, _hook.get());
-    if (open_snapshot == NULL && _hook) {
-        if (snapshot_reader.init() == 0) {
-            open_snapshot = &snapshot_reader;
-        }
-    }
+int LocalSnapshotStorage::destroy_snapshot(const std::string& path) {
     LOG(INFO) << "Deleting "  << path;
-    if (!base::DeleteFile(base::FilePath(path), true)) {
+    if (!_fs->delete_file(path, true)) {
         LOG(WARNING) << "delete old snapshot path failed, path " << path;
         return -1;
-    }
-    if (_hook && open_snapshot) {
-        _hook->on_snapshot_destroyed(open_snapshot);
     }
     return 0;
 }
@@ -464,7 +447,7 @@ void LocalSnapshotStorage::unref(const int64_t index) {
             lck.unlock();
             std::string old_path(_path);
             base::string_appendf(&old_path, "/" RAFT_SNAPSHOT_PATTERN, index);
-            destroy_snapshot(old_path, NULL);
+            destroy_snapshot(old_path);
         }
     }
 }
@@ -483,13 +466,13 @@ SnapshotWriter* LocalSnapshotStorage::create(bool from_empty) {
 
         // delete temp
         // TODO: Notify watcher before deleting
-        if (base::PathExists(base::FilePath(snapshot_path)) && from_empty) {
-            if (destroy_snapshot(snapshot_path, NULL) != 0) {
+        if (_fs->path_exists(snapshot_path) && from_empty) {
+            if (destroy_snapshot(snapshot_path) != 0) {
                 break;
             }
         }
 
-        writer = new LocalSnapshotWriter(snapshot_path);
+        writer = new LocalSnapshotWriter(snapshot_path, _fs.get());
         if (writer->init() != 0) {
             LOG(ERROR) << "Fail to init writer";
             delete writer;
@@ -503,13 +486,14 @@ SnapshotWriter* LocalSnapshotStorage::create(bool from_empty) {
 
 SnapshotCopier* LocalSnapshotStorage::start_to_copy_from(const std::string& uri) {
     LocalSnapshotCopier* copier = new LocalSnapshotCopier();
+    copier->_storage = this;
+    copier->_filter_before_copy_remote = _filter_before_copy_remote;
+    copier->_fs = _fs.get();
     if (copier->init(uri) != 0) {
         LOG(ERROR) << "Fail to init copier to " << uri;
         delete copier;
         return NULL;
     }
-    copier->_storage = this;
-    copier->_hook = _hook.get();
     copier->start();
     return copier;
 }
@@ -563,13 +547,13 @@ int LocalSnapshotStorage::close(SnapshotWriter* writer_base, bool keep_data_on_e
         std::string new_path(_path);
         base::string_appendf(&new_path, "/" RAFT_SNAPSHOT_PATTERN, new_index);
         LOG(INFO) << "Deleting " << new_path;
-        if (!base::DeleteFile(base::FilePath(new_path), true)) {
+        if (!_fs->delete_file(new_path, true)) {
             LOG(WARNING) << "delete new snapshot path failed, path " << new_path;
             ret = EIO;
             break;
         }
         LOG(INFO) << "Renaming " << temp_path << " to " << new_path;
-        if (0 != ::rename(temp_path.c_str(), new_path.c_str())) {
+        if (!_fs->rename(temp_path, new_path)) {
             LOG(WARNING) << "rename temp snapshot failed, from_path " << temp_path
                 << " to_path " << new_path;
             ret = EIO;
@@ -587,7 +571,7 @@ int LocalSnapshotStorage::close(SnapshotWriter* writer_base, bool keep_data_on_e
     } while (0);
 
     if (ret != 0 && !keep_data_on_error) {
-        destroy_snapshot(writer->get_path(), writer);
+        destroy_snapshot(writer->get_path());
     }
     delete writer;
     return ret == EEXIST ? 0 : ret;;
@@ -601,7 +585,7 @@ SnapshotReader* LocalSnapshotStorage::open() {
         lck.unlock();
         std::string snapshot_path(_path);
         base::string_appendf(&snapshot_path, "/" RAFT_SNAPSHOT_PATTERN, last_snapshot_index);
-        LocalSnapshotReader* reader = new LocalSnapshotReader(snapshot_path, _addr, _hook.get());
+        LocalSnapshotReader* reader = new LocalSnapshotReader(snapshot_path, _addr, _fs.get());
         if (reader->init() != 0) {
             CHECK(!lck.owns_lock());
             unref(last_snapshot_index);
@@ -622,13 +606,17 @@ int LocalSnapshotStorage::close(SnapshotReader* reader_) {
     return 0;
 }
 
-int LocalSnapshotStorage::set_hook(SnapshotHook* hook) {
-    LocalSnapshotHook* lsh = dynamic_cast<LocalSnapshotHook*>(hook);
-    if (lsh == NULL) {
-        LOG(ERROR) << "lsh is NULL";
+int LocalSnapshotStorage::set_filter_before_copy_remote() {
+    _filter_before_copy_remote = true;
+    return 0;
+}
+
+int LocalSnapshotStorage::set_file_system_adaptor(FileSystemAdaptor* fs) {
+    if (fs == NULL) {
+        LOG(ERROR) << "file system is NULL";
         return -1;
     }
-    _hook = lsh;
+    _fs = fs;
     return 0;
 }
 
@@ -641,7 +629,8 @@ SnapshotStorage* LocalSnapshotStorage::new_instance(const std::string& uri) cons
 LocalSnapshotCopier::LocalSnapshotCopier() 
     : _tid(INVALID_BTHREAD)
     , _cancelled(false)
-    , _hook(NULL)
+    , _filter_before_copy_remote(false)
+    , _fs(NULL)
     , _writer(NULL)
     , _storage(NULL)
     , _reader(NULL)
@@ -678,7 +667,7 @@ void LocalSnapshotCopier::copy() {
         _writer->set_error(error_code(), error_data());
     }
     if (_writer) {
-        _storage->close(_writer, _hook != NULL);
+        _storage->close(_writer, _filter_before_copy_remote);
         _writer = NULL;
     }
     if (ok()) {
@@ -715,15 +704,105 @@ void LocalSnapshotCopier::load_meta_table() {
     CHECK(_remote_snapshot._meta_table.has_meta());
 }
 
+int LocalSnapshotCopier::filter_before_copy(LocalSnapshotWriter* writer, 
+                                            SnapshotReader* last_snapshot) {
+    std::vector<std::string> existing_files;
+    writer->list_files(&existing_files);
+    std::vector<std::string> to_remove;
+
+    for (size_t i = 0; i < existing_files.size(); ++i) {
+        if (_remote_snapshot.get_file_meta(existing_files[i], NULL) != 0) {
+            to_remove.push_back(existing_files[i]);
+            writer->remove_file(existing_files[i]);
+        }
+    }
+
+    std::vector<std::string> remote_files;
+    _remote_snapshot.list_files(&remote_files);
+    for (size_t i = 0; i < remote_files.size(); ++i) {
+        const std::string& filename = remote_files[i];
+        LocalFileMeta remote_meta;
+        CHECK_EQ(0, _remote_snapshot.get_file_meta(
+                filename, &remote_meta));
+        if (!remote_meta.has_checksum()) {
+            // Redownload file if this file doen't have checksum
+            writer->remove_file(filename);
+            to_remove.push_back(filename);
+            continue;
+        }
+
+        LocalFileMeta local_meta;
+        if (writer->get_file_meta(filename, &local_meta) == 0) {
+            if (local_meta.has_checksum() &&
+                local_meta.checksum() == remote_meta.checksum()) {
+                LOG(INFO) << "Keep file=" << filename
+                          << " checksum="
+                          << remote_meta.checksum()
+                          << " in " << writer->get_path();
+                continue;
+            }
+            // Remove files from writer so that the file is to be copied from
+            // remote_snapshot or last_snapshot
+            writer->remove_file(filename);
+            to_remove.push_back(filename);
+        }
+
+        // Try find files in last_snapshot
+        if (!last_snapshot) {
+            continue;
+        }
+        if (last_snapshot->get_file_meta(filename, &local_meta) != 0) {
+            continue;
+        }
+        if (!local_meta.has_checksum() || local_meta.checksum() != remote_meta.checksum()) {
+            continue;
+        }
+        LOG(INFO) << "Found the same file=" << filename
+                  << " checksum=" << remote_meta.checksum()
+                  << " in last_snapshot=" << last_snapshot->get_path();
+        if (local_meta.source() == raft::FILE_SOURCE_LOCAL) {
+            std::string source_path = last_snapshot->get_path() + '/'
+                                      + filename;
+            std::string dest_path = writer->get_path() + '/'
+                                      + filename;
+            _fs->delete_file(dest_path, false);
+            if (!_fs->link(source_path, dest_path)) {
+                PLOG(ERROR) << "Fail to link " << source_path
+                            << " to " << dest_path;
+                continue;
+            }
+            // Don't delete linked file
+            if (!to_remove.empty() && to_remove.back() == filename) {
+                to_remove.pop_back();
+            }
+        }
+        // Copy file from last_snapshot
+        writer->add_file(filename, &local_meta);
+    }
+
+    if (writer->sync() != 0) {
+        LOG(ERROR) << "Fail to sync writer on path=" << writer->get_path();
+        return -1;
+    }
+
+    for (size_t i = 0; i < to_remove.size(); ++i) {
+        std::string file_path = writer->get_path() + "/" + to_remove[i];
+        _fs->delete_file(file_path, false);
+    }
+
+    return 0;
+}
+
 void LocalSnapshotCopier::filter() {
-    _writer = (LocalSnapshotWriter*)_storage->create(_hook != NULL);
+    _writer = (LocalSnapshotWriter*)_storage->create(!_filter_before_copy_remote);
     if (_writer == NULL) {
         set_error(EIO, "Fail to create snapshot writer");
         return;
     }
-    if (_hook) {
+
+    if (_filter_before_copy_remote) {
         SnapshotReader* reader = _storage->open();
-        if (_hook->filter_before_copy(_writer, reader, &_remote_snapshot) != 0) {
+        if (filter_before_copy(_writer, reader) != 0) {
             LOG(WARNING) << "Fail to filter writer before copying"
                          << " destroy and create a new writer";
             _writer->set_error(-1, "Fail to filter");
@@ -758,15 +837,16 @@ void LocalSnapshotCopier::copy_file(const std::string& filename) {
         if (FLAGS_raft_create_parent_directories) {
             base::FilePath sub_dir =
                     base::FilePath(_writer->get_path()).Append(sub_path.DirName());
-            rc = base::CreateDirectoryAndGetError(sub_dir, &e);
+            rc = _fs->create_directory(sub_dir.value(), &e, true);
         } else {
             rc = create_sub_directory(
-                    base::FilePath(_writer->get_path()), sub_path.DirName(), &e);
+                    _writer->get_path(), sub_path.DirName().value(), _fs, &e);
         }
         if (!rc) {
             LOG(ERROR) << "Fail to create directory for " << file_path
                        << " : " << base::File::ErrorToString(e);
-            set_error(EIO, "Fail to create directory");
+            set_error(file_error_to_os_error(e), 
+                      "Fail to create directory");
         }
     }
     LocalFileMeta meta;
@@ -827,7 +907,7 @@ void LocalSnapshotCopier::cancel() {
 }
 
 int LocalSnapshotCopier::init(const std::string& uri) {
-    return _copier.init(uri);
+    return _copier.init(uri, _fs);
 }
 
 }  // namespace raft

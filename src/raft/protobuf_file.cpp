@@ -5,100 +5,100 @@
 // Date: 2015/09/21 16:49:14
 
 #include <base/iobuf.h>
-#include <base/fd_guard.h>
-#include <base/file_util.h>
 #include <base/sys_byteorder.h>
-#include <base/fd_utility.h>
 
 #include "raft/protobuf_file.h"
-#include "raft/fsync.h"
 
 namespace raft {
+
+ProtoBufFile::ProtoBufFile(const char* path, FileSystemAdaptor* fs) 
+    : _path(path), _fs(fs) {
+    if (_fs == NULL) {
+        _fs = default_file_system();
+    }
+}
+
+ProtoBufFile::ProtoBufFile(const std::string& path, FileSystemAdaptor* fs) 
+    : _path(path), _fs(fs) {
+    if (_fs == NULL) {
+        _fs = default_file_system();
+    }
+}
 
 int ProtoBufFile::save(const google::protobuf::Message* message, bool sync) {
     std::string tmp_path(_path);
     tmp_path.append(".tmp");
 
-    int fd = open(tmp_path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
-    if (fd < 0) {
-        PLOG(WARNING) << "create tmp file failed, path: " << tmp_path;
+    base::File::Error e;
+    FileAdaptor* file = _fs->open(tmp_path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, NULL, &e);
+    if (!file) {
+        LOG(WARNING) << "open file failed, path: " << _path
+                     << ": " << base::File::ErrorToString(e);
         return -1;
     }
-    base::make_close_on_exec(fd);
-    base::fd_guard guard(fd);
+    std::unique_ptr<FileAdaptor> guard(file);
 
     // serialize msg
+    base::IOBuf header_buf;
     base::IOBuf msg_buf;
     base::IOBufAsZeroCopyOutputStream msg_wrapper(&msg_buf);
     message->SerializeToZeroCopyStream(&msg_wrapper);
 
     // write len
-    int32_t len = base::HostToNet32(msg_buf.length());
-    if (sizeof(int32_t) != write(fd, &len, sizeof(int32_t))) {
-        PLOG(WARNING) << "write len failed, path: " << tmp_path;
+    int32_t header_len = base::HostToNet32(msg_buf.length());
+    header_buf.append(&header_len, sizeof(int32_t));
+    if (sizeof(int32_t) != file->write(header_buf, 0)) {
+        LOG(WARNING) << "write len failed, path: " << tmp_path;
         return -1;
     }
 
-    // write protobuf data
-    do {
-        ssize_t nw = msg_buf.cut_into_file_descriptor(fd);
-        if (nw < 0 && errno != EINTR) {
-            PLOG(WARNING) << "writev failed, path: " << tmp_path;
-            return -1;
-        }
-    } while (msg_buf.length() > 0);
+    ssize_t len = msg_buf.size();
+    if (len != file->write(msg_buf, sizeof(int32_t))) {
+        LOG(WARNING) << "write failed, path: " << tmp_path;
+        return -1;
+    }
 
     // sync
     if (sync) {
-        if (0 != raft_fsync(fd)) {
-            PLOG(WARNING) << "fsync failed, path: " << tmp_path;
+        if (!file->sync()) {
+            LOG(WARNING) << "sync failed, path: " << tmp_path;
             return -1;
         }
     }
 
     // rename
-    if (0 != rename(tmp_path.c_str(), _path.c_str())) {
-        PLOG(WARNING) << "rename failed, old: " << tmp_path << " , new: " << _path;
+    if (!_fs->rename(tmp_path, _path)) {
+        LOG(WARNING) << "rename failed, old: " << tmp_path << " , new: " << _path;
         return -1;
     }
     return 0;
 }
 
 int ProtoBufFile::load(google::protobuf::Message* message) {
-    int fd = ::open(_path.c_str(), O_RDONLY);
-    if (fd < 0) {
-        PLOG(WARNING) << "open file failed, path: " << _path;
+    base::File::Error e;
+    FileAdaptor* file = _fs->open(_path, O_RDONLY, NULL, &e);
+    if (!file) {
+        LOG(WARNING) << "open file failed, path: " << _path
+                     << ": " << base::File::ErrorToString(e);
         return -1;
     }
 
-    base::fd_guard guard(fd);
+    std::unique_ptr<FileAdaptor> guard(file);
 
     // len
-    int32_t len = 0;
-    if (sizeof(int32_t) != read(fd, &len, sizeof(int32_t))) {
-        PLOG(WARNING) << "read len failed, path: " << _path;
+    base::IOPortal header_buf;
+    if (sizeof(int32_t) != file->read(&header_buf, 0, sizeof(int32_t))) {
+        LOG(WARNING) << "read len failed, path: " << _path;
         return -1;
     }
+    int32_t len = 0;
+    header_buf.copy_to(&len, sizeof(int32_t));
     int32_t left_len = base::NetToHost32(len);
 
     // read protobuf data
     base::IOPortal msg_buf;
-    do {
-        ssize_t read_len = msg_buf.append_from_file_descriptor(fd, left_len);
-        if (read_len > 0) {
-            left_len -= read_len;
-        } else if (read_len == 0) {
-            break;
-        } else if (errno == EINTR) {
-            continue;
-        } else {
-            PLOG(WARNING) << "readv failed, path: " << _path;
-            break;
-        }
-    } while (left_len > 0);
-
-    if (left_len > 0) {
-        PLOG(WARNING) << "read body failed, path: " << _path;
+    if (left_len != file->read(&msg_buf, sizeof(int32_t), left_len)) {
+        LOG(WARNING) << "read body failed, path: " << _path;
         return -1;
     }
 

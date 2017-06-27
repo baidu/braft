@@ -12,7 +12,7 @@
 #include "raft/storage.h"
 #include "raft/macros.h"
 #include "raft/local_file_meta.pb.h"
-#include "raft/snapshot_hook.h"
+#include "raft/file_system_adaptor.h"
 #include "raft/remote_file_copier.h"
 
 namespace raft {
@@ -25,8 +25,8 @@ public:
     int add_file(const std::string& filename, 
                  const LocalFileMeta& file_meta);
     int remove_file(const std::string& filename);
-    int save_to_file(const std::string& path) const;
-    int load_from_file(const std::string& path);
+    int save_to_file(FileSystemAdaptor* fs, const std::string& path) const;
+    int load_from_file(FileSystemAdaptor* fs, const std::string& path);
     int get_file_meta(const std::string& filename, LocalFileMeta* file_meta) const;
     void list_files(std::vector<std::string> *files) const;
     bool has_meta() { return _meta.IsInitialized(); }
@@ -68,13 +68,16 @@ public:
                               ::google::protobuf::Message* file_meta);
     // Sync meta table to disk
     int sync();
+    FileSystemAdaptor* file_system() { return _fs.get(); }
 private:
     // Users shouldn't create LocalSnapshotWriter Directly
-    LocalSnapshotWriter(const std::string& path);
+    LocalSnapshotWriter(const std::string& path, 
+                        FileSystemAdaptor* fs);
     virtual ~LocalSnapshotWriter();
 
     std::string _path;
     LocalSnapshotMetaTable _meta_table;
+    scoped_refptr<FileSystemAdaptor> _fs;
 };
 
 class LocalSnapshotReader: public SnapshotReader {
@@ -98,7 +101,7 @@ private:
     // Users shouldn't create LocalSnapshotReader Directly
     LocalSnapshotReader(const std::string& path,
                         base::EndPoint server_addr,
-                        LocalSnapshotHook* hook);
+                        FileSystemAdaptor* fs);
     virtual ~LocalSnapshotReader();
     void destroy_reader_in_file_service();
 
@@ -106,7 +109,7 @@ private:
     LocalSnapshotMetaTable _meta_table;
     base::EndPoint _addr;
     int64_t _reader_id;
-    scoped_refptr<LocalSnapshotHook> _hook;
+    scoped_refptr<FileSystemAdaptor> _fs;
 };
 
 // Describe the Snapshot on another machine
@@ -139,13 +142,16 @@ private:
     void start();
     void copy();
     void load_meta_table();
+    int filter_before_copy(LocalSnapshotWriter* writer, 
+                           SnapshotReader* last_snapshot);
     void filter();
     void copy_file(const std::string& filename);
 
     raft_mutex_t _mutex;
     bthread_t _tid;
     bool _cancelled;
-    LocalSnapshotHook* _hook;
+    bool _filter_before_copy_remote;
+    FileSystemAdaptor* _fs;
     LocalSnapshotWriter* _writer;
     LocalSnapshotStorage* _storage;
     SnapshotReader* _reader;
@@ -173,24 +179,26 @@ public:
     virtual SnapshotReader* copy_from(const std::string& uri) WARN_UNUSED_RESULT;
     virtual SnapshotCopier* start_to_copy_from(const std::string& uri);
     virtual int close(SnapshotCopier* copier);
-    virtual int set_hook(SnapshotHook* hook);
+    virtual int set_filter_before_copy_remote();
+    virtual int set_file_system_adaptor(FileSystemAdaptor* fs);
 
     SnapshotStorage* new_instance(const std::string& uri) const;
     void set_server_addr(base::EndPoint server_addr) { _addr = server_addr; }
     bool has_server_addr() { return _addr != base::EndPoint(); }
 private:
     SnapshotWriter* create(bool from_empty) WARN_UNUSED_RESULT;
-    int destroy_snapshot(const std::string& path ,Snapshot* open_snapshot);
+    int destroy_snapshot(const std::string& path);
     int close(SnapshotWriter* writer, bool keep_data_on_error);
     void ref(const int64_t index);
     void unref(const int64_t index);
 
     raft_mutex_t _mutex;
     std::string _path;
+    bool _filter_before_copy_remote;
     int64_t _last_snapshot_index;
     std::map<int64_t, int> _ref_map;
     base::EndPoint _addr;
-    scoped_refptr<LocalSnapshotHook> _hook;
+    scoped_refptr<FileSystemAdaptor> _fs;
 };
 
 }  // namespace raft
