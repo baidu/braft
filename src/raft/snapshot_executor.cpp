@@ -193,6 +193,8 @@ int SnapshotExecutor::on_snapshot_save_done(
         _last_snapshot_index = meta.last_included_index();
         _last_snapshot_term = meta.last_included_term();
         lck.unlock();
+        LOG(INFO) << "snapshot_save_done, last_included_index=" << meta.last_included_index()
+                  << " last_included_term=" << meta.last_included_term(); 
         _log_manager->set_snapshot(&meta);
         lck.lock();
     }

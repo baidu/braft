@@ -159,7 +159,8 @@ TEST_F(FSMCallerTest, on_leader_start_and_stop) {
     opt.closure_queue = &cq;
     raft::FSMCaller caller;
     ASSERT_EQ(0, caller.init(opt));
-    caller.on_leader_stop();
+    base::Status status;
+    caller.on_leader_stop(status);
     caller.shutdown();
     fsm.join();
     ASSERT_EQ(0, fsm._on_leader_start_times);

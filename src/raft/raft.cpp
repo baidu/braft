@@ -212,6 +212,7 @@ int StateMachine::on_snapshot_load(SnapshotReader* reader) {
 void StateMachine::on_leader_start() {}
 void StateMachine::on_leader_start(int64_t) { return on_leader_start(); }
 void StateMachine::on_leader_stop() {}
+void StateMachine::on_leader_stop(const base::Status&) { return on_leader_stop(); }
 void StateMachine::on_error(const Error& e) {
     LOG(ERROR) << "An error=" << e << " raised on StateMachine "
                << base::class_name_str(*this)
@@ -224,5 +225,8 @@ void StateMachine::on_configuration_committed(const Configuration& conf) {
     (void)conf;
     return;
 }
+
+void StateMachine::on_stop_following(const LeaderChangeContext&) {}
+void StateMachine::on_start_following(const LeaderChangeContext&) {}
 
 }

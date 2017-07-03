@@ -27,7 +27,7 @@ CPPFLAGS('$(ENV_CXXFLAGS)')
 #CPPFLAGS('-fno-builtin-memcmp')
 #CONFIGS('baidu/public/rocksdb@ci-base@null')
 
-CXXFLAGS('-pipe -Wall -W -g -fPIC -Wno-invalid-offsetof -D__STDC_CONSTANT_MACROS -Dprivate=public -Dprotected=public ')
+CXXFLAGS('-pipe -Wall -W -g -fPIC -fsanitize=address -fno-omit-frame-pointer -Wno-invalid-offsetof -D__STDC_CONSTANT_MACROS -Dprivate=public -Dprotected=public ')
 
 
 import os
@@ -46,7 +46,7 @@ if gcc_version >= 40000:
     CXXFLAGS('-Wno-unused-local-typedefs -Wno-missing-field-initializers')
 
 INCPATHS('../../')
-LDFLAGS('-pthread -lrt -ldl -lz -lssl -lcrypto -lbz2')
+LDFLAGS('-pthread -lrt -ldl -lz -lssl -lcrypto -lbz2 -lasan')
 
 #CXXFLAGS('-fsanitize=address -fno-omit-frame-pointer')
 #LDFLAGS('-lasan')

@@ -185,7 +185,7 @@ public:
     void on_configuration_change_done(int64_t term);
 
     // called when leader recv greater term in AppendEntriesResponse, ref with Replicator
-    int increase_term_to(int64_t new_term);
+    int increase_term_to(int64_t new_term, const base::Status& status);
 
     // Temporary solution
     void update_configuration_after_installing_snapshot();
@@ -217,8 +217,18 @@ private:
     // become leader
     void become_leader();
 
-    // step down to follower
-    void step_down(const int64_t term, bool wakeup_a_candidate);
+    // step down to follower, status give the reason
+    void step_down(const int64_t term, bool wakeup_a_candidate, const base::Status& status);
+
+    // reset leader_id. 
+    // When new_leader_id is NULL, it means this node just stop following a leader; 
+    // otherwise, it means setting this node's leader_id to new_leader_id.
+    // status gives the situation under which this method is called.
+    void reset_leader_id(const PeerId& new_leader_id, const base::Status& status);
+
+    // check weather to step_down when receiving append_entries/install_snapshot
+    // requests.
+    void check_step_down(const int64_t term, const PeerId& server_id);
 
     // pre vote before elect_self
     void pre_vote(std::unique_lock<raft_mutex_t>* lck);

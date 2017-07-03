@@ -55,9 +55,14 @@ void protobuf_AddDesc_raft_2ferrno_2eproto() {
   GOOGLE_PROTOBUF_VERIFY_VERSION;
 
   ::google::protobuf::DescriptorPool::InternalAddGeneratedFile(
-    "\n\020raft/errno.proto\022\004raft*:\n\tRaftError\022\n\n"
-    "\005ETERM\020\221N\022\022\n\rESTATEMACHINE\020\222N\022\r\n\010ECATCHU"
-    "P\020\223N", 84);
+    "\n\020raft/errno.proto\022\004raft*\225\002\n\tRaftError\022\022"
+    "\n\rERAFTTIMEDOUT\020\221N\022\022\n\rESTATEMACHINE\020\222N\022\r"
+    "\n\010ECATCHUP\020\223N\022\023\n\016ELEADERREMOVED\020\224N\022\r\n\010ES"
+    "ETPEER\020\225N\022\022\n\rENODESHUTDOWN\020\226N\022\027\n\022EHIGHER"
+    "TERMREQUEST\020\227N\022\030\n\023EHIGHERTERMRESPONSE\020\230N"
+    "\022\r\n\010EBADNODE\020\231N\022\026\n\021EVOTEFORCANDIDATE\020\232N\022"
+    "\017\n\nENEWLEADER\020\233N\022\024\n\017ELEADERCONFLICT\020\234N\022\030"
+    "\n\023ETRANSFERLEADERSHIP\020\235N", 304);
   ::google::protobuf::MessageFactory::InternalRegisterGeneratedFile(
     "raft/errno.proto", &protobuf_RegisterTypes);
   ::google::protobuf::internal::OnShutdown(&protobuf_ShutdownFile_raft_2ferrno_2eproto);
@@ -79,6 +84,16 @@ bool RaftError_IsValid(int value) {
     case 10001:
     case 10002:
     case 10003:
+    case 10004:
+    case 10005:
+    case 10006:
+    case 10007:
+    case 10008:
+    case 10009:
+    case 10010:
+    case 10011:
+    case 10012:
+    case 10013:
       return true;
     default:
       return false;

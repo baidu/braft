@@ -20,6 +20,7 @@
 #include "raft/builtin_service_impl.h"
 #include "raft/node_manager.h"
 #include "raft/snapshot_executor.h"
+#include "raft/errno.pb.h"
 
 namespace raft {
 
@@ -361,7 +362,7 @@ int NodeImpl::init(const NodeOptions& options) {
             << " last_log_id: " << _log_manager->last_log_id()
             << " conf: " << _conf.second;
         if (!_conf.second.empty()) {
-            step_down(_current_term, false);
+            step_down(_current_term, false, base::Status::OK());
         }
 
         // add node to NodeManager
@@ -450,8 +451,11 @@ void NodeImpl::on_configuration_change_done(int64_t term) {
             iter = removed.begin(); iter != removed.end(); ++iter) {
         _replicator_group.stop_replicator(*iter);
     }
+   
     if (removed.contains(_server_id)) {
-        step_down(_current_term, true);
+        base::Status status;
+        status.set_error(ELEADERREMOVED, "Raft leader removed, step down to wake up a new one.");
+        step_down(_current_term, true, status);
     }
     _conf_ctx.reset();
 }
@@ -610,7 +614,10 @@ void NodeImpl::handle_stepdown_timeout() {
     LOG(INFO) << "node " << _group_id << ":" << _server_id
         << " term " << _current_term << " stepdown when alive nodes don't satisfy quorum"
         << " dead_nodes: " << dead_nodes;
-    step_down(_current_term, false);
+    
+    base::Status status;
+    status.set_error(ERAFTTIMEDOUT, "Raft leader reaches step_down timeout.");
+    step_down(_current_term, false, status);
 }
 
 bool NodeImpl::unsafe_register_conf_change(const std::vector<PeerId>& old_peers,
@@ -741,7 +748,8 @@ void NodeImpl::remove_peer(const std::vector<PeerId>& old_peers, const PeerId& p
     return unsafe_apply_configuration(new_conf, done);
 }
 
-int NodeImpl::set_peer(const std::vector<PeerId>& old_peers, const std::vector<PeerId>& new_peers) {
+int NodeImpl::set_peer(const std::vector<PeerId>& old_peers, 
+        const std::vector<PeerId>& new_peers) {
     BAIDU_SCOPED_LOCK(_mutex);
 
     if (new_peers.empty()) {
@@ -750,17 +758,22 @@ int NodeImpl::set_peer(const std::vector<PeerId>& old_peers, const std::vector<P
     }
     // check state
     if (!is_active_state(_state)) {
-        LOG(WARNING) << "node " << _group_id << ":" << _server_id << " shutdown, can't set_peer";
+        LOG(WARNING) << "node " << _group_id << ":" << _server_id 
+            << " shutdown, can't set_peer";
         return EPERM;
     }
     // check bootstrap
     if (_conf.second.empty()) {
         if (old_peers.size() == 0 && new_peers.size() > 0) {
             Configuration new_conf(new_peers);
-            LOG(INFO) << "node " << _group_id << ":" << _server_id << " set_peer boot from "
+            LOG(INFO) << "node " << _group_id << ":" << _server_id 
+                << " set_peer boot from "
                 << new_conf;
             _conf.second = new_conf;
-            step_down(_current_term + 1, false);
+            // set_peer boot and step_down
+            base::Status status;
+            status.set_error(ESETPEER, "Raft node set peer boot.");
+            step_down(_current_term + 1, false, status);
             return 0;
         } else {
             LOG(WARNING) << "node " << _group_id << ":" << _server_id
@@ -770,8 +783,8 @@ int NodeImpl::set_peer(const std::vector<PeerId>& old_peers, const std::vector<P
     }
     // check concurrent conf change
     if (_state == STATE_LEADER && !_conf_ctx.empty()) {
-        LOG(WARNING) << "node " << _group_id << ":" << _server_id << " set_peer need wait "
-            "current conf change";
+        LOG(WARNING) << "node " << _group_id << ":" << _server_id 
+            << " set_peer need wait current conf change";
         return EBUSY;
     }
     // check equal, maybe retry direct return
@@ -781,29 +794,32 @@ int NodeImpl::set_peer(const std::vector<PeerId>& old_peers, const std::vector<P
     if (!old_peers.empty()) {
         // check not equal
         if (!_conf.second.equals(std::vector<PeerId>(old_peers))) {
-            LOG(WARNING) << "node " << _group_id << ":" << _server_id << " set_peer dismatch old_peers";
+            LOG(WARNING) << "node " << _group_id << ":" << _server_id 
+                << " set_peer dismatch old_peers";
             return EINVAL;
         }
         // check quorum
         if (new_peers.size() >= (old_peers.size() / 2 + 1)) {
-            LOG(WARNING) << "node " << _group_id << ":" << _server_id << " set_peer new_peers greater "
-                "than old_peers'quorum";
+            LOG(WARNING) << "node " << _group_id << ":" << _server_id 
+                << " set_peer new_peers greater than old_peers'quorum";
             return EINVAL;
         }
         // check contain
         if (!_conf.second.contains(new_peers)) {
-            LOG(WARNING) << "node " << _group_id << ":" << _server_id << " set_peer old_peers not "
-                "contains all new_peers";
+            LOG(WARNING) << "node " << _group_id << ":" << _server_id 
+                << " set_peer old_peers not contains all new_peers";
             return EINVAL;
         }
     }
 
     Configuration new_conf(new_peers);
-    LOG(INFO) << "node " << _group_id << ":" << _server_id << " set_peer from " << _conf.second
-        << " to " << new_conf;
+    LOG(INFO) << "node " << _group_id << ":" << _server_id << " set_peer from " 
+        << _conf.second << " to " << new_conf;
     // change conf and step_down
     _conf.second = new_conf;
-    step_down(_current_term + 1, false);
+    base::Status status;
+    status.set_error(ESETPEER, "Raft node set peer normally.");
+    step_down(_current_term + 1, false, status);
     return 0;
 }
 
@@ -835,9 +851,14 @@ void NodeImpl::shutdown(Closure* done) {
             // Remove node from NodeManager and |this| would not be accessed by
             // the comming RPCs
             NodeManager::GetInstance()->remove(this);
-            if (_state < STATE_FOLLOWER) {
-                step_down(_current_term, _state == STATE_LEADER);
+            // if it is leader, set the wakeup_a_candidate with true,
+            // if it is follower, call on_stop_following in step_down
+            if (_state <= STATE_FOLLOWER) {
+                base::Status status;
+                status.set_error(ESHUTDOWN, "Raft node is going to quit.");
+                step_down(_current_term, _state == STATE_LEADER, status);
             }
+
             // change state to shutdown
             _state = STATE_SHUTTING;
 
@@ -909,8 +930,12 @@ void NodeImpl::handle_election_timeout() {
         return;
     }
     _vote_triggered = false;
+
     // Reset leader as the leader is uncerntain on election timeout.
-    _leader_id.reset();
+    PeerId empty_id;
+    base::Status status;
+    status.set_error(ERAFTTIMEDOUT, "No message from leader for %d milliseconds.", _options.election_timeout_ms);
+    reset_leader_id(empty_id, status);
 
     return pre_vote(&lck);
     // Don't touch any thing of *this ever after
@@ -925,7 +950,9 @@ void NodeImpl::handle_timeout_now_request(baidu::rpc::Controller* controller,
     if (request->term() != _current_term) {
         const int64_t saved_current_term = _current_term;
         if (request->term() > _current_term) {
-            step_down(request->term(), false);
+            base::Status status;
+            status.set_error(EHIGHERTERMREQUEST, "Raft node receives higher term request.");
+            step_down(request->term(), false, status);
         }
         response->set_term(_current_term);
         response->set_success(false);
@@ -1047,9 +1074,12 @@ int NodeImpl::transfer_leadership_to(const PeerId& peer) {
         return EINVAL;
     }
     _state = STATE_TRANSFERING;
-    _fsm_caller->on_leader_stop();
+    base::Status status;
+    status.set_error(ETRANSFERLEADERSHIP, "Raft leader is transfering "
+            "leadership to a follower.");
+    _fsm_caller->on_leader_stop(status);
     LOG(INFO) << "node " << _group_id << ":" << _server_id
-              << "starts to transfer leadership to " << peer;
+              << " starts to transfer leadership to " << peer;
     _stop_transfer_arg = new StopTransferArg(this, _current_term, peer);
     if (bthread_timer_add(&_transfer_timer,
                        base::milliseconds_from_now(_options.election_timeout_ms),
@@ -1082,8 +1112,12 @@ void NodeImpl::on_error(const Error& e) {
     LOG(WARNING) << "node " << _group_id << ":" << _server_id
                  << " got error=" << e;
     std::unique_lock<raft_mutex_t> lck(_mutex);
-    if (_state < STATE_FOLLOWER) {
-        step_down(_current_term, _state == STATE_LEADER);
+    // if it is leader, need to wake up a new one.
+    // if it is follower, also step down to call on_stop_following
+    if (_state <= STATE_FOLLOWER) {
+        base::Status status;
+        status.set_error(EBADNODE, "Raft node(leader or candidate) is in error.");
+        step_down(_current_term, _state == STATE_LEADER, status);
     }
     if (_state < STATE_ERROR) {
         _state = STATE_ERROR;
@@ -1126,7 +1160,10 @@ void NodeImpl::handle_request_vote_response(const PeerId& peer_id, const int64_t
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
             << " received invalid RequestVoteResponse from " << peer_id
             << " term " << response.term() << " expect " << _current_term;
-        step_down(response.term(), false);
+        base::Status status;
+        status.set_error(EHIGHERTERMRESPONSE, "Raft node receives higher term "
+                "request_vote_response.");
+        step_down(response.term(), false, status);
         return;
     }
 
@@ -1193,7 +1230,10 @@ void NodeImpl::handle_pre_vote_response(const PeerId& peer_id, const int64_t ter
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
             << " received invalid PreVoteResponse from " << peer_id
             << " term " << response.term() << " expect " << _current_term;
-        step_down(response.term(), false);
+        base::Status status;
+        status.set_error(EHIGHERTERMRESPONSE, "Raft node receives higher term "
+                "pre_vote_response.");
+        step_down(response.term(), false, status);
         return;
     }
 
@@ -1319,9 +1359,12 @@ void NodeImpl::elect_self(std::unique_lock<raft_mutex_t>* lck) {
             << " term " << _current_term << " stop election_timer";
         _election_timer.stop();
     }
-
     // reset leader_id before vote
-    _leader_id.reset();
+    PeerId empty_id;
+    base::Status status;
+    status.set_error(ERAFTTIMEDOUT, "A follower's leader_id is reset to NULL "
+            "as it begins to request_vote.");
+    reset_leader_id(empty_id, status);
 
     _state = STATE_CANDIDATE;
     _current_term++;
@@ -1385,7 +1428,8 @@ void NodeImpl::elect_self(std::unique_lock<raft_mutex_t>* lck) {
 }
 
 // in lock
-void NodeImpl::step_down(const int64_t term, bool wakeup_a_candidate) {
+void NodeImpl::step_down(const int64_t term, bool wakeup_a_candidate, 
+        const base::Status& status) {
     LOG(INFO) << "node " << _group_id << ":" << _server_id
         << " term " << _current_term << " stepdown from " << state2str(_state)
         << " new_term " << term << " wakeup_a_candidate=" << wakeup_a_candidate;
@@ -1407,15 +1451,18 @@ void NodeImpl::step_down(const int64_t term, bool wakeup_a_candidate) {
 
         // signal fsm leader stop immediately
         if (_state  == STATE_LEADER) {
-            _fsm_caller->on_leader_stop();
+            _fsm_caller->on_leader_stop(status);
         }
     }
+    
+    // reset leader_id 
+    PeerId empty_id;
+    reset_leader_id(empty_id, status);
 
     // soft state in memory
     _state = STATE_FOLLOWER;
     _pre_vote_ctx.reset();
     _vote_ctx.reset();
-    _leader_id.reset();
     _conf_ctx.reset();
     _last_leader_timestamp = base::monotonic_time_ms();
 
@@ -1455,6 +1502,47 @@ void NodeImpl::step_down(const int64_t term, bool wakeup_a_candidate) {
         // There is at most one StopTransferTimer at the same term, it's safe to
         // mark _stop_transfer_arg to NULL
         _stop_transfer_arg = NULL;
+    }
+}
+// in lock
+void NodeImpl::reset_leader_id(const PeerId& new_leader_id, 
+        const base::Status& status) {
+    if (new_leader_id.is_empty()) {
+        if (!_leader_id.is_empty() && _state > STATE_TRANSFERING) {
+            LeaderChangeContext stop_following_context(_leader_id, 
+                    _current_term, status);
+            _fsm_caller->on_stop_following(stop_following_context);
+        }
+        _leader_id.reset();
+    } else {
+        if (_leader_id.is_empty()) {
+            LeaderChangeContext start_following_context(new_leader_id, 
+                    _current_term, status);
+            _fsm_caller->on_start_following(start_following_context);
+        }
+        _leader_id = new_leader_id;
+    }
+}
+
+// in lock
+void NodeImpl::check_step_down(const int64_t request_term, const PeerId& server_id) {
+    base::Status status;
+    if (request_term > _current_term) {
+        status.set_error(ENEWLEADER, "Raft node receives message from "
+                "new leader with higher term."); 
+        step_down(request_term, false, status);
+    } else if (_state != STATE_FOLLOWER) { 
+        status.set_error(ENEWLEADER, "Candidate receives message "
+                "from new leader with the same term.");
+        step_down(request_term, false, status);
+    } else if (_leader_id.is_empty()) {
+        status.set_error(ENEWLEADER, "Follower receives message"
+                "from new leader with the same term.");
+        step_down(request_term, false, status); 
+    }
+    // save current leader
+    if (_leader_id.is_empty()) { 
+        reset_leader_id(server_id, status);
     }
 }
 
@@ -1630,7 +1718,8 @@ int NodeImpl::handle_pre_vote_request(const RequestVoteRequest* request,
         const int64_t saved_current_term = _current_term;
         const State saved_state = _state;
         lck.unlock();
-        LOG(WARNING) << "node " << _group_id << ":" << _server_id << " is not in active state " << "current_term " << saved_current_term 
+        LOG(WARNING) << "node " << _group_id << ":" << _server_id 
+            << " is not in active state " << "current_term " << saved_current_term 
             << " state " << state2str(saved_state);
         return EINVAL;
     }
@@ -1684,7 +1773,8 @@ int NodeImpl::handle_request_vote_request(const RequestVoteRequest* request,
         const int64_t saved_current_term = _current_term;
         const State saved_state = _state;
         lck.unlock();
-        LOG(WARNING) << "node " << _group_id << ":" << _server_id << " is not in active state " << "current_term " << saved_current_term 
+        LOG(WARNING) << "node " << _group_id << ":" << _server_id 
+            << " is not in active state " << "current_term " << saved_current_term 
             << " state " << state2str(saved_state);
         return EINVAL;
     }
@@ -1706,7 +1796,10 @@ int NodeImpl::handle_request_vote_request(const RequestVoteRequest* request,
                 << " current_term " << _current_term;
             // incress current term, change state to follower
             if (request->term() > _current_term) {
-                step_down(request->term(), false);
+                base::Status status;
+                status.set_error(EHIGHERTERMREQUEST, "Raft node receives higher term "
+                        "request_vote_request.");
+                step_down(request->term(), false, status);
             }
         } else {
             // ignore older term
@@ -1732,7 +1825,10 @@ int NodeImpl::handle_request_vote_request(const RequestVoteRequest* request,
                           >= last_log_id);
         // save
         if (log_is_ok && _voted_id.is_empty()) {
-            step_down(request->term(), false);
+            base::Status status;
+            status.set_error(EVOTEFORCANDIDATE, "Raft node votes for some candidate, "
+                    "step down to restart election_timer.");
+            step_down(request->term(), false, status);
             _voted_id = candidate_id;
             //TODO: outof lock
             _stable_storage->set_votedfor(candidate_id);
@@ -1846,9 +1942,11 @@ void NodeImpl::handle_append_entries_request(baidu::rpc::Controller* cntl,
         const int64_t saved_current_term = _current_term;
         const State saved_state = _state;
         lck.unlock();
-        LOG(WARNING) << "node " << _group_id << ":" << _server_id << " is not in active state " << "current_term " << saved_current_term 
+        LOG(WARNING) << "node " << _group_id << ":" << _server_id 
+            << " is not in active state " << "current_term " << saved_current_term 
             << " state " << state2str(saved_state);
-        cntl->SetFailed(EINVAL, "node %s:%s is not in active state, state %s", _group_id.c_str(), _server_id.to_string().c_str(), state2str(saved_state));
+        cntl->SetFailed(EINVAL, "node %s:%s is not in active state, state %s", 
+                _group_id.c_str(), _server_id.to_string().c_str(), state2str(saved_state));
         return;
     }
 
@@ -1878,16 +1976,8 @@ void NodeImpl::handle_append_entries_request(baidu::rpc::Controller* cntl,
     }
 
     // check term and state to step down
-    if (request->term() > _current_term || _state != STATE_FOLLOWER
-                || _leader_id.is_empty()) {
-        step_down(request->term(), false);
-    }
-
-    // save current leader
-    if (_leader_id.is_empty()) {
-        _leader_id = server_id;
-    }
-
+    check_step_down(request->term(), server_id);   
+     
     if (server_id != _leader_id) {
         LOG(ERROR) << "Another peer=" << server_id
                    << " declares that it is the leader at term="
@@ -1895,7 +1985,9 @@ void NodeImpl::handle_append_entries_request(baidu::rpc::Controller* cntl,
                    << _leader_id;
         // Increase the term by 1 and make both leaders step down to minimize the
         // loss of split brain
-        step_down(request->term() + 1, false);
+        base::Status status;
+        status.set_error(ELEADERCONFLICT, "More than one leader in the same term."); 
+        step_down(request->term() + 1, false, status);
         response->set_success(false);
         response->set_term(request->term() + 1);
         return;
@@ -1980,12 +2072,12 @@ void NodeImpl::handle_append_entries_request(baidu::rpc::Controller* cntl,
     _log_manager->check_and_set_configuration(&_conf);
 }
 
-int NodeImpl::increase_term_to(int64_t new_term) {
+int NodeImpl::increase_term_to(int64_t new_term, const base::Status& status) {
     BAIDU_SCOPED_LOCK(_mutex);
     if (new_term <= _current_term) {
         return EINVAL;
     }
-    step_down(new_term, false);
+    step_down(new_term, false, status);
     return 0;
 }
 
@@ -2033,9 +2125,11 @@ void NodeImpl::handle_install_snapshot_request(baidu::rpc::Controller* controlle
         const int64_t saved_current_term = _current_term;
         const State saved_state = _state;
         lck.unlock();
-        LOG(WARNING) << "node " << _group_id << ":" << _server_id << " is not in active state " << "current_term " << saved_current_term 
+        LOG(WARNING) << "node " << _group_id << ":" << _server_id 
+            << " is not in active state " << "current_term " << saved_current_term 
             << " state " << state2str(saved_state);
-        cntl->SetFailed(EINVAL, "node %s:%s is not in active state, state %s", _group_id.c_str(), _server_id.to_string().c_str(), state2str(saved_state));
+        cntl->SetFailed(EINVAL, "node %s:%s is not in active state, state %s", 
+                _group_id.c_str(), _server_id.to_string().c_str(), state2str(saved_state));
         return;
     }
 
@@ -2049,16 +2143,8 @@ void NodeImpl::handle_install_snapshot_request(baidu::rpc::Controller* controlle
         response->set_success(false);
         return;
     }
-    if (request->term() > _current_term || _state != STATE_FOLLOWER
-                || _leader_id.is_empty()) {
-        step_down(request->term(), false);
-        response->set_term(request->term());
-    }
-
-    // save current leader
-    if (_leader_id.is_empty()) {
-        _leader_id = server_id;
-    }
+    
+    check_step_down(request->term(), server_id);
 
     if (server_id != _leader_id) {
         LOG(ERROR) << "Another peer=" << server_id
@@ -2067,7 +2153,9 @@ void NodeImpl::handle_install_snapshot_request(baidu::rpc::Controller* controlle
                    << _leader_id;
         // Increase the term by 1 and make both leaders step down to minimize the
         // loss of split brain
-        step_down(request->term() + 1, false);
+        base::Status status;
+        status.set_error(ELEADERCONFLICT, "More than one leader in the same term."); 
+        step_down(request->term() + 1, false, status);
         response->set_success(false);
         response->set_term(request->term() + 1);
         return;

@@ -74,11 +74,21 @@ int FSMCaller::run(void* meta, bthread::TaskIterator<ApplyTask>& iter) {
                 break;
             case LEADER_STOP:
                 caller->_cur_task = LEADER_STOP;
-                CHECK(!iter->done);
-                caller->do_leader_stop();
+                caller->do_leader_stop(*(iter->status));
+                delete iter->status;
                 break;
             case LEADER_START:
                 caller->do_leader_start(iter->term);
+                break;
+            case START_FOLLOWING:
+                caller->_cur_task = START_FOLLOWING;
+                caller->do_start_following(*(iter->leader_change_context));
+                delete iter->leader_change_context;
+                break;
+            case STOP_FOLLOWING:
+                caller->_cur_task = STOP_FOLLOWING;
+                caller->do_stop_following(*(iter->leader_change_context));
+                delete iter->leader_change_context;
                 break;
             case ERROR:
                 caller->_cur_task = ERROR;
@@ -344,11 +354,16 @@ void FSMCaller::do_snapshot_load(LoadSnapshotClosure* done) {
     done->Run();
 }
 
-int FSMCaller::on_leader_stop() {
+int FSMCaller::on_leader_stop(const base::Status& status) {
     ApplyTask task;
     task.type = LEADER_STOP;
-    task.done = NULL;
-    return bthread::execution_queue_execute(_queue_id, task);
+    base::Status* on_leader_stop_status = new base::Status(status);
+    task.status = on_leader_stop_status;
+    if (bthread::execution_queue_execute(_queue_id, task) != 0) {
+        delete on_leader_stop_status;
+        return -1;
+    }
+    return 0;
 }
 
 int FSMCaller::on_leader_start(int64_t term) {
@@ -358,12 +373,46 @@ int FSMCaller::on_leader_start(int64_t term) {
     return bthread::execution_queue_execute(_queue_id, task);
 }
 
-void FSMCaller::do_leader_stop() {
-    _fsm->on_leader_stop();
+void FSMCaller::do_leader_stop(const base::Status& status) {
+    _fsm->on_leader_stop(status);
 }
 
 void FSMCaller::do_leader_start(int64_t term) {
     _fsm->on_leader_start(term);
+}
+
+int FSMCaller::on_start_following(const LeaderChangeContext& start_following_context) {
+    ApplyTask task;
+    task.type = START_FOLLOWING;
+    LeaderChangeContext* context  = new LeaderChangeContext(start_following_context.leader_id(), 
+            start_following_context.term(), start_following_context.status());
+    task.leader_change_context = context;
+    if (bthread::execution_queue_execute(_queue_id, task) != 0) {
+        delete context;
+        return -1;
+    }
+    return 0;
+}
+
+int FSMCaller::on_stop_following(const LeaderChangeContext& stop_following_context) {
+    ApplyTask task;
+    task.type = STOP_FOLLOWING;
+    LeaderChangeContext* context = new LeaderChangeContext(stop_following_context.leader_id(), 
+            stop_following_context.term(), stop_following_context.status());
+    task.leader_change_context = context;
+    if (bthread::execution_queue_execute(_queue_id, task) != 0) {
+        delete context;
+        return -1;
+    }
+    return 0;
+}
+
+void FSMCaller::do_start_following(const LeaderChangeContext& start_following_context) {
+    _fsm->on_start_following(start_following_context);
+}
+
+void FSMCaller::do_stop_following(const LeaderChangeContext& stop_following_context) {
+    _fsm->on_stop_following(stop_following_context);
 }
 
 void FSMCaller::describe(std::ostream &os, bool use_html) {
@@ -393,6 +442,12 @@ void FSMCaller::describe(std::ostream &os, bool use_html) {
         break;
     case LEADER_START:
         os << "Notifying leader start";
+        break;
+    case START_FOLLOWING:
+        os << "Notifying start following";
+        break;
+    case STOP_FOLLOWING:
+        os << "Notifying stop following";
         break;
     }
     os << newline;

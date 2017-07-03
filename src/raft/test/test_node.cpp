@@ -18,7 +18,12 @@
 class MockFSM : public raft::StateMachine {
 public:
     MockFSM(const base::EndPoint& address_)
-        : address(address_), applied_index(0), snapshot_index(0) {
+        : address(address_)
+        , applied_index(0)
+        , snapshot_index(0)
+        , _on_start_following_times(0)
+        , _on_stop_following_times(0)
+    {
             pthread_mutex_init(&mutex, NULL);
     }
     virtual ~MockFSM() {
@@ -30,6 +35,8 @@ public:
     pthread_mutex_t mutex;
     int64_t applied_index;
     int64_t snapshot_index;
+    int64_t _on_start_following_times;
+    int64_t _on_stop_following_times;
 
     void lock() {
         pthread_mutex_lock(&mutex);
@@ -112,6 +119,17 @@ public:
         unlock();
         return 0;
     }
+
+    virtual void on_start_following(const raft::LeaderChangeContext& start_following_context) {
+        LOG(TRACE) << "start following new leader: " <<  start_following_context.leader_id();
+        ++_on_start_following_times;
+    }
+
+    virtual void on_stop_following(const raft::LeaderChangeContext& stop_following_context) {
+        LOG(TRACE) << "stop following old leader: " <<  stop_following_context.leader_id();
+        ++_on_stop_following_times;
+    }
+
 };
 
 class ExpectClosure : public raft::Closure {
@@ -1339,8 +1357,9 @@ TEST_F(RaftTestSuits, SetPeer2) {
     // old peers not match current conf
     ASSERT_EQ(EINVAL, leader->set_peer(new_peers, new_peers));
     // new_peers not include in current conf
+    new_peers.clear();
     new_peers.push_back(raft::PeerId(leader_addr, 1));
-    ASSERT_EQ(EINVAL, leader->set_peer(new_peers, new_peers));
+    ASSERT_EQ(EINVAL, leader->set_peer(peers, new_peers));
 
     // set peer when quorum die
     LOG(WARNING) << "set peer to " << leader_addr;
@@ -1525,6 +1544,9 @@ TEST_F(RaftTestSuits, InstallSnapshot) {
         leader->apply(task);
     }
     cond.wait();
+
+    // wait leader to compact logs
+    usleep(5000 * 1000);
 
     LOG(WARNING) << "restart follower";
     ASSERT_EQ(0, cluster.start(follower_addr));
@@ -1743,9 +1765,12 @@ TEST_F(RaftTestSuits, RecoverFollower) {
     usleep(5000 * 1000);
 
     // Start the stopped follower, expecting that leader would recover it
+    LOG(WARNING) << "restart follower";
     cluster.start(follower_addr);
-    LOG(INFO) << "here";
+    LOG(WARNING) << "restart follower done";
+    LOG(WARNING) << "here";
     ASSERT_TRUE(cluster.ensure_same(5));
+    LOG(WARNING) << "cluster stop";
     cluster.stop_all();
 }
 
@@ -2185,5 +2210,148 @@ TEST_F(RaftTestSuits, append_entries_when_follower_is_in_error_state) {
 
     cluster.ensure_same();
 
+    cluster.stop_all();
+}
+
+TEST_F(RaftTestSuits, on_start_following_and_on_stop_following) {
+    std::vector<raft::PeerId> peers;
+    // five nodes
+    for (int i = 0; i < 5; i++) {
+        raft::PeerId peer;
+        peer.addr.ip = base::get_host_ip();
+        peer.addr.port = 5006 + i;
+        peer.idx = 0;
+        peers.push_back(peer);
+    }
+
+    // start cluster
+    Cluster cluster("unittest", peers);
+    for (size_t i = 0; i < peers.size(); i++) {
+        ASSERT_EQ(0, cluster.start(peers[i].addr));
+    }
+
+    // elect leader_first
+    cluster.wait_leader();
+    raft::Node* leader_first = cluster.leader();
+    ASSERT_TRUE(leader_first != NULL);
+    LOG(WARNING) << "leader_first is " << leader_first->node_id();
+
+    // apply something
+    bthread::CountdownEvent cond;
+    cond.init(10);
+    for (int i = 0; i < 10; i++) {
+        base::IOBuf data;
+        char data_buf[128];
+        snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
+        data.append(data_buf);
+        raft::Task task;
+        task.data = &data;
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
+        leader_first->apply(task);
+    }
+    cond.wait();
+   
+    // check _on_start_following_times and _on_stop_following_times
+    std::vector<raft::Node*> followers_first;
+    cluster.followers(&followers_first);
+    ASSERT_EQ(followers_first.size(), 4);
+    // leader_first's _on_start_following_times and _on_stop_following_times should both be 0.
+    ASSERT_EQ(static_cast<MockFSM*>(leader_first->_impl->_options.fsm)->_on_start_following_times, 0);
+    ASSERT_EQ(static_cast<MockFSM*>(leader_first->_impl->_options.fsm)->_on_start_following_times, 0);
+    for (int i = 0; i < 4; i++) {
+        ASSERT_EQ(static_cast<MockFSM*>(followers_first[i]->_impl->_options.fsm)->_on_start_following_times, 1);
+        ASSERT_EQ(static_cast<MockFSM*>(followers_first[i]->_impl->_options.fsm)->_on_stop_following_times, 0);
+    }
+
+    // stop old leader and elect a new one
+    base::EndPoint leader_first_endpoint = leader_first->node_id().peer_id.addr;
+    LOG(WARNING) << "stop leader_first " << leader_first->node_id();
+    cluster.stop(leader_first_endpoint);
+    // elect new leader
+    cluster.wait_leader();
+    raft::Node* leader_second = cluster.leader();
+    ASSERT_TRUE(leader_second != NULL);
+    LOG(WARNING) << "elect new leader " << leader_second->node_id();
+
+    // apply something
+    cond.init(10);
+    for (int i = 0; i < 10; i++) {
+        base::IOBuf data;
+        char data_buf[128];
+        snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
+        data.append(data_buf);
+        raft::Task task;
+        task.data = &data;
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
+        leader_second->apply(task);
+    }
+    cond.wait();
+ 
+    // check _on_start_following_times and _on_stop_following_times again
+    std::vector<raft::Node*> followers_second;
+    cluster.followers(&followers_second);
+    ASSERT_EQ(followers_second.size(), 3);
+    // leader_second's _on_start_following_times and _on_stop_following_times should both be 1.
+    // When it was still in follower state, it would do handle_election_timeout and
+    // trigger on_stop_following when not receiving heartbeat for a long
+    // time(election_timeout_ms).
+    ASSERT_EQ(static_cast<MockFSM*>(leader_second->_impl->_options.fsm)->_on_start_following_times, 1);
+    ASSERT_EQ(static_cast<MockFSM*>(leader_second->_impl->_options.fsm)->_on_start_following_times, 1);
+    for (int i = 0; i < 3; i++) {
+        // Firstly these followers have a leader, but it stops and a candidate
+        // sends request_vote_request to them, which triggers on_stop_following.
+        // When the candidate becomes new leader, on_start_following is triggled
+        // again so _on_start_following_times increase by 1.
+        ASSERT_EQ(static_cast<MockFSM*>(followers_second[i]->_impl->_options.fsm)->_on_start_following_times, 2);
+        ASSERT_EQ(static_cast<MockFSM*>(followers_second[i]->_impl->_options.fsm)->_on_stop_following_times, 1);
+    }
+
+    // transfer leadership to a follower
+    raft::PeerId target = followers_second[0]->node_id().peer_id;
+    ASSERT_EQ(0, leader_second->transfer_leadership_to(target));
+    usleep(10 * 1000);
+    cluster.wait_leader();
+    raft::Node* leader_third = cluster.leader();
+    ASSERT_EQ(target, leader_third->node_id().peer_id);
+    
+    // apply something
+    cond.init(10);
+    for (int i = 0; i < 10; i++) {
+        base::IOBuf data;
+        char data_buf[128];
+        snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
+        data.append(data_buf);
+        raft::Task task;
+        task.data = &data;
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
+        leader_third->apply(task);
+    }
+    cond.wait();
+    
+    // check _on_start_following_times and _on_stop_following_times again 
+    std::vector<raft::Node*> followers_third;
+    cluster.followers(&followers_third);
+    ASSERT_EQ(followers_second.size(), 3);
+    // leader_third's _on_start_following_times and _on_stop_following_times should both be 2.
+    // When it was still in follower state, it would do handle_timeout_now_request and
+    // trigger on_stop_following when leader_second transfered leadership to it.
+    ASSERT_EQ(static_cast<MockFSM*>(leader_third->_impl->_options.fsm)->_on_start_following_times, 2);
+    ASSERT_EQ(static_cast<MockFSM*>(leader_third->_impl->_options.fsm)->_on_start_following_times, 2);
+    for (int i = 0; i < 3; i++) {
+        // leader_second became follower when it transfered leadership to target, 
+        // and when it receives leader_third's append_entries_request on_start_following is triggled.
+        if (followers_third[i]->node_id().peer_id == leader_second->node_id().peer_id) {
+            ASSERT_EQ(static_cast<MockFSM*>(followers_third[i]->_impl->_options.fsm)->_on_start_following_times, 2);
+            ASSERT_EQ(static_cast<MockFSM*>(followers_third[i]->_impl->_options.fsm)->_on_stop_following_times, 1);
+            continue;
+        }
+        // other followers just lose the leader_second and get leader_third, so _on_stop_following_times and 
+        // _on_start_following_times both increase by 1. 
+        ASSERT_EQ(static_cast<MockFSM*>(followers_third[i]->_impl->_options.fsm)->_on_start_following_times, 3);
+        ASSERT_EQ(static_cast<MockFSM*>(followers_third[i]->_impl->_options.fsm)->_on_stop_following_times, 2);
+    }
+
+    cluster.ensure_same();
+   
     cluster.stop_all();
 }

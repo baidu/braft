@@ -34,13 +34,23 @@ void protobuf_ShutdownFile_raft_2ferrno_2eproto();
 
 
 enum RaftError {
-  ETERM = 10001,
+  ERAFTTIMEDOUT = 10001,
   ESTATEMACHINE = 10002,
-  ECATCHUP = 10003
+  ECATCHUP = 10003,
+  ELEADERREMOVED = 10004,
+  ESETPEER = 10005,
+  ENODESHUTDOWN = 10006,
+  EHIGHERTERMREQUEST = 10007,
+  EHIGHERTERMRESPONSE = 10008,
+  EBADNODE = 10009,
+  EVOTEFORCANDIDATE = 10010,
+  ENEWLEADER = 10011,
+  ELEADERCONFLICT = 10012,
+  ETRANSFERLEADERSHIP = 10013
 };
 bool RaftError_IsValid(int value);
-const RaftError RaftError_MIN = ETERM;
-const RaftError RaftError_MAX = ECATCHUP;
+const RaftError RaftError_MIN = ERAFTTIMEDOUT;
+const RaftError RaftError_MAX = ETRANSFERLEADERSHIP;
 const int RaftError_ARRAYSIZE = RaftError_MAX + 1;
 
 const ::google::protobuf::EnumDescriptor* RaftError_descriptor();

@@ -33,6 +33,7 @@ namespace raft {
 class SnapshotWriter;
 class SnapshotReader;
 class SnapshotHook;
+class LeaderChangeContext;
 class FileSystemAdaptor;
 
 // Raft-specific closure which encloses a base::Status to report if the
@@ -217,7 +218,7 @@ public:
 
     // user defined leader start function
     // [NOTE] user can direct append to node ignore this callback.
-    //        this callback can sure read consistency, after leader's first NO_OP committed
+    //        this callback can ensure read-consistency, after leader's first NO_OP committed
     // Default: did nothing
     virtual void on_leader_start();
     virtual void on_leader_start(int64_t term);
@@ -227,12 +228,34 @@ public:
     //        maybe before some method: apply success on_apply or fail done.
     //        user sure resource available.
     virtual void on_leader_stop();
+    virtual void on_leader_stop(const base::Status& status);
 
     // on_error is called when  
     virtual void on_error(const ::raft::Error& e);
 
     // Invoked when a configuration has been committed to the group
     virtual void on_configuration_committed(const ::raft::Configuration& conf);
+
+    // this method is called when a follower stops following a leader and its leader_id becomes NULL,
+    // situations including: 
+    // 1. handle election_timeout and start pre_vote 
+    // 2. receive requests with higher term such as vote_request from a candidate
+    // or append_entires_request from a new leader
+    // 3. receive timeout_now_request from current leader and start request_vote
+    // the parameter stop_following_context gives the information(leader_id, term and status) about the
+    // very leader whom the follower followed before.
+    // User can reset the node's information as it stops following some leader. 
+    virtual void on_stop_following(const ::raft::LeaderChangeContext& stop_following_context);
+
+    // this method is called when a follower or candidate starts following a leader and its leader_id
+    // (should be NULL before the method is called) is set to the leader's id,
+    // situations including:
+    // 1. a candidate receives append_entries from a leader
+    // 2. a follower(without leader) receives append_entries from a leader
+    // the parameter start_following_context gives the information(leader_id, term and status) about 
+    // the very leader whom the follower starts to follow.
+    // User can reset the node's information as it starts to follow some leader.
+    virtual void on_start_following(const ::raft::LeaderChangeContext& start_following_context);
 
 };
 
@@ -263,6 +286,36 @@ inline const char* state2str(State state) {
 inline bool is_active_state(State s) {
     // This should be as fast as possible
     return s < STATE_ERROR;
+}
+
+// This class encapsulates the parameter of on_start_following and on_stop_following interfaces.
+class LeaderChangeContext {
+    DISALLOW_COPY_AND_ASSIGN(LeaderChangeContext);
+public:
+    LeaderChangeContext(PeerId leader_id, int64_t term, base::Status status)
+        : _leader_id(leader_id)
+        , _term(term) 
+        , _st(status)
+    {};
+    // for on_start_following, the leader_id and term are of the new leader;
+    // for on_stop_following, the leader_id and term are of the old leader.
+    const PeerId& leader_id() const { return _leader_id; }
+    int64_t term() const { return _term; }
+    // return the information about why on_start_following or on_stop_following is called.
+    const base::Status& status() const { return _st; }
+        
+private:
+    PeerId _leader_id;
+    int64_t _term;
+    base::Status _st;
+};
+
+inline std::ostream& operator<<(std::ostream& os, const LeaderChangeContext& context) {
+    os << "{leader_id=" << context.leader_id()
+       << ", term=" << context.term() << ", error_code=" << context.status().error_code()
+       << ", error_text=" << context.status().error_cstr()
+       << "}";
+    return os;
 }
 
 struct NodeOptions {

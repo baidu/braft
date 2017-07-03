@@ -22,7 +22,7 @@ class StateMachine;
 class SnapshotMeta;
 class OnErrorClousre;
 class LogEntry;
-class NodeImpl;
+class LeaderChangeContext;
 
 // Backing implementation of Iterator
 class IteratorImpl {
@@ -96,8 +96,10 @@ public:
     RAFT_MOCK int on_committed(int64_t committed_index);
     RAFT_MOCK int on_snapshot_load(LoadSnapshotClosure* done);
     RAFT_MOCK int on_snapshot_save(SaveSnapshotClosure* done);
-    int on_leader_stop();
+    int on_leader_stop(const base::Status& status);
     int on_leader_start(int64_t term);
+    int on_start_following(const LeaderChangeContext& start_following_context);
+    int on_stop_following(const LeaderChangeContext& stop_following_context);
     RAFT_MOCK int on_error(const Error& e);
     int64_t last_applied_index() const {
         return _last_applied_index.load(boost::memory_order_relaxed);
@@ -115,6 +117,8 @@ friend class IteratorImpl;
         SNAPSHOT_LOAD,
         LEADER_STOP,
         LEADER_START,
+        START_FOLLOWING,
+        STOP_FOLLOWING,
         ERROR,
     };
 
@@ -126,6 +130,12 @@ friend class IteratorImpl;
             
             // For on_leader_start
             int64_t term;
+            
+            // For on_leader_stop
+            base::Status* status;    
+
+            // For on_start_following and on_stop_following
+            LeaderChangeContext* leader_change_context;
 
             // For other operation
             Closure* done;
@@ -140,8 +150,10 @@ friend class IteratorImpl;
     void do_snapshot_save(SaveSnapshotClosure* done);
     void do_snapshot_load(LoadSnapshotClosure* done);
     void do_on_error(OnErrorClousre* done);
-    void do_leader_stop();
+    void do_leader_stop(const base::Status& status);
     void do_leader_start(int64_t term);
+    void do_start_following(const LeaderChangeContext& start_following_context);
+    void do_stop_following(const LeaderChangeContext& stop_following_context);
     void set_error(const Error& e);
     bool pass_by_status(Closure* done);
 

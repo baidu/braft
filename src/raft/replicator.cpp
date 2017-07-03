@@ -257,8 +257,11 @@ void Replicator::_on_heartbeat_returned(
         node_impl->AddRef();
         r->_notify_on_caught_up(EPERM, true);
         LOG(INFO) << "Replicator=" << dummy_id << " is going to quit";
+        base::Status status;
+        status.set_error(EHIGHERTERMRESPONSE, "Leader receives higher term "
+                "hearbeat_response from peer:%s", r->_options.peer_id.to_string().c_str());
         r->_destroy();
-        node_impl->increase_term_to(response->term());
+        node_impl->increase_term_to(response->term(), status);
         node_impl->Release();
         return;
     }
@@ -316,8 +319,11 @@ void Replicator::_on_rpc_returned(ReplicatorId id, baidu::rpc::Controller* cntl,
             // after _notify_on_caught_up.
             node_impl->AddRef();
             r->_notify_on_caught_up(EPERM, true);
+            base::Status status;
+            status.set_error(EHIGHERTERMRESPONSE, "Leader receives higher term "
+                    "%s from peer:%s", response->GetTypeName().c_str(), r->_options.peer_id.to_string().c_str());
             r->_destroy();
-            node_impl->increase_term_to(response->term());
+            node_impl->increase_term_to(response->term(), status);
             node_impl->Release();
             return;
         }
@@ -870,8 +876,11 @@ void Replicator::_on_timeout_now_returned(
         // after _notify_on_caught_up.
         node_impl->AddRef();
         r->_notify_on_caught_up(EPERM, true);
+        base::Status status;
+        status.set_error(EHIGHERTERMRESPONSE, "Leader receives higher term "
+                "timeout_now_response from peer:%s", r->_options.peer_id.to_string().c_str());
         r->_destroy();
-        node_impl->increase_term_to(response->term());
+        node_impl->increase_term_to(response->term(), status);
         node_impl->Release();
         return;
     }
