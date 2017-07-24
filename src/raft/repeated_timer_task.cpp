@@ -13,7 +13,7 @@ RepeatedTimerTask::RepeatedTimerTask()
     : _timeout_ms(0)
     , _stopped(true)
     , _running(false)
-    , _destroyed(false)
+    , _destroyed(true)
     , _invoking(false)
 {}
 
