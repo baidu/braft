@@ -34,6 +34,9 @@ DEFINE_int32(raft_max_segment_size, 8 * 1024 * 1024 /*8M*/,
              "Max size of one segment file");
 BAIDU_RPC_VALIDATE_GFLAG(raft_max_segment_size, baidu::rpc::PositiveInteger);
 
+DEFINE_bool(raft_sync_segments, false, "call fsync when a segment is closed");
+BAIDU_RPC_VALIDATE_GFLAG(raft_sync_segments, ::baidu::rpc::PassValidate);
+
 int ftruncate_uninterrupted(int fd, off_t length) {
     int rc = 0;
     do {
@@ -479,7 +482,7 @@ int64_t Segment::get_term(const int64_t index) const {
 
 int Segment::close(bool will_sync) {
     CHECK(_is_open);
-
+    
     std::string old_path(_path);
     base::string_appendf(&old_path, "/" RAFT_SEGMENT_OPEN_PATTERN,
                          _first_index);
@@ -488,7 +491,15 @@ int Segment::close(bool will_sync) {
                          _first_index, _last_index.load());
 
     // TODO: optimize index memory usage by reconstruct vector
-    int ret = this->sync(will_sync);
+    LOG(INFO) << "close a full segment. Current first_index: " << _first_index 
+        << " last_index: " << _last_index << " raft_sync_segments: " << FLAGS_raft_sync_segments 
+        << " will_sync: " << will_sync;
+    int ret = 0;
+    if (_last_index > _first_index) {
+        if (FLAGS_raft_sync_segments && will_sync) {
+            ret = raft_fsync(_fd);
+        }
+    }
     if (ret == 0) {
         _is_open = false;
         const int rc = ::rename(old_path.c_str(), new_path.c_str());
@@ -753,7 +764,7 @@ void SegmentLogStorage::pop_segments(
 int SegmentLogStorage::truncate_prefix(const int64_t first_index_kept) {
     // segment files
     if (_first_log_index.load(boost::memory_order_acquire) >= first_index_kept) {
-        LOG(WARNING) << "Nothing is going to happen since _first_log_index=" 
+      RAFT_VLOG << "Nothing is going to happen since _first_log_index=" 
                      << _first_log_index.load(boost::memory_order_relaxed)
                      << " >= first_index_kept="
                      << first_index_kept;
