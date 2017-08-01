@@ -173,7 +173,7 @@ public:
     // delete logs from storage's head, [1, first_index_kept) will be discarded
     virtual int truncate_prefix(const int64_t first_index_kept);
 
-    // delete uncommitted logs from storage's tail, (first_index_kept, infinity) will be discarded
+    // delete uncommitted logs from storage's tail, (last_index_kept, infinity) will be discarded
     virtual int truncate_suffix(const int64_t last_index_kept);
 
     virtual int reset(const int64_t next_log_index);

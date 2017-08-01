@@ -1006,7 +1006,7 @@ int SegmentLogStorage::load_segments(ConfigurationManager* configuration_manager
         ret = segment->load(configuration_manager);
         if (ret != 0) {
             return ret;
-        }
+        } 
         _last_log_index.store(segment->last_index(), boost::memory_order_release);
     }
 

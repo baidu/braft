@@ -1039,10 +1039,6 @@ int NodeImpl::transfer_leadership_to(const PeerId& peer) {
                      << " is in state " << state2str(_state);
         return _state == STATE_TRANSFERING ? EBUSY : EPERM;
     }
-    if (peer == _server_id) {
-        LOG(INFO) << "Transfering leadership to self";
-        return 0;
-    }
     if (!_conf_ctx.empty() /*FIXME: make this expression more readable*/) {
         // It's very messy to deal with the case when the |peer| received
         // TimeoutNowRequest and increase the term while somehow another leader
@@ -1061,26 +1057,42 @@ int NodeImpl::transfer_leadership_to(const PeerId& peer) {
                      << " when the leader is changing the configuration";
         return EBUSY;
     }
-    if (!_conf.second.contains(peer)) {
+
+    PeerId peer_id = peer;
+    // if peer_id is ANY_PEER(0.0.0.0:0:0), the peer with the largest last_log_id will be selected. 
+    if (peer_id == ANY_PEER) {
+        LOG(INFO) << "node " << _group_id << ":" << _server_id
+              << " starts to transfer leadership to any peer.";
+        ReplicatorId replicator_id;
+        // find the next candidate which is the most possible to become new leader
+        if (_replicator_group.find_the_next_candidate(&replicator_id, &peer_id, _conf.second) != 0) {
+            return -1;    
+        }
+    }
+    if (peer_id == _server_id) {
+        LOG(INFO) << "Transfering leadership to self";
+        return 0;
+    }
+    if (!_conf.second.contains(peer_id)) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
-                     << " refused to transfer leadership to peer " << peer
+                     << " refused to transfer leadership to peer " << peer_id
                      << " which doesn't belong to " << _conf.second;
         return EINVAL;
     }
     const int64_t last_log_index = _log_manager->last_log_index();
-    const int rc = _replicator_group.transfer_leadership_to(peer, last_log_index);
+    const int rc = _replicator_group.transfer_leadership_to(peer_id, last_log_index);
     if (rc != 0) {
-        LOG(WARNING) << "No such peer=" << peer;
+        LOG(WARNING) << "No such peer=" << peer_id;
         return EINVAL;
     }
     _state = STATE_TRANSFERING;
     base::Status status;
     status.set_error(ETRANSFERLEADERSHIP, "Raft leader is transfering "
-            "leadership to a follower.");
+            "leadership to %s", peer_id.to_string().c_str());
     _fsm_caller->on_leader_stop(status);
     LOG(INFO) << "node " << _group_id << ":" << _server_id
-              << " starts to transfer leadership to " << peer;
-    _stop_transfer_arg = new StopTransferArg(this, _current_term, peer);
+              << " starts to transfer leadership to " << peer_id;
+    _stop_transfer_arg = new StopTransferArg(this, _current_term, peer_id);
     if (bthread_timer_add(&_transfer_timer,
                        base::milliseconds_from_now(_options.election_timeout_ms),
                        on_transfer_timeout, _stop_transfer_arg) != 0) {
@@ -1097,6 +1109,7 @@ void NodeImpl::vote(int election_timeout) {
     _options.election_timeout_ms = election_timeout;
     _replicator_group.reset_heartbeat_interval(
             heartbeat_timeout(_options.election_timeout_ms));
+    _replicator_group.reset_election_timeout_interval(_options.election_timeout_ms);
     if (_state != STATE_FOLLOWER) {
         return;
     }
@@ -1106,6 +1119,22 @@ void NodeImpl::vote(int election_timeout) {
         " election_timeout " << election_timeout;
 
     _election_timer.reset(election_timeout);
+}
+
+void NodeImpl::reset_election_timeout_ms(int election_timeout_ms) {
+    std::unique_lock<raft_mutex_t> lck(_mutex);
+    _options.election_timeout_ms = election_timeout_ms;
+    _replicator_group.reset_heartbeat_interval(
+            heartbeat_timeout(_options.election_timeout_ms));
+    _replicator_group.reset_election_timeout_interval(_options.election_timeout_ms);
+    if (_state != STATE_FOLLOWER) {
+        return;
+    }
+    LOG(INFO) << "node " << _group_id << ":" << _server_id << " reset_election_timeout,"
+        " current_term " << _current_term << " state " << state2str(_state) <<
+        " new election_timeout " << election_timeout_ms;
+
+    _election_timer.reset(election_timeout_ms);
 }
 
 void NodeImpl::on_error(const Error& e) {

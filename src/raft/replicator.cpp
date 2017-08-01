@@ -1084,6 +1084,11 @@ int ReplicatorGroup::reset_heartbeat_interval(int new_interval_ms) {
     return 0;
 }
 
+int ReplicatorGroup::reset_election_timeout_interval(int new_interval_ms) {
+    _election_timeout_ms = new_interval_ms;
+    return 0;
+}
+
 int ReplicatorGroup::transfer_leadership_to(
         const PeerId& peer, int64_t log_index) {
     std::map<PeerId, ReplicatorId>::const_iterator iter = _rmap.find(peer);
@@ -1106,6 +1111,25 @@ int ReplicatorGroup::stop_transfer_leadership(const PeerId& peer) {
 int ReplicatorGroup::stop_all_and_find_the_next_candidate(
                 ReplicatorId* candidate, const Configuration& current_conf) {
     *candidate = INVALID_BTHREAD_ID.value;
+    PeerId peer_id;
+    if (find_the_next_candidate(candidate, &peer_id, current_conf) != 0) {
+        LOG(TRACE) << "Fail to find the next candidate.";
+        return -1;
+    }
+    for (std::map<PeerId, ReplicatorId>::const_iterator
+            iter = _rmap.begin();  iter != _rmap.end(); ++iter) {
+        if (iter->second != *candidate) {
+            Replicator::stop(iter->second);
+        }
+    }
+    _rmap.clear();
+    return 0;
+}
+
+int ReplicatorGroup::find_the_next_candidate(
+                ReplicatorId* candidate, PeerId* peer_id, 
+                const Configuration& current_conf) {
+    *candidate = INVALID_BTHREAD_ID.value;
     int64_t max_index =  0;
     for (std::map<PeerId, ReplicatorId>::const_iterator
             iter = _rmap.begin();  iter != _rmap.end(); ++iter) {
@@ -1115,16 +1139,13 @@ int ReplicatorGroup::stop_all_and_find_the_next_candidate(
         const int64_t next_index = Replicator::get_next_index(iter->second);
         if (next_index > max_index) {
             max_index = next_index;
+            *peer_id = iter->first;
             *candidate = iter->second;
         }
     }
-    for (std::map<PeerId, ReplicatorId>::const_iterator
-            iter = _rmap.begin();  iter != _rmap.end(); ++iter) {
-        if (iter->second != *candidate) {
-            Replicator::stop(iter->second);
-        }
+    if (max_index == 0) {
+        return -1;
     }
-    _rmap.clear();
     return 0;
 }
 

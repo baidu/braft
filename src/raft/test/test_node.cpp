@@ -1920,6 +1920,7 @@ TEST_F(RaftTestSuits, leader_transfer_resume_on_failure) {
     cluster.wait_leader();
     leader = cluster.leader();
     ASSERT_EQ(saved_leader, leader);
+    LOG(INFO) << "restart the target follower";
     cluster.start(target.addr);
     usleep(1000 * 1000);
     data.resize(5, 'a');
@@ -1978,7 +1979,9 @@ TEST_F(RaftTestSuits, shutdown_and_join_work_after_init_fails) {
             node.apply(task);
         }
         cond.wait();
+        LOG(INFO) << "begin to save snapshot";
         node.snapshot(NULL);
+        LOG(INFO) << "begin to shutdown";
         node.shutdown(NULL);
         node.join();
     }
@@ -1992,6 +1995,7 @@ TEST_F(RaftTestSuits, shutdown_and_join_work_after_init_fails) {
         options.stable_uri = "local://./data/stable";
         options.snapshot_uri = "local://./data/snapshot";
         raft::Node node("unittest", peer);
+        LOG(INFO) << "node init again";
         ASSERT_NE(0, node.init(options));
         node.shutdown(NULL);
         node.join();

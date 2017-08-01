@@ -36,6 +36,8 @@ class SnapshotHook;
 class LeaderChangeContext;
 class FileSystemAdaptor;
 
+static const PeerId ANY_PEER(base::EndPoint(base::IP_ANY, 0), 0);
+
 // Raft-specific closure which encloses a base::Status to report if the
 // operation was successful.
 class Closure : public google::protobuf::Closure {
@@ -292,7 +294,7 @@ inline bool is_active_state(State s) {
 class LeaderChangeContext {
     DISALLOW_COPY_AND_ASSIGN(LeaderChangeContext);
 public:
-    LeaderChangeContext(PeerId leader_id, int64_t term, base::Status status)
+    LeaderChangeContext(const PeerId& leader_id, int64_t term, const base::Status& status)
         : _leader_id(leader_id)
         , _term(term) 
         , _st(status)
@@ -473,6 +475,10 @@ public:
     void vote(int election_timeout);
 
     // Try transfering leadership to |peer|.
+    // If peer is ANY_PEER, we will choose a peer with the largest last_log_id
+    // among peers in |current_conf| to be the possible candidate.
+    // The definition of ANY_PEER is:
+    // addr.ip == 0.0.0.0 && addr.port == 0 && idx == 0
     // Returns 0 on success, -1 otherwise.
     int transfer_leadership_to(const PeerId& peer);
 

@@ -241,6 +241,10 @@ public:
     // leader, use new heartbeat_interval, maybe call vote() reset election_timeout
     // Return 0 on success, -1 otherwise
     int reset_heartbeat_interval(int new_interval_ms);
+    
+    // Reset the interval of election_timeout for replicator, 
+    // used in rpc's set_timeout_ms
+    int reset_election_timeout_interval(int new_interval_ms);
 
     // Returns true if the there's a replicator attached to the given |peer|
     bool contains(const PeerId& peer) const;
@@ -260,6 +264,11 @@ public:
     // Returns 0 on success and -1 otherwise.
     int stop_all_and_find_the_next_candidate(ReplicatorId* candidate,
                                              const Configuration& current_conf);
+    
+    // find the next possible replicator which has the largest 'last_log_id' and
+    // corresponding peer_id.
+    int find_the_next_candidate(ReplicatorId* candidate, PeerId* peer_id, 
+            const Configuration& current_conf);
 
     // List all the existing replicators
     void list_replicators(std::vector<ReplicatorId>* out) const;

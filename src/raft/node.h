@@ -139,6 +139,9 @@ public:
     // trigger vote
     void vote(int election_timeout);
 
+    // reset the election_timeout for the very node
+    void reset_election_timeout_ms(int election_timeout_ms);
+
     // rpc request proc func
     //
     // handle received PreVote
