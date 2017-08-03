@@ -24,6 +24,7 @@ public:
 
     int save(const ::google::protobuf::Message* message, bool sync);
     int load(::google::protobuf::Message* message);
+
 private:
     std::string _path;
     scoped_refptr<FileSystemAdaptor> _fs;

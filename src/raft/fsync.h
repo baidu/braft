@@ -9,6 +9,7 @@
 
 #include <unistd.h>
 #include <gflags/gflags.h>
+#include "raft/storage.h"
 
 namespace raft {
 
@@ -22,6 +23,9 @@ inline int raft_fsync(int fd) {
     }
 }
 
+inline bool raft_sync_meta() {
+    return FLAGS_raft_sync || FLAGS_raft_sync_meta;
+}
 
 }  // namespace raft
 

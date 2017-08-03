@@ -56,7 +56,7 @@ int LocalSnapshotMetaTable::save_to_file(FileSystemAdaptor* fs, const std::strin
         *f->mutable_meta() = iter->second;
     }
     ProtoBufFile pb_file(path, fs);
-    int ret = pb_file.save(&pb_meta, FLAGS_raft_sync);
+    int ret = pb_file.save(&pb_meta, raft_sync_meta());
     PLOG_IF(ERROR, ret != 0) << "Fail to save meta to " << path;
     return ret;
 }

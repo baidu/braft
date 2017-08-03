@@ -36,7 +36,7 @@ class SnapshotHook;
 class LeaderChangeContext;
 class FileSystemAdaptor;
 
-static const PeerId ANY_PEER(base::EndPoint(base::IP_ANY, 0), 0);
+const PeerId ANY_PEER(base::EndPoint(base::IP_ANY, 0), 0);
 
 // Raft-specific closure which encloses a base::Status to report if the
 // operation was successful.

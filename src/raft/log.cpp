@@ -1043,10 +1043,10 @@ int SegmentLogStorage::save_meta(const int64_t log_index) {
     std::string meta_path(_path);
     meta_path.append("/" RAFT_SEGMENT_META_FILE);
 
-    ProtoBufFile pb_file(meta_path);
     LogPBMeta meta;
     meta.set_first_log_index(log_index);
-    int ret = pb_file.save(&meta, FLAGS_raft_sync);
+    ProtoBufFile pb_file(meta_path);
+    int ret = pb_file.save(&meta, raft_sync_meta());
 
     timer.stop();
     PLOG_IF(ERROR, ret != 0) << "Fail to save meta to " << meta_path;

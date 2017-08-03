@@ -26,6 +26,7 @@ class Message;
 namespace raft {
 
 DECLARE_bool(raft_sync);
+DECLARE_bool(raft_sync_meta);
 DECLARE_bool(raft_create_parent_directories);
 
 class LogEntry;

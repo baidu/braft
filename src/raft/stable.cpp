@@ -111,8 +111,7 @@ int LocalStableStorage::save() {
     path.append(_s_stable_meta);
 
     ProtoBufFile pb_file(path);
-
-    int ret = pb_file.save(&meta, FLAGS_raft_sync /*true*/);
+    int ret = pb_file.save(&meta, raft_sync_meta());
     PLOG_IF(ERROR, ret != 0) << "Fail to save meta to " << path;
 
     timer.stop();

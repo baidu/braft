@@ -23,6 +23,9 @@ DEFINE_bool(raft_create_parent_directories, true,
             "Create parent directories of the path in local storage if true");
 BAIDU_RPC_VALIDATE_GFLAG(raft_sync, ::baidu::rpc::PassValidate);
 
+DEFINE_bool(raft_sync_meta, false, "sync log meta, snapshot meta and stable meta");
+BAIDU_RPC_VALIDATE_GFLAG(raft_sync_meta, ::baidu::rpc::PassValidate);
+
 inline base::StringPiece parse_uri(base::StringPiece* uri, std::string* parameter) {
     // ${protocol}://${parameters}
     size_t pos = uri->find("://");
