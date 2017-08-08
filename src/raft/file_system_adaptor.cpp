@@ -53,6 +53,9 @@ static bool s_support_cloexec_on_open = false;
 static void check_cloexec(void) {
     int fd = ::open("/dev/zero", O_RDONLY | O_CLOEXEC, 0644);
     s_support_cloexec_on_open = (fd != -1);
+    if (fd != -1) {
+        ::close(fd);
+    }
 }
 
 FileAdaptor* PosixFileSystemAdaptor::open(const std::string& path, int oflag, 
