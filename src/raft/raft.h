@@ -15,7 +15,6 @@
 #include "raft/configuration.h"
 #include "raft/enum.pb.h"
 #include "raft/errno.pb.h"
-
 #ifdef RAFT_ENABLE_ROCKSDB_STORAGE
 #include <raft/rocksdb.h>
 #endif // RAFT_ENABLE_ROCKSDB_STORAGE
@@ -320,6 +319,35 @@ inline std::ostream& operator<<(std::ostream& os, const LeaderChangeContext& con
     return os;
 }
 
+class UserLog {
+    DISALLOW_COPY_AND_ASSIGN(UserLog);
+public:
+    UserLog() {};
+    UserLog(int64_t log_index, const base::IOBuf& log_data)
+        : _index(log_index)
+        , _data(log_data)
+    {};
+    int64_t log_index() const { return _index; }
+    const base::IOBuf& log_data() const { return _data; }
+    void set_log_index(const int64_t log_index) { _index = log_index; }
+    void set_log_data(const base::IOBuf& log_data) { _data = log_data; }
+    void reset() {
+        _index = 0;
+        _data.clear();
+    }
+
+private:
+    int64_t _index;
+    base::IOBuf _data;
+};
+
+inline std::ostream& operator<<(std::ostream& os, const UserLog& user_log) {
+    os << "{user_log: index=" << user_log.log_index()
+       << ", data size=" << user_log.log_data().size()
+       << "}";
+    return os;
+}
+
 struct NodeOptions {
     // A follower would become a candidate if it doesn't receive any message 
     // from the leader in |election_timeout_ms| milliseconds
@@ -477,10 +505,19 @@ public:
     // Try transfering leadership to |peer|.
     // If peer is ANY_PEER, we will choose a peer with the largest last_log_id
     // among peers in |current_conf| to be the possible candidate.
-    // The definition of ANY_PEER is:
-    // addr.ip == 0.0.0.0 && addr.port == 0 && idx == 0
     // Returns 0 on success, -1 otherwise.
     int transfer_leadership_to(const PeerId& peer);
+
+    // Read the first committed user log from the given index.
+    // Return OK on success and user_log is assigned with the very data. Be awared
+    // that the user_log may be not the exact log at the given index, but the
+    // first available user log from the given index to last_committed_index.
+    // Otherwise, appropriate errors are returned:
+    //     - return ELOGDELETED when the log has been deleted;
+    //     - return ENOMOREUSERLOG when we can't get a user log even reaching last_committed_index.
+    // [NOTE] in consideration of safety, we use last_applied_index instead of last_committed_index 
+    // in code implementation.
+    base::Status read_committed_user_log(const int64_t index, UserLog* user_log);
 
 private:
     NodeImpl* _impl;

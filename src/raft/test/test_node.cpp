@@ -14,6 +14,7 @@
 #include <bthread/countdown_event.h>
 #include "raft/node.h"
 #include "raft/enum.pb.h"
+#include "raft/errno.pb.h"
 
 class MockFSM : public raft::StateMachine {
 public:
@@ -2334,4 +2335,162 @@ TEST_F(RaftTestSuits, on_start_following_and_on_stop_following) {
     cluster.ensure_same();
    
     cluster.stop_all();
+}
+
+TEST_F(RaftTestSuits, read_committed_user_log) {
+    std::vector<raft::PeerId> peers;
+    for (int i = 0; i < 3; i++) {
+        raft::PeerId peer;
+        peer.addr.ip = base::get_host_ip();
+        peer.addr.port = 5006 + i;
+        peer.idx = 0;
+        peers.push_back(peer);
+    }
+
+    // start cluster
+    Cluster cluster("unittest", peers);
+    for (size_t i = 0; i < peers.size(); i++) {
+        ASSERT_EQ(0, cluster.start(peers[i].addr));
+    }
+
+    // elect leader_first
+    cluster.wait_leader();
+    raft::Node* leader = cluster.leader();
+    ASSERT_TRUE(leader != NULL);
+    LOG(WARNING) << "leader is " << leader->node_id();
+
+    // apply something
+    bthread::CountdownEvent cond(10);
+    for (int i = 0; i < 10; i++) {
+        base::IOBuf data;
+        char data_buf[128];
+        snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
+        data.append(data_buf);
+        raft::Task task;
+        task.data = &data;
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
+        leader->apply(task);
+    }
+    cond.wait();
+    sleep(2);
+    
+    raft::NodeImpl *node_impl_leader = leader->_impl;
+    // index == 1 is a CONFIGURATION log, so real_index will be 2 when returned.
+    int64_t index = 1;
+    raft::UserLog* user_log = new raft::UserLog();
+    base::Status status = node_impl_leader->read_committed_user_log(index, user_log);
+    ASSERT_EQ(0, status.error_code());
+    ASSERT_EQ(2, user_log->log_index());
+    LOG(INFO) << "read local committed user log from leader:" << leader->node_id() << ", index:"
+        << index << ", real_index:" << user_log->log_index() << ", data:" << user_log->log_data() 
+        << ", status:" << status; 
+
+    // index == 5 is a DATA log(a user log)
+    index = 5;
+    user_log->reset();
+    status = node_impl_leader->read_committed_user_log(index, user_log);
+    ASSERT_EQ(0, status.error_code());
+    ASSERT_EQ(5, user_log->log_index());
+    LOG(INFO) << "read local committed user log from leader:" << leader->node_id() << ", index:"
+        << index << ", real_index:" << user_log->log_index() << ", data:" << user_log->log_data() 
+        << ", status:" << status; 
+    
+    // index == 15 is greater than last_committed_index
+    index = 15;
+    user_log->reset();
+    status = node_impl_leader->read_committed_user_log(index, user_log);
+    ASSERT_EQ(raft::ENOMOREUSERLOG, status.error_code());
+    LOG(INFO) << "read local committed user log from leader:" << leader->node_id() << ", index:"
+        << index << ", real_index:" << user_log->log_index() << ", data:" << user_log->log_data() 
+        << ", status:" << status; 
+    
+    // index == 0, invalid request index.
+    index = 0;
+    user_log->reset();
+    status = node_impl_leader->read_committed_user_log(index, user_log);
+    ASSERT_EQ(EINVAL, status.error_code());
+    LOG(INFO) << "read local committed user log from leader:" << leader->node_id() << ", index:"
+        << index << ", real_index:" << user_log->log_index() << ", data:" << user_log->log_data() 
+        << ", status:" << status; 
+   
+    // trigger leader snapshot for the first time
+    LOG(WARNING) << "trigger leader snapshot ";
+    cond.reset(1);
+    leader->snapshot(NEW_SNAPSHOTCLOSURE(&cond, 0));
+    cond.wait();
+    
+    // remove and add a peer to add two CONFIGURATION logs
+    std::vector<raft::Node*> followers;
+    cluster.followers(&followers);
+    raft::PeerId follower_test = followers[0]->node_id().peer_id;
+    leader->remove_peer(peers, follower_test, NEW_REMOVEPEERCLOSURE(&cond, 0));
+    sleep(2);
+    std::vector<raft::PeerId> new_peers;
+    for (int i = 0; i < 3; i++) {
+        raft::PeerId peer;
+        peer.addr.ip = base::get_host_ip();
+        peer.addr.port = 5006 + i;
+        peer.idx = 0;
+
+        if (peer != follower_test) {
+            new_peers.push_back(peer);
+        }
+    }
+    leader->add_peer(new_peers, follower_test, NEW_REMOVEPEERCLOSURE(&cond, 0));
+    sleep(2);
+
+    // apply something again
+    cond.reset(10);
+    for (int i = 10; i < 20; i++) {
+        base::IOBuf data;
+        char data_buf[128];
+        snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
+        data.append(data_buf);
+        raft::Task task;
+        task.data = &data;
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
+        leader->apply(task);
+    }
+    cond.wait();
+    
+    // trigger leader snapshot for the second time, after this the log of index 1~11 will be deleted.
+    LOG(WARNING) << "trigger leader snapshot ";
+    cond.reset(1);
+    leader->snapshot(NEW_SNAPSHOTCLOSURE(&cond, 0));
+    cond.wait();
+
+    // index == 5 log has been deleted in log_storage.
+    index = 5;
+    user_log->reset();
+    status = node_impl_leader->read_committed_user_log(index, user_log);
+    ASSERT_EQ(raft::ELOGDELETED, status.error_code());
+    LOG(INFO) << "read local committed user log from leader:" << leader->node_id() << ", index:"
+        << index << ", real_index:" << user_log->log_index() << ", data:" << user_log->log_data() 
+        << ", status:" << status; 
+    
+    // index == 12 and index == 13 are 2 CONFIGURATION logs, so real_index will be 14 when returned.
+    index = 12;
+    user_log->reset();
+    status = node_impl_leader->read_committed_user_log(index, user_log);
+    ASSERT_EQ(0, status.error_code());
+    ASSERT_EQ(14, user_log->log_index());
+    LOG(INFO) << "read local committed user log from leader:" << leader->node_id() << ", index:"
+        << index << ", real_index:" << user_log->log_index() << ", data:" << user_log->log_data() 
+        << ", status:" << status; 
+    
+    // now index == 15 is a user log
+    index = 15;
+    user_log->reset();
+    status = node_impl_leader->read_committed_user_log(index, user_log);
+    ASSERT_EQ(0, status.error_code());
+    ASSERT_EQ(15, user_log->log_index());
+    LOG(INFO) << "read local committed user log from leader:" << leader->node_id() << ", index:"
+        << index << ", real_index:" << user_log->log_index() << ", data:" << user_log->log_data() 
+        << ", status:" << status; 
+   
+    delete(user_log);
+
+    cluster.ensure_same();
+    cluster.stop_all();
+
 }

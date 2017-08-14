@@ -26,5 +26,9 @@ enum RaftError {
    
     // Trigger on_leader_stop 
     ETRANSFERLEADERSHIP = 10013;  // Leader Transfer Leadership To A Follower
+    // The log at the given index is deleted
+    ELOGDELETED = 10014;
+    // No available user log to read
+    ENOMOREUSERLOG = 10015;
 };
 

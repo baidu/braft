@@ -2207,6 +2207,41 @@ void NodeImpl::update_configuration_after_installing_snapshot() {
     _log_manager->check_and_set_configuration(&_conf);
 }
 
+base::Status NodeImpl::read_committed_user_log(const int64_t index, UserLog* user_log) {
+    if (index <= 0) {
+        return base::Status(EINVAL, "request index:%ld is invalid.", index);
+    }
+    const int64_t saved_last_applied_index = _fsm_caller->last_applied_index();
+    if (index > saved_last_applied_index) {
+        return base::Status(ENOMOREUSERLOG, "request index:%ld is greater"
+                " than last_applied_index:%ld.", index, saved_last_applied_index);
+    }
+    int64_t cur_index = index;
+    LogEntry* entry = _log_manager->get_entry(cur_index);
+    if (entry == NULL){
+        return base::Status(ELOGDELETED, "user log is deleted at index:%ld.", index);
+    }
+    do {
+        if (entry->type == ENTRY_TYPE_DATA){
+            user_log->set_log_index(cur_index);
+            user_log->set_log_data(entry->data);
+            entry->Release();
+            return base::Status();
+        } else {
+            entry->Release();
+            ++cur_index;
+        }
+        if (cur_index > saved_last_applied_index) {
+            return base::Status(ENOMOREUSERLOG, "no user log between index:%ld"
+                    " and last_applied_index:%ld.", index, saved_last_applied_index);
+        }
+        entry = _log_manager->get_entry(cur_index);
+    } while (entry != NULL);
+    // entry is likely to be NULL because snapshot is done after 
+    // getting saved_last_applied_index.
+    return base::Status(ELOGDELETED, "user log is deleted at index:%ld.", cur_index);
+}
+
 void NodeImpl::describe(std::ostream& os, bool use_html) {
     PeerId leader;
     std::vector<ReplicatorId> replicators;

@@ -203,6 +203,8 @@ public:
     void on_error(const Error& e);
 
     int transfer_leadership_to(const PeerId& peer);
+    
+    base::Status read_committed_user_log(const int64_t index, UserLog* user_log);
 
 private:
     friend class base::RefCountedThreadSafe<NodeImpl>;
