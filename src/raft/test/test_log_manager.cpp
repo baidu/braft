@@ -46,11 +46,11 @@ private:
 class SyncClosure : public raft::LogManager::StableClosure {
 public:
     SyncClosure() {
-        _butex = (boost::atomic<int>*)bthread::butex_construct(_butex_memory);
+        _butex = bthread::butex_create_checked<boost::atomic<int> >();
         *_butex = 0;
     }
     ~SyncClosure() {
-        bthread::butex_destruct(_butex_memory);
+        bthread::butex_destroy(_butex);
     }
     void Run() {
         _butex->store(1);
@@ -69,7 +69,6 @@ public:
         return *_butex == 1;
     }
 private:
-    char _butex_memory[BUTEX_MEMORY_SIZE];
     boost::atomic<int> *_butex;
 };
 

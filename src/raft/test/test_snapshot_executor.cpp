@@ -86,7 +86,6 @@ std::string read_file(const std::string& file) {
 class SyncClosure : public google::protobuf::Closure {
 protected:
     SyncClosure() {
-        _event.init();
     }
     void Run() {
         _event.signal();

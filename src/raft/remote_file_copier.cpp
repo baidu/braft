@@ -155,7 +155,6 @@ RemoteFileCopier::Session::Session()
     , _buf(NULL)
     , _timer() {
     _done.owner = this;
-    _finish_event.init();
 }
 
 RemoteFileCopier::Session::~Session() {

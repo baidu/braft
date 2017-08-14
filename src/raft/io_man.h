@@ -41,7 +41,7 @@ private:
         int err;
         bthread::CountdownEvent cond;
 
-        IOCtx() : ret(0), err(0) { cond.init(1); }
+        IOCtx() : ret(0), err(0) {}
     };
 
     void do_write(int fd, const void* buf, size_t count, IOCtx* ctx);

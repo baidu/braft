@@ -236,7 +236,6 @@ public:
         bthread::CountdownEvent cond;
         raft::Node* node = remove_node(listen_addr);
         if (node) {
-            cond.init(1);
             node->shutdown(NEW_SHUTDOWNCLOSURE(&cond));
             cond.wait();
             node->join();
@@ -441,7 +440,6 @@ TEST_F(RaftTestSuits, InitShutdown) {
 
     //FIXME:
     bthread::CountdownEvent cond;
-    cond.init(1);
     base::IOBuf data;
     data.append("hello");
     raft::Task task;
@@ -487,8 +485,7 @@ TEST_F(RaftTestSuits, SingleNode) {
 
     sleep(2);
 
-    bthread::CountdownEvent cond;
-    cond.init(10);
+    bthread::CountdownEvent cond(10);
     for (int i = 0; i < 10; i++) {
         base::IOBuf data;
         char data_buf[128];
@@ -501,7 +498,7 @@ TEST_F(RaftTestSuits, SingleNode) {
     }
     cond.wait();
 
-    cond.init(1);
+    cond.reset(1);
     node.shutdown(NEW_SHUTDOWNCLOSURE(&cond, 0));
     cond.wait();
 
@@ -531,8 +528,7 @@ TEST_F(RaftTestSuits, NoLeader) {
     raft::Node* follower = nodes[0];
 
     // apply something
-    bthread::CountdownEvent cond;
-    cond.init(10);
+    bthread::CountdownEvent cond(10);
     for (int i = 0; i < 10; i++) {
         base::IOBuf data;
         char data_buf[128];
@@ -551,7 +547,7 @@ TEST_F(RaftTestSuits, NoLeader) {
     peer3.addr.port = 5006 + 3;
     peer3.idx = 0;
 
-    cond.init(1);
+    cond.reset(1);
     follower->add_peer(peers, peer3, NEW_ADDPEERCLOSURE(&cond, EPERM));
     cond.wait();
     LOG(NOTICE) << "add peer " << peer3;
@@ -562,7 +558,7 @@ TEST_F(RaftTestSuits, NoLeader) {
     peer0.addr.port = 5006 + 0;
     peer0.idx = 0;
 
-    cond.init(1);
+    cond.reset(1);
     follower->remove_peer(peers, peer0, NEW_REMOVEPEERCLOSURE(&cond, EPERM));
     cond.wait();
     LOG(NOTICE) << "remove peer " << peer0;
@@ -592,8 +588,7 @@ TEST_F(RaftTestSuits, TripleNode) {
     LOG(WARNING) << "leader is " << leader->node_id();
 
     // apply something
-    bthread::CountdownEvent cond;
-    cond.init(10);
+    bthread::CountdownEvent cond(10);
     for (int i = 0; i < 10; i++) {
         base::IOBuf data;
         char data_buf[128];
@@ -682,8 +677,7 @@ TEST_F(RaftTestSuits, LeaderFail) {
     LOG(WARNING) << "leader is " << leader->node_id();
 
     // apply something
-    bthread::CountdownEvent cond;
-    cond.init(10);
+    bthread::CountdownEvent cond(10);
     for (int i = 0; i < 10; i++) {
         base::IOBuf data;
         char data_buf[128];
@@ -706,7 +700,7 @@ TEST_F(RaftTestSuits, LeaderFail) {
     std::vector<raft::Node*> nodes;
     cluster.followers(&nodes);
     ASSERT_EQ(nodes.size(), 2);
-    cond.init(10);
+    cond.reset(10);
     for (int i = 0; i < 10; i++) {
         base::IOBuf data;
         char data_buf[128];
@@ -726,7 +720,7 @@ TEST_F(RaftTestSuits, LeaderFail) {
     LOG(WARNING) << "elect new leader " << leader->node_id();
 
     // apply something
-    cond.init(10);
+    cond.reset(10);
     for (int i = 10; i < 20; i++) {
         base::IOBuf data;
         char data_buf[128];
@@ -744,7 +738,7 @@ TEST_F(RaftTestSuits, LeaderFail) {
     LOG(WARNING) << "restart old leader " << old_leader;
 
     // apply something
-    cond.init(10);
+    cond.reset(10);
     for (int i = 20; i < 30; i++) {
         base::IOBuf data;
         char data_buf[128];
@@ -794,9 +788,8 @@ TEST_F(RaftTestSuits, JoinNode) {
     ASSERT_EQ(leader->node_id().peer_id, peer0);
     LOG(WARNING) << "leader is " << leader->node_id();
 
-    bthread::CountdownEvent cond;
+    bthread::CountdownEvent cond(10);
     // apply something
-    cond.init(10);
     for (int i = 0; i < 10; i++) {
         base::IOBuf data;
         char data_buf[128];
@@ -821,7 +814,7 @@ TEST_F(RaftTestSuits, JoinNode) {
     usleep(1000* 1000);
 
     // add peer1
-    cond.init(1);
+    cond.reset(1);
     leader->add_peer(peers, peer1, NEW_ADDPEERCLOSURE(&cond, 0));
     cond.wait();
     LOG(NOTICE) << "add peer " << peer1;
@@ -834,7 +827,7 @@ TEST_F(RaftTestSuits, JoinNode) {
     peer2.addr.port = 5006 + 2;
     peer2.idx = 0;
 
-    cond.init(1);
+    cond.reset(1);
     peers.push_back(peer1);
     leader->add_peer(peers, peer2, NEW_ADDPEERCLOSURE(&cond, raft::ECATCHUP));
     cond.wait();
@@ -849,7 +842,7 @@ TEST_F(RaftTestSuits, JoinNode) {
     raft::PeerId peer4("192.168.1.1:1234");
 
     // re add peer2
-    cond.init(3);
+    cond.reset(3);
     // {peer0,peer1} add peer2
     leader->add_peer(peers, peer2, NEW_ADDPEERCLOSURE(&cond, 0));
     // concurrent configration change
@@ -858,7 +851,7 @@ TEST_F(RaftTestSuits, JoinNode) {
     leader->add_peer(peers, peer1, NEW_ADDPEERCLOSURE(&cond, EBUSY));
     cond.wait();
 
-    cond.init(2);
+    cond.reset(2);
     // retry add_peer direct ok
     leader->add_peer(peers, peer2, NEW_ADDPEERCLOSURE(&cond, 0));
     // {peer0, peer1, peer2} can't accept peers{peer0, peer1}, must skip same check
@@ -892,9 +885,8 @@ TEST_F(RaftTestSuits, RemoveFollower) {
     ASSERT_TRUE(leader != NULL);
     LOG(WARNING) << "leader is " << leader->node_id();
 
-    bthread::CountdownEvent cond;
+    bthread::CountdownEvent cond(10);
     // apply something
-    cond.init(10);
     for (int i = 0; i < 10; i++) {
         base::IOBuf data;
         char data_buf[128];
@@ -923,7 +915,7 @@ TEST_F(RaftTestSuits, RemoveFollower) {
 
     // remove follower
     LOG(WARNING) << "remove follower " << follower_addr;
-    cond.init(1);
+    cond.reset(1);
     leader->remove_peer(peers, follower_id, NEW_REMOVEPEERCLOSURE(&cond, 0));
     cond.wait();
 
@@ -934,7 +926,7 @@ TEST_F(RaftTestSuits, RemoveFollower) {
     //cluster.clean(follower_addr);
 
     // apply something
-    cond.init(10);
+    cond.reset(10);
     for (int i = 10; i < 20; i++) {
         base::IOBuf data;
         char data_buf[128];
@@ -969,7 +961,7 @@ TEST_F(RaftTestSuits, RemoveFollower) {
 
     // re add follower fail when leader step down
     LOG(WARNING) << "add follower " << follower_addr;
-    cond.init(1);
+    cond.reset(1);
     leader->add_peer(peers, follower_id, NEW_ADDPEERCLOSURE(&cond, 0));
     cond.wait();
 
@@ -1001,9 +993,8 @@ TEST_F(RaftTestSuits, RemoveLeader) {
     ASSERT_TRUE(leader != NULL);
     LOG(WARNING) << "leader is " << leader->node_id();
 
-    bthread::CountdownEvent cond;
+    bthread::CountdownEvent cond(10);
     // apply something
-    cond.init(10);
     for (int i = 0; i < 10; i++) {
         base::IOBuf data;
         char data_buf[128];
@@ -1019,7 +1010,7 @@ TEST_F(RaftTestSuits, RemoveLeader) {
 
     base::EndPoint old_leader_addr = leader->node_id().peer_id.addr;
     LOG(WARNING) << "remove leader " << old_leader_addr;
-    cond.init(1);
+    cond.reset(1);
     leader->remove_peer(peers, leader->node_id().peer_id, NEW_REMOVEPEERCLOSURE(&cond, 0));
     cond.wait();
 
@@ -1029,7 +1020,7 @@ TEST_F(RaftTestSuits, RemoveLeader) {
     LOG(WARNING) << "leader is " << leader->node_id();
 
     // apply something
-    cond.init(10);
+    cond.reset(10);
     for (int i = 10; i < 20; i++) {
         base::IOBuf data;
         char data_buf[128];
@@ -1052,7 +1043,7 @@ TEST_F(RaftTestSuits, RemoveLeader) {
     cluster.start(old_leader_addr);
 
     LOG(WARNING) << "add old leader " << old_leader_addr;
-    cond.init(1);
+    cond.reset(1);
     peers.clear();
     for (int i = 0; i < 3; i++) {
         raft::PeerId peer;
@@ -1096,9 +1087,8 @@ TEST_F(RaftTestSuits, TriggerVote) {
     ASSERT_TRUE(leader != NULL);
     LOG(WARNING) << "leader is " << leader->node_id();
 
-    bthread::CountdownEvent cond;
+    bthread::CountdownEvent cond(10);
     // apply something
-    cond.init(10);
     for (int i = 0; i < 10; i++) {
         base::IOBuf data;
         char data_buf[128];
@@ -1162,9 +1152,8 @@ TEST_F(RaftTestSuits, PreVote) {
     ASSERT_TRUE(leader != NULL);
     LOG(WARNING) << "leader is " << leader->node_id();
 
-    bthread::CountdownEvent cond;
+    bthread::CountdownEvent cond(10);
     // apply something
-    cond.init(10);
     for (int i = 0; i < 10; i++) {
         base::IOBuf data;
         char data_buf[128];
@@ -1189,12 +1178,12 @@ TEST_F(RaftTestSuits, PreVote) {
     const int64_t saved_term = leader->_impl->_current_term;
     //remove follower
     LOG(WARNING) << "remove follower " << follower_addr;
-    cond.init(1);
+    cond.reset(1);
     leader->remove_peer(peers, follower_id, NEW_REMOVEPEERCLOSURE(&cond, 0));
     cond.wait();
 
     // apply something
-    cond.init(10);
+    cond.reset(10);
     for (int i = 10; i < 20; i++) {
         base::IOBuf data;
         char data_buf[128];
@@ -1223,7 +1212,7 @@ TEST_F(RaftTestSuits, PreVote) {
             peers.push_back(peer);
         }
     }
-    cond.init(1);
+    cond.reset(1);
     leader->add_peer(peers, follower_id, NEW_REMOVEPEERCLOSURE(&cond, 0));
     cond.wait();
 
@@ -1279,9 +1268,8 @@ TEST_F(RaftTestSuits, SetPeer2) {
     LOG(WARNING) << "leader is " << leader->node_id();
     std::cout << "Here" << std::endl;
 
-    bthread::CountdownEvent cond;
+    bthread::CountdownEvent cond(10);
     // apply something
-    cond.init(10);
     for (int i = 0; i < 10; i++) {
         base::IOBuf data;
         char data_buf[128];
@@ -1309,7 +1297,7 @@ TEST_F(RaftTestSuits, SetPeer2) {
 
     std::cout << "Here" << std::endl;
     // apply something
-    cond.init(10);
+    cond.reset(10);
     for (int i = 10; i < 20; i++) {
         base::IOBuf data;
         char data_buf[128];
@@ -1380,12 +1368,12 @@ TEST_F(RaftTestSuits, SetPeer2) {
     ASSERT_EQ(0, cluster.start(follower_peer2.addr, true));
 
     LOG(WARNING) << "add old follower " << follower_peer1;
-    cond.init(1);
+    cond.reset(1);
     leader->add_peer(new_peers, follower_peer1, NEW_ADDPEERCLOSURE(&cond, 0));
     cond.wait();
 
     LOG(WARNING) << "add old follower " << follower_peer2;
-    cond.init(1);
+    cond.reset(1);
     new_peers.push_back(follower_peer1);
     leader->add_peer(new_peers, follower_peer2, NEW_ADDPEERCLOSURE(&cond, 0));
     cond.wait();
@@ -1421,8 +1409,7 @@ TEST_F(RaftTestSuits, RestoreSnapshot) {
     base::EndPoint leader_addr = leader->node_id().peer_id.addr;
 
     // apply something
-    bthread::CountdownEvent cond;
-    cond.init(10);
+    bthread::CountdownEvent cond(10);
     for (int i = 0; i < 10; i++) {
         base::IOBuf data;
         char data_buf[128];
@@ -1440,7 +1427,7 @@ TEST_F(RaftTestSuits, RestoreSnapshot) {
 
     // trigger leader snapshot
     LOG(WARNING) << "trigger leader snapshot ";
-    cond.init(1);
+    cond.reset(1);
     leader->snapshot(NEW_SNAPSHOTCLOSURE(&cond, 0));
     cond.wait();
 
@@ -1483,8 +1470,7 @@ TEST_F(RaftTestSuits, InstallSnapshot) {
     LOG(WARNING) << "leader is " << leader->node_id();
 
     // apply something
-    bthread::CountdownEvent cond;
-    cond.init(10);
+    bthread::CountdownEvent cond(10);
     for (int i = 0; i < 10; i++) {
         base::IOBuf data;
         char data_buf[128];
@@ -1510,7 +1496,7 @@ TEST_F(RaftTestSuits, InstallSnapshot) {
     cluster.stop(follower_addr);
 
     // apply something
-    cond.init(10);
+    cond.reset(10);
     for (int i = 10; i < 20; i++) {
         base::IOBuf data;
         char data_buf[128];
@@ -1526,12 +1512,12 @@ TEST_F(RaftTestSuits, InstallSnapshot) {
 
     // trigger leader snapshot
     LOG(WARNING) << "trigger leader snapshot ";
-    cond.init(1);
+    cond.reset(1);
     leader->snapshot(NEW_SNAPSHOTCLOSURE(&cond, 0));
     cond.wait();
 
     // apply something
-    cond.init(10);
+    cond.reset(10);
     for (int i = 20; i < 30; i++) {
         base::IOBuf data;
         char data_buf[128];
@@ -1587,8 +1573,7 @@ TEST_F(RaftTestSuits, NoSnapshot) {
     sleep(2);
 
     // apply something
-    bthread::CountdownEvent cond;
-    cond.init(10);
+    bthread::CountdownEvent cond(10);
     for (int i = 0; i < 10; i++) {
         base::IOBuf data;
         char data_buf[128];
@@ -1603,12 +1588,12 @@ TEST_F(RaftTestSuits, NoSnapshot) {
     cond.wait();
 
     // trigger snapshot, not expect ret
-    cond.init(1);
+    cond.reset(1);
     node.snapshot(NEW_SNAPSHOTCLOSURE(&cond, -1));
     cond.wait();
 
     // shutdown
-    cond.init(1);
+    cond.reset(1);
     node.shutdown(NEW_SHUTDOWNCLOSURE(&cond, 0));
     cond.wait();
 
@@ -1647,8 +1632,7 @@ TEST_F(RaftTestSuits, AutoSnapshot) {
     sleep(2);
 
     // apply something
-    bthread::CountdownEvent cond;
-    cond.init(10);
+    bthread::CountdownEvent cond(10);
     for (int i = 0; i < 10; i++) {
         base::IOBuf data;
         char data_buf[128];
@@ -1666,7 +1650,7 @@ TEST_F(RaftTestSuits, AutoSnapshot) {
     ASSERT_GT(static_cast<MockFSM*>(options.fsm)->snapshot_index, 0);
 
     // shutdown
-    cond.init(1);
+    cond.reset(1);
     node.shutdown(NEW_SHUTDOWNCLOSURE(&cond, 0));
     cond.wait();
 
@@ -1738,8 +1722,7 @@ TEST_F(RaftTestSuits, RecoverFollower) {
     cluster.stop(follower_addr);
 
     // apply something
-    bthread::CountdownEvent cond;
-    cond.init(10);
+    bthread::CountdownEvent cond(10);
     for (int i = 0; i < 10; i++) {
         base::IOBuf data;
         char data_buf[128];
@@ -1833,8 +1816,7 @@ TEST_F(RaftTestSuits, leader_transfer_before_log_is_compleleted) {
     raft::PeerId target = nodes[0]->node_id().peer_id;
     cluster.stop(target.addr);
     // apply something
-    bthread::CountdownEvent cond;
-    cond.init(10);
+    bthread::CountdownEvent cond(10);
     for (int i = 0; i < 10; i++) {
         base::IOBuf data;
         char data_buf[128];
@@ -1847,7 +1829,7 @@ TEST_F(RaftTestSuits, leader_transfer_before_log_is_compleleted) {
     }
     cond.wait();
     ASSERT_EQ(0, leader->transfer_leadership_to(target));
-    cond.init(1);
+    cond.reset(1);
     raft::Task task;
     base::IOBuf data;
     data.resize(5, 'a');
@@ -1891,8 +1873,7 @@ TEST_F(RaftTestSuits, leader_transfer_resume_on_failure) {
     raft::PeerId target = nodes[0]->node_id().peer_id;
     cluster.stop(target.addr);
     // apply something
-    bthread::CountdownEvent cond;
-    cond.init(10);
+    bthread::CountdownEvent cond(10);
     for (int i = 0; i < 10; i++) {
         base::IOBuf data;
         char data_buf[128];
@@ -1906,7 +1887,7 @@ TEST_F(RaftTestSuits, leader_transfer_resume_on_failure) {
     cond.wait();
     ASSERT_EQ(0, leader->transfer_leadership_to(target));
     raft::Node* saved_leader = leader;
-    cond.init(1);
+    cond.reset(1);
     raft::Task task;
     base::IOBuf data;
     data.resize(5, 'a');
@@ -1925,7 +1906,7 @@ TEST_F(RaftTestSuits, leader_transfer_resume_on_failure) {
     usleep(1000 * 1000);
     data.resize(5, 'a');
     task.data = &data;
-    cond.init(1);
+    cond.reset(1);
     task.done = NEW_APPLYCLOSURE(&cond, 0);
     leader->apply(task);
     cond.wait();
@@ -1966,8 +1947,7 @@ TEST_F(RaftTestSuits, shutdown_and_join_work_after_init_fails) {
         raft::Node node("unittest", peer);
         ASSERT_EQ(0, node.init(options));
         sleep(1);
-        bthread::CountdownEvent cond;
-        cond.init(10);
+        bthread::CountdownEvent cond(10);
         for (int i = 0; i < 10; i++) {
             base::IOBuf data;
             char data_buf[128];
@@ -2054,7 +2034,6 @@ TEST_F(RaftTestSuits, removing_leader_triggers_timeout_now) {
     raft::PeerId old_leader_id = leader->node_id().peer_id;
     LOG(WARNING) << "remove leader " << old_leader_id;
     bthread::CountdownEvent cond;
-    cond.init(1);
     leader->remove_peer(peers, old_leader_id, NEW_REMOVEPEERCLOSURE(&cond, 0));
     cond.wait();
     usleep(100 * 1000);
@@ -2081,8 +2060,7 @@ TEST_F(RaftTestSuits, transfer_should_work_after_install_snapshot) {
     cluster.wait_leader();
     raft::Node* leader = cluster.leader();
     ASSERT_TRUE(leader != NULL);
-    bthread::CountdownEvent cond;
-    cond.init(10);
+    bthread::CountdownEvent cond(10);
     for (int i = 0; i < 10; i++) {
         base::IOBuf data;
         char data_buf[128];
@@ -2102,10 +2080,10 @@ TEST_F(RaftTestSuits, transfer_should_work_after_install_snapshot) {
     usleep(2000 * 1000);
     leader = cluster.leader();
     ASSERT_EQ(follower, leader->node_id().peer_id);
-    cond.init(1);
+    cond.reset(1);
     leader->snapshot(NEW_SNAPSHOTCLOSURE(&cond, 0));
     cond.wait();
-    cond.init(1);
+    cond.reset(1);
     leader->snapshot(NEW_SNAPSHOTCLOSURE(&cond, 0));
     cond.wait();
 
@@ -2145,8 +2123,7 @@ TEST_F(RaftTestSuits, append_entries_when_follower_is_in_error_state) {
     LOG(WARNING) << "leader is " << leader->node_id();
 
     // apply something
-    bthread::CountdownEvent cond;
-    cond.init(10);
+    bthread::CountdownEvent cond(10);
     for (int i = 0; i < 10; i++) {
         base::IOBuf data;
         char data_buf[128];
@@ -2185,7 +2162,7 @@ TEST_F(RaftTestSuits, append_entries_when_follower_is_in_error_state) {
     LOG(WARNING) << "elect new leader " << leader->node_id();
 
     // apply something again 
-    cond.init(10);
+    cond.reset(10);
     for (int i = 10; i < 20; i++) {
         base::IOBuf data;
         char data_buf[128];
@@ -2241,8 +2218,7 @@ TEST_F(RaftTestSuits, on_start_following_and_on_stop_following) {
     LOG(WARNING) << "leader_first is " << leader_first->node_id();
 
     // apply something
-    bthread::CountdownEvent cond;
-    cond.init(10);
+    bthread::CountdownEvent cond(10);
     for (int i = 0; i < 10; i++) {
         base::IOBuf data;
         char data_buf[128];
@@ -2278,7 +2254,7 @@ TEST_F(RaftTestSuits, on_start_following_and_on_stop_following) {
     LOG(WARNING) << "elect new leader " << leader_second->node_id();
 
     // apply something
-    cond.init(10);
+    cond.reset(10);
     for (int i = 0; i < 10; i++) {
         base::IOBuf data;
         char data_buf[128];
@@ -2319,7 +2295,7 @@ TEST_F(RaftTestSuits, on_start_following_and_on_stop_following) {
     ASSERT_EQ(target, leader_third->node_id().peer_id);
     
     // apply something
-    cond.init(10);
+    cond.reset(10);
     for (int i = 0; i < 10; i++) {
         base::IOBuf data;
         char data_buf[128];
