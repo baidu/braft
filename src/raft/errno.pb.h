@@ -46,11 +46,13 @@ enum RaftError {
   EVOTEFORCANDIDATE = 10010,
   ENEWLEADER = 10011,
   ELEADERCONFLICT = 10012,
-  ETRANSFERLEADERSHIP = 10013
+  ETRANSFERLEADERSHIP = 10013,
+  ELOGDELETED = 10014,
+  ENOMOREUSERLOG = 10015
 };
 bool RaftError_IsValid(int value);
 const RaftError RaftError_MIN = ERAFTTIMEDOUT;
-const RaftError RaftError_MAX = ETRANSFERLEADERSHIP;
+const RaftError RaftError_MAX = ENOMOREUSERLOG;
 const int RaftError_ARRAYSIZE = RaftError_MAX + 1;
 
 const ::google::protobuf::EnumDescriptor* RaftError_descriptor();

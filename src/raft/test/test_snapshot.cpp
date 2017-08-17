@@ -38,7 +38,7 @@ protected:
         NULL, new raft::PosixFileSystemAdaptor, new MemoryFileSystemAdaptor \
     };                                                                           \
     for (size_t fs_index = 0; fs_index != sizeof(file_system_adaptors)           \
-         / sizeof(file_system_adaptors[0]); ++fs_index) {                        \ 
+         / sizeof(file_system_adaptors[0]); ++fs_index) {                        \
         fs = file_system_adaptors[fs_index];
 
 #define FOR_EACH_FILE_SYSTEM_ADAPTOR_END }

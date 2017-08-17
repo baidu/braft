@@ -48,7 +48,6 @@ public:
                           SnapshotReader* reader)
         : _se(se)
         , _reader(reader) {
-        CHECK_EQ(0, _event.init(1));
     }
     ~FirstSnapshotLoadDone() {
     }
@@ -80,8 +79,8 @@ SnapshotExecutor::SnapshotExecutor()
     , _node(NULL)
     , _log_manager(NULL)
     , _downloading_snapshot(NULL)
+    , _running_jobs(0)
 {
-    _running_jobs.init(0);
 }
 
 SnapshotExecutor::~SnapshotExecutor() {

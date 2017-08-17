@@ -127,7 +127,6 @@ int64_t LogManager::first_log_index() {
 class LastLogIdClosure : public LogManager::StableClosure {
 public:
     LastLogIdClosure() {
-        _event.init(1); 
     }
     void Run() {
         _event.signal();

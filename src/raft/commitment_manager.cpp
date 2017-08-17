@@ -144,7 +144,7 @@ int CommitmentManager::append_pending_task(const Configuration& conf, Closure* c
 }
 
 int CommitmentManager::set_last_committed_index(int64_t last_committed_index) {
-    // FIXME: it seems that lock is not necessary her
+    // FIXME: it seems that lock is not necessary here
     std::unique_lock<raft_mutex_t> lck(_mutex);
     if (_pending_index != 0 || !_pending_meta_queue.empty()) {
         CHECK(false) << "Must be called by follower";
