@@ -10,6 +10,14 @@
 
 namespace raft {
 
+bool open_snapshot(const std::string& snapshot_path) {
+    return true;
+}
+
+void close_snapshot(const std::string& snapshot_path) {
+    return;
+}
+
 bool PosixDirReader::is_valid() const {
     return _dir_reader.IsValid();
 }

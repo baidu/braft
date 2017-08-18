@@ -332,6 +332,12 @@ std::string LocalSnapshotReader::generate_uri_for_copy() {
         scoped_refptr<SnapshotFileReader> reader(
                 new SnapshotFileReader(_fs.get(), _path));
         reader->set_meta_table(_meta_table);
+
+	    if (!reader->open()) {
+	        LOG(ERROR) << "Open snapshot=" << _path << " failed";
+                return std::string();
+	    }
+
         if (file_service_add(reader.get(), &_reader_id) != 0) {
             LOG(ERROR) << "Fail to add reader to file_service";
             return std::string();

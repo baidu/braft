@@ -8,6 +8,14 @@
 #include "raft/util.h"
 
 namespace raft {
+    
+LocalDirReader::~LocalDirReader() {
+    _fs->close_snapshot(_path);
+}
+
+bool LocalDirReader::open() {
+    return _fs->open_snapshot(_path);
+}
 
 int LocalDirReader::read_file(base::IOBuf* out,
                               const std::string &filename,

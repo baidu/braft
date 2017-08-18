@@ -41,7 +41,11 @@ public:
     LocalDirReader(FileSystemAdaptor* fs, const std::string& path) 
         : _path(path), _fs(fs)
     {}
-    virtual ~LocalDirReader() {}
+    virtual ~LocalDirReader();
+
+    // Open a snapshot for read
+    virtual bool open();
+
     // Read data from filename at |offset| (from the start of the file) for at
     // most |max_count| bytes to |out|. set |is_eof| to true if reaches to the
     // end of the file.
