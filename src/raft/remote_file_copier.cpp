@@ -159,7 +159,7 @@ RemoteFileCopier::Session::Session()
 
 RemoteFileCopier::Session::~Session() {
     if (_file) {
-        delete _file;
+        _file->destroy();
         _file = NULL;
     }
 }
@@ -266,7 +266,7 @@ void RemoteFileCopier::Session::on_timer(void* arg) {
 void RemoteFileCopier::Session::on_finished() {
     if (!_finished) {
         if (_file) {
-            delete _file;
+            _file->destroy();
             _file = NULL;
         }
         _finished = true;

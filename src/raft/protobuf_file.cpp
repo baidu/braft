@@ -36,7 +36,7 @@ int ProtoBufFile::save(const google::protobuf::Message* message, bool sync) {
                      << ": " << base::File::ErrorToString(e);
         return -1;
     }
-    std::unique_ptr<FileAdaptor> guard(file);
+    std::unique_ptr<FileAdaptor, DestroyObj<FileAdaptor> > guard(file);
 
     // serialize msg
     base::IOBuf header_buf;
@@ -83,7 +83,7 @@ int ProtoBufFile::load(google::protobuf::Message* message) {
         return -1;
     }
 
-    std::unique_ptr<FileAdaptor> guard(file);
+    std::unique_ptr<FileAdaptor, DestroyObj<FileAdaptor> > guard(file);
 
     // len
     base::IOPortal header_buf;

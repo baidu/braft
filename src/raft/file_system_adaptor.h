@@ -44,11 +44,14 @@ private:
     DISALLOW_COPY_AND_ASSIGN(DirReader);
 };
 
+template <typename T>
+struct DestroyObj {
+    void operator()(T* const obj) { obj->destroy(); }
+};
+
+
 class FileAdaptor {
 public:
-    FileAdaptor() {}
-    virtual ~FileAdaptor() {}
-
     // Write to the file. Different from posix ::pwrite(), write will retry automatically
     // when occur EINTR.
     // Return |data.size()| if successful, -1 otherwise.
@@ -65,6 +68,14 @@ public:
 
     // Sync data of the file to disk device
     virtual bool sync() = 0;
+
+    // Destroy this adaptor
+    virtual void destroy() { delete this; }
+
+protected:
+
+    FileAdaptor() {}
+    virtual ~FileAdaptor() {}
 
 private:
     DISALLOW_COPY_AND_ASSIGN(FileAdaptor);

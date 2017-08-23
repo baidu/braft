@@ -38,7 +38,7 @@ int LocalDirReader::read_file_with_meta(base::IOBuf* out,
     if (!file) {
         return file_error_to_os_error(e);
     }
-    std::unique_ptr<FileAdaptor> guard(file);
+    std::unique_ptr<FileAdaptor, DestroyObj<FileAdaptor> > guard(file);
     base::IOPortal buf;
     ssize_t nread = file->read(&buf, offset, max_count);
     if (nread < 0) {
