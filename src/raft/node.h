@@ -76,6 +76,7 @@ friend class RaftStatImpl;
 friend class FollowerStableClosure;
 public:
     NodeImpl(const GroupId& group_id, const PeerId& peer_id);
+    NodeImpl();
 
     NodeId node_id() const {
         return NodeId(_group_id, _server_id);
@@ -206,15 +207,17 @@ public:
     
     base::Status read_committed_user_log(const int64_t index, UserLog* user_log);
 
-private:
-    friend class base::RefCountedThreadSafe<NodeImpl>;
-    virtual ~NodeImpl();
+    int bootstrap(const BootstrapOptions& options);
 
 private:
+friend class base::RefCountedThreadSafe<NodeImpl>;
+
+    virtual ~NodeImpl();
     // internal init func
     int init_snapshot_storage();
     int init_log_storage();
     int init_stable_storage();
+    int init_fsm_caller(const LogId& bootstrap_index);
     bool unsafe_register_conf_change(const std::vector<PeerId>& old_peers,
                                      const std::vector<PeerId>& new_peers,
                                      Closure* done);

@@ -125,11 +125,11 @@ public:
 
     // This method will be called at the very begin before read snapshot file.
     // The default implemention is return 'true' directly.
-    virtual bool open_snapshot(const std::string& snapshot_path) { return true; }
+    virtual bool open_snapshot(const std::string& /*snapshot_path*/) { return true; }
     
     // This method will be called after read all snapshot files or failed.
     // The default implemention is return directly.
-    virtual void close_snapshot(const std::string& snapshot_path) {}
+    virtual void close_snapshot(const std::string& /*snapshot_path*/) {}
 private:
     DISALLOW_COPY_AND_ASSIGN(FileSystemAdaptor);
 };

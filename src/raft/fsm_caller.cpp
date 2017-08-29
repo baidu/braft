@@ -132,6 +132,9 @@ int FSMCaller::init(const FSMCallerOptions &options) {
     _closure_queue = options.closure_queue;
     _after_shutdown = options.after_shutdown;
     _node = options.node;
+    _last_applied_index.store(options.bootstrap_id.index,
+                              boost::memory_order_relaxed);
+    _last_applied_term = options.bootstrap_id.term;
     if (_node) {
         _node->AddRef();
     }
@@ -209,7 +212,9 @@ void FSMCaller::set_error(const Error& e) {
         return;
     }
     _error = e;
-    _fsm->on_error(_error);
+    if (_fsm) {
+        _fsm->on_error(_error);
+    }
     if (_node) {
         _node->on_error(_error);
     }
@@ -219,7 +224,8 @@ void FSMCaller::do_committed(int64_t committed_index) {
     if (!_error.status().ok()) {
         return;
     }
-    int64_t last_applied_index = _last_applied_index.load(boost::memory_order_relaxed);
+    int64_t last_applied_index = _last_applied_index.load(
+                                        boost::memory_order_relaxed);
 
     // We can tolerate the disorder of committed_index
     if (last_applied_index >= committed_index) {
@@ -329,6 +335,21 @@ void FSMCaller::do_snapshot_load(LoadSnapshotClosure* done) {
             set_error(e);
         }
         return;
+    }
+
+    LogId last_applied_id;
+    last_applied_id.index = _last_applied_index.load(boost::memory_order_relaxed);
+    last_applied_id.term = _last_applied_term;
+    LogId snapshot_id;
+    snapshot_id.index = meta.last_included_index();
+    snapshot_id.term = meta.last_included_term();
+    if (last_applied_id > snapshot_id) {
+        done->status().set_error(ESTALE,"Loading a stale snapshot"
+                                 " last_applied_index=%ld last_applied_term=%ld"
+                                 " snapshot_index=%ld snapshot_term=%ld",
+                                 last_applied_id.index, last_applied_id.term,
+                                 snapshot_id.index, snapshot_id.term);
+        return done->Run();
     }
 
     ret = _fsm->on_snapshot_load(reader);
