@@ -59,8 +59,8 @@ public:
 
     // Read from the file. Different from posix ::pread(), read will retry automatically
     // when occur EINTR.
-    // Return a non-negative integer less or equal to |size| if successful, -1 otherwise.
-    // In the case of EOF, the return value is a non-negative integer less to |size|.
+    // Return a non-negative integer less than or equal to |size| if successful, -1 otherwise.
+    // In the case of EOF, the return value is a non-negative integer less than |size|.
     virtual ssize_t read(base::IOPortal* portal, off_t offset, size_t size) = 0;
 
     // Get the size of the file

@@ -235,11 +235,13 @@ int LocalSnapshotWriter::sync() {
 
 LocalSnapshotReader::LocalSnapshotReader(const std::string& path,
                                          base::EndPoint server_addr,
-                                         FileSystemAdaptor* fs)
+                                         FileSystemAdaptor* fs,
+                                         ThroughputSnapshotThrottle* throughput_snapshot_throttle)
     : _path(path)
     , _addr(server_addr)
     , _reader_id(0)
     , _fs(fs)
+    , _throughput_snapshot_throttle(throughput_snapshot_throttle)
 {}
 
 LocalSnapshotReader::~LocalSnapshotReader() {
@@ -294,17 +296,21 @@ int LocalSnapshotReader::get_file_meta(const std::string& filename,
 class SnapshotFileReader : public LocalDirReader {
 public:
     SnapshotFileReader(FileSystemAdaptor* fs,
-                       const std::string& path)
+                       const std::string& path,
+                       ThroughputSnapshotThrottle* throughput_snapshot_throttle)
             : LocalDirReader(fs, path)
-    {
-    }
+            , _throughput_snapshot_throttle(throughput_snapshot_throttle)
+    {}
+
     void set_meta_table(const LocalSnapshotMetaTable &meta_table) {
         _meta_table = meta_table;
     }
+
     int read_file(base::IOBuf* out,
                   const std::string &filename,
                   off_t offset,
                   size_t max_count,
+                  bool read_partly,
                   bool* is_eof) const {
         if (filename == RAFT_SNAPSHOT_META_FILE) {
             *is_eof = true;
@@ -314,12 +320,26 @@ public:
         if (_meta_table.get_file_meta(filename, &file_meta) != 0) {
             return EPERM;
         }
+        // go through throttle
+        size_t new_max_count = max_count;
+        if (_throughput_snapshot_throttle != NULL) {
+            new_max_count = _throughput_snapshot_throttle->
+                throttled_by_throughput(max_count);
+            if (new_max_count < max_count) {
+                // if it's not allowed to read partly or it's allowed but
+                // throughput is throttled to 0, try again.
+                if (!read_partly || new_max_count == 0) {
+                    return EAGAIN;
+                }
+            }
+        }
         return LocalDirReader::read_file_with_meta(
-                out, filename, &file_meta, offset, max_count, is_eof);
+                out, filename, &file_meta, offset, new_max_count, is_eof);
     }
-    
+   
 private:
     LocalSnapshotMetaTable _meta_table;
+    scoped_refptr<ThroughputSnapshotThrottle> _throughput_snapshot_throttle;
 };
 
 std::string LocalSnapshotReader::generate_uri_for_copy() {
@@ -330,7 +350,7 @@ std::string LocalSnapshotReader::generate_uri_for_copy() {
     if (_reader_id == 0) {
         // TODO: handler referenced files
         scoped_refptr<SnapshotFileReader> reader(
-                new SnapshotFileReader(_fs.get(), _path));
+                new SnapshotFileReader(_fs.get(), _path, _throughput_snapshot_throttle.get()));
         reader->set_meta_table(_meta_table);
 
 	    if (!reader->open()) {
@@ -591,7 +611,8 @@ SnapshotReader* LocalSnapshotStorage::open() {
         lck.unlock();
         std::string snapshot_path(_path);
         base::string_appendf(&snapshot_path, "/" RAFT_SNAPSHOT_PATTERN, last_snapshot_index);
-        LocalSnapshotReader* reader = new LocalSnapshotReader(snapshot_path, _addr, _fs.get());
+        LocalSnapshotReader* reader = new LocalSnapshotReader(snapshot_path, _addr, 
+                _fs.get(), _throughput_snapshot_throttle.get());
         if (reader->init() != 0) {
             CHECK(!lck.owns_lock());
             unref(last_snapshot_index);
@@ -623,6 +644,11 @@ int LocalSnapshotStorage::set_file_system_adaptor(FileSystemAdaptor* fs) {
         return -1;
     }
     _fs = fs;
+    return 0;
+}
+
+int LocalSnapshotStorage::set_snapshot_throttle(ThroughputSnapshotThrottle* throughput_snapshot_throttle) {
+    _throughput_snapshot_throttle = throughput_snapshot_throttle;
     return 0;
 }
 

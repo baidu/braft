@@ -21,6 +21,7 @@ int LocalDirReader::read_file(base::IOBuf* out,
                               const std::string &filename,
                               off_t offset,
                               size_t max_count,
+                              bool read_partly,
                               bool* is_eof) const {
     return read_file_with_meta(out, filename, NULL, offset, max_count, is_eof);
 }

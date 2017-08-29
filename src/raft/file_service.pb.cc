@@ -35,11 +35,12 @@ void protobuf_AssignDesc_raft_2ffile_5fservice_2eproto() {
       "raft/file_service.proto");
   GOOGLE_CHECK(file != NULL);
   GetFileRequest_descriptor_ = file->message_type(0);
-  static const int GetFileRequest_offsets_[4] = {
+  static const int GetFileRequest_offsets_[5] = {
     GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(GetFileRequest, reader_id_),
     GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(GetFileRequest, filename_),
     GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(GetFileRequest, count_),
     GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(GetFileRequest, offset_),
+    GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(GetFileRequest, read_partly_),
   };
   GetFileRequest_reflection_ =
     new ::google::protobuf::internal::GeneratedMessageReflection(
@@ -53,8 +54,9 @@ void protobuf_AssignDesc_raft_2ffile_5fservice_2eproto() {
       ::google::protobuf::MessageFactory::generated_factory(),
       sizeof(GetFileRequest));
   GetFileResponse_descriptor_ = file->message_type(1);
-  static const int GetFileResponse_offsets_[1] = {
+  static const int GetFileResponse_offsets_[2] = {
     GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(GetFileResponse, eof_),
+    GOOGLE_PROTOBUF_GENERATED_MESSAGE_FIELD_OFFSET(GetFileResponse, read_size_),
   };
   GetFileResponse_reflection_ =
     new ::google::protobuf::internal::GeneratedMessageReflection(
@@ -102,12 +104,13 @@ void protobuf_AddDesc_raft_2ffile_5fservice_2eproto() {
   GOOGLE_PROTOBUF_VERIFY_VERSION;
 
   ::google::protobuf::DescriptorPool::InternalAddGeneratedFile(
-    "\n\027raft/file_service.proto\022\004raft\"T\n\016GetFi"
+    "\n\027raft/file_service.proto\022\004raft\"i\n\016GetFi"
     "leRequest\022\021\n\treader_id\030\001 \002(\003\022\020\n\010filename"
-    "\030\002 \002(\t\022\r\n\005count\030\003 \002(\003\022\016\n\006offset\030\004 \002(\003\"\036\n"
-    "\017GetFileResponse\022\013\n\003eof\030\001 \002(\0102F\n\013FileSer"
+    "\030\002 \002(\t\022\r\n\005count\030\003 \002(\003\022\016\n\006offset\030\004 \002(\003\022\023\n"
+    "\013read_partly\030\005 \001(\010\"1\n\017GetFileResponse\022\013\n"
+    "\003eof\030\001 \002(\010\022\021\n\tread_size\030\002 \001(\0032F\n\013FileSer"
     "vice\0227\n\010get_file\022\024.raft.GetFileRequest\032\025"
-    ".raft.GetFileResponseB\003\200\001\001", 226);
+    ".raft.GetFileResponseB\003\200\001\001", 266);
   ::google::protobuf::MessageFactory::InternalRegisterGeneratedFile(
     "raft/file_service.proto", &protobuf_RegisterTypes);
   GetFileRequest::default_instance_ = new GetFileRequest();
@@ -132,6 +135,7 @@ const int GetFileRequest::kReaderIdFieldNumber;
 const int GetFileRequest::kFilenameFieldNumber;
 const int GetFileRequest::kCountFieldNumber;
 const int GetFileRequest::kOffsetFieldNumber;
+const int GetFileRequest::kReadPartlyFieldNumber;
 #endif  // !_MSC_VER
 
 GetFileRequest::GetFileRequest()
@@ -154,6 +158,7 @@ void GetFileRequest::SharedCtor() {
   filename_ = const_cast< ::std::string*>(&::google::protobuf::internal::kEmptyString);
   count_ = GOOGLE_LONGLONG(0);
   offset_ = GOOGLE_LONGLONG(0);
+  read_partly_ = false;
   ::memset(_has_bits_, 0, sizeof(_has_bits_));
 }
 
@@ -199,6 +204,7 @@ void GetFileRequest::Clear() {
     }
     count_ = GOOGLE_LONGLONG(0);
     offset_ = GOOGLE_LONGLONG(0);
+    read_partly_ = false;
   }
   ::memset(_has_bits_, 0, sizeof(_has_bits_));
   mutable_unknown_fields()->Clear();
@@ -270,6 +276,22 @@ bool GetFileRequest::MergePartialFromCodedStream(
         } else {
           goto handle_uninterpreted;
         }
+        if (input->ExpectTag(40)) goto parse_read_partly;
+        break;
+      }
+      
+      // optional bool read_partly = 5;
+      case 5: {
+        if (::google::protobuf::internal::WireFormatLite::GetTagWireType(tag) ==
+            ::google::protobuf::internal::WireFormatLite::WIRETYPE_VARINT) {
+         parse_read_partly:
+          DO_((::google::protobuf::internal::WireFormatLite::ReadPrimitive<
+                   bool, ::google::protobuf::internal::WireFormatLite::TYPE_BOOL>(
+                 input, &read_partly_)));
+          set_has_read_partly();
+        } else {
+          goto handle_uninterpreted;
+        }
         if (input->ExpectAtEnd()) return true;
         break;
       }
@@ -316,6 +338,11 @@ void GetFileRequest::SerializeWithCachedSizes(
     ::google::protobuf::internal::WireFormatLite::WriteInt64(4, this->offset(), output);
   }
   
+  // optional bool read_partly = 5;
+  if (has_read_partly()) {
+    ::google::protobuf::internal::WireFormatLite::WriteBool(5, this->read_partly(), output);
+  }
+  
   if (!unknown_fields().empty()) {
     ::google::protobuf::internal::WireFormat::SerializeUnknownFields(
         unknown_fields(), output);
@@ -347,6 +374,11 @@ void GetFileRequest::SerializeWithCachedSizes(
   // required int64 offset = 4;
   if (has_offset()) {
     target = ::google::protobuf::internal::WireFormatLite::WriteInt64ToArray(4, this->offset(), target);
+  }
+  
+  // optional bool read_partly = 5;
+  if (has_read_partly()) {
+    target = ::google::protobuf::internal::WireFormatLite::WriteBoolToArray(5, this->read_partly(), target);
   }
   
   if (!unknown_fields().empty()) {
@@ -388,6 +420,11 @@ int GetFileRequest::ByteSize() const {
           this->offset());
     }
     
+    // optional bool read_partly = 5;
+    if (has_read_partly()) {
+      total_size += 1 + 1;
+    }
+    
   }
   if (!unknown_fields().empty()) {
     total_size +=
@@ -427,6 +464,9 @@ void GetFileRequest::MergeFrom(const GetFileRequest& from) {
     if (from.has_offset()) {
       set_offset(from.offset());
     }
+    if (from.has_read_partly()) {
+      set_read_partly(from.read_partly());
+    }
   }
   mutable_unknown_fields()->MergeFrom(from.unknown_fields());
 }
@@ -455,6 +495,7 @@ void GetFileRequest::Swap(GetFileRequest* other) {
     std::swap(filename_, other->filename_);
     std::swap(count_, other->count_);
     std::swap(offset_, other->offset_);
+    std::swap(read_partly_, other->read_partly_);
     std::swap(_has_bits_[0], other->_has_bits_[0]);
     _unknown_fields_.Swap(&other->_unknown_fields_);
     std::swap(_cached_size_, other->_cached_size_);
@@ -474,6 +515,7 @@ void GetFileRequest::Swap(GetFileRequest* other) {
 
 #ifndef _MSC_VER
 const int GetFileResponse::kEofFieldNumber;
+const int GetFileResponse::kReadSizeFieldNumber;
 #endif  // !_MSC_VER
 
 GetFileResponse::GetFileResponse()
@@ -493,6 +535,7 @@ GetFileResponse::GetFileResponse(const GetFileResponse& from)
 void GetFileResponse::SharedCtor() {
   _cached_size_ = 0;
   eof_ = false;
+  read_size_ = GOOGLE_LONGLONG(0);
   ::memset(_has_bits_, 0, sizeof(_has_bits_));
 }
 
@@ -528,6 +571,7 @@ GetFileResponse* GetFileResponse::New() const {
 void GetFileResponse::Clear() {
   if (_has_bits_[0 / 32] & (0xffu << (0 % 32))) {
     eof_ = false;
+    read_size_ = GOOGLE_LONGLONG(0);
   }
   ::memset(_has_bits_, 0, sizeof(_has_bits_));
   mutable_unknown_fields()->Clear();
@@ -547,6 +591,22 @@ bool GetFileResponse::MergePartialFromCodedStream(
                    bool, ::google::protobuf::internal::WireFormatLite::TYPE_BOOL>(
                  input, &eof_)));
           set_has_eof();
+        } else {
+          goto handle_uninterpreted;
+        }
+        if (input->ExpectTag(16)) goto parse_read_size;
+        break;
+      }
+      
+      // optional int64 read_size = 2;
+      case 2: {
+        if (::google::protobuf::internal::WireFormatLite::GetTagWireType(tag) ==
+            ::google::protobuf::internal::WireFormatLite::WIRETYPE_VARINT) {
+         parse_read_size:
+          DO_((::google::protobuf::internal::WireFormatLite::ReadPrimitive<
+                   ::google::protobuf::int64, ::google::protobuf::internal::WireFormatLite::TYPE_INT64>(
+                 input, &read_size_)));
+          set_has_read_size();
         } else {
           goto handle_uninterpreted;
         }
@@ -577,6 +637,11 @@ void GetFileResponse::SerializeWithCachedSizes(
     ::google::protobuf::internal::WireFormatLite::WriteBool(1, this->eof(), output);
   }
   
+  // optional int64 read_size = 2;
+  if (has_read_size()) {
+    ::google::protobuf::internal::WireFormatLite::WriteInt64(2, this->read_size(), output);
+  }
+  
   if (!unknown_fields().empty()) {
     ::google::protobuf::internal::WireFormat::SerializeUnknownFields(
         unknown_fields(), output);
@@ -588,6 +653,11 @@ void GetFileResponse::SerializeWithCachedSizes(
   // required bool eof = 1;
   if (has_eof()) {
     target = ::google::protobuf::internal::WireFormatLite::WriteBoolToArray(1, this->eof(), target);
+  }
+  
+  // optional int64 read_size = 2;
+  if (has_read_size()) {
+    target = ::google::protobuf::internal::WireFormatLite::WriteInt64ToArray(2, this->read_size(), target);
   }
   
   if (!unknown_fields().empty()) {
@@ -604,6 +674,13 @@ int GetFileResponse::ByteSize() const {
     // required bool eof = 1;
     if (has_eof()) {
       total_size += 1 + 1;
+    }
+    
+    // optional int64 read_size = 2;
+    if (has_read_size()) {
+      total_size += 1 +
+        ::google::protobuf::internal::WireFormatLite::Int64Size(
+          this->read_size());
     }
     
   }
@@ -636,6 +713,9 @@ void GetFileResponse::MergeFrom(const GetFileResponse& from) {
     if (from.has_eof()) {
       set_eof(from.eof());
     }
+    if (from.has_read_size()) {
+      set_read_size(from.read_size());
+    }
   }
   mutable_unknown_fields()->MergeFrom(from.unknown_fields());
 }
@@ -661,6 +741,7 @@ bool GetFileResponse::IsInitialized() const {
 void GetFileResponse::Swap(GetFileResponse* other) {
   if (other != this) {
     std::swap(eof_, other->eof_);
+    std::swap(read_size_, other->read_size_);
     std::swap(_has_bits_[0], other->_has_bits_[0]);
     _unknown_fields_.Swap(&other->_unknown_fields_);
     std::swap(_cached_size_, other->_cached_size_);

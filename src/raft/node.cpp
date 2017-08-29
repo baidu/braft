@@ -179,6 +179,10 @@ int NodeImpl::init_snapshot_storage() {
     if (_options.snapshot_file_system_adaptor) {
         opt.file_system_adaptor = *_options.snapshot_file_system_adaptor;
     }
+    // get snapshot_throttle
+    if (_options.throughput_snapshot_throttle) {
+        opt.throughput_snapshot_throttle = *_options.throughput_snapshot_throttle;
+    }
     return _snapshot_executor->init(opt);
 }
 
@@ -2411,13 +2415,14 @@ void NodeImpl::describe(std::ostream& os, bool use_html) {
         os << "leader: ";
         if (use_html) {
             os << "<a href=\"http://" << leader.addr
-                << "/raft_stat/" << _group_id << "\">"
-                << leader << "</a>";
+               << "/raft_stat/" << _group_id << "\">"
+               << leader << "</a>";
         } else {
             os << leader;
         }
         os << newline;
-        os << "last_msg_to_now: " << base::monotonic_time_ms() - leader_timestamp;
+        os << "last_msg_to_now: " << base::monotonic_time_ms() - leader_timestamp 
+           << newline;
     }
 
     // Show timers

@@ -319,6 +319,9 @@ int SnapshotExecutor::init(const SnapshotExecutorOptions& options) {
     if (options.file_system_adaptor) {
         _snapshot_storage->set_file_system_adaptor(options.file_system_adaptor);
     }
+    if (options.throughput_snapshot_throttle) {
+        _snapshot_storage->set_snapshot_throttle(options.throughput_snapshot_throttle);
+    }
     if (_snapshot_storage->init() != 0) {
         LOG(ERROR) << "Fail to init snapshot storage";
         return -1;
@@ -367,7 +370,6 @@ void SnapshotExecutor::install_snapshot(baidu::rpc::Controller* cntl,
     ds->done = done;
     ds->response = response;
     ds->request = request;
-    const std::string saved_uri = request->uri();
     ret = register_downloading_snapshot(ds.get());
     //    ^^^ DON'T access request, response, done and cntl after this point
     //        as the retry snapshot will replace this one.

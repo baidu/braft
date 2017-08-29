@@ -180,6 +180,7 @@ public:
 
 class SnapshotHook;
 class FileSystemAdaptor;
+class SnapshotThrottle;
 
 class SnapshotStorage {
 public:
@@ -193,6 +194,12 @@ public:
     virtual int set_file_system_adaptor(FileSystemAdaptor* fs) {
         (void)fs;
         CHECK(false) << base::class_name_str(*this) << " doesn't support file system adaptor";
+        return -1;
+    }
+
+    virtual int set_snapshot_throttle(SnapshotThrottle* st) {
+        (void)st;
+        CHECK(false) << base::class_name_str(*this) << " doesn't support snapshot throttle";
         return -1;
     }
 

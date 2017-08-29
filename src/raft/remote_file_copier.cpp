@@ -174,6 +174,8 @@ void RemoteFileCopier::Session::send_next_rpc() {
     _cntl.set_timeout_ms(_options.timeout_ms);
     _request.set_offset(offset);
     _request.set_count(max_count);
+    // Read partly when throttled
+    _request.set_read_partly(true);
     BAIDU_SCOPED_LOCK(_mutex);
     if (_finished) {
         return;
@@ -198,7 +200,8 @@ void RemoteFileCopier::Session::on_rpc_returned() {
                 return on_finished();
             }
         }
-        if (_retry_times++ >= _options.max_retry) {
+        // Throttled reading failure does not increase _retry_times
+        if (_cntl.ErrorCode() != EAGAIN && _retry_times++ >= _options.max_retry) {
             if (_st.ok()) {
                 _st.set_error(_cntl.ErrorCode(), _cntl.ErrorText());
                 return on_finished();
@@ -216,6 +219,10 @@ void RemoteFileCopier::Session::on_rpc_returned() {
         return;
     }
     _retry_times = 0;
+    // Reset count to |real_read_size| to make next rpc get the right offset
+    if (_response.has_read_size() && (_response.read_size() != 0)) {
+        _request.set_count(_response.read_size());
+    }
     if (_file) {
         FileSegData data(_cntl.response_attachment());
         uint64_t seg_offset = 0;
