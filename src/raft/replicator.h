@@ -265,10 +265,12 @@ public:
     int stop_all_and_find_the_next_candidate(ReplicatorId* candidate,
                                              const Configuration& current_conf);
     
-    // find the next possible replicator which has the largest 'last_log_id' and
-    // corresponding peer_id.
-    int find_the_next_candidate(ReplicatorId* candidate, PeerId* peer_id, 
-            const Configuration& current_conf);
+    // Find the follower with the most log entries in this group, which is
+    // likely becomes the leader according to the election algorithm of raft.
+    // Returns 0 on success and |peer_id| is assigned with the very peer.
+    // -1 otherwise.
+    int find_the_next_candidate(PeerId* peer_id,
+                                const Configuration& current_conf);
 
     // List all the existing replicators
     void list_replicators(std::vector<ReplicatorId>* out) const;

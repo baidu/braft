@@ -1059,13 +1059,14 @@ int NodeImpl::transfer_leadership_to(const PeerId& peer) {
     }
 
     PeerId peer_id = peer;
-    // if peer_id is ANY_PEER(0.0.0.0:0:0), the peer with the largest last_log_id will be selected. 
+    // if peer_id is ANY_PEER(0.0.0.0:0:0), the peer with the largest
+    // last_log_id will be selected. 
     if (peer_id == ANY_PEER) {
         LOG(INFO) << "node " << _group_id << ":" << _server_id
               << " starts to transfer leadership to any peer.";
-        ReplicatorId replicator_id;
         // find the next candidate which is the most possible to become new leader
-        if (_replicator_group.find_the_next_candidate(&replicator_id, &peer_id, _conf.second) != 0) {
+        if (_replicator_group.find_the_next_candidate(
+                        &peer_id, _conf.second) != 0) {
             return -1;    
         }
     }
@@ -2257,6 +2258,7 @@ void NodeImpl::describe(std::ostream& os, bool use_html) {
     _conf.second.list_peers(&peers);
     // No replicator attached to nodes that are not leader;
     _replicator_group.list_replicators(&replicators);
+    const int64_t leader_timestamp = _last_leader_timestamp;
     lck.unlock();
     const char *newline = use_html ? "<br>" : "\r\n";
     os << "state: " << state2str(st) << newline;
@@ -2286,6 +2288,7 @@ void NodeImpl::describe(std::ostream& os, bool use_html) {
             os << leader;
         }
         os << newline;
+        os << "last_msg_to_now: " << base::monotonic_time_ms() - leader_timestamp;
     }
 
     // Show timers
