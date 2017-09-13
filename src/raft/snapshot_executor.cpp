@@ -319,8 +319,8 @@ int SnapshotExecutor::init(const SnapshotExecutorOptions& options) {
     if (options.file_system_adaptor) {
         _snapshot_storage->set_file_system_adaptor(options.file_system_adaptor);
     }
-    if (options.throughput_snapshot_throttle) {
-        _snapshot_storage->set_snapshot_throttle(options.throughput_snapshot_throttle);
+    if (options.snapshot_throttle) {
+        _snapshot_storage->set_snapshot_throttle(options.snapshot_throttle);
     }
     if (_snapshot_storage->init() != 0) {
         LOG(ERROR) << "Fail to init snapshot storage";

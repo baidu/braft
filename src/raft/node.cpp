@@ -180,8 +180,8 @@ int NodeImpl::init_snapshot_storage() {
         opt.file_system_adaptor = *_options.snapshot_file_system_adaptor;
     }
     // get snapshot_throttle
-    if (_options.throughput_snapshot_throttle) {
-        opt.throughput_snapshot_throttle = *_options.throughput_snapshot_throttle;
+    if (_options.snapshot_throttle) {
+        opt.snapshot_throttle = *_options.snapshot_throttle;
     }
     return _snapshot_executor->init(opt);
 }

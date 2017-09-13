@@ -31,7 +31,7 @@ class SnapshotReader;
 class SnapshotHook;
 class LeaderChangeContext;
 class FileSystemAdaptor;
-class ThroughputSnapshotThrottle;
+class SnapshotThrottle;
 
 const PeerId ANY_PEER(base::EndPoint(base::IP_ANY, 0), 0);
 
@@ -417,7 +417,7 @@ struct NodeOptions {
     
     // If non-null, we will pass this throughput_snapshot_throttle to SnapshotExecutor
     // Default: NULL
-    scoped_refptr<ThroughputSnapshotThrottle>* throughput_snapshot_throttle;   
+    scoped_refptr<SnapshotThrottle>* snapshot_throttle;   
     
     // Construct a default instance
     NodeOptions();
@@ -433,7 +433,7 @@ inline NodeOptions::NodeOptions()
     , usercode_in_pthread(false)
     , filter_before_copy_remote(false)
     , snapshot_file_system_adaptor(NULL)
-    , throughput_snapshot_throttle(NULL)
+    , snapshot_throttle(NULL)
 {}
 
 class NodeImpl;

@@ -103,7 +103,7 @@ private:
     LocalSnapshotReader(const std::string& path,
                         base::EndPoint server_addr,
                         FileSystemAdaptor* fs,
-                        ThroughputSnapshotThrottle* _throughput_snapshot_throttle);
+                        SnapshotThrottle* snapshot_throttle);
     virtual ~LocalSnapshotReader();
     void destroy_reader_in_file_service();
 
@@ -112,7 +112,7 @@ private:
     base::EndPoint _addr;
     int64_t _reader_id;
     scoped_refptr<FileSystemAdaptor> _fs;
-    scoped_refptr<ThroughputSnapshotThrottle> _throughput_snapshot_throttle;
+    scoped_refptr<SnapshotThrottle> _snapshot_throttle;
 };
 
 // Describe the Snapshot on another machine
@@ -184,7 +184,7 @@ public:
     virtual int close(SnapshotCopier* copier);
     virtual int set_filter_before_copy_remote();
     virtual int set_file_system_adaptor(FileSystemAdaptor* fs);
-    virtual int set_snapshot_throttle(ThroughputSnapshotThrottle* throughput_snapshot_throttle);
+    virtual int set_snapshot_throttle(SnapshotThrottle* snapshot_throttle);
 
     SnapshotStorage* new_instance(const std::string& uri) const;
     void set_server_addr(base::EndPoint server_addr) { _addr = server_addr; }
@@ -203,7 +203,7 @@ private:
     std::map<int64_t, int> _ref_map;
     base::EndPoint _addr;
     scoped_refptr<FileSystemAdaptor> _fs;
-    scoped_refptr<ThroughputSnapshotThrottle> _throughput_snapshot_throttle;
+    scoped_refptr<SnapshotThrottle> _snapshot_throttle;
 };
 
 }  // namespace raft
