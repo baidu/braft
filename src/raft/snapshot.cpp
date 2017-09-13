@@ -514,6 +514,7 @@ SnapshotCopier* LocalSnapshotStorage::start_to_copy_from(const std::string& uri)
     copier->_storage = this;
     copier->_filter_before_copy_remote = _filter_before_copy_remote;
     copier->_fs = _fs.get();
+    copier->_throttle = _snapshot_throttle.get();
     if (copier->init(uri) != 0) {
         LOG(ERROR) << "Fail to init copier to " << uri;
         delete copier;
@@ -662,6 +663,7 @@ LocalSnapshotCopier::LocalSnapshotCopier()
     , _cancelled(false)
     , _filter_before_copy_remote(false)
     , _fs(NULL)
+    , _throttle(NULL)
     , _writer(NULL)
     , _storage(NULL)
     , _reader(NULL)
@@ -888,7 +890,7 @@ void LocalSnapshotCopier::copy_file(const std::string& filename) {
         return;
     }
     scoped_refptr<RemoteFileCopier::Session> session
-            = _copier.start_to_copy_to_file(filename, file_path, NULL);
+        = _copier.start_to_copy_to_file(filename, file_path, NULL);
     if (session == NULL) {
         LOG(WARNING) << "Fail to copy " << filename;
         set_error(-1, "Fail to copy %s", filename.c_str());
@@ -938,7 +940,7 @@ void LocalSnapshotCopier::cancel() {
 }
 
 int LocalSnapshotCopier::init(const std::string& uri) {
-    return _copier.init(uri, _fs);
+    return _copier.init(uri, _fs, _throttle);
 }
 
 }  // namespace raft

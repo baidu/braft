@@ -155,6 +155,7 @@ private:
     bool _cancelled;
     bool _filter_before_copy_remote;
     FileSystemAdaptor* _fs;
+    SnapshotThrottle* _throttle;
     LocalSnapshotWriter* _writer;
     LocalSnapshotStorage* _storage;
     SnapshotReader* _reader;

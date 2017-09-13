@@ -558,7 +558,7 @@ TEST_F(TestUsageSuits, filter_before_copy) {
     FOR_EACH_FILE_SYSTEM_ADAPTOR_END;
 }
 
-TEST_F(TestUsageSuits, snapshot_throttle) {
+TEST_F(TestUsageSuits, snapshot_throttle_for_reading) {
     raft::FileSystemAdaptor* fs;
     FOR_EACH_FILE_SYSTEM_ADAPTOR_BEGIN(fs);
 
@@ -604,7 +604,6 @@ TEST_F(TestUsageSuits, snapshot_throttle) {
     const std::string data1("aaa");
     const std::string checksum1("1");
     add_file_meta(fs, writer1, 1, &checksum1, data1);
-    // add_file_meta(fs, writer1, 2, NULL, data1);
 
     ASSERT_EQ(0, writer1->save_meta(meta));
     ASSERT_EQ(0, storage1->close(writer1));
@@ -636,3 +635,83 @@ TEST_F(TestUsageSuits, snapshot_throttle) {
     FOR_EACH_FILE_SYSTEM_ADAPTOR_END;
 }
 
+TEST_F(TestUsageSuits, snapshot_throttle_for_writing) {
+    raft::FileSystemAdaptor* fs;
+    FOR_EACH_FILE_SYSTEM_ADAPTOR_BEGIN(fs);
+
+    if (fs == NULL) {
+        ::system("rm -rf data");
+    } else {
+        fs->delete_file("data", true);
+    }
+
+    baidu::rpc::Server server;
+    ASSERT_EQ(0, raft::add_service(&server, "0.0.0.0:60006"));
+    ASSERT_EQ(0, server.Start(60006, NULL));
+
+    std::vector<raft::PeerId> peers;
+    peers.push_back(raft::PeerId("1.2.3.4:1000"));
+    peers.push_back(raft::PeerId("1.2.3.4:2000"));
+    peers.push_back(raft::PeerId("1.2.3.4:3000"));
+
+    raft::SnapshotMeta meta;
+    meta.set_last_included_index(1000);
+    meta.set_last_included_term(2);
+    for (size_t i = 0; i < peers.size(); ++i) {
+        *meta.add_peers() = peers[i].to_string();
+    }
+
+    // storage1
+    raft::LocalSnapshotStorage* storage1 = new raft::LocalSnapshotStorage("./data");
+    ASSERT_TRUE(storage1);
+    if (fs) {
+        ASSERT_EQ(storage1->set_file_system_adaptor(fs), 0);
+    }
+    ASSERT_EQ(0, storage1->init());
+    storage1->set_server_addr(base::EndPoint(base::get_host_ip(), 60006));
+    // create writer1
+    raft::SnapshotWriter* writer1 = storage1->create();
+    ASSERT_TRUE(writer1 != NULL);
+    // add nomal file for storage1
+    LOG(INFO) << "add nomal file";
+    const std::string data1("aaa");
+    const std::string checksum1("1000");
+    add_file_meta(fs, writer1, 1, &checksum1, data1);
+    // save snapshot meta for storage1 
+    ASSERT_EQ(0, writer1->save_meta(meta));
+    ASSERT_EQ(0, storage1->close(writer1));
+    // get uri of storage1
+    raft::SnapshotReader* reader1 = storage1->open();
+    ASSERT_TRUE(reader1 != NULL);
+    std::string uri = reader1->generate_uri_for_copy();
+
+    // storage2
+    if (fs == NULL) {
+        ::system("rm -rf data2");
+    } else {
+        fs->delete_file("data2", true);
+    }
+    raft::SnapshotStorage* storage2 = new raft::LocalSnapshotStorage("./data2");
+    if (fs) {
+        ASSERT_EQ(storage2->set_file_system_adaptor(fs), 0);
+    }
+    // create and set snapshot throttle for storage2
+    raft::SnapshotThrottle* throttle = 
+        new raft::ThroughputSnapshotThrottle(10, 10);
+    ASSERT_TRUE(throttle);
+    ASSERT_EQ(storage2->set_snapshot_throttle(throttle), 0);
+    ASSERT_EQ(0, storage2->init());
+
+    // copy from storage1 to storage2
+    LOG(INFO) << "Copy start.";
+    raft::SnapshotCopier* copier = storage2->start_to_copy_from(uri);
+    ASSERT_TRUE(copier != NULL);
+    copier->join();
+    LOG(INFO) << "Copy finish.";
+    ASSERT_EQ(0, storage1->close(reader1));
+    ASSERT_EQ(0, storage2->close(copier));
+    delete storage2;
+    delete storage1;
+
+    FOR_EACH_FILE_SYSTEM_ADAPTOR_END;
+}
