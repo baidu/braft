@@ -68,15 +68,14 @@ TEST_F(TestUsageSuits, get_host_ip) {
     ASSERT_EQ(not_exist_ip, base::IP_ANY);
 
     base::ip_t host_ip = base::get_host_ip();
-
-    base::ip_t xgb0_ip = base::get_host_ip_by_interface("xgb0");
-    base::ip_t xgb1_ip = base::get_host_ip_by_interface("xgb1");
+    base::ip_t xgbe0_ip = base::get_host_ip_by_interface("xgbe0");
+    base::ip_t xgbe1_ip = base::get_host_ip_by_interface("xgbe1");
     base::ip_t eth1_ip = base::get_host_ip_by_interface("eth1");
     base::ip_t eth0_ip = base::get_host_ip_by_interface("eth0");
     base::ip_t bond0_ip = base::get_host_ip_by_interface("bond0");
     base::ip_t brex_ip = base::get_host_ip_by_interface("br-ex");
 
-    ASSERT_TRUE(host_ip == xgb0_ip || host_ip == xgb1_ip ||
+    ASSERT_TRUE(host_ip == xgbe0_ip || host_ip == xgbe1_ip ||
                 host_ip == eth1_ip || host_ip == eth0_ip ||
                 host_ip == bond0_ip || host_ip == brex_ip);
 }
