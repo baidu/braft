@@ -24,9 +24,11 @@ BAIDU_RPC_VALIDATE_GFLAG(raft_max_byte_count_per_rpc, baidu::rpc::PositiveIntege
 
 RemoteFileCopier::RemoteFileCopier()
     : _reader_id(0)
+    , _throttle(NULL)
 {}
 
-int RemoteFileCopier::init(const std::string& uri, FileSystemAdaptor* fs) {
+int RemoteFileCopier::init(const std::string& uri, FileSystemAdaptor* fs, 
+        SnapshotThrottle* throttle) {
     // Parse uri format: remote://ip:port/reader_id
     static const size_t prefix_size = strlen("remote://");
     base::StringPiece uri_str(uri);
@@ -48,6 +50,7 @@ int RemoteFileCopier::init(const std::string& uri, FileSystemAdaptor* fs) {
         return -1;
     }
     _fs = fs;
+    _throttle = throttle;
     return 0;
 }
 
@@ -81,7 +84,7 @@ int RemoteFileCopier::copy_to_file(const std::string& source,
                                    const std::string& dest_path,
                                    const CopyOptions* options) {
     scoped_refptr<Session> session = start_to_copy_to_file(
-                                        source, dest_path, options);
+            source, dest_path, options);
     if (session == NULL) {
         return -1;
     }
@@ -124,6 +127,10 @@ RemoteFileCopier::start_to_copy_to_file(
     if (options) {
         session->_options = *options;
     }
+    // pass throttle to Session
+    if (_throttle) {
+        session->_throttle = _throttle;
+    }
     session->send_next_rpc();
     return session;
 }
@@ -153,13 +160,15 @@ RemoteFileCopier::Session::Session()
     , _retry_times(0)
     , _finished(false)
     , _buf(NULL)
-    , _timer() {
+    , _timer()
+    , _throttle(NULL)
+{
     _done.owner = this;
 }
 
 RemoteFileCopier::Session::~Session() {
     if (_file) {
-        delete _file;
+        _file->destroy();
         _file = NULL;
     }
 }
@@ -173,11 +182,32 @@ void RemoteFileCopier::Session::send_next_rpc() {
             (!_buf) ? FLAGS_raft_max_byte_count_per_rpc : UINT_MAX;
     _cntl.set_timeout_ms(_options.timeout_ms);
     _request.set_offset(offset);
-    _request.set_count(max_count);
-    BAIDU_SCOPED_LOCK(_mutex);
+    // Read partly when throttled
+    _request.set_read_partly(true);
+    std::unique_lock<raft_mutex_t> lck(_mutex);
     if (_finished) {
         return;
     }
+    // throttle
+    size_t new_max_count = max_count;
+    if (_throttle) {
+        new_max_count = _throttle->throttled_by_throughput(max_count);
+        if (new_max_count == 0) {
+            // Reset count to make next rpc retry the previous one
+            _request.set_count(0);
+            AddRef();
+            if (bthread_timer_add(
+                        &_timer, 
+                        base::milliseconds_from_now(_options.retry_interval_ms),
+                        on_timer, this) != 0) {
+                lck.unlock();
+                LOG(ERROR) << "Fail to add timer";
+                return on_timer(this);
+            }
+            return;
+        }
+    }
+    _request.set_count(new_max_count);
     _rpc_call = _cntl.call_id();
     FileService_Stub stub(_channel);
     AddRef();  // Release in on_rpc_returned
@@ -198,7 +228,8 @@ void RemoteFileCopier::Session::on_rpc_returned() {
                 return on_finished();
             }
         }
-        if (_retry_times++ >= _options.max_retry) {
+        // Throttled reading failure does not increase _retry_times
+        if (_cntl.ErrorCode() != EAGAIN && _retry_times++ >= _options.max_retry) {
             if (_st.ok()) {
                 _st.set_error(_cntl.ErrorCode(), _cntl.ErrorText());
                 return on_finished();
@@ -216,6 +247,10 @@ void RemoteFileCopier::Session::on_rpc_returned() {
         return;
     }
     _retry_times = 0;
+    // Reset count to |real_read_size| to make next rpc get the right offset
+    if (_response.has_read_size() && (_response.read_size() != 0)) {
+        _request.set_count(_response.read_size());
+    }
     if (_file) {
         FileSegData data(_cntl.response_attachment());
         uint64_t seg_offset = 0;
@@ -266,7 +301,7 @@ void RemoteFileCopier::Session::on_timer(void* arg) {
 void RemoteFileCopier::Session::on_finished() {
     if (!_finished) {
         if (_file) {
-            delete _file;
+            _file->destroy();
             _file = NULL;
         }
         _finished = true;

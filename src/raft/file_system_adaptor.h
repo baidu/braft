@@ -44,11 +44,14 @@ private:
     DISALLOW_COPY_AND_ASSIGN(DirReader);
 };
 
+template <typename T>
+struct DestroyObj {
+    void operator()(T* const obj) { obj->destroy(); }
+};
+
+
 class FileAdaptor {
 public:
-    FileAdaptor() {}
-    virtual ~FileAdaptor() {}
-
     // Write to the file. Different from posix ::pwrite(), write will retry automatically
     // when occur EINTR.
     // Return |data.size()| if successful, -1 otherwise.
@@ -56,8 +59,8 @@ public:
 
     // Read from the file. Different from posix ::pread(), read will retry automatically
     // when occur EINTR.
-    // Return a non-negative integer less or equal to |size| if successful, -1 otherwise.
-    // In the case of EOF, the return value is a non-negative integer less to |size|.
+    // Return a non-negative integer less than or equal to |size| if successful, -1 otherwise.
+    // In the case of EOF, the return value is a non-negative integer less than |size|.
     virtual ssize_t read(base::IOPortal* portal, off_t offset, size_t size) = 0;
 
     // Get the size of the file
@@ -65,6 +68,14 @@ public:
 
     // Sync data of the file to disk device
     virtual bool sync() = 0;
+
+    // Destroy this adaptor
+    virtual void destroy() { delete this; }
+
+protected:
+
+    FileAdaptor() {}
+    virtual ~FileAdaptor() {}
 
 private:
     DISALLOW_COPY_AND_ASSIGN(FileAdaptor);
@@ -112,6 +123,13 @@ public:
     // not recursively search the directory.
     virtual DirReader* directory_reader(const std::string& path) = 0;
 
+    // This method will be called at the very begin before read snapshot file.
+    // The default implemention is return 'true' directly.
+    virtual bool open_snapshot(const std::string& /*snapshot_path*/) { return true; }
+    
+    // This method will be called after read all snapshot files or failed.
+    // The default implemention is return directly.
+    virtual void close_snapshot(const std::string& /*snapshot_path*/) {}
 private:
     DISALLOW_COPY_AND_ASSIGN(FileSystemAdaptor);
 };

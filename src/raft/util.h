@@ -28,7 +28,9 @@
 #include <base/file_util.h>
 #include <bthread.h>
 #include <bthread_unstable.h>
+#include <bthread/countdown_event.h>
 #include "raft/macros.h"
+#include "raft/raft.h"
 
 #define RAFT_GET_ARG3(arg1, arg2, arg3, ...)  arg3
 
@@ -209,6 +211,27 @@ private:
     base::IOBuf::Area _seg_header;
     uint64_t _seg_offset;
     uint32_t _seg_len;
+};
+
+// A special raft::Closure which provides synchronization primitives
+class SynchronizedClosure : public raft::Closure {
+public:
+    SynchronizedClosure() : _event(1) {}
+
+    SynchronizedClosure(int num_signal) : _event(num_signal) {}
+    // Implements raft::Closure
+    void Run() {
+        _event.signal();
+    }
+    // Block the thread until Run() has been called
+    void wait() { _event.wait(); }
+    // Reset the event
+    void reset() {
+        status().reset();
+        _event.reset();
+    }
+private:
+    bthread::CountdownEvent _event;
 };
 
 }  // namespace raft

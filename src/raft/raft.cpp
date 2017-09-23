@@ -229,4 +229,23 @@ void StateMachine::on_configuration_committed(const Configuration& conf) {
 void StateMachine::on_stop_following(const LeaderChangeContext&) {}
 void StateMachine::on_start_following(const LeaderChangeContext&) {}
 
+BootstrapOptions::BootstrapOptions()
+    : last_log_index(0)
+    , fsm(NULL)
+    , node_owns_fsm(false)
+    , usercode_in_pthread(false)
+{}
+
+int bootstrap(const BootstrapOptions& options) {
+    global_init_once_or_die();
+    NodeImpl* node = new NodeImpl();
+    const int rc = node->bootstrap(options);
+    node->shutdown(NULL);
+    node->join();
+    node->Release();  // node acquired an additional reference in ctro.
+    return rc;
+}
+
+
+
 }

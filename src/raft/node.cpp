@@ -93,6 +93,26 @@ NodeImpl::NodeImpl(const GroupId& group_id, const PeerId& peer_id)
     g_num_nodes << 1;
 }
 
+NodeImpl::NodeImpl()
+    : _state(STATE_UNINITIALIZED)
+    , _current_term(0)
+    , _last_leader_timestamp(base::monotonic_time_ms())
+    , _group_id()
+    , _log_storage(NULL)
+    , _stable_storage(NULL)
+    , _closure_queue(NULL)
+    , _config_manager(NULL)
+    , _log_manager(NULL)
+    , _fsm_caller(NULL)
+    , _commit_manager(NULL)
+    , _snapshot_executor(NULL)
+    , _stop_transfer_arg(NULL)
+    , _vote_triggered(false)
+    , _waking_candidate(0) {
+        AddRef();
+    g_num_nodes << 1;
+}
+
 NodeImpl::~NodeImpl() {
     if (_apply_queue) {
         // Wait until no flying task
@@ -158,6 +178,10 @@ int NodeImpl::init_snapshot_storage() {
     opt.usercode_in_pthread = _options.usercode_in_pthread;
     if (_options.snapshot_file_system_adaptor) {
         opt.file_system_adaptor = *_options.snapshot_file_system_adaptor;
+    }
+    // get snapshot_throttle
+    if (_options.snapshot_throttle) {
+        opt.snapshot_throttle = *_options.snapshot_throttle;
     }
     return _snapshot_executor->init(opt);
 }
@@ -225,6 +249,129 @@ void NodeImpl::handle_snapshot_timeout() {
 
 }
 
+int NodeImpl::init_fsm_caller(const LogId& bootstrap_id) {
+    CHECK(_fsm_caller);
+    _closure_queue = new ClosureQueue(_options.usercode_in_pthread);
+    // fsm caller init, node AddRef in init
+    FSMCallerOptions fsm_caller_options;
+    fsm_caller_options.usercode_in_pthread = _options.usercode_in_pthread;
+    this->AddRef();
+    fsm_caller_options.after_shutdown =
+        baidu::rpc::NewCallback<NodeImpl*>(after_shutdown, this);
+    fsm_caller_options.log_manager = _log_manager;
+    fsm_caller_options.fsm = _options.fsm;
+    fsm_caller_options.closure_queue = _closure_queue;
+    fsm_caller_options.node = this;
+    fsm_caller_options.bootstrap_id = bootstrap_id;
+    const int ret = _fsm_caller->init(fsm_caller_options);
+    if (ret != 0) {
+        delete fsm_caller_options.after_shutdown;
+        this->Release();
+    }
+    return ret;
+}
+
+class BootstrapStableClosure : public LogManager::StableClosure {
+public:
+    void Run() { _done.Run(); }
+    void wait() { _done.wait(); }
+private:
+    SynchronizedClosure _done;
+};
+
+int NodeImpl::bootstrap(const BootstrapOptions& options) {
+
+    if (options.last_log_index > 0) {
+        if (options.group_conf.empty() || options.fsm == NULL) {
+            LOG(ERROR) << "Invalid arguments for " << __FUNCTION__
+                       << "group_conf=" << options.group_conf
+                       << " fsm=" << options.fsm
+                       << " while last_log_index="
+                       << options.last_log_index;
+            return -1;
+        }
+    }
+
+    if (options.group_conf.empty()) {
+        LOG(ERROR) << "bootstraping an empty node makes no sense";
+        return -1;
+    }
+
+    // Term is not an option since changing it is very dangerous
+    const int64_t boostrap_log_term = options.last_log_index ? 1 : 0;
+    const LogId boostrap_id(options.last_log_index, boostrap_log_term);
+
+    _options.fsm = options.fsm;
+    _options.node_owns_fsm = options.node_owns_fsm;
+    _options.usercode_in_pthread = options.usercode_in_pthread;
+    _options.log_uri = options.log_uri;
+    _options.stable_uri = options.stable_uri;
+    _options.snapshot_uri = options.snapshot_uri;
+    _options.snapshot_file_system_adaptor = _options.snapshot_file_system_adaptor;
+    _config_manager = new ConfigurationManager();
+
+    // Create _fsm_caller first as log_manager needs it to report error
+    _fsm_caller = new FSMCaller();
+
+    if (init_log_storage() != 0) {
+        LOG(ERROR) << "Fail to init log_storage";
+        return -1;
+    }
+
+    if (init_stable_storage() != 0) {
+        LOG(ERROR) << "Fail to init stable_storage";
+        return -1;
+    }
+    if (_current_term == 0) {
+        _current_term = 1;
+        if (_stable_storage->set_term_and_votedfor(1, PeerId()) != 0) {
+            LOG(ERROR) << "Fail to set term";
+            return -1;
+        }
+        return -1;
+    }
+
+    if (options.fsm && init_fsm_caller(boostrap_id) != 0) {
+        LOG(ERROR) << "Fail to init fsm_caller";
+        return -1;
+    }
+
+    if (options.last_log_index > 0) {
+        if (init_snapshot_storage() != 0) {
+            LOG(ERROR) << "Fail to init snapshot_storage";
+            return -1;
+        }
+        SynchronizedClosure done;
+        _snapshot_executor->do_snapshot(&done);
+        done.wait();
+        if (!done.status().ok()) {
+            LOG(ERROR) << "Fail to save snapshot " << done.status();
+            return -1;
+        }
+    }
+    CHECK_EQ(_log_manager->first_log_index(), options.last_log_index + 1);
+    CHECK_EQ(_log_manager->last_log_index(), options.last_log_index);
+
+    LogEntry* entry = new LogEntry();
+    entry->AddRef();
+    entry->id.term = _current_term;
+    entry->type = ENTRY_TYPE_CONFIGURATION;
+    entry->peers = new std::vector<PeerId>;
+    options.group_conf.list_peers(entry->peers);
+
+    std::vector<LogEntry*> entries;
+    entries.push_back(entry);
+    BootstrapStableClosure done;
+    _log_manager->append_entries(&entries, &done);
+    done.wait();
+    if (!done.status().ok()) {
+        LOG(ERROR) << "Fail to append configuration";
+        return -1;
+    }
+
+    return 0;
+}
+
 int NodeImpl::init(const NodeOptions& options) {
     _options = options;
     int ret = 0;
@@ -282,22 +429,10 @@ int NodeImpl::init(const NodeOptions& options) {
             break;
         }
 
-        _closure_queue = new ClosureQueue(_options.usercode_in_pthread);
-
-        // fsm caller init, node AddRef in init
-        FSMCallerOptions fsm_caller_options;
-        fsm_caller_options.usercode_in_pthread = _options.usercode_in_pthread;
-        this->AddRef();
-        fsm_caller_options.after_shutdown =
-            baidu::rpc::NewCallback<NodeImpl*>(after_shutdown, this);
-        fsm_caller_options.log_manager = _log_manager;
-        fsm_caller_options.fsm = _options.fsm;
-        fsm_caller_options.closure_queue = _closure_queue;
-        fsm_caller_options.node = this;
-        ret = _fsm_caller->init(fsm_caller_options);
+        ret = init_fsm_caller(LogId(0, 0));
         if (ret != 0) {
-            delete fsm_caller_options.after_shutdown;
-            this->Release();
+            LOG(ERROR) << "node " << _group_id << ":" << _server_id
+                       << " init_fsm_caller failed";
             break;
         }
 
@@ -306,11 +441,8 @@ int NodeImpl::init(const NodeOptions& options) {
         CommitmentManagerOptions commit_manager_options;
         commit_manager_options.waiter = _fsm_caller;
         commit_manager_options.closure_queue = _closure_queue;
-        //commit_manager_options.last_committed_index = _last_snapshot_index;
         ret = _commit_manager->init(commit_manager_options);
         if (ret != 0) {
-            // fsm caller init AddRef, here Release
-            Release();
             break;
         }
 
@@ -341,7 +473,6 @@ int NodeImpl::init(const NodeOptions& options) {
             _conf.second = _options.initial_conf;
         }
 
-        //TODO: call fsm on_apply (_last_snapshot_index + 1, last_committed_index]
         // init replicator
         ReplicatorGroupOptions options;
         options.heartbeat_timeout_ms = heartbeat_timeout(_options.election_timeout_ms);
@@ -1059,13 +1190,14 @@ int NodeImpl::transfer_leadership_to(const PeerId& peer) {
     }
 
     PeerId peer_id = peer;
-    // if peer_id is ANY_PEER(0.0.0.0:0:0), the peer with the largest last_log_id will be selected. 
+    // if peer_id is ANY_PEER(0.0.0.0:0:0), the peer with the largest
+    // last_log_id will be selected. 
     if (peer_id == ANY_PEER) {
         LOG(INFO) << "node " << _group_id << ":" << _server_id
               << " starts to transfer leadership to any peer.";
-        ReplicatorId replicator_id;
         // find the next candidate which is the most possible to become new leader
-        if (_replicator_group.find_the_next_candidate(&replicator_id, &peer_id, _conf.second) != 0) {
+        if (_replicator_group.find_the_next_candidate(
+                        &peer_id, _conf.second) != 0) {
             return -1;    
         }
     }
@@ -1652,9 +1784,11 @@ LeaderStableClosure::LeaderStableClosure(const NodeId& node_id,
 
 void LeaderStableClosure::Run() {
     if (status().ok()) {
-        // commit_manager check quorum ok, will call fsm_caller
-        _commit_manager->set_stable_at_peer(
-                _first_log_index, _first_log_index + _nentries - 1, _node_id.peer_id);
+        if (_commit_manager) {
+            // commit_manager check quorum ok, will call fsm_caller
+            _commit_manager->set_stable_at_peer(
+                    _first_log_index, _first_log_index + _nentries - 1, _node_id.peer_id);
+        }
     } else {
         LOG(ERROR) << "node " << _node_id << " append [" << _first_log_index << ", "
                    << _first_log_index + _nentries - 1 << "] failed";
@@ -2257,6 +2391,7 @@ void NodeImpl::describe(std::ostream& os, bool use_html) {
     _conf.second.list_peers(&peers);
     // No replicator attached to nodes that are not leader;
     _replicator_group.list_replicators(&replicators);
+    const int64_t leader_timestamp = _last_leader_timestamp;
     lck.unlock();
     const char *newline = use_html ? "<br>" : "\r\n";
     os << "state: " << state2str(st) << newline;
@@ -2280,12 +2415,14 @@ void NodeImpl::describe(std::ostream& os, bool use_html) {
         os << "leader: ";
         if (use_html) {
             os << "<a href=\"http://" << leader.addr
-                << "/raft_stat/" << _group_id << "\">"
-                << leader << "</a>";
+               << "/raft_stat/" << _group_id << "\">"
+               << leader << "</a>";
         } else {
             os << leader;
         }
         os << newline;
+        os << "last_msg_to_now: " << base::monotonic_time_ms() - leader_timestamp 
+           << newline;
     }
 
     // Show timers

@@ -124,6 +124,13 @@ class GetFileRequest : public ::google::protobuf::Message {
   inline ::google::protobuf::int64 offset() const;
   inline void set_offset(::google::protobuf::int64 value);
   
+  // optional bool read_partly = 5;
+  inline bool has_read_partly() const;
+  inline void clear_read_partly();
+  static const int kReadPartlyFieldNumber = 5;
+  inline bool read_partly() const;
+  inline void set_read_partly(bool value);
+  
   // @@protoc_insertion_point(class_scope:raft.GetFileRequest)
  private:
   inline void set_has_reader_id();
@@ -134,6 +141,8 @@ class GetFileRequest : public ::google::protobuf::Message {
   inline void clear_has_count();
   inline void set_has_offset();
   inline void clear_has_offset();
+  inline void set_has_read_partly();
+  inline void clear_has_read_partly();
   
   ::google::protobuf::UnknownFieldSet _unknown_fields_;
   
@@ -141,9 +150,10 @@ class GetFileRequest : public ::google::protobuf::Message {
   ::std::string* filename_;
   ::google::protobuf::int64 count_;
   ::google::protobuf::int64 offset_;
+  bool read_partly_;
   
   mutable int _cached_size_;
-  ::google::protobuf::uint32 _has_bits_[(4 + 31) / 32];
+  ::google::protobuf::uint32 _has_bits_[(5 + 31) / 32];
   
   friend void  protobuf_AddDesc_raft_2ffile_5fservice_2eproto();
   friend void protobuf_AssignDesc_raft_2ffile_5fservice_2eproto();
@@ -215,17 +225,27 @@ class GetFileResponse : public ::google::protobuf::Message {
   inline bool eof() const;
   inline void set_eof(bool value);
   
+  // optional int64 read_size = 2;
+  inline bool has_read_size() const;
+  inline void clear_read_size();
+  static const int kReadSizeFieldNumber = 2;
+  inline ::google::protobuf::int64 read_size() const;
+  inline void set_read_size(::google::protobuf::int64 value);
+  
   // @@protoc_insertion_point(class_scope:raft.GetFileResponse)
  private:
   inline void set_has_eof();
   inline void clear_has_eof();
+  inline void set_has_read_size();
+  inline void clear_has_read_size();
   
   ::google::protobuf::UnknownFieldSet _unknown_fields_;
   
+  ::google::protobuf::int64 read_size_;
   bool eof_;
   
   mutable int _cached_size_;
-  ::google::protobuf::uint32 _has_bits_[(1 + 31) / 32];
+  ::google::protobuf::uint32 _has_bits_[(2 + 31) / 32];
   
   friend void  protobuf_AddDesc_raft_2ffile_5fservice_2eproto();
   friend void protobuf_AssignDesc_raft_2ffile_5fservice_2eproto();
@@ -424,6 +444,28 @@ inline void GetFileRequest::set_offset(::google::protobuf::int64 value) {
   offset_ = value;
 }
 
+// optional bool read_partly = 5;
+inline bool GetFileRequest::has_read_partly() const {
+  return (_has_bits_[0] & 0x00000010u) != 0;
+}
+inline void GetFileRequest::set_has_read_partly() {
+  _has_bits_[0] |= 0x00000010u;
+}
+inline void GetFileRequest::clear_has_read_partly() {
+  _has_bits_[0] &= ~0x00000010u;
+}
+inline void GetFileRequest::clear_read_partly() {
+  read_partly_ = false;
+  clear_has_read_partly();
+}
+inline bool GetFileRequest::read_partly() const {
+  return read_partly_;
+}
+inline void GetFileRequest::set_read_partly(bool value) {
+  set_has_read_partly();
+  read_partly_ = value;
+}
+
 // -------------------------------------------------------------------
 
 // GetFileResponse
@@ -448,6 +490,28 @@ inline bool GetFileResponse::eof() const {
 inline void GetFileResponse::set_eof(bool value) {
   set_has_eof();
   eof_ = value;
+}
+
+// optional int64 read_size = 2;
+inline bool GetFileResponse::has_read_size() const {
+  return (_has_bits_[0] & 0x00000002u) != 0;
+}
+inline void GetFileResponse::set_has_read_size() {
+  _has_bits_[0] |= 0x00000002u;
+}
+inline void GetFileResponse::clear_has_read_size() {
+  _has_bits_[0] &= ~0x00000002u;
+}
+inline void GetFileResponse::clear_read_size() {
+  read_size_ = GOOGLE_LONGLONG(0);
+  clear_has_read_size();
+}
+inline ::google::protobuf::int64 GetFileResponse::read_size() const {
+  return read_size_;
+}
+inline void GetFileResponse::set_read_size(::google::protobuf::int64 value) {
+  set_has_read_size();
+  read_size_ = value;
 }
 
 

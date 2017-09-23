@@ -15,9 +15,6 @@
 #include "raft/configuration.h"
 #include "raft/enum.pb.h"
 #include "raft/errno.pb.h"
-#ifdef RAFT_ENABLE_ROCKSDB_STORAGE
-#include <raft/rocksdb.h>
-#endif // RAFT_ENABLE_ROCKSDB_STORAGE
 
 template <typename T> class scoped_refptr;
 
@@ -34,6 +31,7 @@ class SnapshotReader;
 class SnapshotHook;
 class LeaderChangeContext;
 class FileSystemAdaptor;
+class SnapshotThrottle;
 
 const PeerId ANY_PEER(base::EndPoint(base::IP_ANY, 0), 0);
 
@@ -205,9 +203,9 @@ public:
 
     // user defined snapshot generate function, this method will block on_apply.
     // user can make snapshot async when fsm can be cow(copy-on-write).
-    // call done->Run() when snapshot finised.
+    // call done->Run() when snapshot finished.
     // success return 0, fail return errno
-    // Default: Save nothing and returns error, no log would be compacted
+    // Default: Save nothing and returns error.
     virtual void on_snapshot_save(::raft::SnapshotWriter* writer,
                                   ::raft::Closure* done);
 
@@ -415,8 +413,12 @@ struct NodeOptions {
 
     // If non-null, we will pass this snapshot_file_system_adaptor to SnapshotStorage
     // Default: NULL
-    scoped_refptr<FileSystemAdaptor> *snapshot_file_system_adaptor;
-
+    scoped_refptr<FileSystemAdaptor>* snapshot_file_system_adaptor;    
+    
+    // If non-null, we will pass this throughput_snapshot_throttle to SnapshotExecutor
+    // Default: NULL
+    scoped_refptr<SnapshotThrottle>* snapshot_throttle;   
+    
     // Construct a default instance
     NodeOptions();
 };
@@ -431,6 +433,7 @@ inline NodeOptions::NodeOptions()
     , usercode_in_pthread(false)
     , filter_before_copy_remote(false)
     , snapshot_file_system_adaptor(NULL)
+    , snapshot_throttle(NULL)
 {}
 
 class NodeImpl;
@@ -522,6 +525,50 @@ public:
 private:
     NodeImpl* _impl;
 };
+
+struct BootstrapOptions {
+
+    // Containing the initial member of this raft group
+    // Default: empty conf
+    Configuration group_conf;
+
+    // The index of the last index which the dumping snapshot contains
+    // Default: 0
+    int64_t last_log_index;
+
+    // The specific StateMachine which is going to dump the first snapshot 
+    // If last_log_index isn't 0, fsm must be a valid instance.
+    // Default: NULL
+    StateMachine* fsm;
+
+    // If |node_owns_fsm| is true. |fsm| would be destroyed when the backing
+    // Node is no longer referenced.
+    //
+    // Default: false
+    bool node_owns_fsm;
+
+    // Run the user callbacks and user closures in pthread rather than bthread
+    // 
+    // Default: false
+    bool usercode_in_pthread;
+
+    // Describe a specific LogStorage in format ${type}://${parameters}
+    std::string log_uri;
+
+    // Describe a specific StableStorage in format ${type}://${parameters}
+    std::string stable_uri;
+
+    // Describe a specific SnapshotStorage in format ${type}://${parameters}
+    std::string snapshot_uri;
+
+    // Construct default options
+    BootstrapOptions();
+
+};
+
+// Bootstrap a non-empty raft node, 
+int bootstrap(const BootstrapOptions& options);
+
 
 // Attach raft services to |server|, this makes the raft services share the same
 // listen address with the user services.

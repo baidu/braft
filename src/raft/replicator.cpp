@@ -1111,10 +1111,13 @@ int ReplicatorGroup::stop_transfer_leadership(const PeerId& peer) {
 int ReplicatorGroup::stop_all_and_find_the_next_candidate(
                 ReplicatorId* candidate, const Configuration& current_conf) {
     *candidate = INVALID_BTHREAD_ID.value;
-    PeerId peer_id;
-    if (find_the_next_candidate(candidate, &peer_id, current_conf) != 0) {
-        LOG(TRACE) << "Fail to find the next candidate.";
-        return -1;
+    PeerId candidate_id;
+    const int rc = find_the_next_candidate(&candidate_id, current_conf);
+    if (rc == 0) {
+        LOG(INFO) << "Found " << candidate_id << " as the next candidate";
+        *candidate = _rmap[candidate_id];
+    } else {
+        LOG(INFO) << "Fail to find the next candidate";
     }
     for (std::map<PeerId, ReplicatorId>::const_iterator
             iter = _rmap.begin();  iter != _rmap.end(); ++iter) {
@@ -1127,9 +1130,7 @@ int ReplicatorGroup::stop_all_and_find_the_next_candidate(
 }
 
 int ReplicatorGroup::find_the_next_candidate(
-                ReplicatorId* candidate, PeerId* peer_id, 
-                const Configuration& current_conf) {
-    *candidate = INVALID_BTHREAD_ID.value;
+        PeerId* peer_id, const Configuration& current_conf) {
     int64_t max_index =  0;
     for (std::map<PeerId, ReplicatorId>::const_iterator
             iter = _rmap.begin();  iter != _rmap.end(); ++iter) {
@@ -1139,8 +1140,9 @@ int ReplicatorGroup::find_the_next_candidate(
         const int64_t next_index = Replicator::get_next_index(iter->second);
         if (next_index > max_index) {
             max_index = next_index;
-            *peer_id = iter->first;
-            *candidate = iter->second;
+            if (peer_id) {
+                *peer_id = iter->first;
+            }
         }
     }
     if (max_index == 0) {

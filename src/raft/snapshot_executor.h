@@ -35,6 +35,7 @@ struct SnapshotExecutorOptions {
     bool filter_before_copy_remote;
     bool usercode_in_pthread;
     scoped_refptr<FileSystemAdaptor> file_system_adaptor;
+    scoped_refptr<SnapshotThrottle> snapshot_throttle;
 };
 
 // Executing Snapshot related stuff

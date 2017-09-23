@@ -11,6 +11,7 @@
 #include <bthread/countdown_event.h>
 #include "raft/file_service.pb.h"
 #include "raft/util.h"
+#include "raft/snapshot_throttle.h"
 
 namespace raft {
 
@@ -75,12 +76,14 @@ public:
         GetFileRequest _request;
         GetFileResponse _response;
         bthread::CountdownEvent _finish_event;
+        scoped_refptr<SnapshotThrottle> _throttle;   
     };
 
     RemoteFileCopier();
-    int init(const std::string& uri, FileSystemAdaptor* fs);
+    int init(const std::string& uri, FileSystemAdaptor* fs, 
+            SnapshotThrottle* throttle);
+
     // Copy `source' from remote to dest
-    
     int copy_to_file(const std::string& source, 
                      const std::string& dest_path,
                      const CopyOptions* options);
@@ -103,6 +106,7 @@ private:
     baidu::rpc::Channel _channel;
     int64_t _reader_id;
     scoped_refptr<FileSystemAdaptor> _fs;
+    scoped_refptr<SnapshotThrottle> _throttle;
 };
 
 }  // namespace raft

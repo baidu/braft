@@ -25,7 +25,7 @@ public:
         , _on_start_following_times(0)
         , _on_stop_following_times(0)
     {
-            pthread_mutex_init(&mutex, NULL);
+        pthread_mutex_init(&mutex, NULL);
     }
     virtual ~MockFSM() {
         pthread_mutex_destroy(&mutex);
@@ -2492,5 +2492,76 @@ TEST_F(RaftTestSuits, read_committed_user_log) {
 
     cluster.ensure_same();
     cluster.stop_all();
-
 }
+
+TEST_F(RaftTestSuits, boostrap_with_snapshot) {
+    base::EndPoint addr;
+    ASSERT_EQ(0, base::str2endpoint("127.0.0.1:5006", &addr));
+    MockFSM fsm(addr);
+    for (char c = 'a'; c <= 'z'; ++c) {
+        base::IOBuf buf;
+        buf.resize(100, c);
+        fsm.logs.push_back(buf);
+    }
+    raft::BootstrapOptions boptions;
+    boptions.last_log_index = fsm.logs.size();
+    boptions.log_uri = "local://./data/log";
+    boptions.stable_uri = "local://./data/stable";
+    boptions.snapshot_uri = "local://./data/snapshot";
+    boptions.group_conf.add_peer(raft::PeerId(addr));
+    boptions.node_owns_fsm = false;
+    boptions.fsm = &fsm;
+    ASSERT_EQ(0, raft::bootstrap(boptions));
+    baidu::rpc::Server server;
+    ASSERT_EQ(0, raft::add_service(&server, addr));
+    ASSERT_EQ(0, server.Start(addr, NULL));
+    raft::Node node("test", raft::PeerId(addr));
+    raft::NodeOptions options;
+    options.log_uri = "local://./data/log";
+    options.stable_uri = "local://./data/stable";
+    options.snapshot_uri = "local://./data/snapshot";
+    options.node_owns_fsm = false;
+    options.fsm = &fsm;
+    ASSERT_EQ(0, node.init(options));
+    ASSERT_EQ(26u, fsm.logs.size());
+    for (char c = 'a'; c <= 'z'; ++c) {
+        std::string expected;
+        expected.resize(100, c);
+        ASSERT_TRUE(fsm.logs[c - 'a'].equals(expected));
+    }
+    while (!node.is_leader()) {
+        usleep(1000);
+    }
+    node.shutdown(NULL);
+    node.join();
+}
+
+TEST_F(RaftTestSuits, boostrap_without_snapshot) {
+    base::EndPoint addr;
+    ASSERT_EQ(0, base::str2endpoint("127.0.0.1:5006", &addr));
+    raft::BootstrapOptions boptions;
+    boptions.last_log_index = 0;
+    boptions.log_uri = "local://./data/log";
+    boptions.stable_uri = "local://./data/stable";
+    boptions.snapshot_uri = "local://./data/snapshot";
+    boptions.group_conf.add_peer(raft::PeerId(addr));
+    ASSERT_EQ(0, raft::bootstrap(boptions));
+    baidu::rpc::Server server;
+    ASSERT_EQ(0, raft::add_service(&server, addr));
+    ASSERT_EQ(0, server.Start(addr, NULL));
+    raft::Node node("test", raft::PeerId(addr));
+    raft::NodeOptions options;
+    options.log_uri = "local://./data/log";
+    options.stable_uri = "local://./data/stable";
+    options.snapshot_uri = "local://./data/snapshot";
+    options.node_owns_fsm = false;
+    MockFSM fsm(addr);
+    options.fsm = &fsm;
+    ASSERT_EQ(0, node.init(options));
+    while (!node.is_leader()) {
+        usleep(1000);
+    }
+    node.shutdown(NULL);
+    node.join();
+}
+

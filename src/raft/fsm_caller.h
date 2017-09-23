@@ -13,6 +13,7 @@
 #include "raft/commitment_manager.h"
 #include "raft/closure_queue.h"
 #include "raft/macros.h"
+#include "raft/log_entry.h"
 
 namespace raft {
 
@@ -66,6 +67,7 @@ struct FSMCallerOptions {
         , closure_queue(NULL)
         , node(NULL)
         , usercode_in_pthread(false)
+        , bootstrap_id()
     {}
     LogManager *log_manager;
     StateMachine *fsm;
@@ -73,6 +75,7 @@ struct FSMCallerOptions {
     ClosureQueue* closure_queue;
     NodeImpl* node;
     bool usercode_in_pthread;
+    LogId bootstrap_id;
 };
 
 class SaveSnapshotClosure : public Closure {

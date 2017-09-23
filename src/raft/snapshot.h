@@ -14,6 +14,7 @@
 #include "raft/local_file_meta.pb.h"
 #include "raft/file_system_adaptor.h"
 #include "raft/remote_file_copier.h"
+#include "raft/snapshot_throttle.h"
 
 namespace raft {
 
@@ -101,7 +102,8 @@ private:
     // Users shouldn't create LocalSnapshotReader Directly
     LocalSnapshotReader(const std::string& path,
                         base::EndPoint server_addr,
-                        FileSystemAdaptor* fs);
+                        FileSystemAdaptor* fs,
+                        SnapshotThrottle* snapshot_throttle);
     virtual ~LocalSnapshotReader();
     void destroy_reader_in_file_service();
 
@@ -110,6 +112,7 @@ private:
     base::EndPoint _addr;
     int64_t _reader_id;
     scoped_refptr<FileSystemAdaptor> _fs;
+    scoped_refptr<SnapshotThrottle> _snapshot_throttle;
 };
 
 // Describe the Snapshot on another machine
@@ -152,6 +155,7 @@ private:
     bool _cancelled;
     bool _filter_before_copy_remote;
     FileSystemAdaptor* _fs;
+    SnapshotThrottle* _throttle;
     LocalSnapshotWriter* _writer;
     LocalSnapshotStorage* _storage;
     SnapshotReader* _reader;
@@ -181,6 +185,7 @@ public:
     virtual int close(SnapshotCopier* copier);
     virtual int set_filter_before_copy_remote();
     virtual int set_file_system_adaptor(FileSystemAdaptor* fs);
+    virtual int set_snapshot_throttle(SnapshotThrottle* snapshot_throttle);
 
     SnapshotStorage* new_instance(const std::string& uri) const;
     void set_server_addr(base::EndPoint server_addr) { _addr = server_addr; }
@@ -199,6 +204,7 @@ private:
     std::map<int64_t, int> _ref_map;
     base::EndPoint _addr;
     scoped_refptr<FileSystemAdaptor> _fs;
+    scoped_refptr<SnapshotThrottle> _snapshot_throttle;
 };
 
 }  // namespace raft
