@@ -1272,6 +1272,10 @@ void NodeImpl::reset_election_timeout_ms(int election_timeout_ms) {
 void NodeImpl::on_error(const Error& e) {
     LOG(WARNING) << "node " << _group_id << ":" << _server_id
                  << " got error=" << e;
+    if (_fsm_caller) {
+        // on_error of _fsm_caller is guaranteed to be executed once.
+        _fsm_caller->on_error(e);
+    }
     std::unique_lock<raft_mutex_t> lck(_mutex);
     // if it is leader, need to wake up a new one.
     // if it is follower, also step down to call on_stop_following

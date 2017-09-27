@@ -209,6 +209,7 @@ void FSMCaller::do_on_error(OnErrorClousre* done) {
 
 void FSMCaller::set_error(const Error& e) {
     if (_error.type() != ERROR_TYPE_NONE) {
+        // Error has already reported
         return;
     }
     _error = e;
