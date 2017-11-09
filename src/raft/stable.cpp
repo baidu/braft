@@ -28,6 +28,13 @@ int LocalStableStorage::init() {
         LOG(ERROR) << "Fail to create " << dir_path.value() << " : " << e;
         return -1;
     }
+    // sync parent dir of "./stable"
+    base::Status status = sync_parent_dir(_path.c_str(), true);
+    if (!status.ok()) {
+        LOG(ERROR) << "Fail to sync dir for StableStorage: " << status
+            << ". path: " << _path;
+        return -1; 
+    }
 
     int ret = load();
     if (ret == 0) {

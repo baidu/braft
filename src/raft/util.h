@@ -179,6 +179,17 @@ ssize_t file_pread(base::IOPortal* portal, int fd, off_t offset, size_t size);
 
 ssize_t file_pwrite(const base::IOBuf& data, int fd, off_t offset);
 
+// rename old_path to new_path, sync parent dir in case of dentry data loss 
+// caused by power down accidentally.
+base::Status file_rename(const char* old_path, const char* new_path, bool sync_dir);
+
+// sync parent dir of the given path to ensure dir operations dumped to disk, 
+// sync layer by layer until root dir if until_root_dir is set to TRUE, which 
+// is likely to used when create a new directory.
+base::Status sync_parent_dir(const char* path, bool until_root_dir);
+
+base::Status sync_directory(const char* path);
+
 // unsequence file data, reduce the overhead of copy some files have hole.
 class FileSegData {
 public:

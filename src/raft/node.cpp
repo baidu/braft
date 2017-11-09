@@ -1701,7 +1701,7 @@ void NodeImpl::check_step_down(const int64_t request_term, const PeerId& server_
                 "from new leader with the same term.");
         step_down(request_term, false, status);
     } else if (_leader_id.is_empty()) {
-        status.set_error(ENEWLEADER, "Follower receives message"
+        status.set_error(ENEWLEADER, "Follower receives message "
                 "from new leader with the same term.");
         step_down(request_term, false, status); 
     }

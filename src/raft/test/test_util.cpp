@@ -318,12 +318,163 @@ TEST_F(TestUsageSuits, is_zero) {
 
 TEST_F(TestUsageSuits, file_path) {
     base::FilePath path("dir/");
-    LOG(INFO) << "dir_name=" << path.DirName().value()
+    LOG(INFO) << "file path=" << path.value()
+              << ", dir_name=" << path.DirName().value()
               << " base_name=" << path.BaseName().value();
+    
     path = base::FilePath("dir");
-    LOG(INFO) << "dir_name=" << path.DirName().value()
+    LOG(INFO) << "file path=" << path.value()
+              << ", dir_name=" << path.DirName().value()
               << " base_name=" << path.BaseName().value();
+    
+    path = base::FilePath("dir/subdir/file.txt");
+    LOG(INFO) << "file path=" << path.value()
+              << ", dir_name=" << path.DirName().value()
+              << " base_name=" << path.BaseName().value();
+    
+    // can not deal with ..
+    path = base::FilePath("../dir/");
+    LOG(INFO) << "file path=" << path.value()
+              << ", dir_name=" << path.DirName().value()
+              << " base_name=" << path.BaseName().value();
+    
+    path = base::FilePath("../");
+    LOG(INFO) << "file path=" << path.value()
+              << ", dir_name=" << path.DirName().value()
+              << " base_name=" << path.BaseName().value();
+    
+    // get real path of a file
+    ::system("mkdir ./log");
+    ::system("touch ./log/log_meta.txt");
+    path = base::FilePath("./log/log_meta.txt");
+    base::FilePath real_path;
+    if (base::NormalizeFilePath(path, &real_path)) {
+        LOG(INFO) << "file path=" << path.value()
+                  << ", real_path is: " << real_path.value();
+    } else {
+        LOG(INFO) << "file path=" << path.value()
+                  << ", has no real path: " << real_path.value()
+                  << " Errno: " << errno;
+    }
+    ::system("rm -rf ./log");
+
+    // can not get real path when path is a directory
+    path = base::FilePath("./");
+    real_path.clear();
+    if (base::NormalizeFilePath(path, &real_path)) {
+        LOG(INFO) << "file path=" << path.value()
+                  << ", real_path is: " << real_path.value();
+    } else {
+        const int errsv = errno;
+        LOG(INFO) << "file path=" << path.value()
+                  << ", has no real path: " << real_path.value()
+                  << " Errno: " << errsv;
+    }
+
+    // system function realpath can do both 
+    char buf[1024];
+    ::system("mkdir ./log");
+    ::system("touch ./log/log_meta.txt");
+    char* tmp_path = "./log/log_meta.txt";
+    char* res = realpath(tmp_path, buf);
+    if (res) {
+        LOG(INFO) << "path: " << tmp_path << ", real path is: " << buf;
+    } else {
+        LOG(INFO) << "no real path.";
+    }
+    ::system("rm -rf ./log");
+
+    // also ok when path is a directory
+    tmp_path = "./";
+    res = realpath(tmp_path, buf);
+    if (res) {
+        LOG(INFO) << "path: " << tmp_path << ", real path is: " << buf;
+    } else {
+        LOG(INFO) << "no real path.";
+    }
+
+    // can deal with ..
+    ::system("mkdir ./log");
+    ::system("touch ./log/log_meta.txt");
+    tmp_path = "./log/../log/log_meta.txt";
+    res = realpath(tmp_path, buf);
+    if (res) {
+        LOG(INFO) << "path: " << tmp_path << ", real path is: " << buf;
+    } else {
+        LOG(INFO) << "no real path.";
+    }
+    ::system("rm -rf ./log");
+
     path = base::FilePath("../sub4/sub5/dir");
     LOG(INFO) << path.ReferencesParent();
+}
+
+TEST_F(TestUsageSuits, sync_parent_dir) {
+    // no such path
+    std::string path = "./log/log_meta";
+    base::Status status = raft::sync_parent_dir(path.c_str(), true);
+    ASSERT_TRUE(!status.ok());
+    if (!status.ok()) {
+        LOG(WARNING) << "sync dir failed. status: " << status;
+    } else {
+        LOG(INFO) << "sync dir success. status: " << status;
+    }
+
+    ::system("mkdir ./log/");
+    ::system("touch ./log/log_meta");
+    status = raft::sync_parent_dir(path.c_str(), true);
+    ASSERT_TRUE(status.ok());
+    if (!status.ok()) {
+        LOG(WARNING) << "sync dir failed. status: " << status;
+    } else {
+        LOG(WARNING) << "sync dir success. status: " << status;
+    }
+    ::system("rm -rf ./log");
+
+    ::system("mkdir ./log/");
+    ::system("touch ./log/log_meta");
+    path = "./log/../log/log_meta";
+    status = raft::sync_parent_dir(path.c_str(), true);
+    ASSERT_TRUE(status.ok());
+    if (!status.ok()) {
+        LOG(WARNING) << "sync dir failed. status: " << status;
+    } else {
+        LOG(WARNING) << "sync dir success. status: " << status;
+    }
+    ::system("rm -rf ./log");
+
+    path = "./";
+    status = raft::sync_parent_dir(path.c_str(), true);
+    ASSERT_TRUE(status.ok());
+    if (!status.ok()) {
+        LOG(WARNING) << "sync dir failed. status: " << status;
+    } else {
+        LOG(WARNING) << "sync dir success. status: " << status;
+    } 
+}
+
+TEST_F(TestUsageSuits, file_rename) {
+
+    std::string tmp_path = "./log/log_meta.tmp";
+    std::string new_path = "./log/log_meta";
+    // no such file
+    base::Status status = raft::file_rename(tmp_path.c_str(), new_path.c_str(), true);
+    ASSERT_TRUE(!status.ok());
+    if (!status.ok()) {
+        LOG(WARNING) << "Rename failed. status: " << status;
+    } else {
+        LOG(WARNING) << "Rename success. status: " << status;
+    }
+
+    ::system("mkdir ./log/");
+    ::system("touch ./log/log_meta.tmp"); 
+    status = raft::file_rename(tmp_path.c_str(), new_path.c_str(), true);
+    ASSERT_TRUE(status.ok());
+    if (!status.ok()) {
+        LOG(WARNING) << "Rename failed. status: " << status;
+    } else {
+        LOG(WARNING) << "Rename success. status: " << status;
+    }
+    ::system("rm -rf ./log");
 }
 

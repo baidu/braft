@@ -502,13 +502,17 @@ int Segment::close(bool will_sync) {
     }
     if (ret == 0) {
         _is_open = false;
-        const int rc = ::rename(old_path.c_str(), new_path.c_str());
-        LOG_IF(INFO, rc == 0) << "Renamed `" << old_path
-                              << "' to `" << new_path <<'\'';
-        LOG_IF(INFO, rc != 0) << "Fail to rename `" << old_path
-                              << "' to `" << new_path <<"\', "
-                              << berror();
-        return rc;
+        // rename a closed segment
+        base::Status status = file_rename(old_path.c_str(), new_path.c_str(), true);
+        if (!status.ok()) {
+            LOG(WARNING) << "Fail to rename or sync: " << status
+                << ". old: " << old_path << ", new: " << new_path;
+            return -1;
+        } else {
+            LOG(INFO) << "Renamed " << old_path <<  " to " 
+                << new_path << " success.";
+            return 0;
+        }
     }
     return ret;
 }
@@ -547,10 +551,16 @@ int Segment::unlink() {
 
         std::string tmp_path(path);
         tmp_path.append(".tmp");
-        ret = ::rename(path.c_str(), tmp_path.c_str());
-        if (ret != 0) {
-            PLOG(ERROR) << "Fail to rename " << path << " to " << tmp_path;
+        // rename a unlink segment
+        base::Status status = file_rename(path.c_str(), tmp_path.c_str(), true);
+        if (!status.ok()) {
+            PLOG(ERROR) << "Fail to rename or sync: " << status
+                << ". old: " << path << ", new: " << tmp_path;
+            ret = -1;
             break;
+        } else {
+            RAFT_VLOG << "Renamed " << path <<  " to " 
+                << tmp_path << " success.";
         }
 
         // start bthread to unlink
@@ -594,7 +604,7 @@ int Segment::truncate(const int64_t last_index_kept) {
         return -1;
     }
 
-    // rename
+    // rename a truncated closed segment  
     if (!_is_open) {
         std::string old_path(_path);
         base::string_appendf(&old_path, "/" RAFT_SEGMENT_CLOSED_PATTERN,
@@ -603,11 +613,16 @@ int Segment::truncate(const int64_t last_index_kept) {
         std::string new_path(_path);
         base::string_appendf(&new_path, "/" RAFT_SEGMENT_CLOSED_PATTERN,
                              _first_index, last_index_kept);
-        ret = ::rename(old_path.c_str(), new_path.c_str());
-        LOG_IF(INFO, ret == 0) << "Renamed `" << old_path << "' to `"
-                               << new_path << '\'';
-        LOG_IF(ERROR, ret != 0) << "Fail to rename `" << old_path << "' to `"
-                                << new_path << "', " << berror();
+        
+        base::Status status = file_rename(old_path.c_str(), new_path.c_str(), true);
+        if (!status.ok()) {
+            LOG(ERROR) << "Fail to rename or sync: " << status
+                << ". old: " << old_path << ", new: " << new_path;
+            ret = -1;
+        } else {
+            RAFT_VLOG << "Renamed " << old_path <<  " to " 
+                << new_path << " success.";
+        }
     }
 
     lck.lock();
@@ -625,6 +640,13 @@ int SegmentLogStorage::init(ConfigurationManager* configuration_manager) {
                 dir_path, &e, FLAGS_raft_create_parent_directories)) {
         LOG(ERROR) << "Fail to create " << dir_path.value() << " : " << e;
         return -1;
+    }
+    // sync parent dir of "./log"
+    base::Status status = sync_parent_dir(_path.c_str(), true);
+    if (!status.ok()) {
+        LOG(ERROR) << "Fail to sync dir for LogStorage: " << status
+            << ". path: " << _path;
+        return -1; 
     }
 
     if (base::crc32c::IsFastCrc32Supported()) {

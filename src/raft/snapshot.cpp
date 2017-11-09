@@ -174,6 +174,14 @@ int LocalSnapshotWriter::init() {
         set_error(EIO, "CreateDirectory failed, path: %s", _path.c_str());
         return EIO;
     }
+    // sync parent dir of snapshot_writer
+    base::Status status = sync_parent_dir(_path.c_str(), true);
+    if (!status.ok()) {
+        LOG(ERROR) << "Fail to sync dir for SnapshotWriter: " << status
+            << ". path: " << _path;
+        return EIO; 
+    }
+
     std::string meta_path = _path + "/" RAFT_SNAPSHOT_META_FILE;
     if (_fs->path_exists(meta_path) && 
                 _meta_table.load_from_file(_fs, meta_path) != 0) {
@@ -392,6 +400,14 @@ int LocalSnapshotStorage::init() {
         LOG(ERROR) << "Fail to create " << _path << " : " << e;
         return -1;
     }
+    // sync parent dir of "./snapshot"
+    base::Status status = sync_parent_dir(_path.c_str(), true);
+    if (!status.ok()) {
+        LOG(ERROR) << "Fail to sync dir for SnapshotStorage: " << status
+            << ". path: " << _path;
+        return -1; 
+    }
+
     // delete temp snapshot
     if (!_filter_before_copy_remote) {
         std::string temp_snapshot_path(_path);
@@ -579,9 +595,10 @@ int LocalSnapshotStorage::close(SnapshotWriter* writer_base, bool keep_data_on_e
             break;
         }
         LOG(INFO) << "Renaming " << temp_path << " to " << new_path;
-        if (!_fs->rename(temp_path, new_path)) {
-            LOG(WARNING) << "rename temp snapshot failed, from_path " << temp_path
-                << " to_path " << new_path;
+        base::Status status = file_rename(temp_path.c_str(), new_path.c_str(), true);
+        if (!status.ok()) {
+            LOG(WARNING) << "Fail to rename or sync: " << status
+                << ". old: " << temp_path << ", new: " << new_path;
             ret = EIO;
             break;
         }
@@ -600,7 +617,7 @@ int LocalSnapshotStorage::close(SnapshotWriter* writer_base, bool keep_data_on_e
         destroy_snapshot(writer->get_path());
     }
     delete writer;
-    return ret == EEXIST ? 0 : ret;;
+    return ret == EEXIST ? 0 : ret;
 }
 
 SnapshotReader* LocalSnapshotStorage::open() {
@@ -880,6 +897,14 @@ void LocalSnapshotCopier::copy_file(const std::string& filename) {
                        << " : " << base::File::ErrorToString(e);
             set_error(file_error_to_os_error(e), 
                       "Fail to create directory");
+        }
+        // sync parent dir of copied files
+        base::Status status = sync_parent_dir(file_path.c_str(), true);
+        if (!status.ok()) {
+            LOG(ERROR) << "Fail to sync dir for copied files: " << status
+                << ". path: " << file_path;
+            set_error(status.error_code(), status.error_cstr());
+            return; 
         }
     }
     LocalFileMeta meta;

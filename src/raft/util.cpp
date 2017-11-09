@@ -10,8 +10,8 @@
 #include <base/macros.h>
 #include <base/raw_pack.h>                     // base::RawPacker
 #include <base/file_util.h>
-
 #include "raft/raft.h"
+#include "raft/fsync.h"
 
 namespace raft {
 
@@ -144,6 +144,82 @@ ssize_t file_pwrite(const base::IOBuf& data, int fd, off_t offset) {
     }
 
     return size - left;
+}
+
+base::Status file_rename(const char* old_path, const char* new_path, bool sync_dir) {
+    base::Status status;
+    base::FilePath file_path(old_path);
+    if (!base::PathExists(file_path)) {
+        status.set_error(ENOENT, "Old file path not exist, path: %s.", 
+                file_path.value().c_str());
+        return status;
+    }
+    if (::rename(old_path, new_path) != 0) {
+        status.set_error(errno, "Fail to rename %s to %s. Errno: %s", 
+                old_path, new_path, berror(errno));
+        return status;
+    }
+    // sync parent dir to ensure rename operation dumped to disk
+    if (sync_dir) {
+        status = sync_parent_dir(new_path, false);
+    }
+    return status;
+}
+
+base::Status sync_parent_dir(const char* path, bool until_root_dir) {
+    base::Status status;
+    // get real path  
+    char buf[PATH_MAX];
+    base::FilePath file_path;
+    if (::realpath(path, buf)) {
+        file_path = base::FilePath(buf);
+        RAFT_VLOG << "file path=" << path
+                  << ", real_path is: " << file_path.value().c_str(); 
+    } else {
+        status.set_error(ENOENT, "Fail to get real path, path: %s.", path);
+        return status;
+    }
+    // check file existence 
+    if (!base::PathExists(file_path)) {
+        status.set_error(ENOENT, "File path not exist, path: %s.", 
+file_path.value().c_str());
+        return status;
+    }
+    
+    if (until_root_dir) {
+        base::FilePath cur_path = file_path.DirName(); 
+        base::FilePath last_path;
+        do {
+            // sync cur_path
+            status = sync_directory(cur_path.value().c_str());
+            if (!status.ok()) {
+                break;
+            }
+            last_path = cur_path;
+            cur_path = cur_path.DirName();
+        } while (cur_path.value() != last_path.value()); 
+    } else {
+        status = sync_directory(file_path.DirName().value().c_str());
+    }
+
+    return status;
+}
+
+base::Status sync_directory(const char* path) {
+    base::Status status;
+    RAFT_VLOG << "Sync dir, path= " << path;
+    int fd_dir = ::open(path, O_RDONLY);
+    if (fd_dir < 0) {
+        status.set_error(errno, "Fail to open dir, path: %s. Errno: %s", 
+                path, berror(errno));
+    } else if (raft_fsync(fd_dir) != 0) {
+        status.set_error(errno, "Fail to sync dir, path: %s. Errno: %s", 
+                path, berror(errno));
+    }
+    if (fd_dir >= 0) {
+        ::close(fd_dir);
+    }
+    return status;
 }
 
 void FileSegData::append(const base::IOBuf& data, uint64_t offset) {

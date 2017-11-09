@@ -259,13 +259,12 @@ void Replicator::_on_heartbeat_returned(
         LOG(INFO) << "Replicator=" << dummy_id << " is going to quit";
         base::Status status;
         status.set_error(EHIGHERTERMRESPONSE, "Leader receives higher term "
-                "hearbeat_response from peer:%s", r->_options.peer_id.to_string().c_str());
+                "heartbeat_response from peer:%s", r->_options.peer_id.to_string().c_str());
         r->_destroy();
         node_impl->increase_term_to(response->term(), status);
         node_impl->Release();
         return;
     }
-    RAFT_VLOG;
     if (rpc_send_time > r->_last_rpc_send_timestamp){
         r->_last_rpc_send_timestamp = rpc_send_time; 
     }
@@ -652,7 +651,7 @@ void Replicator::_on_install_snapshot_returned(
         if (!response->success()) {
             succ = false;
             RAFT_VLOG << " fail.";
-            // Let hearbeat do step down
+            // Let heartbeat do step down
             break;
         }
         // Success 
