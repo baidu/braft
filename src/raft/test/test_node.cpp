@@ -2374,11 +2374,10 @@ TEST_F(RaftTestSuits, read_committed_user_log) {
     cond.wait();
     sleep(2);
     
-    raft::NodeImpl *node_impl_leader = leader->_impl;
     // index == 1 is a CONFIGURATION log, so real_index will be 2 when returned.
     int64_t index = 1;
     raft::UserLog* user_log = new raft::UserLog();
-    base::Status status = node_impl_leader->read_committed_user_log(index, user_log);
+    base::Status status = leader->read_committed_user_log(index, user_log);
     ASSERT_EQ(0, status.error_code());
     ASSERT_EQ(2, user_log->log_index());
     LOG(INFO) << "read local committed user log from leader:" << leader->node_id() << ", index:"
@@ -2388,7 +2387,7 @@ TEST_F(RaftTestSuits, read_committed_user_log) {
     // index == 5 is a DATA log(a user log)
     index = 5;
     user_log->reset();
-    status = node_impl_leader->read_committed_user_log(index, user_log);
+    status = leader->read_committed_user_log(index, user_log);
     ASSERT_EQ(0, status.error_code());
     ASSERT_EQ(5, user_log->log_index());
     LOG(INFO) << "read local committed user log from leader:" << leader->node_id() << ", index:"
@@ -2398,7 +2397,7 @@ TEST_F(RaftTestSuits, read_committed_user_log) {
     // index == 15 is greater than last_committed_index
     index = 15;
     user_log->reset();
-    status = node_impl_leader->read_committed_user_log(index, user_log);
+    status = leader->read_committed_user_log(index, user_log);
     ASSERT_EQ(raft::ENOMOREUSERLOG, status.error_code());
     LOG(INFO) << "read local committed user log from leader:" << leader->node_id() << ", index:"
         << index << ", real_index:" << user_log->log_index() << ", data:" << user_log->log_data() 
@@ -2407,7 +2406,7 @@ TEST_F(RaftTestSuits, read_committed_user_log) {
     // index == 0, invalid request index.
     index = 0;
     user_log->reset();
-    status = node_impl_leader->read_committed_user_log(index, user_log);
+    status = leader->read_committed_user_log(index, user_log);
     ASSERT_EQ(EINVAL, status.error_code());
     LOG(INFO) << "read local committed user log from leader:" << leader->node_id() << ", index:"
         << index << ", real_index:" << user_log->log_index() << ", data:" << user_log->log_data() 
@@ -2462,7 +2461,7 @@ TEST_F(RaftTestSuits, read_committed_user_log) {
     // index == 5 log has been deleted in log_storage.
     index = 5;
     user_log->reset();
-    status = node_impl_leader->read_committed_user_log(index, user_log);
+    status = leader->read_committed_user_log(index, user_log);
     ASSERT_EQ(raft::ELOGDELETED, status.error_code());
     LOG(INFO) << "read local committed user log from leader:" << leader->node_id() << ", index:"
         << index << ", real_index:" << user_log->log_index() << ", data:" << user_log->log_data() 
@@ -2471,7 +2470,7 @@ TEST_F(RaftTestSuits, read_committed_user_log) {
     // index == 12 and index == 13 are 2 CONFIGURATION logs, so real_index will be 14 when returned.
     index = 12;
     user_log->reset();
-    status = node_impl_leader->read_committed_user_log(index, user_log);
+    status = leader->read_committed_user_log(index, user_log);
     ASSERT_EQ(0, status.error_code());
     ASSERT_EQ(14, user_log->log_index());
     LOG(INFO) << "read local committed user log from leader:" << leader->node_id() << ", index:"
@@ -2481,7 +2480,7 @@ TEST_F(RaftTestSuits, read_committed_user_log) {
     // now index == 15 is a user log
     index = 15;
     user_log->reset();
-    status = node_impl_leader->read_committed_user_log(index, user_log);
+    status = leader->read_committed_user_log(index, user_log);
     ASSERT_EQ(0, status.error_code());
     ASSERT_EQ(15, user_log->log_index());
     LOG(INFO) << "read local committed user log from leader:" << leader->node_id() << ", index:"

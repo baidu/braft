@@ -160,6 +160,10 @@ int Node::transfer_leadership_to(const PeerId& peer) {
     return _impl->transfer_leadership_to(peer);
 }
 
+base::Status Node::read_committed_user_log(const int64_t index, UserLog* user_log) {
+    return _impl->read_committed_user_log(index, user_log);
+}
+
 // ------------- Iterator
 void Iterator::next() {
     if (valid()) {
