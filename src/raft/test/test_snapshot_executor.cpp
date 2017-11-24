@@ -70,6 +70,147 @@ protected:
     boost::atomic<int> _clear_timers;
 };
 
+class MockSnapshotReader : public raft::SnapshotReader {
+public:
+    MockSnapshotReader(const std::string& path)
+        : _path(path)
+    {}
+    virtual ~MockSnapshotReader() {}
+
+    // Load meta from 
+    virtual int load_meta(SnapshotMeta* meta) {
+        return 0;
+    }
+
+    // Generate uri for other peers to copy this snapshot.
+    // Return an empty string if some error has occcured
+    virtual std::string generate_uri_for_copy() {
+        return "remote://ip:port/reader_id";    
+    }
+
+    void list_files(std::vector<std::string> *files) {
+        return;
+    }
+
+    virtual std::string get_path() { return _path; }
+
+private:
+    std::string _path;
+};
+
+class MockSnapshotStorage;
+
+class MockSnapshotCopier : public raft::SnapshotCopier {
+friend class MockSnapshotStorage;
+public:
+    MockSnapshotCopier();
+    virtual ~MockSnapshotCopier() {}
+    // Cancel the copy job
+    virtual void cancel();
+    // Block the thread until this copy job finishes, or some error occurs.
+    virtual void join();
+    // Get the the SnapshotReader which represents the copied Snapshot
+    virtual SnapshotReader* get_reader();
+
+    void start();
+    
+    static void* start_copy(void* arg);
+    
+private:
+    bthread_t _tid;
+    MockSnapshotStorage* _storage;
+    SnapshotReader* _reader;
+};
+
+class MockSnapshotStorage : public raft::SnapshotStorage {
+friend class MockSnapshotCopier;
+public:
+    MockSnapshotStorage(const std::string& path)
+        : _path(path)
+        , _last_snapshot_index(0)
+    {}
+
+    virtual ~MockSnapshotStorage() {}
+
+    // Initialize
+    virtual int init() { return 0; }
+
+    // create new snapshot writer
+    virtual SnapshotWriter* create() {
+        return NULL; 
+    }
+
+    // close snapshot writer
+    virtual int close(SnapshotWriter* writer) {
+        return 0;
+    }
+
+    // get lastest snapshot reader
+    virtual SnapshotReader* open() { 
+        MockSnapshotReader* reader = new MockSnapshotReader(_path);
+        return reader; 
+    }
+
+    // close snapshot reader
+    virtual int close(SnapshotReader* reader) { 
+        delete reader;
+        return 0; 
+    }
+
+    // Copy snapshot from uri and open it as a SnapshotReader
+    virtual SnapshotReader* copy_from(const std::string& uri) {
+        return NULL;
+    }
+
+    virtual SnapshotCopier* start_to_copy_from(const std::string& uri) {
+        MockSnapshotCopier* copier = new MockSnapshotCopier();
+        copier->_storage = this;
+        copier->start();
+        return copier;
+    }
+
+    virtual int close(SnapshotCopier* copier) {
+        delete copier;
+        return 0;
+    }
+
+    virtual SnapshotStorage* new_instance(const std::string& uri) const {
+        return NULL;
+    }
+    
+private:
+    std::string _path;
+    int64_t _last_snapshot_index;
+};
+
+MockSnapshotCopier::MockSnapshotCopier() 
+    : _tid(INVALID_BTHREAD)
+    , _storage(NULL)
+    , _reader(NULL)
+{}
+
+void MockSnapshotCopier::cancel() {}
+
+void MockSnapshotCopier::join() {
+    bthread_join(_tid, NULL);
+}
+
+SnapshotReader* MockSnapshotCopier::get_reader() { return _reader; }
+
+void MockSnapshotCopier::start() {
+    LOG(INFO) << "In MockSnapshotCopier::start()"; 
+    _reader = _storage->open();
+    if (bthread_start_background(
+                &_tid, NULL, start_copy, this) != 0) {
+        LOG(INFO) << "Fail to start bthread."; 
+    } 
+}
+
+void* MockSnapshotCopier::start_copy(void* arg) {
+    usleep(5 * 1000 * 1000);
+    return NULL;
+}
+
 void write_file(const std::string& file, const std::string& content) {
     base::ScopedFILE fp(fopen(file.c_str(), "w"));
     ASSERT_TRUE(fp) << berror();
@@ -214,7 +355,71 @@ TEST_F(SnapshotExecutorTest, interrupt_installing) {
     executor.interrupt_downloading_snapshot(2);
     bthread_join(tid, NULL);
     ASSERT_TRUE(arg.cntl.Failed());
+    if (arg.cntl.Failed()) {
+        LOG(ERROR) << "error: " << arg.cntl.ErrorText();
+    } else {
+        LOG(INFO) << "success.";
+    }
     ASSERT_EQ(ECANCELED, arg.cntl.ErrorCode());
+    ASSERT_EQ(0, storage1.close(reader));
+}
+
+TEST_F(SnapshotExecutorTest, retry_install_snapshot) {
+    MockFSMCaller fsm_caller;
+    MockLogManager log_manager;
+
+    SnapshotExecutorOptions options;
+    options.init_term = 1;
+    options.addr = _server.listen_address();
+    options.node = NULL;
+    options.fsm_caller = &fsm_caller;
+    options.log_manager = &log_manager;
+    
+    SnapshotExecutor executor;
+    executor._log_manager = options.log_manager;
+    executor._fsm_caller = options.fsm_caller;
+    executor._node = options.node;
+    executor._term = options.init_term;
+    executor._usercode_in_pthread = options.usercode_in_pthread;
+    MockSnapshotStorage* storage0 = new MockSnapshotStorage(".data/snapshot0");
+    executor._snapshot_storage = storage0;
+
+    // target snapshot_storage
+    MockSnapshotStorage storage1(".data/snapshot1");
+    
+    SnapshotMeta meta;
+    meta.set_last_included_index(1);
+    meta.set_last_included_term(1);
+    SnapshotReader* reader= storage1.open();
+    std::string uri = reader->generate_uri_for_copy();    
+    // using bthreads to simulate install_snapshot requests
+    const size_t N = 10;
+    bthread_t tids[N];
+    InstallArg args[N];
+    for (size_t i = 0; i < N; ++i) {
+        args[i].e = &executor;
+        args[i].request.set_group_id("test");
+        args[i].request.set_term(1);
+        args[i].request.mutable_meta()->CopyFrom(meta);
+        args[i].request.set_uri(uri);
+    }
+    for (size_t i = 0; i < N; ++i) {
+        bthread_start_background(&tids[i], NULL, install_thread, &args[i]);
+    }
+    for (size_t i = 0; i < N; ++i) {
+        bthread_join(tids[i], NULL);
+    }
+    size_t suc = 0;
+    for (size_t i = 0; i < N; ++i) {
+        LOG(INFO) << "Try number: " << i << "------------------------"; 
+        if (args[i].cntl.Failed()) {
+            LOG(ERROR) << "Result, Error: " << args[i].cntl.ErrorText();
+        } else {
+            suc += 1;
+            LOG(INFO) << "Result, Success.";
+        }
+    }
+    ASSERT_EQ(1, suc);
     ASSERT_EQ(0, storage1.close(reader));
 }
 
