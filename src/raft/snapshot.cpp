@@ -595,10 +595,9 @@ int LocalSnapshotStorage::close(SnapshotWriter* writer_base, bool keep_data_on_e
             break;
         }
         LOG(INFO) << "Renaming " << temp_path << " to " << new_path;
-        base::Status status = file_rename(temp_path.c_str(), new_path.c_str(), true);
-        if (!status.ok()) {
-            LOG(WARNING) << "Fail to rename or sync: " << status
-                << ". old: " << temp_path << ", new: " << new_path;
+        if (!_fs->rename(temp_path, new_path)) {
+            LOG(WARNING) << "rename temp snapshot failed, from_path " << temp_path
+                << " to_path " << new_path;
             ret = EIO;
             break;
         }
