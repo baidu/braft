@@ -16,17 +16,11 @@ namespace raft {
 DECLARE_bool(raft_use_fsync_rather_than_fdatasync);
 
 inline int raft_fsync(int fd) {
-    int ret;
     if (FLAGS_raft_use_fsync_rather_than_fdatasync) {
-        do {
-            ret = fsync(fd);
-        } while (ret != 0 && errno == EINTR);
+        return fsync(fd);
     } else {
-        do {
-            ret = fdatasync(fd);
-        } while (ret != 0 && errno == EINTR);
+        return fdatasync(fd);
     }
-    return ret;
 }
 
 inline bool raft_sync_meta() {

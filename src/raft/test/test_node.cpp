@@ -1517,12 +1517,6 @@ TEST_F(RaftTestSuits, InstallSnapshot) {
     leader->snapshot(NEW_SNAPSHOTCLOSURE(&cond, 0));
     cond.wait();
 
-    // trigger leader snapshot again to truncate logs
-    LOG(WARNING) << "trigger leader snapshot again";
-    cond.reset(1);
-    leader->snapshot(NEW_SNAPSHOTCLOSURE(&cond, 0));
-    cond.wait();
-
     // apply something
     cond.reset(10);
     for (int i = 20; i < 30; i++) {
@@ -1544,7 +1538,7 @@ TEST_F(RaftTestSuits, InstallSnapshot) {
     LOG(WARNING) << "restart follower";
     ASSERT_EQ(0, cluster.start(follower_addr));
 
-    sleep(5);
+    sleep(2);
 
     cluster.ensure_same();
 

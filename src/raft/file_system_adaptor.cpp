@@ -86,9 +86,7 @@ bool PosixFileSystemAdaptor::delete_file(const std::string& path, bool recursive
 }
 
 bool PosixFileSystemAdaptor::rename(const std::string& old_path, const std::string& new_path) {
-    // will sync parent dir by default in rename operation
-    base::Status status = file_rename(old_path.c_str(), new_path.c_str(), true);
-    return status.ok();
+    return ::rename(old_path.c_str(), new_path.c_str()) == 0;
 }
 
 bool PosixFileSystemAdaptor::link(const std::string& old_path, const std::string& new_path) {

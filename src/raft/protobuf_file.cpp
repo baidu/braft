@@ -68,8 +68,7 @@ int ProtoBufFile::save(const google::protobuf::Message* message, bool sync) {
 
     // rename
     if (!_fs->rename(tmp_path, _path)) {
-        LOG(WARNING) << "Fail to rename or sync, old: " << tmp_path 
-                     << " , new: " << _path;
+        LOG(WARNING) << "rename failed, old: " << tmp_path << " , new: " << _path;
         return -1;
     }
     return 0;
