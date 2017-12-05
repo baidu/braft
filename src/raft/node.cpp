@@ -1259,9 +1259,6 @@ void NodeImpl::reset_election_timeout_ms(int election_timeout_ms) {
     _replicator_group.reset_heartbeat_interval(
             heartbeat_timeout(_options.election_timeout_ms));
     _replicator_group.reset_election_timeout_interval(_options.election_timeout_ms);
-    if (_state != STATE_FOLLOWER) {
-        return;
-    }
     LOG(INFO) << "node " << _group_id << ":" << _server_id << " reset_election_timeout,"
         " current_term " << _current_term << " state " << state2str(_state) <<
         " new election_timeout " << election_timeout_ms;

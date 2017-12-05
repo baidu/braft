@@ -156,6 +156,10 @@ void Node::vote(int election_timeout) {
     _impl->vote(election_timeout);
 }
 
+void Node::reset_election_timeout_ms(int election_timeout_ms) {
+    _impl->reset_election_timeout_ms(election_timeout_ms);
+}
+
 int Node::transfer_leadership_to(const PeerId& peer) {
     return _impl->transfer_leadership_to(peer);
 }
