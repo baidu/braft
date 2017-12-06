@@ -219,6 +219,9 @@ void RemoteFileCopier::Session::on_rpc_returned() {
     Session* this_ref = this;
     ref_gurad.swap(&this_ref);
     std::unique_lock<raft_mutex_t> lck(_mutex);
+    if (_finished) {
+        return;
+    }
     if (_cntl.Failed()) {
         // Reset count to make next rpc retry the previous one
         _request.set_count(0);
