@@ -164,24 +164,29 @@ int SnapshotExecutor::on_snapshot_save_done(
     int ret = st.error_code();
     // InstallSnapshot can break SaveSnapshot, check InstallSnapshot when SaveSnapshot
     // because upstream Snapshot maybe newer than local Snapshot.
-    if (ret == 0) {
+    if (st.ok()) {
         if (meta.last_included_index() <= _last_snapshot_index) {
             ret = ESTALE;
             LOG_IF(WARNING, _node != NULL) << "node " << _node->node_id()
-                << " discard saved snapshot, because has a newer snapshot."
+                << " discards an stale snapshot "
                 << " last_included_index " << meta.last_included_index()
                 << " last_snapshot_index " << _last_snapshot_index;
             writer->set_error(ESTALE, "Installing snapshot is older than local snapshot");
         }
     }
     lck.unlock();
-
+    
     if (ret == 0) {
         if (writer->save_meta(meta)) {
             LOG(WARNING) << "Fail to save snapshot";    
             ret = EIO;
         }
+    } else {
+        if (writer->ok()) {
+            writer->set_error(ret, "Fail to do snapshot");
+        }
     }
+
     if (_snapshot_storage->close(writer) != 0) {
         ret = EIO;
         LOG(WARNING) << "Fail to close writer";
