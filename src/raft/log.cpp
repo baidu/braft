@@ -1103,7 +1103,7 @@ Segment* SegmentLogStorage::open_segment() {
                     break;
                 }
             }
-            PLOG(ERROR) << "Fail to create close old open_segment or create new open_segment";
+            PLOG(ERROR) << "Fail to close old open_segment or create new open_segment";
             // Failed, revert former changes
             BAIDU_SCOPED_LOCK(_mutex);
             _segments.erase(prev_open_segment->first_index());
