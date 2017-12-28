@@ -544,7 +544,8 @@ int LocalSnapshotStorage::close(SnapshotWriter* writer) {
     return close(writer, false);
 }
 
-int LocalSnapshotStorage::close(SnapshotWriter* writer_base, bool keep_data_on_error) {
+int LocalSnapshotStorage::close(SnapshotWriter* writer_base,
+                                bool keep_data_on_error) {
     LocalSnapshotWriter* writer = dynamic_cast<LocalSnapshotWriter*>(writer_base);
     int ret = writer->error_code();
     do {
@@ -581,7 +582,7 @@ int LocalSnapshotStorage::close(SnapshotWriter* writer_base, bool keep_data_on_e
         LOG(INFO) << "Renaming " << temp_path << " to " << new_path;
         if (!_fs->rename(temp_path, new_path)) {
             LOG(WARNING) << "rename temp snapshot failed, from_path " << temp_path
-                << " to_path " << new_path;
+                         << " to_path " << new_path;
             ret = EIO;
             break;
         }
@@ -600,7 +601,7 @@ int LocalSnapshotStorage::close(SnapshotWriter* writer_base, bool keep_data_on_e
         destroy_snapshot(writer->get_path());
     }
     delete writer;
-    return ret == EEXIST ? 0 : ret;;
+    return ret != EIO ? 0 : -1;
 }
 
 SnapshotReader* LocalSnapshotStorage::open() {

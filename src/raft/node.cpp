@@ -1259,9 +1259,6 @@ void NodeImpl::reset_election_timeout_ms(int election_timeout_ms) {
     _replicator_group.reset_heartbeat_interval(
             heartbeat_timeout(_options.election_timeout_ms));
     _replicator_group.reset_election_timeout_interval(_options.election_timeout_ms);
-    if (_state != STATE_FOLLOWER) {
-        return;
-    }
     LOG(INFO) << "node " << _group_id << ":" << _server_id << " reset_election_timeout,"
         " current_term " << _current_term << " state " << state2str(_state) <<
         " new election_timeout " << election_timeout_ms;
@@ -1272,6 +1269,10 @@ void NodeImpl::reset_election_timeout_ms(int election_timeout_ms) {
 void NodeImpl::on_error(const Error& e) {
     LOG(WARNING) << "node " << _group_id << ":" << _server_id
                  << " got error=" << e;
+    if (_fsm_caller) {
+        // on_error of _fsm_caller is guaranteed to be executed once.
+        _fsm_caller->on_error(e);
+    }
     std::unique_lock<raft_mutex_t> lck(_mutex);
     // if it is leader, need to wake up a new one.
     // if it is follower, also step down to call on_stop_following
@@ -1423,7 +1424,7 @@ struct OnPreVoteRPCDone : public google::protobuf::Closure {
         do {
             if (cntl.ErrorCode() != 0) {
                 LOG(WARNING) << "node " << node->node_id()
-                    << " PreVote to " << peer << " error: " << cntl.ErrorText();
+                    << " request PreVote from " << peer << " error: " << cntl.ErrorText();
                 break;
             }
             node->handle_pre_vote_response(peer, term, response);
@@ -1697,7 +1698,7 @@ void NodeImpl::check_step_down(const int64_t request_term, const PeerId& server_
                 "from new leader with the same term.");
         step_down(request_term, false, status);
     } else if (_leader_id.is_empty()) {
-        status.set_error(ENEWLEADER, "Follower receives message"
+        status.set_error(ENEWLEADER, "Follower receives message "
                 "from new leader with the same term.");
         step_down(request_term, false, status); 
     }

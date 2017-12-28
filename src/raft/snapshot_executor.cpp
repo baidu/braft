@@ -164,24 +164,29 @@ int SnapshotExecutor::on_snapshot_save_done(
     int ret = st.error_code();
     // InstallSnapshot can break SaveSnapshot, check InstallSnapshot when SaveSnapshot
     // because upstream Snapshot maybe newer than local Snapshot.
-    if (ret == 0) {
+    if (st.ok()) {
         if (meta.last_included_index() <= _last_snapshot_index) {
             ret = ESTALE;
             LOG_IF(WARNING, _node != NULL) << "node " << _node->node_id()
-                << " discard saved snapshot, because has a newer snapshot."
+                << " discards an stale snapshot "
                 << " last_included_index " << meta.last_included_index()
                 << " last_snapshot_index " << _last_snapshot_index;
             writer->set_error(ESTALE, "Installing snapshot is older than local snapshot");
         }
     }
     lck.unlock();
-
+    
     if (ret == 0) {
         if (writer->save_meta(meta)) {
             LOG(WARNING) << "Fail to save snapshot";    
             ret = EIO;
         }
+    } else {
+        if (writer->ok()) {
+            writer->set_error(ret, "Fail to do snapshot");
+        }
     }
+
     if (_snapshot_storage->close(writer) != 0) {
         ret = EIO;
         LOG(WARNING) << "Fail to close writer";
@@ -448,21 +453,25 @@ void SnapshotExecutor::load_downloading_snapshot(DownloadingSnapshot* ds,
 int SnapshotExecutor::register_downloading_snapshot(DownloadingSnapshot* ds) {
     std::unique_lock<raft_mutex_t> lck(_mutex);
     if (_stopped) {
+        LOG(WARNING) << "Register failed: node is stopped.";
         ds->cntl->SetFailed(EHOSTDOWN, "Node is stopped");
         return -1;
     }
     if (ds->request->term() != _term) {
+        LOG(WARNING) << "Register failed: term unmatch.";
         ds->response->set_success(false);
         ds->response->set_term(_term);
         return -1;
     }
     if (ds->request->meta().last_included_index() <= _last_snapshot_index) {
+        LOG(WARNING) << "Register failed: snapshot is not newer.";
         ds->response->set_term(_term);
         ds->response->set_success(true);
         return -1;
     }
     ds->response->set_term(_term);
     if (_saving_snapshot) {
+        LOG(WARNING) << "Register failed: is saving snapshot.";
         ds->cntl->SetFailed(EBUSY, "Is saving snapshot");
         return -1;
     }
@@ -476,6 +485,7 @@ int SnapshotExecutor::register_downloading_snapshot(DownloadingSnapshot* ds) {
         if (_cur_copier == NULL) {
             _downloading_snapshot.store(NULL, boost::memory_order_relaxed);
             lck.unlock();
+            LOG(WARNING) << "Register failed: fail to copy file.";
             ds->cntl->SetFailed(EINVAL, "Fail to copy from , %s",
                                 ds->request->uri().c_str());
             return -1;
@@ -501,17 +511,21 @@ int SnapshotExecutor::register_downloading_snapshot(DownloadingSnapshot* ds) {
     } else if (m->request->meta().last_included_index() 
             > ds->request->meta().last_included_index()) {
         // |is| is older
+        LOG(WARNING) << "Register failed: is installing a newer one.";
         ds->cntl->SetFailed(EINVAL, "A newer snapshot is under installing");
         return -1;
     } else {
         // |is| is newer
         if (_loading_snapshot) {
             // We can't interrupt the loading one
+            LOG(WARNING) << "Register failed: is loading an older snapshot.";
             ds->cntl->SetFailed(EBUSY, "A former snapshot is under loading");
             return -1;
         }
         CHECK(_cur_copier);
         _cur_copier->cancel();
+        LOG(WARNING) << "Register failed: an older snapshot is under installing,"
+            " cancle downloading.";
         ds->cntl->SetFailed(EBUSY, "A former snapshot is under installing, "
                                    " trying to cancel");
         return -1;
@@ -519,6 +533,7 @@ int SnapshotExecutor::register_downloading_snapshot(DownloadingSnapshot* ds) {
     lck.unlock();
     if (has_saved) {
         // Respond replaced session
+        LOG(WARNING) << "Register failed: interrupted by retry installing request.";
         saved.cntl->SetFailed(
                 EINTR, "Interrupted by the retry InstallSnapshotRequest");
         saved.done->Run();

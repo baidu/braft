@@ -504,6 +504,9 @@ public:
     // reset election_timeout, suggest some peer to become the leader in a
     // higher probability
     void vote(int election_timeout);
+     
+    // reset the election_timeout for the very node
+    void reset_election_timeout_ms(int election_timeout_ms);
 
     // Try transfering leadership to |peer|.
     // If peer is ANY_PEER, we will choose a peer with the largest last_log_id
