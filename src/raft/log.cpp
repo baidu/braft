@@ -834,7 +834,10 @@ int SegmentLogStorage::truncate_suffix(const int64_t last_index_kept) {
     if (last_segment) {
         if (_first_log_index.load(boost::memory_order_relaxed) <=
             _last_log_index.load(boost::memory_order_relaxed)) {
-            last_segment->truncate(last_index_kept);
+            int ret = last_segment->truncate(last_index_kept);
+            if (ret != 0) {
+                return ret;
+            }
         } else {
             // trucate_prefix() and truncate_suffix() to discard entire logs
             BAIDU_SCOPED_LOCK(_mutex);
