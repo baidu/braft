@@ -374,7 +374,6 @@ int NodeImpl::bootstrap(const BootstrapOptions& options) {
 
 int NodeImpl::init(const NodeOptions& options) {
     _options = options;
-    int ret = 0;
 
     // check _server_id
     if (base::IP_ANY == _server_id.addr.ip) {
@@ -409,109 +408,113 @@ int NodeImpl::init(const NodeOptions& options) {
         return -1;
     }
 
-    do {
-        // Create _fsm_caller first as log_manager needs it to report error
-        _fsm_caller = new FSMCaller();
+    // Create _fsm_caller first as log_manager needs it to report error
+    _fsm_caller = new FSMCaller();
 
-        // log storage and log manager init
-        ret = init_log_storage();
-        if (0 != ret) {
-            LOG(ERROR) << "node " << _group_id << ":" << _server_id
-                << " init_log_storage failed";
-            break;
-        }
+    // log storage and log manager init
+    if (init_log_storage() != 0) {
+        LOG(ERROR) << "node " << _group_id << ":" << _server_id
+            << " init_log_storage failed";
+        return -1;
+    }
 
-        // stable init
-        ret = init_stable_storage();
-        if (0 != ret) {
-            LOG(ERROR) << "node " << _group_id << ":" << _server_id
-                << " init_stable_storage failed";
-            break;
-        }
+    // stable init
+    if (init_stable_storage() != 0) {
+        LOG(ERROR) << "node " << _group_id << ":" << _server_id
+            << " init_stable_storage failed";
+        return -1;
+    }
 
-        ret = init_fsm_caller(LogId(0, 0));
-        if (ret != 0) {
-            LOG(ERROR) << "node " << _group_id << ":" << _server_id
-                       << " init_fsm_caller failed";
-            break;
-        }
+    if (init_fsm_caller(LogId(0, 0)) != 0) {
+        LOG(ERROR) << "node " << _group_id << ":" << _server_id
+            << " init_fsm_caller failed";
+        return -1;
+    }
 
-        // commitment manager init
-        _commit_manager = new CommitmentManager();
-        CommitmentManagerOptions commit_manager_options;
-        commit_manager_options.waiter = _fsm_caller;
-        commit_manager_options.closure_queue = _closure_queue;
-        ret = _commit_manager->init(commit_manager_options);
-        if (ret != 0) {
-            break;
-        }
+    // commitment manager init
+    _commit_manager = new CommitmentManager();
+    CommitmentManagerOptions commit_manager_options;
+    commit_manager_options.waiter = _fsm_caller;
+    commit_manager_options.closure_queue = _closure_queue;
+    if (_commit_manager->init(commit_manager_options) != 0) {
+        LOG(ERROR) << "node " << _group_id << ":" << _server_id
+            << " init _commit_manager failed";
+        return -1;
+    }
 
-        // snapshot storage init and load
-        // NOTE: snapshot maybe discard entries when snapshot saved but not discard entries.
-        //      init log storage before snapshot storage, snapshot storage will update configration
-        ret = init_snapshot_storage();
-        if (0 != ret) {
-            LOG(ERROR) << "node " << _group_id << ":" << _server_id
-                << " init_snapshot_storage failed";
-            break;
-        }
+    // snapshot storage init and load
+    // NOTE: snapshot maybe discard entries when snapshot saved but not discard entries.
+    //      init log storage before snapshot storage, snapshot storage will update configration
+    if (init_snapshot_storage() != 0) {
+        LOG(ERROR) << "node " << _group_id << ":" << _server_id
+            << " init_snapshot_storage failed";
+        return -1;
+    }
 
-        base::Status st = _log_manager->check_consistency();
-        if (!st.ok()) {
-            LOG(ERROR) << "node " << _group_id << ":" << _server_id
-                       << " is initialized with inconsitency log: "
-                       << st;
-            ret = st.error_code();
-            break;
-        }
+    base::Status st = _log_manager->check_consistency();
+    if (!st.ok()) {
+        LOG(ERROR) << "node " << _group_id << ":" << _server_id
+            << " is initialized with inconsitency log: "
+            << st;
+        return -1;
+    }
 
-        _conf.first = LogId();
-        // if have log using conf in log, else using conf in options
-        if (_log_manager->last_log_index() > 0) {
-            _log_manager->check_and_set_configuration(&_conf);
-        } else {
-            _conf.second = _options.initial_conf;
-        }
+    _conf.first = LogId();
+    // if have log using conf in log, else using conf in options
+    if (_log_manager->last_log_index() > 0) {
+        _log_manager->check_and_set_configuration(&_conf);
+    } else {
+        _conf.second = _options.initial_conf;
+    }
 
-        // init replicator
-        ReplicatorGroupOptions options;
-        options.heartbeat_timeout_ms = heartbeat_timeout(_options.election_timeout_ms);
-        options.election_timeout_ms = _options.election_timeout_ms;
-        options.log_manager = _log_manager;
-        options.commit_manager = _commit_manager;
-        options.node = this;
-        options.snapshot_storage = _snapshot_executor
-                                   ?  _snapshot_executor->snapshot_storage()
-                                   : NULL;
-        _replicator_group.init(NodeId(_group_id, _server_id), options);
+    // init replicator
+    ReplicatorGroupOptions rg_options;
+    rg_options.heartbeat_timeout_ms = heartbeat_timeout(_options.election_timeout_ms);
+    rg_options.election_timeout_ms = _options.election_timeout_ms;
+    rg_options.log_manager = _log_manager;
+    rg_options.commit_manager = _commit_manager;
+    rg_options.node = this;
+    rg_options.snapshot_storage = _snapshot_executor
+        ?  _snapshot_executor->snapshot_storage()
+        : NULL;
+    _replicator_group.init(NodeId(_group_id, _server_id), rg_options);
 
-        // set state to follower
-        _state = STATE_FOLLOWER;
+    // set state to follower
+    _state = STATE_FOLLOWER;
 
-        LOG(INFO) << "node " << _group_id << ":" << _server_id << " init,"
-            << " term: " << _current_term
-            << " last_log_id: " << _log_manager->last_log_id()
-            << " conf: " << _conf.second;
-        if (!_conf.second.empty()) {
-            step_down(_current_term, false, base::Status::OK());
-        }
+    LOG(INFO) << "node " << _group_id << ":" << _server_id << " init,"
+        << " term: " << _current_term
+        << " last_log_id: " << _log_manager->last_log_id()
+        << " conf: " << _conf.second;
 
-        // add node to NodeManager
-        if (!NodeManager::GetInstance()->add(this)) {
-            LOG(WARNING) << "NodeManager add " << _group_id << ":" << _server_id << "failed";
-            ret = EINVAL;
-            break;
-        }
+    // start snapshot timer
+    if (_snapshot_executor && _options.snapshot_interval_s > 0) {
+        RAFT_VLOG << "node " << _group_id << ":" << _server_id
+            << " term " << _current_term << " start snapshot_timer";
+        _snapshot_timer.start();
+    }
 
-        // start snapshot timer
-        if (_snapshot_executor && _options.snapshot_interval_s > 0) {
-            RAFT_VLOG << "node " << _group_id << ":" << _server_id
-                << " term " << _current_term << " start snapshot_timer";
-            _snapshot_timer.start();
-        }
-    } while (0);
+    if (!_conf.second.empty()) {
+        step_down(_current_term, false, base::Status::OK());
+    }
 
-    return ret;
+    // add node to NodeManager
+    if (!NodeManager::GetInstance()->add(this)) {
+        LOG(ERROR) << "NodeManager add " << _group_id 
+                   << ":" << _server_id << " failed";
+        return -1;
+    }
+
+    // Now the raft node is started , have to acquire the lock to avoid race
+    // conditions
+    BAIDU_SCOPED_LOCK(_mutex);
+    if (_conf.second.size() == 1u && _conf.second.contains(_server_id)) {
+        // The group contains only this server which must be the LEADER, trigger
+        // the timer immediately.
+        _election_timer.run_once_now();
+    }
+
+    return 0;
 }
 
 DEFINE_int32(raft_apply_batch, 32, "Max number of tasks that can be applied "
@@ -1592,21 +1595,19 @@ void NodeImpl::elect_self(std::unique_lock<raft_mutex_t>* lck) {
 // in lock
 void NodeImpl::step_down(const int64_t term, bool wakeup_a_candidate, 
         const base::Status& status) {
-    LOG(INFO) << "node " << _group_id << ":" << _server_id
-        << " term " << _current_term << " stepdown from " << state2str(_state)
-        << " new_term " << term << " wakeup_a_candidate=" << wakeup_a_candidate;
+    RAFT_VLOG << "node " << _group_id << ":" << _server_id
+              << " term " << _current_term 
+              << " stepdown from " << state2str(_state)
+              << " new_term " << term <<
+              " wakeup_a_candidate=" << wakeup_a_candidate;
 
     if (!is_active_state(_state)) {
         return;
     }
     // delete timer and something else
     if (_state == STATE_CANDIDATE) {
-        RAFT_VLOG << "node " << _group_id << ":" << _server_id
-            << " term " << _current_term << " stop vote_timer";
         _vote_timer.stop();
     } else if (_state <= STATE_TRANSFERING) {
-        RAFT_VLOG << "node " << _group_id << ":" << _server_id
-            << " term " << _current_term << " stop stepdown_timer";
         _stepdown_timer.stop();
 
         _commit_manager->clear_pending_tasks();
@@ -1651,9 +1652,6 @@ void NodeImpl::step_down(const int64_t term, bool wakeup_a_candidate,
     } else {
         _replicator_group.stop_all();
     }
-    RAFT_VLOG << "node " << _group_id << ":" << _server_id
-        << " term " << _current_term << " restart election_timer";
-    _election_timer.start();
     if (_stop_transfer_arg != NULL) {
         const int rc = bthread_timer_del(_transfer_timer);
         if (rc == 0) {
@@ -1665,6 +1663,7 @@ void NodeImpl::step_down(const int64_t term, bool wakeup_a_candidate,
         // mark _stop_transfer_arg to NULL
         _stop_transfer_arg = NULL;
     }
+    _election_timer.start();
 }
 // in lock
 void NodeImpl::reset_leader_id(const PeerId& new_leader_id, 
