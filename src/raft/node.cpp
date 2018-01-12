@@ -507,11 +507,11 @@ int NodeImpl::init(const NodeOptions& options) {
 
     // Now the raft node is started , have to acquire the lock to avoid race
     // conditions
-    BAIDU_SCOPED_LOCK(_mutex);
+    std::unique_lock<raft_mutex_t> lck(_mutex);
     if (_conf.second.size() == 1u && _conf.second.contains(_server_id)) {
         // The group contains only this server which must be the LEADER, trigger
         // the timer immediately.
-        _election_timer.run_once_now();
+        elect_self(&lck);
     }
 
     return 0;
@@ -642,11 +642,12 @@ void NodeImpl::on_caughtup(const PeerId& peer, int64_t term,
         }
         if (_state != STATE_LEADER) {
             if (_state == STATE_TRANSFERING) {
-                // Print error to notice the users there must be some wrong here
-                // as we refused configuration changing.
+                // Print error to notice the users there must be something wrong
+                // since configuration changing is refused during traslanting
+                // leadership.
                 // Note: Don't use FATAL in case the users turn
                 //       `crash_on_fatal_log' on and the process is going to
-                //       abort ever since.
+                //       abort ever after.
                 LOG(ERROR) << "node " << _group_id << ":" << _server_id
                            << " received on_caughtup while the state is "
                            << state2str(STATE_TRANSFERING)
@@ -656,8 +657,8 @@ void NodeImpl::on_caughtup(const PeerId& peer, int64_t term,
                               " maintainers to checkout this issue and fix it";
                 // Stop this replicator to release the resource
                 _replicator_group.stop_replicator(peer);
-                // Reset _conf_ctx to make furture configuration changing
-                // acceptable.
+                // Reset _conf_ctx to make configuration changing acceptable
+                // after this point.
                 _conf_ctx.reset();
                 error_code = EINVAL;
                 error_text = "Impossible condition";
@@ -882,19 +883,24 @@ void NodeImpl::remove_peer(const std::vector<PeerId>& old_peers, const PeerId& p
     return unsafe_apply_configuration(new_conf, done);
 }
 
-int NodeImpl::set_peer(const std::vector<PeerId>& old_peers, 
-        const std::vector<PeerId>& new_peers) {
+int NodeImpl::set_peer(const std::vector<PeerId>& old_peers,
+                       const std::vector<PeerId>& new_peers) {
+    return set_peer2(old_peers, new_peers).error_code();
+}
+
+base::Status NodeImpl::set_peer2(const std::vector<PeerId>& old_peers,
+                                 const std::vector<PeerId>& new_peers) {
     BAIDU_SCOPED_LOCK(_mutex);
 
     if (new_peers.empty()) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id << " set empty peers";
-        return EINVAL;
+        return base::Status(EINVAL, "new_peers is empty");
     }
     // check state
     if (!is_active_state(_state)) {
-        LOG(WARNING) << "node " << _group_id << ":" << _server_id 
-            << " shutdown, can't set_peer";
-        return EPERM;
+        LOG(WARNING) << "node " << _group_id << ":" << _server_id
+            << " is in state " << state2str(_state) << ", can't set_peer";
+        return base::Status(EPERM, "Bad state %s", state2str(_state));
     }
     // check bootstrap
     if (_conf.second.empty()) {
@@ -906,55 +912,61 @@ int NodeImpl::set_peer(const std::vector<PeerId>& old_peers,
             _conf.second = new_conf;
             // set_peer boot and step_down
             base::Status status;
-            status.set_error(ESETPEER, "Raft node set peer boot.");
+            status.set_error(ESETPEER, "Set peer from empty configuration");
             step_down(_current_term + 1, false, status);
-            return 0;
+            return base::Status::OK();
         } else {
             LOG(WARNING) << "node " << _group_id << ":" << _server_id
                 << " set_peer boot need old_peers empty and new_peers no_empty";
-            return EINVAL;
+            return base::Status(EINVAL, "old_peers must be empty "
+                                        "when boostrap an empty node");
         }
     }
     // check concurrent conf change
     if (_state == STATE_LEADER && !_conf_ctx.empty()) {
-        LOG(WARNING) << "node " << _group_id << ":" << _server_id 
-            << " set_peer need wait current conf change";
-        return EBUSY;
+        LOG(WARNING) << "node " << _group_id << ":" << _server_id
+                     << " set_peer need wait current conf change";
+        return base::Status(EBUSY, "Changing to another configuration");
     }
+
     // check equal, maybe retry direct return
     if (_conf.second.equals(new_peers)) {
-        return 0;
+        return base::Status::OK();
     }
+
     if (!old_peers.empty()) {
         // check not equal
         if (!_conf.second.equals(std::vector<PeerId>(old_peers))) {
             LOG(WARNING) << "node " << _group_id << ":" << _server_id 
                 << " set_peer dismatch old_peers";
-            return EINVAL;
+            return base::Status(EINVAL, "Dons't match old_peers");
         }
+
         // check quorum
         if (new_peers.size() >= (old_peers.size() / 2 + 1)) {
             LOG(WARNING) << "node " << _group_id << ":" << _server_id 
                 << " set_peer new_peers greater than old_peers'quorum";
-            return EINVAL;
+            return base::Status(EINVAL, "#new_peers is greater "
+                                        "than quorum of old_peers");
         }
+
         // check contain
         if (!_conf.second.contains(new_peers)) {
             LOG(WARNING) << "node " << _group_id << ":" << _server_id 
                 << " set_peer old_peers not contains all new_peers";
-            return EINVAL;
+            return base::Status(EINVAL, "old_peers not contains all new_peers");
         }
     }
 
     Configuration new_conf(new_peers);
-    LOG(INFO) << "node " << _group_id << ":" << _server_id << " set_peer from " 
-        << _conf.second << " to " << new_conf;
+    LOG(WARNING) << "node " << _group_id << ":" << _server_id << " set_peer from "
+                 << _conf.second << " to " << new_conf;
     // change conf and step_down
     _conf.second = new_conf;
     base::Status status;
     status.set_error(ESETPEER, "Raft node set peer normally.");
     step_down(_current_term + 1, false, status);
-    return 0;
+    return base::Status::OK();
 }
 
 void NodeImpl::snapshot(Closure* done) {

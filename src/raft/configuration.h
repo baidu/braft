@@ -90,6 +90,7 @@ struct NodeId {
     NodeId(const GroupId& group_id_, const PeerId& peer_id_)
         : group_id(group_id_), peer_id(peer_id_) {
     }
+    std::string to_string() const;
 };
 
 inline bool operator<(const NodeId& id1, const NodeId& id2) {
@@ -110,11 +111,13 @@ inline bool operator!=(const NodeId& id1, const NodeId& id2) {
 }
 
 inline std::ostream& operator << (std::ostream& os, const NodeId& id) {
-    char str[128];
-    snprintf(str, sizeof(str), "%s:%s:%d", id.group_id.c_str(),
-             base::endpoint2str(id.peer_id.addr).c_str(), id.peer_id.idx);
-    os << str;
-    return os;
+    return os << id.group_id << ':' << id.peer_id;
+}
+
+inline std::string NodeId::to_string() const {
+    std::ostringstream oss;
+    oss << *this;
+    return oss.str();
 }
 
 // A set of peers.

@@ -417,8 +417,12 @@ struct NodeOptions {
     
     // If non-null, we will pass this throughput_snapshot_throttle to SnapshotExecutor
     // Default: NULL
-    scoped_refptr<SnapshotThrottle>* snapshot_throttle;   
-    
+    scoped_refptr<SnapshotThrottle>* snapshot_throttle;
+
+    // If true, RPCs through raft_cli will be denied.
+    // Default: true 
+    bool disable_cli;
+
     // Construct a default instance
     NodeOptions();
 };
@@ -434,6 +438,7 @@ inline NodeOptions::NodeOptions()
     , filter_before_copy_remote(false)
     , snapshot_file_system_adaptor(NULL)
     , snapshot_throttle(NULL)
+    , disable_cli(false)
 {}
 
 class NodeImpl;

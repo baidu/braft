@@ -8,6 +8,7 @@
 #include "raft/node_manager.h"
 #include "raft/file_service.h"
 #include "raft/builtin_service_impl.h"
+#include "raft/cli_service.h"
 
 namespace raft {
 
@@ -44,21 +45,26 @@ int NodeManager::add_service(baidu::rpc::Server* server,
     }
 
     if (0 != server->AddService(file_service(), baidu::rpc::SERVER_DOESNT_OWN_SERVICE)) {
-        LOG(ERROR) << "Add File Service Failed.";
+        LOG(ERROR) << "Fail to add FileService";
         return -1;
     }
 
     if (0 != server->AddService(
                 new RaftServiceImpl(listen_address), 
                 baidu::rpc::SERVER_OWNS_SERVICE)) {
-        LOG(ERROR) << "Add Raft Service Failed.";
+        LOG(ERROR) << "Fail to add RaftService";
         return -1;
     }
 
     if (0 != server->AddService(new RaftStatImpl, baidu::rpc::SERVER_OWNS_SERVICE)) {
-        LOG(ERROR) << "Add Raft Service Failed.";
+        LOG(ERROR) << "Fail to add RaftStatService";
         return -1;
     }
+    if (0 != server->AddService(new CliServiceImpl, baidu::rpc::SERVER_OWNS_SERVICE)) {
+        LOG(ERROR) << "Fail to add CliService";
+        return -1;
+    }
+
     {
         BAIDU_SCOPED_LOCK(_mutex);
         _addr_set.insert(listen_address);

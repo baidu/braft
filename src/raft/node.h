@@ -121,18 +121,20 @@ public:
     // add peer to replicated-state-machine
     // done is user defined function, maybe response to client
     void add_peer(const std::vector<PeerId>& old_peers, const PeerId& peer,
-                         Closure* done);
+                  Closure* done);
 
     // remove peer from replicated-state-machine
     // done is user defined function, maybe response to client
     void remove_peer(const std::vector<PeerId>& old_peers, const PeerId& peer,
-                            Closure* done);
+                     Closure* done);
 
     // set peer to local replica
     // done is user defined function, maybe response to client
     // only used in major node is down, reduce peerset to make group available
     int set_peer(const std::vector<PeerId>& old_peers,
                  const std::vector<PeerId>& new_peers);
+    base::Status set_peer2(const std::vector<PeerId>& old_peers,
+                           const std::vector<PeerId>& new_peers);
 
     // trigger snapshot
     void snapshot(Closure* done);
@@ -208,6 +210,8 @@ public:
     base::Status read_committed_user_log(const int64_t index, UserLog* user_log);
 
     int bootstrap(const BootstrapOptions& options);
+
+    bool disable_cli() const { return _options.disable_cli; }
 
 private:
 friend class base::RefCountedThreadSafe<NodeImpl>;

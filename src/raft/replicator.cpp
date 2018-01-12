@@ -334,7 +334,7 @@ void Replicator::_on_rpc_returned(ReplicatorId id, baidu::rpc::Controller* cntl,
         }
         // prev_log_index and prev_log_term doesn't match
         if (response->last_log_index() + 1 < r->_next_index) {
-            LOG(INFO) << "last_log_index at peer=" << r->_options.peer_id 
+            RAFT_VLOG << "last_log_index at peer=" << r->_options.peer_id 
                       << " is " << response->last_log_index();
             // The peer contains less logs than leader
             r->_next_index = response->last_log_index() + 1;
@@ -342,7 +342,7 @@ void Replicator::_on_rpc_returned(ReplicatorId id, baidu::rpc::Controller* cntl,
             // The peer contains logs from old term which should be truncated,
             // decrease _last_log_at_peer by one to test the right index to keep
             if (BAIDU_LIKELY(r->_next_index > 1)) {
-                LOG(INFO) << "log_index=" << r->_next_index << " dismatch";
+                RAFT_VLOG << "log_index=" << r->_next_index << " dismatch";
                 --r->_next_index;
             } else {
                 LOG(ERROR) << "Peer=" << r->_options.peer_id
