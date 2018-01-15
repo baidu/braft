@@ -89,7 +89,7 @@ SnapshotExecutor::~SnapshotExecutor() {
     CHECK(!_saving_snapshot);
     CHECK(!_cur_copier);
     CHECK(!_loading_snapshot);
-    CHECK(!_downloading_snapshot.load(boost::memory_order_relaxed));
+    CHECK(!_downloading_snapshot.load(base::memory_order_relaxed));
     if (_snapshot_storage) {
         delete _snapshot_storage;
     }
@@ -106,7 +106,7 @@ void SnapshotExecutor::do_snapshot(Closure* done) {
         return;
     }
     // check snapshot install/load
-    if (_downloading_snapshot.load(boost::memory_order_relaxed)) {
+    if (_downloading_snapshot.load(base::memory_order_relaxed)) {
         lck.unlock();
         if (done) {
             done->status().set_error(EBUSY, "Is loading another snapshot");
@@ -215,7 +215,7 @@ void SnapshotExecutor::on_snapshot_load_done(const base::Status& st) {
     std::unique_lock<raft_mutex_t> lck(_mutex);
 
     CHECK(_loading_snapshot);
-    DownloadingSnapshot* m = _downloading_snapshot.load(boost::memory_order_relaxed);
+    DownloadingSnapshot* m = _downloading_snapshot.load(base::memory_order_relaxed);
 
     if (st.ok()) {
         _last_snapshot_index = _loading_snapshot_meta.last_included_index();
@@ -234,7 +234,7 @@ void SnapshotExecutor::on_snapshot_load_done(const base::Status& st) {
     }
     lck.lock();
     _loading_snapshot = false;
-    _downloading_snapshot.store(NULL, boost::memory_order_release);
+    _downloading_snapshot.store(NULL, base::memory_order_release);
     lck.unlock();
     if (m) {
         // Respond RPC
@@ -397,7 +397,7 @@ void SnapshotExecutor::load_downloading_snapshot(DownloadingSnapshot* ds,
                                                  const SnapshotMeta& meta) {
     std::unique_ptr<DownloadingSnapshot> ds_guard(ds);
     std::unique_lock<raft_mutex_t> lck(_mutex);
-    CHECK_EQ(ds, _downloading_snapshot.load(boost::memory_order_relaxed));
+    CHECK_EQ(ds, _downloading_snapshot.load(base::memory_order_relaxed));
     baidu::rpc::ClosureGuard done_guard(ds->done);
     CHECK(_cur_copier);
     SnapshotReader* reader = _cur_copier->get_reader();
@@ -413,7 +413,7 @@ void SnapshotExecutor::load_downloading_snapshot(DownloadingSnapshot* ds,
                             _cur_copier->error_cstr());
         _snapshot_storage->close(_cur_copier);
         _cur_copier = NULL;
-        _downloading_snapshot.store(NULL, boost::memory_order_relaxed);
+        _downloading_snapshot.store(NULL, base::memory_order_relaxed);
         // Release the lock before responding the RPC
         lck.unlock();
         _running_jobs.signal();
@@ -425,7 +425,7 @@ void SnapshotExecutor::load_downloading_snapshot(DownloadingSnapshot* ds,
         if (reader) {
             _snapshot_storage->close(reader);
         }
-        _downloading_snapshot.store(NULL, boost::memory_order_release);
+        _downloading_snapshot.store(NULL, base::memory_order_release);
         lck.unlock();
         ds->cntl->SetFailed(baidu::rpc::EINTERNAL, 
                            "Fail to copy snapshot from %s",
@@ -476,14 +476,14 @@ int SnapshotExecutor::register_downloading_snapshot(DownloadingSnapshot* ds) {
         return -1;
     }
     DownloadingSnapshot* m = _downloading_snapshot.load(
-            boost::memory_order_relaxed);
+            base::memory_order_relaxed);
     if (!m) {
-        _downloading_snapshot.store(ds, boost::memory_order_relaxed);
+        _downloading_snapshot.store(ds, base::memory_order_relaxed);
         // Now this session has the right to download the snapshot.
         CHECK(!_cur_copier);
         _cur_copier = _snapshot_storage->start_to_copy_from(ds->request->uri());
         if (_cur_copier == NULL) {
-            _downloading_snapshot.store(NULL, boost::memory_order_relaxed);
+            _downloading_snapshot.store(NULL, base::memory_order_relaxed);
             lck.unlock();
             LOG(WARNING) << "Register failed: fail to copy file.";
             ds->cntl->SetFailed(EINVAL, "Fail to copy from , %s",
@@ -545,7 +545,7 @@ void SnapshotExecutor::interrupt_downloading_snapshot(int64_t new_term) {
     std::unique_lock<raft_mutex_t> lck(_mutex);
     CHECK_GE(new_term, _term);
     _term = new_term;
-    if (!_downloading_snapshot.load(boost::memory_order_relaxed)) {
+    if (!_downloading_snapshot.load(base::memory_order_relaxed)) {
         return;
     }
     if (_loading_snapshot) {
@@ -555,7 +555,7 @@ void SnapshotExecutor::interrupt_downloading_snapshot(int64_t new_term) {
     CHECK(_cur_copier);
     _cur_copier->cancel();
     LOG(INFO) << "Trying to cancel downloading snapshot : " 
-              << _downloading_snapshot.load(boost::memory_order_relaxed)
+              << _downloading_snapshot.load(base::memory_order_relaxed)
                  ->request->ShortDebugString();
 }
 
@@ -583,7 +583,7 @@ void SnapshotExecutor::describe(std::ostream&os, bool use_html) {
         //   we think it's fine
     }
     const DownloadingSnapshot* m = 
-            _downloading_snapshot.load(boost::memory_order_acquire);
+            _downloading_snapshot.load(base::memory_order_acquire);
     if (m) {
         request.CopyFrom(*m->request);
              // ^ It's also a little expansive, but fine

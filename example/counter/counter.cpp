@@ -43,11 +43,11 @@ void Counter::fetch_and_add(int32_t ip, int32_t pid, int64_t req_id,
 }
 
 int Counter::get(int64_t* value_ptr, const int64_t index) {
-    if (_is_leader.load(boost::memory_order_relaxed)) {
-        *value_ptr = _value.load(boost::memory_order_relaxed);
+    if (_is_leader.load(base::memory_order_relaxed)) {
+        *value_ptr = _value.load(base::memory_order_relaxed);
         return 0;
-    } else if (index <= _applied_index.load(boost::memory_order_acquire)) {
-        *value_ptr = _value.load(boost::memory_order_relaxed);
+    } else if (index <= _applied_index.load(base::memory_order_acquire)) {
+        *value_ptr = _value.load(base::memory_order_relaxed);
         return 0;
     } else {
         return EPERM;
@@ -78,7 +78,7 @@ void Counter::on_apply(raft::Iterator& iter) {
                 continue;
             }
         }
-        const int64_t prev_value = _value.load(boost::memory_order_relaxed);
+        const int64_t prev_value = _value.load(base::memory_order_relaxed);
         // fetch
         if (done) {
             //FetchAndAddDone* fetch_and_add_done = dynamic_cast<FetchAndAddDone*>(done);
@@ -86,8 +86,8 @@ void Counter::on_apply(raft::Iterator& iter) {
             fetch_and_add_done->set_result(prev_value, iter.index());
         }
         // add
-        _value.store(prev_value + request.value(), boost::memory_order_relaxed);
-        _applied_index.store(iter.index(), boost::memory_order_release);
+        _value.store(prev_value + request.value(), base::memory_order_relaxed);
+        _applied_index.store(iter.index(), base::memory_order_release);
         if (FLAGS_reject_duplicated_request) {
             ClientRequestId client_req_id(request.ip(), request.pid(), request.req_id());
             _duplicated_request_cache.Put(client_req_id, 

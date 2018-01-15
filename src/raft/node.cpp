@@ -1043,7 +1043,7 @@ void NodeImpl::shutdown(Closure* done) {
 
     // This node is down, it's ok to invoke done right now. Don't inovke this
     // inplace to avoid the dead lock issue when done->Run() is going to acquire
-    // a mutex which was held by the caller itself
+    // a mutex which is already held by the caller
     if (done) {
         run_closure_in_bthread(done);
     }

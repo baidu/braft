@@ -10,7 +10,7 @@
 #include <stdint.h>                             // int64_t
 #include <set>                                  // std::set
 #include <deque>
-#include <boost/atomic.hpp>                     // boost::atomic
+#include <base/atomicops.h>                     // base::atomic
 #include <bthread.h>                            // raft_mutex_t
 #include "raft/raft.h"
 #include "raft/util.h"
@@ -63,7 +63,7 @@ public:
     int set_last_committed_index(int64_t last_committed_index);
 
     int64_t last_committed_index() 
-    { return _last_committed_index.load(boost::memory_order_acquire); }
+    { return _last_committed_index.load(base::memory_order_acquire); }
 
     void describe(std::ostream& os, bool use_html);
 
@@ -91,7 +91,7 @@ private:
     FSMCaller*                                      _waiter;
     ClosureQueue*                                   _closure_queue;                            
     raft_mutex_t                                    _mutex;
-    boost::atomic<int64_t>                          _last_committed_index;
+    base::atomic<int64_t>                          _last_committed_index;
     int64_t                                         _pending_index;
     std::deque<PendingMeta>                         _pending_meta_queue;
 

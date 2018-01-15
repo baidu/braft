@@ -204,21 +204,21 @@ int Segment::_load_entry(off_t offset, EntryHeader* head, base::IOBuf* data,
 
 int Segment::_get_meta(int64_t index, LogMeta* meta) const {
     BAIDU_SCOPED_LOCK(_mutex);
-    if (index > _last_index.load(boost::memory_order_relaxed) 
+    if (index > _last_index.load(base::memory_order_relaxed) 
                     || index < _first_index) {
         // out of range
-        RAFT_VLOG << "_last_index=" << _last_index.load(boost::memory_order_relaxed)
+        RAFT_VLOG << "_last_index=" << _last_index.load(base::memory_order_relaxed)
                   << " _first_index=" << _first_index;
         return -1;
     } else if (_last_index == _first_index - 1) {
-        RAFT_VLOG << "_last_index=" << _last_index.load(boost::memory_order_relaxed)
+        RAFT_VLOG << "_last_index=" << _last_index.load(base::memory_order_relaxed)
                   << " _first_index=" << _first_index;
         // empty
         return -1;
     }
     int64_t meta_index = index - _first_index;
     int64_t entry_cursor = _offset_and_term[meta_index].first;
-    int64_t next_cursor = (index < _last_index.load(boost::memory_order_relaxed))
+    int64_t next_cursor = (index < _last_index.load(base::memory_order_relaxed))
                           ? _offset_and_term[meta_index + 1].first : _bytes;
     DCHECK_LT(entry_cursor, next_cursor);
     meta->offset = entry_cursor;
@@ -333,7 +333,7 @@ int Segment::append(const LogEntry* entry) {
     if (BAIDU_UNLIKELY(!entry || !_is_open)) {
         return EINVAL;
     } else if (entry->id.index != 
-                    _last_index.load(boost::memory_order_consume) + 1) {
+                    _last_index.load(base::memory_order_consume) + 1) {
         CHECK(false) << "entry->index=" << entry->id.index
                   << " _last_index=" << _last_index
                   << " _first_index=" << _first_index;
@@ -392,7 +392,7 @@ int Segment::append(const LogEntry* entry) {
     }
     BAIDU_SCOPED_LOCK(_mutex);
     _offset_and_term.push_back(std::make_pair(_bytes, entry->id.term));
-    _last_index.fetch_add(1, boost::memory_order_relaxed);
+    _last_index.fetch_add(1, base::memory_order_relaxed);
     _bytes += to_write;
 
     return 0;
@@ -613,7 +613,7 @@ int Segment::truncate(const int64_t last_index_kept) {
     lck.lock();
     // update memory var
     _offset_and_term.resize(first_truncate_in_offset);
-    _last_index.store(last_index_kept, boost::memory_order_relaxed);
+    _last_index.store(last_index_kept, base::memory_order_relaxed);
     _bytes = truncate_size;
     return ret;
 }
@@ -666,23 +666,23 @@ int SegmentLogStorage::init(ConfigurationManager* configuration_manager) {
 }
 
 int64_t SegmentLogStorage::last_log_index() {
-    return _last_log_index.load(boost::memory_order_acquire);
+    return _last_log_index.load(base::memory_order_acquire);
 }
 
 int SegmentLogStorage::append_entries(const std::vector<LogEntry*>& entries) {
     if (entries.empty()) {
         return 0;
     }
-    if (_last_log_index.load(boost::memory_order_relaxed) + 1
+    if (_last_log_index.load(base::memory_order_relaxed) + 1
             != entries.front()->id.index) {
         LOG(FATAL) << "There's gap betwenn appending entries and _last_log_index";
         return -1;
     }
-    Segment* last_segment = NULL;
+    scoped_refptr<Segment> last_segment = NULL;
     for (size_t i = 0; i < entries.size(); i++) {
         LogEntry* entry = entries[i];
 
-        Segment* segment = open_segment();
+        scoped_refptr<Segment> segment = open_segment();
         if (NULL == segment) {
             return i;
         }
@@ -690,7 +690,7 @@ int SegmentLogStorage::append_entries(const std::vector<LogEntry*>& entries) {
         if (0 != ret) {
             return i;
         }
-        _last_log_index.fetch_add(1, boost::memory_order_release);
+        _last_log_index.fetch_add(1, base::memory_order_release);
         last_segment = segment;
     }
     last_segment->sync(_enable_sync);
@@ -698,7 +698,7 @@ int SegmentLogStorage::append_entries(const std::vector<LogEntry*>& entries) {
 }
 
 int SegmentLogStorage::append_entry(const LogEntry* entry) {
-    Segment* segment = open_segment();
+    scoped_refptr<Segment> segment = open_segment();
     if (NULL == segment) {
         return EIO;
     }
@@ -709,13 +709,13 @@ int SegmentLogStorage::append_entry(const LogEntry* entry) {
     if (EEXIST == ret && entry->id.term != get_term(entry->id.index)) {
         return EINVAL;
     }
-    _last_log_index.fetch_add(1, boost::memory_order_release);
+    _last_log_index.fetch_add(1, base::memory_order_release);
 
     return segment->sync(_enable_sync);
 }
 
 LogEntry* SegmentLogStorage::get_entry(const int64_t index) {
-    boost::shared_ptr<Segment> ptr;
+    scoped_refptr<Segment> ptr;
     if (get_segment(index, &ptr) != 0) {
         return NULL;
     }
@@ -723,7 +723,7 @@ LogEntry* SegmentLogStorage::get_entry(const int64_t index) {
 }
 
 int64_t SegmentLogStorage::get_term(const int64_t index) {
-    boost::shared_ptr<Segment> ptr;
+    scoped_refptr<Segment> ptr;
     if (get_segment(index, &ptr) != 0) {
         return 0;
     }
@@ -732,13 +732,13 @@ int64_t SegmentLogStorage::get_term(const int64_t index) {
 
 void SegmentLogStorage::pop_segments(
         const int64_t first_index_kept,
-        std::vector<boost::shared_ptr<Segment> >* popped) {
+        std::vector<scoped_refptr<Segment> >* popped) {
     popped->clear();
     popped->reserve(32);
     BAIDU_SCOPED_LOCK(_mutex);
-    _first_log_index.store(first_index_kept, boost::memory_order_release);
+    _first_log_index.store(first_index_kept, base::memory_order_release);
     for (SegmentMap::iterator it = _segments.begin(); it != _segments.end();) {
-        boost::shared_ptr<Segment>& segment = it->second;
+        scoped_refptr<Segment>& segment = it->second;
         if (segment->last_index() < first_index_kept) {
             popped->push_back(segment);
             _segments.erase(it++);
@@ -749,7 +749,7 @@ void SegmentLogStorage::pop_segments(
     if (_open_segment) {
         if (_open_segment->last_index() < first_index_kept) {
             popped->push_back(_open_segment);
-            _open_segment.reset();
+            _open_segment = NULL;
             // _log_storage is empty
             _last_log_index.store(first_index_kept - 1);
         } else {
@@ -763,9 +763,9 @@ void SegmentLogStorage::pop_segments(
 
 int SegmentLogStorage::truncate_prefix(const int64_t first_index_kept) {
     // segment files
-    if (_first_log_index.load(boost::memory_order_acquire) >= first_index_kept) {
+    if (_first_log_index.load(base::memory_order_acquire) >= first_index_kept) {
       RAFT_VLOG << "Nothing is going to happen since _first_log_index=" 
-                     << _first_log_index.load(boost::memory_order_relaxed)
+                     << _first_log_index.load(base::memory_order_relaxed)
                      << " >= first_index_kept="
                      << first_index_kept;
         return 0;
@@ -778,31 +778,31 @@ int SegmentLogStorage::truncate_prefix(const int64_t first_index_kept) {
         PLOG(ERROR) << "Fail to save meta";
         return -1;
     }
-    std::vector<boost::shared_ptr<Segment> > popped;
+    std::vector<scoped_refptr<Segment> > popped;
     pop_segments(first_index_kept, &popped);
     for (size_t i = 0; i < popped.size(); ++i) {
         popped[i]->unlink();
-        popped[i].reset();
+        popped[i] = NULL;
     }
     return 0;
 }
 
 void SegmentLogStorage::pop_segments_from_back(
         const int64_t last_index_kept,
-        std::vector<boost::shared_ptr<Segment> >* popped,
-        boost::shared_ptr<Segment>* last_segment) {
+        std::vector<scoped_refptr<Segment> >* popped,
+        scoped_refptr<Segment>* last_segment) {
     popped->clear();
     popped->reserve(32);
-    last_segment->reset();
+    *last_segment = NULL;
     BAIDU_SCOPED_LOCK(_mutex);
-    _last_log_index.store(last_index_kept, boost::memory_order_release);
+    _last_log_index.store(last_index_kept, base::memory_order_release);
     if (_open_segment) {
         if (_open_segment->first_index() <= last_index_kept) {
             *last_segment = _open_segment;
             return;
         }
         popped->push_back(_open_segment);
-        _open_segment.reset();
+        _open_segment = NULL;
     }
     for (SegmentMap::reverse_iterator 
             it = _segments.rbegin(); it != _segments.rend(); ++it) {
@@ -822,18 +822,18 @@ void SegmentLogStorage::pop_segments_from_back(
     } else {
         // all the logs have been cleared, the we move _first_log_index to the
         // next index
-        _first_log_index.store(last_index_kept + 1, boost::memory_order_release);
+        _first_log_index.store(last_index_kept + 1, base::memory_order_release);
     }
 }
 
 int SegmentLogStorage::truncate_suffix(const int64_t last_index_kept) {
     // segment files
-    std::vector<boost::shared_ptr<Segment> > popped;
-    boost::shared_ptr<Segment> last_segment;
+    std::vector<scoped_refptr<Segment> > popped;
+    scoped_refptr<Segment> last_segment;
     pop_segments_from_back(last_index_kept, &popped, &last_segment);
     if (last_segment) {
-        if (_first_log_index.load(boost::memory_order_relaxed) <=
-            _last_log_index.load(boost::memory_order_relaxed)) {
+        if (_first_log_index.load(base::memory_order_relaxed) <=
+            _last_log_index.load(base::memory_order_relaxed)) {
             int ret = last_segment->truncate(last_index_kept);
             if (ret != 0) {
                 return ret;
@@ -844,14 +844,14 @@ int SegmentLogStorage::truncate_suffix(const int64_t last_index_kept) {
             popped.push_back(last_segment);
             _segments.erase(last_segment->first_index());
             if (_open_segment) {
-                CHECK(_open_segment == last_segment);
-                _open_segment.reset();
+                CHECK(_open_segment.get() == last_segment.get());
+                _open_segment = NULL;
             }
         }
     }
     for (size_t i = 0; i < popped.size(); ++i) {
         popped[i]->unlink();
-        popped[i].reset();
+        popped[i] = NULL;
     }
     return 0;
 }
@@ -861,7 +861,7 @@ int SegmentLogStorage::reset(const int64_t next_log_index) {
         LOG(ERROR) << "Invalid next_log_index=" << next_log_index;
         return EINVAL;
     }
-    std::vector<boost::shared_ptr<Segment> > popped;
+    std::vector<scoped_refptr<Segment> > popped;
     std::unique_lock<raft_mutex_t> lck(_mutex);
     popped.reserve(_segments.size());
     for (SegmentMap::const_iterator 
@@ -871,10 +871,10 @@ int SegmentLogStorage::reset(const int64_t next_log_index) {
     _segments.clear();
     if (_open_segment) {
         popped.push_back(_open_segment);
-        _open_segment.reset();
+        _open_segment = NULL;
     }
-    _first_log_index.store(next_log_index, boost::memory_order_relaxed);
-    _last_log_index.store(next_log_index - 1, boost::memory_order_relaxed);
+    _first_log_index.store(next_log_index, base::memory_order_relaxed);
+    _last_log_index.store(next_log_index - 1, base::memory_order_relaxed);
     lck.unlock();
     // NOTE: see the comments in truncate_prefix
     if (save_meta(next_log_index) != 0) {
@@ -883,7 +883,7 @@ int SegmentLogStorage::reset(const int64_t next_log_index) {
     }
     for (size_t i = 0; i < popped.size(); ++i) {
         popped[i]->unlink();
-        popped[i].reset();
+        popped[i] = NULL;
     }
     return 0;
 }
@@ -921,7 +921,7 @@ int SegmentLogStorage::list_segments(bool is_empty) {
                       << " first_index: " << first_index
                       << " last_index: " << last_index;
             Segment* segment = new Segment(_path, first_index, last_index, _checksum_type);
-            _segments[first_index].reset(segment);
+            _segments[first_index] = segment;
             continue;
         }
 
@@ -931,7 +931,7 @@ int SegmentLogStorage::list_segments(bool is_empty) {
             RAFT_VLOG << "restore open segment, path: " << _path
                 << " first_index: " << first_index;
             if (!_open_segment) {
-                _open_segment.reset(new Segment(_path, first_index, _checksum_type));
+                _open_segment = new Segment(_path, first_index, _checksum_type);
                 continue;
             } else {
                 LOG(WARNING) << "open segment conflict, path: " << _path
@@ -958,17 +958,17 @@ int SegmentLogStorage::list_segments(bool is_empty) {
                 << " last_log_index: " << last_log_index;
             return -1;
         } else if (last_log_index == -1 &&
-                      _first_log_index.load(boost::memory_order_acquire) 
+                      _first_log_index.load(base::memory_order_acquire) 
                       < segment->first_index()) {
             LOG(WARNING) << "closed segment has hole, path: " << _path
-                << " first_log_index: " << _first_log_index.load(boost::memory_order_relaxed)
+                << " first_log_index: " << _first_log_index.load(base::memory_order_relaxed)
                 << " first_index: " << segment->first_index()
                 << " last_index: " << segment->last_index();
             return -1;
         } else if (last_log_index == -1 &&
                                   _first_log_index > segment->last_index()) {
             LOG(WARNING) << "closed segment need discard, path: " << _path
-                << " first_log_index: " << _first_log_index.load(boost::memory_order_relaxed)
+                << " first_log_index: " << _first_log_index.load(base::memory_order_relaxed)
                 << " first_index: " << segment->first_index()
                 << " last_index: " << segment->last_index();
             segment->unlink();
@@ -981,13 +981,13 @@ int SegmentLogStorage::list_segments(bool is_empty) {
     }
     if (_open_segment) {
         if (last_log_index == -1 &&
-                _first_log_index.load(boost::memory_order_relaxed) < _open_segment->first_index()) {
+                _first_log_index.load(base::memory_order_relaxed) < _open_segment->first_index()) {
         LOG(WARNING) << "open segment has hole, path: " << _path
-            << " first_log_index: " << _first_log_index.load(boost::memory_order_relaxed)
+            << " first_log_index: " << _first_log_index.load(base::memory_order_relaxed)
             << " first_index: " << _open_segment->first_index();
         } else if (last_log_index != -1 && _open_segment->first_index() != last_log_index + 1) {
             LOG(WARNING) << "open segment has hole, path: " << _path
-                << " first_log_index: " << _first_log_index.load(boost::memory_order_relaxed)
+                << " first_log_index: " << _first_log_index.load(base::memory_order_relaxed)
                 << " first_index: " << _open_segment->first_index();
         }
         CHECK_LE(last_log_index, _open_segment->last_index());
@@ -1010,7 +1010,7 @@ int SegmentLogStorage::load_segments(ConfigurationManager* configuration_manager
         if (ret != 0) {
             return ret;
         } 
-        _last_log_index.store(segment->last_index(), boost::memory_order_release);
+        _last_log_index.store(segment->last_index(), base::memory_order_release);
     }
 
     // open segment
@@ -1027,10 +1027,10 @@ int SegmentLogStorage::load_segments(ConfigurationManager* configuration_manager
                 << " first_index: " << _open_segment->first_index()
                 << " last_index: " << _open_segment->last_index();
             _open_segment->unlink();
-            _open_segment.reset();
+            _open_segment = NULL;
         } else {
             _last_log_index.store(_open_segment->last_index(), 
-                                 boost::memory_order_release);
+                                 base::memory_order_release);
         }
     }
     if (_last_log_index == 0) {
@@ -1080,14 +1080,14 @@ int SegmentLogStorage::load_meta() {
     return 0;
 }
 
-Segment* SegmentLogStorage::open_segment() {
-    boost::shared_ptr<Segment> prev_open_segment;
+scoped_refptr<Segment> SegmentLogStorage::open_segment() {
+    scoped_refptr<Segment> prev_open_segment;
     {
         BAIDU_SCOPED_LOCK(_mutex);
         if (!_open_segment) {
-            _open_segment.reset(new Segment(_path, last_log_index() + 1, _checksum_type));
+            _open_segment = new Segment(_path, last_log_index() + 1, _checksum_type);
             if (_open_segment->create() != 0) {
-                _open_segment.reset();
+                _open_segment = NULL;
                 return NULL;
             }
         }
@@ -1100,7 +1100,7 @@ Segment* SegmentLogStorage::open_segment() {
         if (prev_open_segment) {
             if (prev_open_segment->close(_enable_sync) == 0) {
                 BAIDU_SCOPED_LOCK(_mutex);
-                _open_segment.reset(new Segment(_path, last_log_index() + 1, _checksum_type));
+                _open_segment = new Segment(_path, last_log_index() + 1, _checksum_type);
                 if (_open_segment->create() == 0) {
                     // success
                     break;
@@ -1114,10 +1114,10 @@ Segment* SegmentLogStorage::open_segment() {
             return NULL;
         }
     } while (0);
-    return _open_segment.get();
+    return _open_segment;
 }
 
-int SegmentLogStorage::get_segment(int64_t index, boost::shared_ptr<Segment>* ptr) {
+int SegmentLogStorage::get_segment(int64_t index, scoped_refptr<Segment>* ptr) {
     BAIDU_SCOPED_LOCK(_mutex);
     int64_t first_index = first_log_index();
     int64_t last_index = last_log_index();
@@ -1151,7 +1151,7 @@ void SegmentLogStorage::list_files(std::vector<std::string>* seg_files) {
     BAIDU_SCOPED_LOCK(_mutex);
     seg_files->push_back(RAFT_SEGMENT_META_FILE);
     for (SegmentMap::iterator it = _segments.begin(); it != _segments.end(); ++it) {
-        boost::shared_ptr<Segment>& segment = it->second;
+        scoped_refptr<Segment>& segment = it->second;
         seg_files->push_back(segment->file_name());
     }
     if (_open_segment) {
@@ -1160,7 +1160,7 @@ void SegmentLogStorage::list_files(std::vector<std::string>* seg_files) {
 }
 
 void SegmentLogStorage::sync() {
-    std::vector<boost::shared_ptr<Segment> > segments;
+    std::vector<scoped_refptr<Segment> > segments;
     {
         BAIDU_SCOPED_LOCK(_mutex);
         for (SegmentMap::iterator it = _segments.begin(); it != _segments.end(); ++it) {
@@ -1169,8 +1169,7 @@ void SegmentLogStorage::sync() {
     }
 
     for (size_t i = 0; i < segments.size(); i++) {
-        boost::shared_ptr<Segment>& segment = segments[i];
-        segment->sync(true);
+        segments[i]->sync(true);
     }
 }
 

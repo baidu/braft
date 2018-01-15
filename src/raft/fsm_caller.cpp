@@ -133,7 +133,7 @@ int FSMCaller::init(const FSMCallerOptions &options) {
     _after_shutdown = options.after_shutdown;
     _node = options.node;
     _last_applied_index.store(options.bootstrap_id.index,
-                              boost::memory_order_relaxed);
+                              base::memory_order_relaxed);
     _last_applied_term = options.bootstrap_id.term;
     if (_node) {
         _node->AddRef();
@@ -226,7 +226,7 @@ void FSMCaller::do_committed(int64_t committed_index) {
         return;
     }
     int64_t last_applied_index = _last_applied_index.load(
-                                        boost::memory_order_relaxed);
+                                        base::memory_order_relaxed);
 
     // We can tolerate the disorder of committed_index
     if (last_applied_index >= committed_index) {
@@ -269,7 +269,7 @@ void FSMCaller::do_committed(int64_t committed_index) {
     const int64_t last_index = iter_impl.index() - 1;
     const int64_t last_term = _log_manager->get_term(last_index);
     LogId last_applied_id(last_index, last_term);
-    _last_applied_index.store(committed_index, boost::memory_order_release);
+    _last_applied_index.store(committed_index, base::memory_order_release);
     _last_applied_term = last_term;
     _log_manager->set_applied_id(last_applied_id);
 }
@@ -284,7 +284,7 @@ int FSMCaller::on_snapshot_save(SaveSnapshotClosure* done) {
 void FSMCaller::do_snapshot_save(SaveSnapshotClosure* done) {
     CHECK(done);
 
-    int64_t last_applied_index = _last_applied_index.load(boost::memory_order_relaxed);
+    int64_t last_applied_index = _last_applied_index.load(base::memory_order_relaxed);
 
     SnapshotMeta meta;
     meta.set_last_included_index(last_applied_index);
@@ -339,7 +339,7 @@ void FSMCaller::do_snapshot_load(LoadSnapshotClosure* done) {
     }
 
     LogId last_applied_id;
-    last_applied_id.index = _last_applied_index.load(boost::memory_order_relaxed);
+    last_applied_id.index = _last_applied_index.load(base::memory_order_relaxed);
     last_applied_id.term = _last_applied_term;
     LogId snapshot_id;
     snapshot_id.index = meta.last_included_index();
@@ -371,7 +371,7 @@ void FSMCaller::do_snapshot_load(LoadSnapshotClosure* done) {
     _fsm->on_configuration_committed(conf);
 
     _last_applied_index.store(meta.last_included_index(),
-                              boost::memory_order_release);
+                              base::memory_order_release);
     _last_applied_term = meta.last_included_term();
     done->Run();
 }
@@ -441,7 +441,7 @@ void FSMCaller::describe(std::ostream &os, bool use_html) {
     const char* newline = (use_html) ? "<br>" : "\n";
     TaskType cur_task = _cur_task;
     const int64_t applying_index = _applying_index.load(
-                                    boost::memory_order_relaxed);
+                                    base::memory_order_relaxed);
     os << "state_machine: ";
     switch (cur_task) {
     case IDLE:
@@ -484,7 +484,7 @@ IteratorImpl::IteratorImpl(StateMachine* sm, LogManager* lm,
                           int64_t first_closure_index,
                           int64_t last_applied_index, 
                           int64_t committed_index,
-                          boost::atomic<int64_t>* applying_index)
+                          base::atomic<int64_t>* applying_index)
         : _sm(sm)
         , _lm(lm)
         , _closure(closure)
@@ -511,7 +511,7 @@ void IteratorImpl::next() {
                         "while committed_index=%ld",
                         _cur_index, _committed_index);
             }
-            _applying_index->store(_cur_index, boost::memory_order_relaxed);
+            _applying_index->store(_cur_index, base::memory_order_relaxed);
         }
     }
 }

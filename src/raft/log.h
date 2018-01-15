@@ -8,8 +8,8 @@
 
 #include <vector>
 #include <map>
-#include <boost/shared_ptr.hpp>
-#include <boost/atomic.hpp>
+#include <base/memory/ref_counted.h>
+#include <base/atomicops.h>
 #include <base/iobuf.h>
 #include <base/logging.h>
 #include "raft/log_entry.h"
@@ -18,7 +18,8 @@
 
 namespace raft {
 
-class BAIDU_CACHELINE_ALIGNMENT Segment {
+class BAIDU_CACHELINE_ALIGNMENT Segment 
+        : public base::RefCountedThreadSafe<Segment> {
 public:
     Segment(const std::string& path, const int64_t first_index, int checksum_type)
         : _path(path), _bytes(0),
@@ -33,12 +34,6 @@ public:
         _first_index(first_index), _last_index(last_index),
         _checksum_type(checksum_type)
     {}
-    ~Segment() {
-        if (_fd >= 0) {
-            ::close(_fd);
-            _fd = -1;
-        }
-    }
 
     struct EntryHeader;
 
@@ -83,11 +78,18 @@ public:
     }
 
     int64_t last_index() const {
-        return _last_index.load(boost::memory_order_consume);
+        return _last_index.load(base::memory_order_consume);
     }
 
     std::string file_name();
 private:
+friend base::RefCountedThreadSafe<Segment>;
+    ~Segment() {
+        if (_fd >= 0) {
+            ::close(_fd);
+            _fd = -1;
+        }
+    }
 
     struct LogMeta {
         off_t offset;
@@ -108,7 +110,7 @@ private:
     int _fd;
     bool _is_open;
     const int64_t _first_index;
-    boost::atomic<int64_t> _last_index;
+    base::atomic<int64_t> _last_index;
     int _checksum_type;
     std::vector<std::pair<int64_t/*offset*/, int64_t/*term*/> > _offset_and_term;
 };
@@ -122,7 +124,7 @@ private:
 //      log_inprogress_0001001: open segment
 class SegmentLogStorage : public LogStorage {
 public:
-    typedef std::map<int64_t, boost::shared_ptr<Segment> > SegmentMap;
+    typedef std::map<int64_t, scoped_refptr<Segment> > SegmentMap;
 
     explicit SegmentLogStorage(const std::string& path, bool enable_sync = true)
         : _path(path)
@@ -139,20 +141,14 @@ public:
         , _enable_sync(true)
     {}
 
-    virtual ~SegmentLogStorage() {
-        _segments.clear();
-
-        if (_open_segment) {
-            _open_segment.reset();
-        }
-    }
+    virtual ~SegmentLogStorage() {}
 
     // init logstorage, check consistency and integrity
     virtual int init(ConfigurationManager* configuration_manager);
 
     // first log index in log
     virtual int64_t first_log_index() {
-        return _first_log_index.load(boost::memory_order_acquire);
+        return _first_log_index.load(base::memory_order_acquire);
     }
 
     // last log index in log
@@ -188,27 +184,27 @@ public:
 
     void sync();
 private:
-    Segment* open_segment();
+    scoped_refptr<Segment> open_segment();
     int save_meta(const int64_t log_index);
     int load_meta();
     int list_segments(bool is_empty);
     int load_segments(ConfigurationManager* configuration_manager);
-    int get_segment(int64_t log_index, boost::shared_ptr<Segment>* ptr);
+    int get_segment(int64_t log_index, scoped_refptr<Segment>* ptr);
     void pop_segments(
             int64_t first_index_kept, 
-            std::vector<boost::shared_ptr<Segment> >* poped);
+            std::vector<scoped_refptr<Segment> >* poped);
     void pop_segments_from_back(
             const int64_t first_index_kept,
-            std::vector<boost::shared_ptr<Segment> >* popped,
-            boost::shared_ptr<Segment>* last_segment);
+            std::vector<scoped_refptr<Segment> >* popped,
+            scoped_refptr<Segment>* last_segment);
 
 
     std::string _path;
-    boost::atomic<int64_t> _first_log_index;
-    boost::atomic<int64_t> _last_log_index;
+    base::atomic<int64_t> _first_log_index;
+    base::atomic<int64_t> _last_log_index;
     raft_mutex_t _mutex;
     SegmentMap _segments;
-    boost::shared_ptr<Segment> _open_segment;
+    scoped_refptr<Segment> _open_segment;
     int _checksum_type;
     bool _enable_sync;
 };

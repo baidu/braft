@@ -381,7 +381,7 @@ int LogManager::check_and_resolve_conflict(
 void LogManager::append_entries(
             std::vector<LogEntry*> *entries, StableClosure* done) {
     CHECK(done);
-    if (_has_error.load(boost::memory_order_relaxed)) {
+    if (_has_error.load(base::memory_order_relaxed)) {
         for (size_t i = 0; i < entries->size(); ++i) {
             (*entries)[i]->Release();
         }
@@ -422,7 +422,7 @@ void LogManager::append_entries(
 
 void LogManager::append_to_storage(std::vector<LogEntry*>* to_append, 
                                    LogId* last_id) {
-    if (!_has_error.load(boost::memory_order_relaxed)) {
+    if (!_has_error.load(base::memory_order_relaxed)) {
         size_t written_size = 0;
         for (size_t i = 0; i < to_append->size(); ++i) {
             written_size += (*to_append)[i]->data.size();
@@ -475,7 +475,7 @@ public:
             _lm->append_to_storage(&_to_append, _last_id);
             for (size_t i = 0; i < _size; ++i) {
                 _storage[i]->_entries.clear();
-                if (_lm->_has_error.load(boost::memory_order_relaxed)) {
+                if (_lm->_has_error.load(base::memory_order_relaxed)) {
                     _storage[i]->status().set_error(
                             EIO, "Corrupted LogStorage");
                 }
@@ -867,7 +867,7 @@ void LogManager::describe(std::ostream& os, bool use_html) {
 }
 
 void LogManager::report_error(int error_code, const char* fmt, ...) {
-    _has_error.store(true, boost::memory_order_relaxed);
+    _has_error.store(true, base::memory_order_relaxed);
     va_list ap;
     va_start(ap, fmt);
     Error e;

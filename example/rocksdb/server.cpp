@@ -5,7 +5,7 @@
 //         YangWu(yangwu@baidu.com)
 // Date: 2017/02/21 13:45:46
 
-#include <boost/atomic.hpp>
+#include <base/atomicops.h>
 #include <gflags/gflags.h>
 #include <base/logging.h>
 #include <base/comlog_sink.h>
@@ -91,7 +91,7 @@ public:
             GetResponse* response,
             ::google::protobuf::RpcController* controller) {
         baidu::rpc::Controller* cntl = (baidu::rpc::Controller*)controller;
-        if (!_is_leader.load(boost::memory_order_acquire)) {
+        if (!_is_leader.load(base::memory_order_acquire)) {
             LOG(NOTICE) << "this is not leader, get request, key:" << key;
             cntl->SetFailed(baidu::rpc::SYS_EPERM, "not leader");
             return -1;
@@ -207,12 +207,12 @@ public:
     // Acutally we don't care now
     void on_leader_start(int64_t term) {
         LOG(NOTICE) << "leader start at term: " << term;
-        _is_leader.store(true, boost::memory_order_release);
+        _is_leader.store(true, base::memory_order_release);
     }
 
     void on_leader_stop() {
         LOG(NOTICE) << "leader stop";
-        _is_leader.store(false, boost::memory_order_release);
+        _is_leader.store(false, base::memory_order_release);
     }
 
     void apply(base::IOBuf *iobuf, raft::Closure* done) {
@@ -277,7 +277,7 @@ private:
     }
 
 private:
-    boost::atomic<bool> _is_leader;
+    base::atomic<bool> _is_leader;
     rocksdb::DB* _db;
 };
 

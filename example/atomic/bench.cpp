@@ -25,8 +25,8 @@ void sigint_handler(int) {
 }
 
 bvar::LatencyRecorder g_latency_recorder("atomic_client");
-boost::atomic<int> g_nthreads(0);
-boost::atomic<int64_t> nsent(0);
+base::atomic<int> g_nthreads(0);
+base::atomic<int64_t> nsent(0);
 
 int get_leader(baidu::rpc::Channel* channel, base::EndPoint* leader_addr) {
     example::CliService_Stub stub(channel);
@@ -107,7 +107,7 @@ static void* sender(void* arg) {
                     break;
                 }
                 if (FLAGS_num_requests > 0 && 
-                        nsent.fetch_add(1, boost::memory_order_relaxed) 
+                        nsent.fetch_add(1, base::memory_order_relaxed) 
                             >= FLAGS_num_requests) {
                     g_signal_quit = true;
                 }

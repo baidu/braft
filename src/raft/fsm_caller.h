@@ -45,7 +45,7 @@ private:
                  int64_t first_closure_index,
                  int64_t last_applied_index,
                  int64_t committed_index,
-                 boost::atomic<int64_t>* applying_index);
+                 base::atomic<int64_t>* applying_index);
     ~IteratorImpl() {}
 friend class FSMCaller;
     StateMachine* _sm;
@@ -55,7 +55,7 @@ friend class FSMCaller;
     int64_t _cur_index;
     int64_t _committed_index;
     LogEntry* _cur_entry;
-    boost::atomic<int64_t>* _applying_index;
+    base::atomic<int64_t>* _applying_index;
     Error _error;
 };
 
@@ -105,7 +105,7 @@ public:
     int on_stop_following(const LeaderChangeContext& stop_following_context);
     RAFT_MOCK int on_error(const Error& e);
     int64_t last_applied_index() const {
-        return _last_applied_index.load(boost::memory_order_relaxed);
+        return _last_applied_index.load(base::memory_order_relaxed);
     }
     void describe(std::ostream& os, bool use_html);
     void join();
@@ -164,12 +164,12 @@ friend class IteratorImpl;
     LogManager *_log_manager;
     StateMachine *_fsm;
     ClosureQueue* _closure_queue;
-    boost::atomic<int64_t> _last_applied_index;
+    base::atomic<int64_t> _last_applied_index;
     int64_t _last_applied_term;
     google::protobuf::Closure* _after_shutdown;
     NodeImpl* _node;
     TaskType _cur_task;
-    boost::atomic<int64_t> _applying_index;
+    base::atomic<int64_t> _applying_index;
     Error _error;
 };
 

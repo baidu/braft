@@ -89,7 +89,7 @@ int CommitmentManager::set_stable_at_peer(
     }
    
     _pending_index = last_committed_index + 1;
-    _last_committed_index.store(last_committed_index, boost::memory_order_release);
+    _last_committed_index.store(last_committed_index, base::memory_order_release);
     lck.unlock();
     // The order doesn't matter
     _waiter->on_committed(last_committed_index);
@@ -113,7 +113,7 @@ int CommitmentManager::reset_pending_index(int64_t new_pending_index) {
         << "pending_index " << _pending_index << " pending_meta_queue " 
         << _pending_meta_queue.size();
     CHECK_GT(new_pending_index, _last_committed_index.load(
-                                    boost::memory_order_relaxed));
+                                    base::memory_order_relaxed));
     _pending_index = new_pending_index;
     _closure_queue->reset_first_index(new_pending_index);
     return 0;
@@ -153,11 +153,11 @@ int CommitmentManager::set_last_committed_index(int64_t last_committed_index) {
         return -1;
     }
     if (last_committed_index < 
-            _last_committed_index.load(boost::memory_order_relaxed)) {
+            _last_committed_index.load(base::memory_order_relaxed)) {
         return EINVAL;
     }
-    if (last_committed_index > _last_committed_index.load(boost::memory_order_relaxed)) {
-        _last_committed_index.store(last_committed_index, boost::memory_order_relaxed);
+    if (last_committed_index > _last_committed_index.load(base::memory_order_relaxed)) {
+        _last_committed_index.store(last_committed_index, base::memory_order_relaxed);
         lck.unlock();
         _waiter->on_committed(last_committed_index);
     }

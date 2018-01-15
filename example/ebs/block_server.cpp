@@ -101,7 +101,7 @@ public:
               ::baidu::ebs::ReadResponse* response,
               ::google::protobuf::Closure* done) {
         baidu::rpc::ClosureGuard done_guard(done);
-        if (!_is_leader.load(boost::memory_order_acquire)) {
+        if (!_is_leader.load(base::memory_order_acquire)) {
             response->set_error_code(EINVAL);
             return;
         }
@@ -354,10 +354,10 @@ public:
 
     void on_leader_start(int64_t term) {
         LOG(INFO) << "leader start at term: " << term;
-        _is_leader.store(true, boost::memory_order_release);
+        _is_leader.store(true, base::memory_order_release);
     }
     void on_leader_stop() {
-        _is_leader.store(false, boost::memory_order_release);
+        _is_leader.store(false, base::memory_order_release);
     }
 
     void apply(base::IOBuf *iobuf, raft::Closure* done) {
@@ -373,7 +373,7 @@ private:
     mutable bthread_mutex_t _fd_mutex;
     SharedFD* _fd;
     bthread::ExecutionQueueId<SharedFD*> _sync_queue;
-    boost::atomic<bool> _is_leader;
+    base::atomic<bool> _is_leader;
 };
 
 class BlockServiceImpl : public BlockServiceAdaptor {

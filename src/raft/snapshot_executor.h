@@ -91,7 +91,7 @@ public:
         //    the lastest _loading_snapshot
         // _downloading_snapshot is NULL when then downloading was successfully 
         // interrupted or installing has finished
-        return _downloading_snapshot.load(boost::memory_order_acquire/*1*/);
+        return _downloading_snapshot.load(base::memory_order_acquire/*1*/);
     }
 
     // Return the backing snapshot storage
@@ -149,7 +149,7 @@ friend class InstallSnapshotDone;
     //   ownership belongs with the downloding thread
     // - After we push the load task to FSMCaller, the ownership belongs to the
     //   closure which is called after the Snapshot replaces FSM
-    boost::atomic<DownloadingSnapshot*> _downloading_snapshot;
+    base::atomic<DownloadingSnapshot*> _downloading_snapshot;
     SnapshotMeta _loading_snapshot_meta;
     bthread::CountdownEvent _running_jobs;
 };

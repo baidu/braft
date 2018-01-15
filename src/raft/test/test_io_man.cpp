@@ -30,7 +30,7 @@
 
 #include "raft/io_man.h"
 
-boost::atomic<int> g_finished;
+base::atomic<int> g_finished;
 void* io_func(void* arg) {
     char* file_name = static_cast<char*>(arg);
     int fd = ::open(file_name, O_CREAT | O_RDWR | O_TRUNC, 0644);

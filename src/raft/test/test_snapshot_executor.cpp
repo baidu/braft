@@ -4,7 +4,7 @@
 // Date: 2016/07/27 20:13:42
 
 #include <gtest/gtest.h>
-#include <boost/atomic.hpp>
+#include <base/atomicops.h>
 #include <baidu/rpc/server.h>
 #include "raft/snapshot_executor.h"
 #include "raft/fsm_caller.h"
@@ -46,9 +46,9 @@ protected:
         _on_error_times.fetch_add(1);
         return 0;
     }
-    boost::atomic<int> _on_error_times;
-    boost::atomic<int> _snapshot_load_times;
-    boost::atomic<int> _snapshot_save_times;
+    base::atomic<int> _on_error_times;
+    base::atomic<int> _snapshot_load_times;
+    base::atomic<int> _snapshot_save_times;
 };
 
 class MockLogManager : public raft::LogManager {
@@ -66,8 +66,8 @@ protected:
         _clear_timers.fetch_add(1);
     }
 
-    boost::atomic<int> _set_times;
-    boost::atomic<int> _clear_timers;
+    base::atomic<int> _set_times;
+    base::atomic<int> _clear_timers;
 };
 
 class MockSnapshotReader : public raft::SnapshotReader {

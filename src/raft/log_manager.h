@@ -181,7 +181,7 @@ friend class AppendBatcher;
     raft_mutex_t _mutex;
     base::FlatMap<int64_t, WaitMeta*> _wait_map;
     bool _stopped;
-    boost::atomic<bool> _has_error;
+    base::atomic<bool> _has_error;
     WaitId _next_wait_id;
 
     LogId _disk_id;

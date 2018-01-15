@@ -9,7 +9,7 @@
 
 #include <vector>
 #include <deque>
-#include <boost/atomic.hpp>
+#include <base/atomicops.h>
 #include <base/iobuf.h>
 #include <base/logging.h>
 #include "raft/log_entry.h"
@@ -36,12 +36,12 @@ public:
 
     // first log index in log
     virtual int64_t first_log_index() {
-        return _first_log_index.load(boost::memory_order_acquire);
+        return _first_log_index.load(base::memory_order_acquire);
     }
 
     // last log index in log
     virtual int64_t last_log_index() {
-        return _last_log_index.load(boost::memory_order_acquire);
+        return _last_log_index.load(base::memory_order_acquire);
     }
 
     // get logentry by index
@@ -73,8 +73,8 @@ public:
 
 private:
     std::string _path;
-    boost::atomic<int64_t> _first_log_index;
-    boost::atomic<int64_t> _last_log_index;
+    base::atomic<int64_t> _first_log_index;
+    base::atomic<int64_t> _last_log_index;
     MemoryData _log_entry_data;
     raft_mutex_t _mutex;
 };

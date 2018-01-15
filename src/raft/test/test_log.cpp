@@ -17,7 +17,7 @@
  */
 
 #include <gtest/gtest.h>
-#include <boost/atomic.hpp>
+#include <base/atomicops.h>
 #include <base/file_util.h>
 #include <base/files/file_path.h>
 #include <base/files/file_enumerator.h>
@@ -684,15 +684,15 @@ TEST_F(TestUsageSuits, configuration) {
     delete storage2;
 }
 
-boost::atomic<int> g_first_read_index(0); 
-boost::atomic<int> g_last_read_index(0);
+base::atomic<int> g_first_read_index(0); 
+base::atomic<int> g_last_read_index(0);
 bool g_stop = false;
 
 void* read_thread_routine(void* arg) {
     raft::SegmentLogStorage* storage = (raft::SegmentLogStorage*)arg;
     while (!g_stop) {
-        int a = g_first_read_index.load(boost::memory_order_relaxed);
-        int b = g_last_read_index.load(boost::memory_order_relaxed);
+        int a = g_first_read_index.load(base::memory_order_relaxed);
+        int b = g_last_read_index.load(base::memory_order_relaxed);
         EXPECT_LE(a, b);
         int index = base::fast_rand_in(a, b);
         raft::LogEntry* entry = storage->get_entry(index);
@@ -726,21 +726,21 @@ void* write_thread_routine(void* arg) {
         const int r = base::fast_rand_in(0, 9);
         if (r < 1) {  // truncate_prefix
             int truncate_index = base::fast_rand_in(
-                    g_first_read_index.load(boost::memory_order_relaxed), 
-                    g_last_read_index.load(boost::memory_order_relaxed));
+                    g_first_read_index.load(base::memory_order_relaxed), 
+                    g_last_read_index.load(base::memory_order_relaxed));
             EXPECT_EQ(0, storage->truncate_prefix(truncate_index));
-            g_first_read_index.store(truncate_index, boost::memory_order_relaxed);
+            g_first_read_index.store(truncate_index, base::memory_order_relaxed);
         } else if (r < 2) {  // truncate suffix
             int truncate_index = base::fast_rand_in(
-                    g_last_read_index.load(boost::memory_order_relaxed),
+                    g_last_read_index.load(base::memory_order_relaxed),
                     next_log_index - 1);
             EXPECT_EQ(0, storage->truncate_suffix(truncate_index));
             next_log_index = truncate_index + 1;
         } else if (r < 5) { // increase last_read_index which cannot be truncate
             int next_read_index = base::fast_rand_in(
-                    g_last_read_index.load(boost::memory_order_relaxed),
+                    g_last_read_index.load(base::memory_order_relaxed),
                     next_log_index - 1);
-            g_last_read_index.store(next_read_index, boost::memory_order_relaxed);
+            g_last_read_index.store(next_read_index, base::memory_order_relaxed);
         } else  {  // Append entry
             raft::LogEntry* entry = new raft::LogEntry;
             entry->type = raft::ENTRY_TYPE_DATA;

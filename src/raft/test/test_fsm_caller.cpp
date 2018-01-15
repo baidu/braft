@@ -73,7 +73,7 @@ private:
 class SyncClosure : public raft::LogManager::StableClosure {
 public:
     SyncClosure() {
-        _butex = bthread::butex_create_checked<boost::atomic<int> >();
+        _butex = bthread::butex_create_checked<base::atomic<int> >();
         *_butex = 0;
     }
     ~SyncClosure() {
@@ -93,7 +93,7 @@ public:
         }
     }
 private:
-    boost::atomic<int> *_butex;
+    base::atomic<int> *_butex;
 };
 
 TEST_F(FSMCallerTest, sanity) {
