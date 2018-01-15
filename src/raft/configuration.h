@@ -229,6 +229,10 @@ public:
             included->_peers.erase(*iter);
         }
     }
+
+    // Parse Configuration from a string into |this|
+    // Returns 0 on success, -1 otherwise
+    int parse_from(base::StringPiece conf);
     
 private:
     std::set<PeerId> _peers;

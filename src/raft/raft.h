@@ -514,8 +514,8 @@ public:
     void reset_election_timeout_ms(int election_timeout_ms);
 
     // Try transfering leadership to |peer|.
-    // If peer is ANY_PEER, we will choose a peer with the largest last_log_id
-    // among peers in |current_conf| to be the possible candidate.
+    // If peer is ANY_PEER, a proper follower will be chosen as the leader the
+    // the next term.
     // Returns 0 on success, -1 otherwise.
     int transfer_leadership_to(const PeerId& peer);
 

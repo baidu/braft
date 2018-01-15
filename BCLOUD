@@ -44,6 +44,8 @@ for f in GLOB('protocol/raft/*.proto').split():
 
 pb_cc_sources = GLOB_GEN_SRCS('raft/*.pb.cc')
 StaticLibrary('raft',Sources(GLOB('src/raft/*.cpp')) + Sources(pb_cc_sources))
+LDFLAGS('-lpthread -lrt -lssl -lcrypto -ldl -lz')
+Application("raft_cli", Sources("tools/raft_cli.cpp"), Libraries("$OUT/lib/libraft.a"))
 
 raft_headers = set(GLOB('src/raft/*.h').split()) - set(GLOB('src/raft/*.pb.h').split())
 

@@ -61,6 +61,9 @@ GenProtoCpp(GLOB('protocol/raft/*.proto').split(' '))
 StaticLibrary('raft',Sources(GLOB('src/raft/*.cpp src/raft/*.cc'), 
                              Prefixes(GLOB('src/raft/*.h'))))
 
+LDFLAGS('-lpthread -lrt -lssl -lcrypto -ldl -lz')
+Application("raft_cli", Sources("tools/raft_cli.cpp"), Libraries("libraft.a"))
+
 TARGET('output/include', PhonyMode('true'), Prefixes('libraft.a'),
        ShellCommands("cd src; for dir in `find . -type f -name \"*.h\" -exec dirname {} \\; | sort | uniq`; do mkdir -p ../output/include/$$dir && cp $$dir/*.h ../output/include/$$dir/; done; cd .."),
        CleanFiles('output/include'))

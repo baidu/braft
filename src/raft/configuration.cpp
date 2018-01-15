@@ -6,6 +6,7 @@
 
 #include "raft/configuration.h"
 #include <base/logging.h>
+#include <base/string_splitter.h>
 
 namespace raft {
 
@@ -21,6 +22,21 @@ std::ostream& operator<<(std::ostream& os, const Configuration& a) {
     }
     os << "}";
     return os;
+}
+
+int Configuration::parse_from(base::StringPiece conf) {
+    reset();
+    std::string peer_str;
+    for (base::StringSplitter sp(conf.begin(), conf.end(), ','); sp; ++sp) {
+        raft::PeerId peer;
+        peer_str.assign(sp.field(), sp.length());
+        if (peer.parse(peer_str) != 0) {
+            LOG(ERROR) << "Fail to parse " << peer_str;
+            return -1;
+        }
+        add_peer(peer);
+    }
+    return 0;
 }
 
 }
