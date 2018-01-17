@@ -3,6 +3,8 @@ project(braft C CXX)
 
 #option(EXAMPLE_LINK_SO "Whether examples are linked dynamically" OFF)
 
+set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake)
+
 include(FindThreads)
 include(FindProtobuf)
 
@@ -63,7 +65,7 @@ include_directories(
         )
 
 set(DYNAMIC_LIB
-    ${GFLAGS_LIBRARY}
+    ${GFLAGS_LIB}
     ${PROTOBUF_LIBRARIES}
     ${LEVELDB_LIB}
     ${PROTOC_LIB}

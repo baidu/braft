@@ -17,9 +17,9 @@
  */
 
 #include <gtest/gtest.h>
-#include <base/logging.h>
-#include <base/iobuf.h>
-#include "raft/log_entry.h"
+#include <butil/logging.h>
+#include <butil/iobuf.h>
+#include "braft/log_entry.h"
 
 class TestUsageSuits : public testing::Test {
 protected:
@@ -28,21 +28,21 @@ protected:
 };
 
 TEST_F(TestUsageSuits, LogEntry) {
-    raft::LogEntry* entry = new raft::LogEntry();
-    std::vector<raft::PeerId> peers;
-    peers.push_back(raft::PeerId("1.2.3.4:1000"));
-    peers.push_back(raft::PeerId("1.2.3.4:2000"));
-    peers.push_back(raft::PeerId("1.2.3.4:3000"));
-    entry->type = raft::ENTRY_TYPE_CONFIGURATION;
-    entry->peers = new std::vector<raft::PeerId>(peers);
+    braft::LogEntry* entry = new braft::LogEntry();
+    std::vector<braft::PeerId> peers;
+    peers.push_back(braft::PeerId("1.2.3.4:1000"));
+    peers.push_back(braft::PeerId("1.2.3.4:2000"));
+    peers.push_back(braft::PeerId("1.2.3.4:3000"));
+    entry->type = braft::ENTRY_TYPE_CONFIGURATION;
+    entry->peers = new std::vector<braft::PeerId>(peers);
 
     entry->AddRef();
     entry->Release();
     entry->Release();
 
-    entry = new raft::LogEntry();
-    entry->type = raft::ENTRY_TYPE_DATA;
-    base::IOBuf buf;
+    entry = new braft::LogEntry();
+    entry->type = braft::ENTRY_TYPE_DATA;
+    butil::IOBuf buf;
     buf.append("hello, world");
     entry->data = buf;
     entry->data = buf;

@@ -8,18 +8,18 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <gtest/gtest.h>
-#include <base/fd_guard.h>
-#include <base/time.h>
-#include <base/logging.h>
+#include <butil/fd_guard.h>
+#include <butil/time.h>
+#include <butil/logging.h>
 
 class FsyncTest : public testing::Test {
 };
 
 TEST_F(FsyncTest, benchmark_append) {
-    base::fd_guard fd(::open("fsync.data", O_RDWR | O_CREAT | O_TRUNC, 0644));
+    butil::fd_guard fd(::open("fsync.data", O_RDWR | O_CREAT | O_TRUNC, 0644));
     ASSERT_NE(-1, fd);
     char buf[1024];
-    base::Timer timer;
+    butil::Timer timer;
     const size_t N = 1000;
     timer.start();
     for (size_t i = 0; i < N; ++i) {

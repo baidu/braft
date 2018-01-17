@@ -5,10 +5,10 @@
 // Date: 2017/09/07 14:06:13
 
 #include <gtest/gtest.h>
-#include <base/logging.h>
-#include "raft/raft.h"
-#include "raft/util.h"
-#include "raft/snapshot_throttle.h"
+#include <butil/logging.h>
+#include "braft/raft.h"
+#include "braft/util.h"
+#include "braft/snapshot_throttle.h"
 
 class TestUsageSuits : public testing::Test {
 protected:
@@ -17,7 +17,7 @@ protected:
 };
 
 struct ArgThrottle {
-    raft::ThroughputSnapshotThrottle* throttle;
+    braft::ThroughputSnapshotThrottle* throttle;
     volatile int64_t total_throughput;
     volatile bool stopped;
 };
@@ -54,8 +54,8 @@ TEST_F(TestUsageSuits, throttle_functioning) {
     // test aligning time
     for (int i = 0; i < 10; ++i) {
         usleep(0.8 * cycle_time);
-        int64_t now = base::cpuwide_time_us();
-        int64_t aligning_time = raft::caculate_check_time_us(now, cycles);
+        int64_t now = butil::cpuwide_time_us();
+        int64_t aligning_time = braft::caculate_check_time_us(now, cycles);
         ASSERT_TRUE(aligning_time % cycle_time == 0);
         LOG(INFO) << "Time now: " << now << ", aligning time: " << aligning_time;
     }
@@ -63,7 +63,7 @@ TEST_F(TestUsageSuits, throttle_functioning) {
     int64_t request_1 = 1 * 1024 * 1024;
     int64_t request_2 = 2 * 1024 * 1024;
     int64_t request_3 = 3 * 1024 * 1024;
-    raft::ThroughputSnapshotThrottle throttle(limit, cycles);
+    braft::ThroughputSnapshotThrottle throttle(limit, cycles);
     // 1M is ok
     int64_t ret1 = throttle.throttled_by_throughput(request_1);
     int64_t time1 = throttle._last_throughput_check_time_us;

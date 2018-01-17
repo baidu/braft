@@ -6,19 +6,22 @@
 
 #include <gflags/gflags.h>
 #include <gtest/gtest.h>
-#include <base/logging.h>
-#include <base/files/file_path.h>
-#include <base/file_util.h>
-#include <baidu/rpc/closure_guard.h>
-#include <bthread.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <butil/logging.h>
+#include <butil/files/file_path.h>
+#include <butil/file_util.h>
+#include <brpc/closure_guard.h>
+#include <bthread/bthread.h>
 #include <bthread/countdown_event.h>
-#include "raft/node.h"
-#include "raft/enum.pb.h"
-#include "raft/errno.pb.h"
+#include "braft/node.h"
+#include "braft/enum.pb.h"
+#include "braft/errno.pb.h"
 
-class MockFSM : public raft::StateMachine {
+class MockFSM : public braft::StateMachine {
 public:
-    MockFSM(const base::EndPoint& address_)
+    MockFSM(const butil::EndPoint& address_)
         : address(address_)
         , applied_index(0)
         , snapshot_index(0)
@@ -31,8 +34,8 @@ public:
         pthread_mutex_destroy(&mutex);
     }
 
-    base::EndPoint address;
-    std::vector<base::IOBuf> logs;
+    butil::EndPoint address;
+    std::vector<butil::IOBuf> logs;
     pthread_mutex_t mutex;
     int64_t applied_index;
     int64_t snapshot_index;
@@ -47,10 +50,10 @@ public:
         pthread_mutex_unlock(&mutex);
     }
 
-    virtual void on_apply(raft::Iterator& iter) {
+    virtual void on_apply(braft::Iterator& iter) {
         for (; iter.valid(); iter.next()) {
             LOG(TRACE) << "addr " << address << " apply " << iter.index();
-            ::baidu::rpc::ClosureGuard guard(iter.done());
+            ::brpc::ClosureGuard guard(iter.done());
             lock();
             logs.push_back(iter.data());
             unlock();
@@ -62,10 +65,10 @@ public:
         LOG(TRACE) << "addr " << address << " shutdowned";
     }
 
-    virtual void on_snapshot_save(raft::SnapshotWriter* writer, raft::Closure* done) {
+    virtual void on_snapshot_save(braft::SnapshotWriter* writer, braft::Closure* done) {
         std::string file_path = writer->get_path();
         file_path.append("/data");
-        baidu::rpc::ClosureGuard done_guard(done);
+        brpc::ClosureGuard done_guard(done);
 
         LOG(NOTICE) << "on_snapshot_save to " << file_path;
 
@@ -78,7 +81,7 @@ public:
         lock();
         // write snapshot and log to file
         for (size_t i = 0; i < logs.size(); i++) {
-            base::IOBuf data = logs[i];
+            butil::IOBuf data = logs[i];
             int len = data.size();
             int ret = write(fd, &len, sizeof(int));
             CHECK_EQ(ret, 4);
@@ -90,7 +93,7 @@ public:
         writer->add_file("data");
     }
 
-    virtual int on_snapshot_load(raft::SnapshotReader* reader) {
+    virtual int on_snapshot_load(braft::SnapshotReader* reader) {
         std::string file_path = reader->get_path();
         file_path.append("/data");
 
@@ -111,7 +114,7 @@ public:
                 break;
             }
 
-            base::IOPortal data;
+            butil::IOPortal data;
             data.append_from_file_descriptor(fd, len);
             logs.push_back(data);
         }
@@ -121,19 +124,19 @@ public:
         return 0;
     }
 
-    virtual void on_start_following(const raft::LeaderChangeContext& start_following_context) {
+    virtual void on_start_following(const braft::LeaderChangeContext& start_following_context) {
         LOG(TRACE) << "start following new leader: " <<  start_following_context.leader_id();
         ++_on_start_following_times;
     }
 
-    virtual void on_stop_following(const raft::LeaderChangeContext& stop_following_context) {
+    virtual void on_stop_following(const braft::LeaderChangeContext& stop_following_context) {
         LOG(TRACE) << "stop following old leader: " <<  stop_following_context.leader_id();
         ++_on_stop_following_times;
     }
 
 };
 
-class ExpectClosure : public raft::Closure {
+class ExpectClosure : public braft::Closure {
 public:
     void Run() {
         if (_expect_err_code >= 0) {
@@ -177,7 +180,7 @@ typedef ExpectClosure SnapshotClosure;
 
 class Cluster {
 public:
-    Cluster(const std::string& name, const std::vector<raft::PeerId>& peers,
+    Cluster(const std::string& name, const std::vector<braft::PeerId>& peers,
             int32_t election_timeout_ms = 300)
         : _name(name), _peers(peers) 
         , _election_timeout_ms(election_timeout_ms) {
@@ -186,11 +189,11 @@ public:
         stop_all();
     }
 
-    int start(const base::EndPoint& listen_addr, bool empty_peers = false,
+    int start(const butil::EndPoint& listen_addr, bool empty_peers = false,
               int snapshot_interval_s = 30) {
         if (_server_map[listen_addr] == NULL) {
-            baidu::rpc::Server* server = new baidu::rpc::Server();
-            if (raft::add_service(server, listen_addr) != 0 
+            brpc::Server* server = new brpc::Server();
+            if (braft::add_service(server, listen_addr) != 0 
                     || server->Start(listen_addr, NULL) != 0) {
                 LOG(ERROR) << "Fail to start raft service";
                 delete server;
@@ -199,23 +202,23 @@ public:
             _server_map[listen_addr] = server;
         }
 
-        raft::NodeOptions options;
+        braft::NodeOptions options;
         options.election_timeout_ms = _election_timeout_ms;
         options.snapshot_interval_s = snapshot_interval_s;
         if (!empty_peers) {
-            options.initial_conf = raft::Configuration(_peers);
+            options.initial_conf = braft::Configuration(_peers);
         }
         MockFSM* fsm = new MockFSM(listen_addr);
         options.fsm = fsm;
         options.node_owns_fsm = true;
-        base::string_printf(&options.log_uri, "local://./data/%s/log",
-                            base::endpoint2str(listen_addr).c_str());
-        base::string_printf(&options.stable_uri, "local://./data/%s/stable",
-                            base::endpoint2str(listen_addr).c_str());
-        base::string_printf(&options.snapshot_uri, "local://./data/%s/snapshot",
-                            base::endpoint2str(listen_addr).c_str());
+        butil::string_printf(&options.log_uri, "local://./data/%s/log",
+                            butil::endpoint2str(listen_addr).c_str());
+        butil::string_printf(&options.stable_uri, "local://./data/%s/stable",
+                            butil::endpoint2str(listen_addr).c_str());
+        butil::string_printf(&options.snapshot_uri, "local://./data/%s/snapshot",
+                            butil::endpoint2str(listen_addr).c_str());
 
-        raft::Node* node = new raft::Node(_name, raft::PeerId(listen_addr, 0));
+        braft::Node* node = new braft::Node(_name, braft::PeerId(listen_addr, 0));
         int ret = node->init(options);
         if (ret != 0) {
             LOG(WARNING) << "init_node failed, server: " << listen_addr;
@@ -232,10 +235,10 @@ public:
         return 0;
     }
 
-    int stop(const base::EndPoint& listen_addr) {
+    int stop(const butil::EndPoint& listen_addr) {
         
         bthread::CountdownEvent cond;
-        raft::Node* node = remove_node(listen_addr);
+        braft::Node* node = remove_node(listen_addr);
         if (node) {
             node->shutdown(NEW_SHUTDOWNCLOSURE(&cond));
             cond.wait();
@@ -252,7 +255,7 @@ public:
     }
 
     void stop_all() {
-        std::vector<base::EndPoint> addrs;
+        std::vector<butil::EndPoint> addrs;
         all_nodes(&addrs);
 
         for (size_t i = 0; i < addrs.size(); i++) {
@@ -260,19 +263,19 @@ public:
         }
     }
 
-    void clean(const base::EndPoint& listen_addr) {
+    void clean(const butil::EndPoint& listen_addr) {
         std::string data_path;
-        base::string_printf(&data_path, "./data/%s",
-                            base::endpoint2str(listen_addr).c_str());
+        butil::string_printf(&data_path, "./data/%s",
+                            butil::endpoint2str(listen_addr).c_str());
 
-        if (!base::DeleteFile(base::FilePath(data_path), true)) {
+        if (!butil::DeleteFile(butil::FilePath(data_path), true)) {
             LOG(ERROR) << "delete path failed, path: " << data_path;
         }
     }
 
-    raft::Node* leader() {
+    braft::Node* leader() {
         std::lock_guard<raft_mutex_t> guard(_mutex);
-        raft::Node* node = NULL;
+        braft::Node* node = NULL;
         for (size_t i = 0; i < _nodes.size(); i++) {
             if (_nodes[i]->is_leader()) {
                 node = _nodes[i];
@@ -282,7 +285,7 @@ public:
         return node;
     }
 
-    void followers(std::vector<raft::Node*>* nodes) {
+    void followers(std::vector<braft::Node*>* nodes) {
         nodes->clear();
 
         std::lock_guard<raft_mutex_t> guard(_mutex);
@@ -295,7 +298,7 @@ public:
     
     void wait_leader() {
         while (true) {
-            raft::Node* node = leader();
+            braft::Node* node = leader();
             if (node) {
                 return;
             } else {
@@ -304,11 +307,11 @@ public:
         }
     }
 
-    void ensure_leader(const base::EndPoint& expect_addr) {
+    void ensure_leader(const butil::EndPoint& expect_addr) {
 CHECK:
         std::lock_guard<raft_mutex_t> guard(_mutex);
         for (size_t i = 0; i < _nodes.size(); i++) {
-            raft::PeerId leader_id = _nodes[i]->leader_id();
+            braft::PeerId leader_id = _nodes[i]->leader_id();
             if (leader_id.addr != expect_addr) {
                 goto WAIT;
             }
@@ -341,8 +344,8 @@ CHECK:
             }
 
             for (size_t j = 0; j < first->logs.size(); j++) {
-                base::IOBuf& first_data = first->logs[j];
-                base::IOBuf& fsm_data = fsm->logs[j];
+                butil::IOBuf& first_data = first->logs[j];
+                butil::IOBuf& fsm_data = fsm->logs[j];
                 if (first_data.to_string() != fsm_data.to_string()) {
                     fsm->unlock();
                     goto WAIT;
@@ -365,7 +368,7 @@ WAIT:
     }
 
 private:
-    void all_nodes(std::vector<base::EndPoint>* addrs) {
+    void all_nodes(std::vector<butil::EndPoint>* addrs) {
         addrs->clear();
 
         std::lock_guard<raft_mutex_t> guard(_mutex);
@@ -374,12 +377,12 @@ private:
         }
     }
 
-    raft::Node* remove_node(const base::EndPoint& addr) {
+    braft::Node* remove_node(const butil::EndPoint& addr) {
         std::lock_guard<raft_mutex_t> guard(_mutex);
 
         // remove node
-        raft::Node* node = NULL;
-        std::vector<raft::Node*> new_nodes;
+        braft::Node* node = NULL;
+        std::vector<braft::Node*> new_nodes;
         for (size_t i = 0; i < _nodes.size(); i++) {
             if (addr.port == _nodes[i]->node_id().peer_id.addr.port) {
                 node = _nodes[i];
@@ -402,10 +405,10 @@ private:
     }
 
     std::string _name;
-    std::vector<raft::PeerId> _peers;
-    std::vector<raft::Node*> _nodes;
+    std::vector<braft::PeerId> _peers;
+    std::vector<braft::Node*> _nodes;
     std::vector<MockFSM*> _fsms;
-    std::map<base::EndPoint, baidu::rpc::Server*> _server_map;
+    std::map<butil::EndPoint, brpc::Server*> _server_map;
     int32_t _election_timeout_ms;
     raft_mutex_t _mutex;
 };
@@ -422,18 +425,18 @@ protected:
 };
 
 TEST_F(RaftTestSuits, InitShutdown) {
-    baidu::rpc::Server server;
-    int ret = raft::add_service(&server, "0.0.0.0:5006");
+    brpc::Server server;
+    int ret = braft::add_service(&server, "0.0.0.0:5006");
     ASSERT_EQ(0, ret);
     ASSERT_EQ(0, server.Start("0.0.0.0:5006", NULL));
 
-    raft::NodeOptions options;
-    options.fsm = new MockFSM(base::EndPoint());
+    braft::NodeOptions options;
+    options.fsm = new MockFSM(butil::EndPoint());
     options.log_uri = "local://./data/log";
     options.stable_uri = "local://./data/stable";
     options.snapshot_uri = "local://./data/snapshot";
 
-    raft::Node node("unittest", raft::PeerId(base::EndPoint(base::get_host_ip(), 5006), 0));
+    braft::Node node("unittest", braft::PeerId(butil::EndPoint(butil::get_host_ip(), 5006), 0));
     ASSERT_EQ(0, node.init(options));
 
     node.shutdown(NULL);
@@ -441,9 +444,9 @@ TEST_F(RaftTestSuits, InitShutdown) {
 
     //FIXME:
     bthread::CountdownEvent cond;
-    base::IOBuf data;
+    butil::IOBuf data;
     data.append("hello");
-    raft::Task task;
+    braft::Task task;
     task.data = &data;
     task.done = NEW_APPLYCLOSURE(&cond);
     node.apply(task);
@@ -451,48 +454,48 @@ TEST_F(RaftTestSuits, InitShutdown) {
 }
 
 TEST_F(RaftTestSuits, Server) {
-    baidu::rpc::Server server1;
-    baidu::rpc::Server server2;
-    ASSERT_EQ(0, raft::add_service(&server1, "0.0.0.0:5006"));
-    ASSERT_EQ(0, raft::add_service(&server1, "0.0.0.0:5006"));
-    ASSERT_EQ(0, raft::add_service(&server2, "0.0.0.0:5007"));
+    brpc::Server server1;
+    brpc::Server server2;
+    ASSERT_EQ(0, braft::add_service(&server1, "0.0.0.0:5006"));
+    ASSERT_EQ(0, braft::add_service(&server1, "0.0.0.0:5006"));
+    ASSERT_EQ(0, braft::add_service(&server2, "0.0.0.0:5007"));
     server1.Start("0.0.0.0:5006", NULL);
     server2.Start("0.0.0.0:5007", NULL);
 }
 
 TEST_F(RaftTestSuits, SingleNode) {
-    baidu::rpc::Server server;
-    int ret = raft::add_service(&server, 5006);
+    brpc::Server server;
+    int ret = braft::add_service(&server, 5006);
     server.Start(5006, NULL);
     ASSERT_EQ(0, ret);
 
-    raft::PeerId peer;
-    peer.addr.ip = base::get_host_ip();
+    braft::PeerId peer;
+    peer.addr.ip = butil::get_host_ip();
     peer.addr.port = 5006;
     peer.idx = 0;
-    std::vector<raft::PeerId> peers;
+    std::vector<braft::PeerId> peers;
     peers.push_back(peer);
 
-    raft::NodeOptions options;
+    braft::NodeOptions options;
     options.election_timeout_ms = 300;
-    options.initial_conf = raft::Configuration(peers);
-    options.fsm = new MockFSM(base::EndPoint());
+    options.initial_conf = braft::Configuration(peers);
+    options.fsm = new MockFSM(butil::EndPoint());
     options.log_uri = "local://./data/log";
     options.stable_uri = "local://./data/stable";
     options.snapshot_uri = "local://./data/snapshot";
 
-    raft::Node node("unittest", peer);
+    braft::Node node("unittest", peer);
     ASSERT_EQ(0, node.init(options));
 
     sleep(2);
 
     bthread::CountdownEvent cond(10);
     for (int i = 0; i < 10; i++) {
-        base::IOBuf data;
+        butil::IOBuf data;
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
         data.append(data_buf);
-        raft::Task task;
+        braft::Task task;
         task.data = &data;
         task.done = NEW_APPLYCLOSURE(&cond, 0);
         node.apply(task);
@@ -508,10 +511,10 @@ TEST_F(RaftTestSuits, SingleNode) {
 }
 
 TEST_F(RaftTestSuits, NoLeader) {
-    std::vector<raft::PeerId> peers;
+    std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
-        raft::PeerId peer;
-        peer.addr.ip = base::get_host_ip();
+        braft::PeerId peer;
+        peer.addr.ip = butil::get_host_ip();
         peer.addr.port = 5006 + i;
         peer.idx = 0;
 
@@ -522,20 +525,20 @@ TEST_F(RaftTestSuits, NoLeader) {
     Cluster cluster("unittest", peers);
     cluster.start(peers[0].addr);
 
-    std::vector<raft::Node*> nodes;
+    std::vector<braft::Node*> nodes;
     cluster.followers(&nodes);
     ASSERT_EQ(1, nodes.size());
 
-    raft::Node* follower = nodes[0];
+    braft::Node* follower = nodes[0];
 
     // apply something
     bthread::CountdownEvent cond(10);
     for (int i = 0; i < 10; i++) {
-        base::IOBuf data;
+        butil::IOBuf data;
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
         data.append(data_buf);
-        raft::Task task;
+        braft::Task task;
         task.data = &data;
         task.done = NEW_APPLYCLOSURE(&cond, EPERM);
         follower->apply(task);
@@ -543,8 +546,8 @@ TEST_F(RaftTestSuits, NoLeader) {
     cond.wait();
 
     // add peer1
-    raft::PeerId peer3;
-    peer3.addr.ip = base::get_host_ip();
+    braft::PeerId peer3;
+    peer3.addr.ip = butil::get_host_ip();
     peer3.addr.port = 5006 + 3;
     peer3.idx = 0;
 
@@ -554,8 +557,8 @@ TEST_F(RaftTestSuits, NoLeader) {
     LOG(NOTICE) << "add peer " << peer3;
 
     // remove peer1
-    raft::PeerId peer0;
-    peer0.addr.ip = base::get_host_ip();
+    braft::PeerId peer0;
+    peer0.addr.ip = butil::get_host_ip();
     peer0.addr.port = 5006 + 0;
     peer0.idx = 0;
 
@@ -566,10 +569,10 @@ TEST_F(RaftTestSuits, NoLeader) {
 }
 
 TEST_F(RaftTestSuits, TripleNode) {
-    std::vector<raft::PeerId> peers;
+    std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
-        raft::PeerId peer;
-        peer.addr.ip = base::get_host_ip();
+        braft::PeerId peer;
+        peer.addr.ip = butil::get_host_ip();
         peer.addr.port = 5006 + i;
         peer.idx = 0;
 
@@ -584,19 +587,19 @@ TEST_F(RaftTestSuits, TripleNode) {
 
     // elect leader
     cluster.wait_leader();
-    raft::Node* leader = cluster.leader();
+    braft::Node* leader = cluster.leader();
     ASSERT_TRUE(leader != NULL);
     LOG(WARNING) << "leader is " << leader->node_id();
 
     // apply something
     bthread::CountdownEvent cond(10);
     for (int i = 0; i < 10; i++) {
-        base::IOBuf data;
+        butil::IOBuf data;
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
         data.append(data_buf);
 
-        raft::Task task;
+        braft::Task task;
         task.data = &data;
         task.done = NEW_APPLYCLOSURE(&cond, 0);
         leader->apply(task);
@@ -604,11 +607,11 @@ TEST_F(RaftTestSuits, TripleNode) {
     cond.wait();
 
     {
-        base::IOBuf data;
+        butil::IOBuf data;
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "no closure");
         data.append(data_buf);
-        raft::Task task;
+        braft::Task task;
         task.data = &data;
         leader->apply(task);
     }
@@ -616,18 +619,18 @@ TEST_F(RaftTestSuits, TripleNode) {
     cluster.ensure_same();
 
     {
-        baidu::rpc::Channel channel;
-        baidu::rpc::ChannelOptions options;
-        options.protocol = baidu::rpc::PROTOCOL_HTTP;
+        brpc::Channel channel;
+        brpc::ChannelOptions options;
+        options.protocol = brpc::PROTOCOL_HTTP;
 
         if (channel.Init(leader->node_id().peer_id.addr, &options) != 0) {
             LOG(ERROR) << "Fail to initialize channel";
         }
 
         {
-            baidu::rpc::Controller cntl;
+            brpc::Controller cntl;
             cntl.http_request().uri() = "/raft_stat";
-            cntl.http_request().set_method(baidu::rpc::HTTP_METHOD_GET);
+            cntl.http_request().set_method(brpc::HTTP_METHOD_GET);
 
             channel.CallMethod(NULL, &cntl, NULL, NULL, NULL/*done*/);
 
@@ -635,9 +638,9 @@ TEST_F(RaftTestSuits, TripleNode) {
         }
 
         {
-            baidu::rpc::Controller cntl;
+            brpc::Controller cntl;
             cntl.http_request().uri() = "/raft_stat/unittest";
-            cntl.http_request().set_method(baidu::rpc::HTTP_METHOD_GET);
+            cntl.http_request().set_method(brpc::HTTP_METHOD_GET);
 
             channel.CallMethod(NULL, &cntl, NULL, NULL, NULL/*done*/);
 
@@ -646,7 +649,7 @@ TEST_F(RaftTestSuits, TripleNode) {
     }
 
     // stop cluster
-    std::vector<raft::Node*> nodes;
+    std::vector<braft::Node*> nodes;
     cluster.followers(&nodes);
     ASSERT_EQ(2, nodes.size());
 
@@ -655,10 +658,10 @@ TEST_F(RaftTestSuits, TripleNode) {
 }
 
 TEST_F(RaftTestSuits, LeaderFail) {
-    std::vector<raft::PeerId> peers;
+    std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
-        raft::PeerId peer;
-        peer.addr.ip = base::get_host_ip();
+        braft::PeerId peer;
+        peer.addr.ip = butil::get_host_ip();
         peer.addr.port = 5006 + i;
         peer.idx = 0;
 
@@ -673,19 +676,19 @@ TEST_F(RaftTestSuits, LeaderFail) {
 
     // elect leader
     cluster.wait_leader();
-    raft::Node* leader = cluster.leader();
+    braft::Node* leader = cluster.leader();
     ASSERT_TRUE(leader != NULL);
     LOG(WARNING) << "leader is " << leader->node_id();
 
     // apply something
     bthread::CountdownEvent cond(10);
     for (int i = 0; i < 10; i++) {
-        base::IOBuf data;
+        butil::IOBuf data;
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
         data.append(data_buf);
 
-        raft::Task task;
+        braft::Task task;
         task.data = &data;
         task.done = NEW_APPLYCLOSURE(&cond, 0);
         leader->apply(task);
@@ -693,21 +696,21 @@ TEST_F(RaftTestSuits, LeaderFail) {
     cond.wait();
 
     // stop leader
-    base::EndPoint old_leader = leader->node_id().peer_id.addr;
+    butil::EndPoint old_leader = leader->node_id().peer_id.addr;
     LOG(WARNING) << "stop leader " << leader->node_id();
     cluster.stop(leader->node_id().peer_id.addr);
 
     // apply something when follower
-    std::vector<raft::Node*> nodes;
+    std::vector<braft::Node*> nodes;
     cluster.followers(&nodes);
     ASSERT_EQ(nodes.size(), 2);
     cond.reset(10);
     for (int i = 0; i < 10; i++) {
-        base::IOBuf data;
+        butil::IOBuf data;
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "follower apply: %d", i + 1);
         data.append(data_buf);
-        raft::Task task;
+        braft::Task task;
         task.data = &data;
         task.done = NEW_APPLYCLOSURE(&cond, -1);
         nodes[0]->apply(task);
@@ -723,11 +726,11 @@ TEST_F(RaftTestSuits, LeaderFail) {
     // apply something
     cond.reset(10);
     for (int i = 10; i < 20; i++) {
-        base::IOBuf data;
+        butil::IOBuf data;
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
         data.append(data_buf);
-        raft::Task task;
+        braft::Task task;
         task.data = &data;
         task.done = NEW_APPLYCLOSURE(&cond, 0);
         leader->apply(task);
@@ -741,11 +744,11 @@ TEST_F(RaftTestSuits, LeaderFail) {
     // apply something
     cond.reset(10);
     for (int i = 20; i < 30; i++) {
-        base::IOBuf data;
+        butil::IOBuf data;
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
         data.append(data_buf);
-        raft::Task task;
+        braft::Task task;
         task.data = &data;
         task.done = NEW_APPLYCLOSURE(&cond, 0);
         leader->apply(task);
@@ -769,9 +772,9 @@ TEST_F(RaftTestSuits, LeaderFail) {
 }
 
 TEST_F(RaftTestSuits, JoinNode) {
-    std::vector<raft::PeerId> peers;
-    raft::PeerId peer0;
-    peer0.addr.ip = base::get_host_ip();
+    std::vector<braft::PeerId> peers;
+    braft::PeerId peer0;
+    peer0.addr.ip = butil::get_host_ip();
     peer0.addr.port = 5006;
     peer0.idx = 0;
 
@@ -784,7 +787,7 @@ TEST_F(RaftTestSuits, JoinNode) {
     cluster.ensure_leader(peer0.addr);
     LOG(NOTICE) << "peer become leader " << peer0;
 
-    raft::Node* leader = cluster.leader();
+    braft::Node* leader = cluster.leader();
     ASSERT_TRUE(leader != NULL);
     ASSERT_EQ(leader->node_id().peer_id, peer0);
     LOG(WARNING) << "leader is " << leader->node_id();
@@ -792,12 +795,12 @@ TEST_F(RaftTestSuits, JoinNode) {
     bthread::CountdownEvent cond(10);
     // apply something
     for (int i = 0; i < 10; i++) {
-        base::IOBuf data;
+        butil::IOBuf data;
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
         data.append(data_buf);
 
-        raft::Task task;
+        braft::Task task;
         task.data = &data;
         task.done = NEW_APPLYCLOSURE(&cond, 0);
         leader->apply(task);
@@ -805,8 +808,8 @@ TEST_F(RaftTestSuits, JoinNode) {
     cond.wait();
 
     // start peer1
-    raft::PeerId peer1;
-    peer1.addr.ip = base::get_host_ip();
+    braft::PeerId peer1;
+    peer1.addr.ip = butil::get_host_ip();
     peer1.addr.port = 5006 + 1;
     peer1.idx = 0;
     ASSERT_EQ(0, cluster.start(peer1.addr, true));
@@ -823,14 +826,14 @@ TEST_F(RaftTestSuits, JoinNode) {
     cluster.ensure_same();
 
     // add peer2 when peer not start
-    raft::PeerId peer2;
-    peer2.addr.ip = base::get_host_ip();
+    braft::PeerId peer2;
+    peer2.addr.ip = butil::get_host_ip();
     peer2.addr.port = 5006 + 2;
     peer2.idx = 0;
 
     cond.reset(1);
     peers.push_back(peer1);
-    leader->add_peer(peers, peer2, NEW_ADDPEERCLOSURE(&cond, raft::ECATCHUP));
+    leader->add_peer(peers, peer2, NEW_ADDPEERCLOSURE(&cond, braft::ECATCHUP));
     cond.wait();
 
     // start peer2 after some seconds wait 
@@ -840,7 +843,7 @@ TEST_F(RaftTestSuits, JoinNode) {
 
     usleep(1000 * 1000L);
 
-    raft::PeerId peer4("192.168.1.1:1234");
+    braft::PeerId peer4("192.168.1.1:1234");
 
     // re add peer2
     cond.reset(3);
@@ -865,10 +868,10 @@ TEST_F(RaftTestSuits, JoinNode) {
 }
 
 TEST_F(RaftTestSuits, RemoveFollower) {
-    std::vector<raft::PeerId> peers;
+    std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
-        raft::PeerId peer;
-        peer.addr.ip = base::get_host_ip();
+        braft::PeerId peer;
+        peer.addr.ip = butil::get_host_ip();
         peer.addr.port = 5006 + i;
         peer.idx = 0;
 
@@ -882,19 +885,19 @@ TEST_F(RaftTestSuits, RemoveFollower) {
     }
 
     cluster.wait_leader();
-    raft::Node* leader = cluster.leader();
+    braft::Node* leader = cluster.leader();
     ASSERT_TRUE(leader != NULL);
     LOG(WARNING) << "leader is " << leader->node_id();
 
     bthread::CountdownEvent cond(10);
     // apply something
     for (int i = 0; i < 10; i++) {
-        base::IOBuf data;
+        butil::IOBuf data;
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
         data.append(data_buf);
 
-        raft::Task task;
+        braft::Task task;
         task.data = &data;
         task.done = NEW_APPLYCLOSURE(&cond, 0);
         leader->apply(task);
@@ -903,12 +906,12 @@ TEST_F(RaftTestSuits, RemoveFollower) {
 
     cluster.ensure_same();
 
-    std::vector<raft::Node*> nodes;
+    std::vector<braft::Node*> nodes;
     cluster.followers(&nodes);
     ASSERT_EQ(2, nodes.size());
 
-    const raft::PeerId follower_id = nodes[0]->node_id().peer_id;
-    const base::EndPoint follower_addr = follower_id.addr;
+    const braft::PeerId follower_id = nodes[0]->node_id().peer_id;
+    const butil::EndPoint follower_addr = follower_id.addr;
     // stop follower
     LOG(WARNING) << "stop and clean follower " << follower_addr;
     cluster.stop(follower_addr);
@@ -929,12 +932,12 @@ TEST_F(RaftTestSuits, RemoveFollower) {
     // apply something
     cond.reset(10);
     for (int i = 10; i < 20; i++) {
-        base::IOBuf data;
+        butil::IOBuf data;
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
         data.append(data_buf);
 
-        raft::Task task;
+        braft::Task task;
         task.data = &data;
         task.done = NEW_APPLYCLOSURE(&cond, 0);
         leader->apply(task);
@@ -946,8 +949,8 @@ TEST_F(RaftTestSuits, RemoveFollower) {
 
     peers.clear();
     for (int i = 0; i < 3; i++) {
-        raft::PeerId peer;
-        peer.addr.ip = base::get_host_ip();
+        braft::PeerId peer;
+        peer.addr.ip = butil::get_host_ip();
         peer.addr.port = 5006 + i;
         peer.idx = 0;
 
@@ -973,10 +976,10 @@ TEST_F(RaftTestSuits, RemoveFollower) {
 }
 
 TEST_F(RaftTestSuits, RemoveLeader) {
-    std::vector<raft::PeerId> peers;
+    std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
-        raft::PeerId peer;
-        peer.addr.ip = base::get_host_ip();
+        braft::PeerId peer;
+        peer.addr.ip = butil::get_host_ip();
         peer.addr.port = 5006 + i;
         peer.idx = 0;
 
@@ -990,26 +993,26 @@ TEST_F(RaftTestSuits, RemoveLeader) {
     }
 
     cluster.wait_leader();
-    raft::Node* leader = cluster.leader();
+    braft::Node* leader = cluster.leader();
     ASSERT_TRUE(leader != NULL);
     LOG(WARNING) << "leader is " << leader->node_id();
 
     bthread::CountdownEvent cond(10);
     // apply something
     for (int i = 0; i < 10; i++) {
-        base::IOBuf data;
+        butil::IOBuf data;
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
         data.append(data_buf);
 
-        raft::Task task;
+        braft::Task task;
         task.data = &data;
         task.done = NEW_APPLYCLOSURE(&cond, 0);
         leader->apply(task);
     }
     cond.wait();
 
-    base::EndPoint old_leader_addr = leader->node_id().peer_id.addr;
+    butil::EndPoint old_leader_addr = leader->node_id().peer_id.addr;
     LOG(WARNING) << "remove leader " << old_leader_addr;
     cond.reset(1);
     leader->remove_peer(peers, leader->node_id().peer_id, NEW_REMOVEPEERCLOSURE(&cond, 0));
@@ -1023,12 +1026,12 @@ TEST_F(RaftTestSuits, RemoveLeader) {
     // apply something
     cond.reset(10);
     for (int i = 10; i < 20; i++) {
-        base::IOBuf data;
+        butil::IOBuf data;
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
         data.append(data_buf);
 
-        raft::Task task;
+        braft::Task task;
         task.data = &data;
         task.done = NEW_APPLYCLOSURE(&cond, 0);
         leader->apply(task);
@@ -1047,8 +1050,8 @@ TEST_F(RaftTestSuits, RemoveLeader) {
     cond.reset(1);
     peers.clear();
     for (int i = 0; i < 3; i++) {
-        raft::PeerId peer;
-        peer.addr.ip = base::get_host_ip();
+        braft::PeerId peer;
+        peer.addr.ip = butil::get_host_ip();
         peer.addr.port = 5006 + i;
         peer.idx = 0;
 
@@ -1056,10 +1059,10 @@ TEST_F(RaftTestSuits, RemoveLeader) {
             peers.push_back(peer);
         }
     }
-    leader->add_peer(peers, raft::PeerId(old_leader_addr, 0), NEW_ADDPEERCLOSURE(&cond, 0));
+    leader->add_peer(peers, braft::PeerId(old_leader_addr, 0), NEW_ADDPEERCLOSURE(&cond, 0));
     cond.wait();
 
-    std::vector<raft::Node*> nodes;
+    std::vector<braft::Node*> nodes;
     cluster.followers(&nodes);
     ASSERT_EQ(2, nodes.size());
 
@@ -1067,10 +1070,10 @@ TEST_F(RaftTestSuits, RemoveLeader) {
 }
 
 TEST_F(RaftTestSuits, TriggerVote) {
-    std::vector<raft::PeerId> peers;
+    std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
-        raft::PeerId peer;
-        peer.addr.ip = base::get_host_ip();
+        braft::PeerId peer;
+        peer.addr.ip = butil::get_host_ip();
         peer.addr.port = 5006 + i;
         peer.idx = 0;
 
@@ -1084,19 +1087,19 @@ TEST_F(RaftTestSuits, TriggerVote) {
     }
 
     cluster.wait_leader();
-    raft::Node* leader = cluster.leader();
+    braft::Node* leader = cluster.leader();
     ASSERT_TRUE(leader != NULL);
     LOG(WARNING) << "leader is " << leader->node_id();
 
     bthread::CountdownEvent cond(10);
     // apply something
     for (int i = 0; i < 10; i++) {
-        base::IOBuf data;
+        butil::IOBuf data;
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
         data.append(data_buf);
 
-        raft::Task task;
+        braft::Task task;
         task.data = &data;
         task.done = NEW_APPLYCLOSURE(&cond, 0);
         leader->apply(task);
@@ -1105,7 +1108,7 @@ TEST_F(RaftTestSuits, TriggerVote) {
 
     cluster.ensure_same();
 
-    std::vector<raft::Node*> nodes;
+    std::vector<braft::Node*> nodes;
     cluster.followers(&nodes);
     ASSERT_EQ(2, nodes.size());
 
@@ -1116,7 +1119,7 @@ TEST_F(RaftTestSuits, TriggerVote) {
 
     // max wait 5 seconds for new leader
     int count = 0;
-    raft::NodeId old_leader = leader->node_id();
+    braft::NodeId old_leader = leader->node_id();
     while (1) {
         cluster.wait_leader();
         leader = cluster.leader();
@@ -1132,10 +1135,10 @@ TEST_F(RaftTestSuits, TriggerVote) {
 }
 
 TEST_F(RaftTestSuits, PreVote) {
-    std::vector<raft::PeerId> peers;
+    std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
-        raft::PeerId peer;
-        peer.addr.ip = base::get_host_ip();
+        braft::PeerId peer;
+        peer.addr.ip = butil::get_host_ip();
         peer.addr.port = 5006 + i;
         peer.idx = 0;
 
@@ -1149,19 +1152,19 @@ TEST_F(RaftTestSuits, PreVote) {
     }
 
     cluster.wait_leader();
-    raft::Node* leader = cluster.leader();
+    braft::Node* leader = cluster.leader();
     ASSERT_TRUE(leader != NULL);
     LOG(WARNING) << "leader is " << leader->node_id();
 
     bthread::CountdownEvent cond(10);
     // apply something
     for (int i = 0; i < 10; i++) {
-        base::IOBuf data;
+        butil::IOBuf data;
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
         data.append(data_buf);
 
-        raft::Task task;
+        braft::Task task;
         task.data = &data;
         task.done = NEW_APPLYCLOSURE(&cond, 0);
         leader->apply(task);
@@ -1170,11 +1173,11 @@ TEST_F(RaftTestSuits, PreVote) {
 
     cluster.ensure_same();
 
-    std::vector<raft::Node*> nodes;
+    std::vector<braft::Node*> nodes;
     cluster.followers(&nodes);
     ASSERT_EQ(2, nodes.size());
-    const raft::PeerId follower_id = nodes[0]->node_id().peer_id;
-    const base::EndPoint follower_addr = follower_id.addr;
+    const braft::PeerId follower_id = nodes[0]->node_id().peer_id;
+    const butil::EndPoint follower_addr = follower_id.addr;
 
     const int64_t saved_term = leader->_impl->_current_term;
     //remove follower
@@ -1186,12 +1189,12 @@ TEST_F(RaftTestSuits, PreVote) {
     // apply something
     cond.reset(10);
     for (int i = 10; i < 20; i++) {
-        base::IOBuf data;
+        butil::IOBuf data;
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
         data.append(data_buf);
 
-        raft::Task task;
+        braft::Task task;
         task.data = &data;
         task.done = NEW_APPLYCLOSURE(&cond, 0);
         leader->apply(task);
@@ -1204,8 +1207,8 @@ TEST_F(RaftTestSuits, PreVote) {
     LOG(WARNING) << "add follower " << follower_addr;
     peers.clear();
     for (int i = 0; i < 3; i++) {
-        raft::PeerId peer;
-        peer.addr.ip = base::get_host_ip();
+        braft::PeerId peer;
+        peer.addr.ip = butil::get_host_ip();
         peer.addr.port = 5006 + i;
         peer.idx = 0;
 
@@ -1225,30 +1228,30 @@ TEST_F(RaftTestSuits, PreVote) {
 
 TEST_F(RaftTestSuits, SetPeer1) {
     // bootstrap from null
-    Cluster cluster("unittest", std::vector<raft::PeerId>());
-    raft::PeerId boot_peer;
-    boot_peer.addr.ip = base::get_host_ip();
+    Cluster cluster("unittest", std::vector<braft::PeerId>());
+    braft::PeerId boot_peer;
+    boot_peer.addr.ip = butil::get_host_ip();
     boot_peer.addr.port = 5006;
     boot_peer.idx = 0;
 
     ASSERT_EQ(0, cluster.start(boot_peer.addr));
-    std::vector<raft::Node*> nodes;
+    std::vector<braft::Node*> nodes;
     cluster.followers(&nodes);
     ASSERT_EQ(1, nodes.size());
 
-    std::vector<raft::PeerId> peers;
+    std::vector<braft::PeerId> peers;
     peers.push_back(boot_peer);
     ASSERT_EQ(EINVAL, nodes[0]->set_peer(peers, peers));
-    ASSERT_EQ(0, nodes[0]->set_peer(std::vector<raft::PeerId>(), peers));
+    ASSERT_EQ(0, nodes[0]->set_peer(std::vector<braft::PeerId>(), peers));
 
     cluster.wait_leader();
 }
 
 TEST_F(RaftTestSuits, SetPeer2) {
-    std::vector<raft::PeerId> peers;
+    std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
-        raft::PeerId peer;
-        peer.addr.ip = base::get_host_ip();
+        braft::PeerId peer;
+        peer.addr.ip = butil::get_host_ip();
         peer.addr.port = 5006 + i;
         peer.idx = 0;
 
@@ -1263,21 +1266,21 @@ TEST_F(RaftTestSuits, SetPeer2) {
     }
 
     cluster.wait_leader();
-    raft::Node* leader = cluster.leader();
+    braft::Node* leader = cluster.leader();
     ASSERT_TRUE(leader != NULL);
-    base::EndPoint leader_addr = leader->node_id().peer_id.addr;
+    butil::EndPoint leader_addr = leader->node_id().peer_id.addr;
     LOG(WARNING) << "leader is " << leader->node_id();
     std::cout << "Here" << std::endl;
 
     bthread::CountdownEvent cond(10);
     // apply something
     for (int i = 0; i < 10; i++) {
-        base::IOBuf data;
+        butil::IOBuf data;
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
         data.append(data_buf);
 
-        raft::Task task;
+        braft::Task task;
         task.data = &data;
         task.done = NEW_APPLYCLOSURE(&cond, 0);
         leader->apply(task);
@@ -1286,11 +1289,11 @@ TEST_F(RaftTestSuits, SetPeer2) {
     std::cout << "Here" << std::endl;
 
     // check follower
-    std::vector<raft::Node*> nodes;
+    std::vector<braft::Node*> nodes;
     cluster.followers(&nodes);
     ASSERT_EQ(2, nodes.size());
-    raft::PeerId follower_peer1 = nodes[0]->node_id().peer_id;
-    raft::PeerId follower_peer2 = nodes[1]->node_id().peer_id;
+    braft::PeerId follower_peer1 = nodes[0]->node_id().peer_id;
+    braft::PeerId follower_peer2 = nodes[1]->node_id().peer_id;
 
     LOG(WARNING) << "stop and clean follower " << follower_peer1;
     cluster.stop(follower_peer1.addr);
@@ -1300,12 +1303,12 @@ TEST_F(RaftTestSuits, SetPeer2) {
     // apply something
     cond.reset(10);
     for (int i = 10; i < 20; i++) {
-        base::IOBuf data;
+        butil::IOBuf data;
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
         data.append(data_buf);
 
-        raft::Task task;
+        braft::Task task;
         task.data = &data;
         task.done = NEW_APPLYCLOSURE(&cond, 0);
         leader->apply(task);
@@ -1314,11 +1317,11 @@ TEST_F(RaftTestSuits, SetPeer2) {
     
     std::cout << "Here" << std::endl;
     //set peer when no quorum die
-    std::vector<raft::PeerId> new_peers;
+    std::vector<braft::PeerId> new_peers;
     LOG(WARNING) << "set peer to " << leader_addr;
     for (int i = 0; i < 3; i++) {
-        raft::PeerId peer;
-        peer.addr.ip = base::get_host_ip();
+        braft::PeerId peer;
+        peer.addr.ip = butil::get_host_ip();
         peer.addr.port = 5006 + i;
         peer.idx = 0;
 
@@ -1339,7 +1342,7 @@ TEST_F(RaftTestSuits, SetPeer2) {
     sleep(2);
 
     new_peers.clear();
-    new_peers.push_back(raft::PeerId(leader_addr, 0));
+    new_peers.push_back(braft::PeerId(leader_addr, 0));
 
     // new peers equal current conf
     ASSERT_EQ(0, leader->set_peer(new_peers, peers));
@@ -1347,13 +1350,13 @@ TEST_F(RaftTestSuits, SetPeer2) {
     ASSERT_EQ(EINVAL, leader->set_peer(new_peers, new_peers));
     // new_peers not include in current conf
     new_peers.clear();
-    new_peers.push_back(raft::PeerId(leader_addr, 1));
+    new_peers.push_back(braft::PeerId(leader_addr, 1));
     ASSERT_EQ(EINVAL, leader->set_peer(peers, new_peers));
 
     // set peer when quorum die
     LOG(WARNING) << "set peer to " << leader_addr;
     new_peers.clear();
-    new_peers.push_back(raft::PeerId(leader_addr, 0));
+    new_peers.push_back(braft::PeerId(leader_addr, 0));
     ASSERT_EQ(0, leader->set_peer(peers, new_peers));
     std::cout << "Here 9" << std::endl;
 
@@ -1386,10 +1389,10 @@ TEST_F(RaftTestSuits, SetPeer2) {
 }
 
 TEST_F(RaftTestSuits, RestoreSnapshot) {
-    std::vector<raft::PeerId> peers;
+    std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
-        raft::PeerId peer;
-        peer.addr.ip = base::get_host_ip();
+        braft::PeerId peer;
+        peer.addr.ip = butil::get_host_ip();
         peer.addr.port = 5006 + i;
         peer.idx = 0;
 
@@ -1404,20 +1407,20 @@ TEST_F(RaftTestSuits, RestoreSnapshot) {
 
     // elect leader
     cluster.wait_leader();
-    raft::Node* leader = cluster.leader();
+    braft::Node* leader = cluster.leader();
     ASSERT_TRUE(leader != NULL);
     LOG(WARNING) << "leader is " << leader->node_id();
-    base::EndPoint leader_addr = leader->node_id().peer_id.addr;
+    butil::EndPoint leader_addr = leader->node_id().peer_id.addr;
 
     // apply something
     bthread::CountdownEvent cond(10);
     for (int i = 0; i < 10; i++) {
-        base::IOBuf data;
+        butil::IOBuf data;
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
         data.append(data_buf);
 
-        raft::Task task;
+        braft::Task task;
         task.data = &data;
         task.done = NEW_APPLYCLOSURE(&cond, 0);
         leader->apply(task);
@@ -1448,10 +1451,10 @@ TEST_F(RaftTestSuits, RestoreSnapshot) {
 }
 
 TEST_F(RaftTestSuits, InstallSnapshot) {
-    std::vector<raft::PeerId> peers;
+    std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
-        raft::PeerId peer;
-        peer.addr.ip = base::get_host_ip();
+        braft::PeerId peer;
+        peer.addr.ip = butil::get_host_ip();
         peer.addr.port = 5006 + i;
         peer.idx = 0;
 
@@ -1466,19 +1469,19 @@ TEST_F(RaftTestSuits, InstallSnapshot) {
 
     // elect leader
     cluster.wait_leader();
-    raft::Node* leader = cluster.leader();
+    braft::Node* leader = cluster.leader();
     ASSERT_TRUE(leader != NULL);
     LOG(WARNING) << "leader is " << leader->node_id();
 
     // apply something
     bthread::CountdownEvent cond(10);
     for (int i = 0; i < 10; i++) {
-        base::IOBuf data;
+        butil::IOBuf data;
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
         data.append(data_buf);
 
-        raft::Task task;
+        braft::Task task;
         task.data = &data;
         task.done = NEW_APPLYCLOSURE(&cond, 0);
         leader->apply(task);
@@ -1487,24 +1490,24 @@ TEST_F(RaftTestSuits, InstallSnapshot) {
 
     cluster.ensure_same();
 
-    std::vector<raft::Node*> nodes;
+    std::vector<braft::Node*> nodes;
     cluster.followers(&nodes);
     ASSERT_EQ(2, nodes.size());
 
     // stop follower
     LOG(WARNING) << "stop follower";
-    base::EndPoint follower_addr = nodes[0]->node_id().peer_id.addr;
+    butil::EndPoint follower_addr = nodes[0]->node_id().peer_id.addr;
     cluster.stop(follower_addr);
 
     // apply something
     cond.reset(10);
     for (int i = 10; i < 20; i++) {
-        base::IOBuf data;
+        butil::IOBuf data;
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
         data.append(data_buf);
 
-        raft::Task task;
+        braft::Task task;
         task.data = &data;
         task.done = NEW_APPLYCLOSURE(&cond, 0);
         leader->apply(task);
@@ -1520,12 +1523,12 @@ TEST_F(RaftTestSuits, InstallSnapshot) {
     // apply something
     cond.reset(10);
     for (int i = 20; i < 30; i++) {
-        base::IOBuf data;
+        butil::IOBuf data;
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
         data.append(data_buf);
 
-        raft::Task task;
+        braft::Task task;
         task.data = &data;
         task.done = NEW_APPLYCLOSURE(&cond, 0);
         leader->apply(task);
@@ -1547,27 +1550,27 @@ TEST_F(RaftTestSuits, InstallSnapshot) {
 }
 
 TEST_F(RaftTestSuits, NoSnapshot) {
-    baidu::rpc::Server server;
-    baidu::rpc::ServerOptions server_options;
-    int ret = raft::add_service(&server, "0.0.0.0:5006");
+    brpc::Server server;
+    brpc::ServerOptions server_options;
+    int ret = braft::add_service(&server, "0.0.0.0:5006");
     ASSERT_EQ(0, ret);
     ASSERT_EQ(0, server.Start(5006, &server_options));
 
-    raft::PeerId peer;
-    peer.addr.ip = base::get_host_ip();
+    braft::PeerId peer;
+    peer.addr.ip = butil::get_host_ip();
     peer.addr.port = 5006;
     peer.idx = 0;
-    std::vector<raft::PeerId> peers;
+    std::vector<braft::PeerId> peers;
     peers.push_back(peer);
 
-    raft::NodeOptions options;
+    braft::NodeOptions options;
     options.election_timeout_ms = 300;
-    options.initial_conf = raft::Configuration(peers);
-    options.fsm = new MockFSM(base::EndPoint());
+    options.initial_conf = braft::Configuration(peers);
+    options.fsm = new MockFSM(butil::EndPoint());
     options.log_uri = "local://./data/log";
     options.stable_uri = "local://./data/stable";
 
-    raft::Node node("unittest", peer);
+    braft::Node node("unittest", peer);
     ASSERT_EQ(0, node.init(options));
 
     // wait node elect to leader
@@ -1576,12 +1579,12 @@ TEST_F(RaftTestSuits, NoSnapshot) {
     // apply something
     bthread::CountdownEvent cond(10);
     for (int i = 0; i < 10; i++) {
-        base::IOBuf data;
+        butil::IOBuf data;
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
         data.append(data_buf);
 
-        raft::Task task;
+        braft::Task task;
         task.data = &data;
         task.done = NEW_APPLYCLOSURE(&cond, 0);
         node.apply(task);
@@ -1604,29 +1607,29 @@ TEST_F(RaftTestSuits, NoSnapshot) {
 }
 
 TEST_F(RaftTestSuits, AutoSnapshot) {
-    baidu::rpc::Server server;
-    baidu::rpc::ServerOptions server_options;
-    int ret = raft::add_service(&server, "0.0.0.0:5006");
+    brpc::Server server;
+    brpc::ServerOptions server_options;
+    int ret = braft::add_service(&server, "0.0.0.0:5006");
     ASSERT_EQ(0, ret);
     ASSERT_EQ(0, server.Start(5006, &server_options));
 
-    raft::PeerId peer;
-    peer.addr.ip = base::get_host_ip();
+    braft::PeerId peer;
+    peer.addr.ip = butil::get_host_ip();
     peer.addr.port = 5006;
     peer.idx = 0;
-    std::vector<raft::PeerId> peers;
+    std::vector<braft::PeerId> peers;
     peers.push_back(peer);
 
-    raft::NodeOptions options;
+    braft::NodeOptions options;
     options.election_timeout_ms = 300;
-    options.initial_conf = raft::Configuration(peers);
-    options.fsm = new MockFSM(base::EndPoint());
+    options.initial_conf = braft::Configuration(peers);
+    options.fsm = new MockFSM(butil::EndPoint());
     options.log_uri = "local://./data/log";
     options.stable_uri = "local://./data/stable";
     options.snapshot_uri = "local://./data/snapshot";
     options.snapshot_interval_s = 10;
 
-    raft::Node node("unittest", peer);
+    braft::Node node("unittest", peer);
     ASSERT_EQ(0, node.init(options));
 
     // wait node elect to leader
@@ -1635,12 +1638,12 @@ TEST_F(RaftTestSuits, AutoSnapshot) {
     // apply something
     bthread::CountdownEvent cond(10);
     for (int i = 0; i < 10; i++) {
-        base::IOBuf data;
+        butil::IOBuf data;
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
         data.append(data_buf);
 
-        raft::Task task;
+        braft::Task task;
         task.data = &data;
         task.done = NEW_APPLYCLOSURE(&cond, 0);
         node.apply(task);
@@ -1661,10 +1664,10 @@ TEST_F(RaftTestSuits, AutoSnapshot) {
 }
 
 TEST_F(RaftTestSuits, LeaderShouldNotChange) {
-    std::vector<raft::PeerId> peers;
+    std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
-        raft::PeerId peer;
-        peer.addr.ip = base::get_host_ip();
+        braft::PeerId peer;
+        peer.addr.ip = butil::get_host_ip();
         peer.addr.port = 5006 + i;
         peer.idx = 0;
 
@@ -1679,13 +1682,13 @@ TEST_F(RaftTestSuits, LeaderShouldNotChange) {
 
     // elect leader
     cluster.wait_leader();
-    raft::Node* leader0 = cluster.leader();
+    braft::Node* leader0 = cluster.leader();
     ASSERT_TRUE(leader0 != NULL);
     LOG(WARNING) << "leader is " << leader0->node_id();
     const int64_t saved_term = leader0->_impl->_current_term;
     usleep(5000 * 1000);
     cluster.wait_leader();
-    raft::Node* leader1 = cluster.leader();
+    braft::Node* leader1 = cluster.leader();
     LOG(WARNING) << "leader is " << leader1->node_id();
     ASSERT_EQ(leader0, leader1);
     ASSERT_EQ(saved_term, leader1->_impl->_current_term);
@@ -1693,10 +1696,10 @@ TEST_F(RaftTestSuits, LeaderShouldNotChange) {
 }
 
 TEST_F(RaftTestSuits, RecoverFollower) {
-    std::vector<raft::PeerId> peers;
+    std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
-        raft::PeerId peer;
-        peer.addr.ip = base::get_host_ip();
+        braft::PeerId peer;
+        peer.addr.ip = butil::get_host_ip();
         peer.addr.port = 5006 + i;
         peer.idx = 0;
 
@@ -1711,37 +1714,37 @@ TEST_F(RaftTestSuits, RecoverFollower) {
 
     // elect leader
     cluster.wait_leader();
-    raft::Node* leader = cluster.leader();
+    braft::Node* leader = cluster.leader();
     ASSERT_TRUE(leader != NULL);
     LOG(WARNING) << "leader is " << leader->node_id();
 
     usleep(1000 * 1000);
-    std::vector<raft::Node*> nodes;
+    std::vector<braft::Node*> nodes;
     cluster.followers(&nodes);
     ASSERT_FALSE(nodes.empty());
-    const base::EndPoint follower_addr = nodes[0]->_impl->_server_id.addr;
+    const butil::EndPoint follower_addr = nodes[0]->_impl->_server_id.addr;
     cluster.stop(follower_addr);
 
     // apply something
     bthread::CountdownEvent cond(10);
     for (int i = 0; i < 10; i++) {
-        base::IOBuf data;
+        butil::IOBuf data;
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
         data.append(data_buf);
 
-        raft::Task task;
+        braft::Task task;
         task.data = &data;
         task.done = NEW_APPLYCLOSURE(&cond, 0);
         leader->apply(task);
     }
     cond.wait();
     {
-        base::IOBuf data;
+        butil::IOBuf data;
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "no closure");
         data.append(data_buf);
-        raft::Task task;
+        braft::Task task;
         task.data = &data;
         leader->apply(task);
     }
@@ -1759,10 +1762,10 @@ TEST_F(RaftTestSuits, RecoverFollower) {
 }
 
 TEST_F(RaftTestSuits, leader_transfer) {
-    std::vector<raft::PeerId> peers;
+    std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
-        raft::PeerId peer;
-        peer.addr.ip = base::get_host_ip();
+        braft::PeerId peer;
+        peer.addr.ip = butil::get_host_ip();
         peer.addr.port = 5006 + i;
         peer.idx = 0;
 
@@ -1776,12 +1779,12 @@ TEST_F(RaftTestSuits, leader_transfer) {
     }
     // elect leader
     cluster.wait_leader();
-    raft::Node* leader = cluster.leader();
+    braft::Node* leader = cluster.leader();
     ASSERT_TRUE(leader != NULL);
     LOG(WARNING) << "leader is " << leader->node_id();
-    std::vector<raft::Node*> nodes;
+    std::vector<braft::Node*> nodes;
     cluster.followers(&nodes);
-    raft::PeerId target = nodes[0]->node_id().peer_id;
+    braft::PeerId target = nodes[0]->node_id().peer_id;
     ASSERT_EQ(0, leader->transfer_leadership_to(target));
     usleep(10 * 1000);
     cluster.wait_leader();
@@ -1792,10 +1795,10 @@ TEST_F(RaftTestSuits, leader_transfer) {
 }
 
 TEST_F(RaftTestSuits, leader_transfer_before_log_is_compleleted) {
-    std::vector<raft::PeerId> peers;
+    std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
-        raft::PeerId peer;
-        peer.addr.ip = base::get_host_ip();
+        braft::PeerId peer;
+        peer.addr.ip = butil::get_host_ip();
         peer.addr.port = 5006 + i;
         peer.idx = 0;
 
@@ -1809,21 +1812,21 @@ TEST_F(RaftTestSuits, leader_transfer_before_log_is_compleleted) {
     }
     // elect leader
     cluster.wait_leader();
-    raft::Node* leader = cluster.leader();
+    braft::Node* leader = cluster.leader();
     ASSERT_TRUE(leader != NULL);
     LOG(WARNING) << "leader is " << leader->node_id();
-    std::vector<raft::Node*> nodes;
+    std::vector<braft::Node*> nodes;
     cluster.followers(&nodes);
-    raft::PeerId target = nodes[0]->node_id().peer_id;
+    braft::PeerId target = nodes[0]->node_id().peer_id;
     cluster.stop(target.addr);
     // apply something
     bthread::CountdownEvent cond(10);
     for (int i = 0; i < 10; i++) {
-        base::IOBuf data;
+        butil::IOBuf data;
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
         data.append(data_buf);
-        raft::Task task;
+        braft::Task task;
         task.data = &data;
         task.done = NEW_APPLYCLOSURE(&cond, 0);
         leader->apply(task);
@@ -1831,8 +1834,8 @@ TEST_F(RaftTestSuits, leader_transfer_before_log_is_compleleted) {
     cond.wait();
     ASSERT_EQ(0, leader->transfer_leadership_to(target));
     cond.reset(1);
-    raft::Task task;
-    base::IOBuf data;
+    braft::Task task;
+    butil::IOBuf data;
     data.resize(5, 'a');
     task.data = &data;
     task.done = NEW_APPLYCLOSURE(&cond, EBUSY);
@@ -1849,10 +1852,10 @@ TEST_F(RaftTestSuits, leader_transfer_before_log_is_compleleted) {
 }
 
 TEST_F(RaftTestSuits, leader_transfer_resume_on_failure) {
-    std::vector<raft::PeerId> peers;
+    std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
-        raft::PeerId peer;
-        peer.addr.ip = base::get_host_ip();
+        braft::PeerId peer;
+        peer.addr.ip = butil::get_host_ip();
         peer.addr.port = 5006 + i;
         peer.idx = 0;
 
@@ -1866,31 +1869,31 @@ TEST_F(RaftTestSuits, leader_transfer_resume_on_failure) {
     }
     // elect leader
     cluster.wait_leader();
-    raft::Node* leader = cluster.leader();
+    braft::Node* leader = cluster.leader();
     ASSERT_TRUE(leader != NULL);
     LOG(WARNING) << "leader is " << leader->node_id();
-    std::vector<raft::Node*> nodes;
+    std::vector<braft::Node*> nodes;
     cluster.followers(&nodes);
-    raft::PeerId target = nodes[0]->node_id().peer_id;
+    braft::PeerId target = nodes[0]->node_id().peer_id;
     cluster.stop(target.addr);
     // apply something
     bthread::CountdownEvent cond(10);
     for (int i = 0; i < 10; i++) {
-        base::IOBuf data;
+        butil::IOBuf data;
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
         data.append(data_buf);
-        raft::Task task;
+        braft::Task task;
         task.data = &data;
         task.done = NEW_APPLYCLOSURE(&cond, 0);
         leader->apply(task);
     }
     cond.wait();
     ASSERT_EQ(0, leader->transfer_leadership_to(target));
-    raft::Node* saved_leader = leader;
+    braft::Node* saved_leader = leader;
     cond.reset(1);
-    raft::Task task;
-    base::IOBuf data;
+    braft::Task task;
+    butil::IOBuf data;
     data.resize(5, 'a');
     task.data = &data;
     task.done = NEW_APPLYCLOSURE(&cond, EBUSY);
@@ -1917,44 +1920,44 @@ TEST_F(RaftTestSuits, leader_transfer_resume_on_failure) {
 
 class MockFSM1 : public MockFSM {
 protected:
-    MockFSM1() : MockFSM(base::EndPoint()) {}
-    virtual int on_snapshot_load(raft::SnapshotReader* reader) {
+    MockFSM1() : MockFSM(butil::EndPoint()) {}
+    virtual int on_snapshot_load(braft::SnapshotReader* reader) {
         (void)reader;
         return -1;
     }
 };
 
 TEST_F(RaftTestSuits, shutdown_and_join_work_after_init_fails) {
-    baidu::rpc::Server server;
-    int ret = raft::add_service(&server, 5006);
+    brpc::Server server;
+    int ret = braft::add_service(&server, 5006);
     server.Start(5006, NULL);
     ASSERT_EQ(0, ret);
 
-    raft::PeerId peer;
-    peer.addr.ip = base::get_host_ip();
+    braft::PeerId peer;
+    peer.addr.ip = butil::get_host_ip();
     peer.addr.port = 5006;
     peer.idx = 0;
-    std::vector<raft::PeerId> peers;
+    std::vector<braft::PeerId> peers;
     peers.push_back(peer);
 
     {
-        raft::NodeOptions options;
+        braft::NodeOptions options;
         options.election_timeout_ms = 300;
-        options.initial_conf = raft::Configuration(peers);
+        options.initial_conf = braft::Configuration(peers);
         options.fsm = new MockFSM1();
         options.log_uri = "local://./data/log";
         options.stable_uri = "local://./data/stable";
         options.snapshot_uri = "local://./data/snapshot";
-        raft::Node node("unittest", peer);
+        braft::Node node("unittest", peer);
         ASSERT_EQ(0, node.init(options));
         sleep(1);
         bthread::CountdownEvent cond(10);
         for (int i = 0; i < 10; i++) {
-            base::IOBuf data;
+            butil::IOBuf data;
             char data_buf[128];
             snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
             data.append(data_buf);
-            raft::Task task;
+            braft::Task task;
             task.data = &data;
             task.done = NEW_APPLYCLOSURE(&cond, 0);
             node.apply(task);
@@ -1968,14 +1971,14 @@ TEST_F(RaftTestSuits, shutdown_and_join_work_after_init_fails) {
     }
     
     {
-        raft::NodeOptions options;
+        braft::NodeOptions options;
         options.election_timeout_ms = 300;
-        options.initial_conf = raft::Configuration(peers);
+        options.initial_conf = braft::Configuration(peers);
         options.fsm = new MockFSM1();
         options.log_uri = "local://./data/log";
         options.stable_uri = "local://./data/stable";
         options.snapshot_uri = "local://./data/snapshot";
-        raft::Node node("unittest", peer);
+        braft::Node node("unittest", peer);
         LOG(INFO) << "node init again";
         ASSERT_NE(0, node.init(options));
         node.shutdown(NULL);
@@ -1988,10 +1991,10 @@ TEST_F(RaftTestSuits, shutdown_and_join_work_after_init_fails) {
 
 TEST_F(RaftTestSuits, shutting_leader_triggers_timeout_now) {
     google::SetCommandLineOption("raft_sync", "false");
-    std::vector<raft::PeerId> peers;
+    std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
-        raft::PeerId peer;
-        peer.addr.ip = base::get_host_ip();
+        braft::PeerId peer;
+        peer.addr.ip = butil::get_host_ip();
         peer.addr.port = 5006 + i;
         peer.idx = 0;
         peers.push_back(peer);
@@ -2002,7 +2005,7 @@ TEST_F(RaftTestSuits, shutting_leader_triggers_timeout_now) {
         ASSERT_EQ(0, cluster.start(peers[i].addr));
     }
     cluster.wait_leader();
-    raft::Node* leader = cluster.leader();
+    braft::Node* leader = cluster.leader();
     ASSERT_TRUE(leader != NULL);
     LOG(INFO) << "shutdown leader" << leader->node_id();
     leader->shutdown(NULL);
@@ -2016,10 +2019,10 @@ TEST_F(RaftTestSuits, shutting_leader_triggers_timeout_now) {
 
 TEST_F(RaftTestSuits, removing_leader_triggers_timeout_now) {
     google::SetCommandLineOption("raft_sync", "false");
-    std::vector<raft::PeerId> peers;
+    std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
-        raft::PeerId peer;
-        peer.addr.ip = base::get_host_ip();
+        braft::PeerId peer;
+        peer.addr.ip = butil::get_host_ip();
         peer.addr.port = 5006 + i;
         peer.idx = 0;
         peers.push_back(peer);
@@ -2030,9 +2033,9 @@ TEST_F(RaftTestSuits, removing_leader_triggers_timeout_now) {
         ASSERT_EQ(0, cluster.start(peers[i].addr));
     }
     cluster.wait_leader();
-    raft::Node* leader = cluster.leader();
+    braft::Node* leader = cluster.leader();
     ASSERT_TRUE(leader != NULL);
-    raft::PeerId old_leader_id = leader->node_id().peer_id;
+    braft::PeerId old_leader_id = leader->node_id().peer_id;
     LOG(WARNING) << "remove leader " << old_leader_id;
     bthread::CountdownEvent cond;
     leader->remove_peer(peers, old_leader_id, NEW_REMOVEPEERCLOSURE(&cond, 0));
@@ -2045,10 +2048,10 @@ TEST_F(RaftTestSuits, removing_leader_triggers_timeout_now) {
 }
 
 TEST_F(RaftTestSuits, transfer_should_work_after_install_snapshot) {
-    std::vector<raft::PeerId> peers;
+    std::vector<braft::PeerId> peers;
     for (size_t i = 0; i < 3; ++i) {
-        raft::PeerId peer;
-        peer.addr.ip = base::get_host_ip();
+        braft::PeerId peer;
+        peer.addr.ip = butil::get_host_ip();
         peer.addr.port = 5006 + i;
         peer.idx = 0;
         peers.push_back(peer);
@@ -2059,24 +2062,24 @@ TEST_F(RaftTestSuits, transfer_should_work_after_install_snapshot) {
         ASSERT_EQ(0, cluster.start(peers[i].addr));
     }
     cluster.wait_leader();
-    raft::Node* leader = cluster.leader();
+    braft::Node* leader = cluster.leader();
     ASSERT_TRUE(leader != NULL);
     bthread::CountdownEvent cond(10);
     for (int i = 0; i < 10; i++) {
-        base::IOBuf data;
+        butil::IOBuf data;
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
         data.append(data_buf);
-        raft::Task task;
+        braft::Task task;
         task.data = &data;
         task.done = NEW_APPLYCLOSURE(&cond, 0);
         leader->apply(task);
     }
     cond.wait();
-    std::vector<raft::Node*> nodes;
+    std::vector<braft::Node*> nodes;
     cluster.followers(&nodes);
     ASSERT_EQ(1, nodes.size());
-    raft::PeerId follower = nodes[0]->node_id().peer_id;
+    braft::PeerId follower = nodes[0]->node_id().peer_id;
     leader->transfer_leadership_to(follower);
     usleep(2000 * 1000);
     leader = cluster.leader();
@@ -2089,7 +2092,7 @@ TEST_F(RaftTestSuits, transfer_should_work_after_install_snapshot) {
     cond.wait();
 
     // Start the last peer which should be recover with snapshot
-    raft::PeerId last_peer = peers.back(); 
+    braft::PeerId last_peer = peers.back(); 
     cluster.start(last_peer.addr);
     usleep(5000 * 1000);
 
@@ -2101,11 +2104,11 @@ TEST_F(RaftTestSuits, transfer_should_work_after_install_snapshot) {
 }
 
 TEST_F(RaftTestSuits, append_entries_when_follower_is_in_error_state) {
-    std::vector<raft::PeerId> peers;
+    std::vector<braft::PeerId> peers;
     // five nodes
     for (int i = 0; i < 5; i++) {
-        raft::PeerId peer;
-        peer.addr.ip = base::get_host_ip();
+        braft::PeerId peer;
+        peer.addr.ip = butil::get_host_ip();
         peer.addr.port = 5006 + i;
         peer.idx = 0;
         peers.push_back(peer);
@@ -2119,18 +2122,18 @@ TEST_F(RaftTestSuits, append_entries_when_follower_is_in_error_state) {
 
     // elect leader
     cluster.wait_leader();
-    raft::Node* leader = cluster.leader();
+    braft::Node* leader = cluster.leader();
     ASSERT_TRUE(leader != NULL);
     LOG(WARNING) << "leader is " << leader->node_id();
 
     // apply something
     bthread::CountdownEvent cond(10);
     for (int i = 0; i < 10; i++) {
-        base::IOBuf data;
+        butil::IOBuf data;
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
         data.append(data_buf);
-        raft::Task task;
+        braft::Task task;
         task.data = &data;
         task.done = NEW_APPLYCLOSURE(&cond, 0);
         leader->apply(task);
@@ -2138,22 +2141,22 @@ TEST_F(RaftTestSuits, append_entries_when_follower_is_in_error_state) {
     cond.wait();
 
     // set the first Follower to Error state
-    std::vector<raft::Node*> nodes;
+    std::vector<braft::Node*> nodes;
     cluster.followers(&nodes);
     ASSERT_EQ(nodes.size(), 4);
-    base::EndPoint error_follower = nodes[0]->node_id().peer_id.addr;
-    raft::Node* error_follower_node = nodes[0];
+    butil::EndPoint error_follower = nodes[0]->node_id().peer_id.addr;
+    braft::Node* error_follower_node = nodes[0];
     LOG(WARNING) << "set follower error " << nodes[0]->node_id();
-    raft::NodeImpl *node_impl = nodes[0]->_impl;
+    braft::NodeImpl *node_impl = nodes[0]->_impl;
     node_impl->AddRef();
-    raft::Error e;
-    e.set_type(raft::ERROR_TYPE_STATE_MACHINE);
+    braft::Error e;
+    e.set_type(braft::ERROR_TYPE_STATE_MACHINE);
     e.status().set_error(EINVAL, "Follower has something wrong");
     node_impl->on_error(e);
     node_impl->Release();
 
     // increase term  by stopping leader and electing a new leader again
-    base::EndPoint old_leader = leader->node_id().peer_id.addr;
+    butil::EndPoint old_leader = leader->node_id().peer_id.addr;
     LOG(WARNING) << "stop leader " << leader->node_id();
     cluster.stop(old_leader);
     // elect new leader
@@ -2165,11 +2168,11 @@ TEST_F(RaftTestSuits, append_entries_when_follower_is_in_error_state) {
     // apply something again 
     cond.reset(10);
     for (int i = 10; i < 20; i++) {
-        base::IOBuf data;
+        butil::IOBuf data;
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
         data.append(data_buf);
-        raft::Task task;
+        braft::Task task;
         task.data = &data;
         task.done = NEW_APPLYCLOSURE(&cond, 0);
         leader->apply(task);
@@ -2196,11 +2199,11 @@ TEST_F(RaftTestSuits, append_entries_when_follower_is_in_error_state) {
 }
 
 TEST_F(RaftTestSuits, on_start_following_and_on_stop_following) {
-    std::vector<raft::PeerId> peers;
+    std::vector<braft::PeerId> peers;
     // five nodes
     for (int i = 0; i < 5; i++) {
-        raft::PeerId peer;
-        peer.addr.ip = base::get_host_ip();
+        braft::PeerId peer;
+        peer.addr.ip = butil::get_host_ip();
         peer.addr.port = 5006 + i;
         peer.idx = 0;
         peers.push_back(peer);
@@ -2214,18 +2217,18 @@ TEST_F(RaftTestSuits, on_start_following_and_on_stop_following) {
 
     // elect leader_first
     cluster.wait_leader();
-    raft::Node* leader_first = cluster.leader();
+    braft::Node* leader_first = cluster.leader();
     ASSERT_TRUE(leader_first != NULL);
     LOG(WARNING) << "leader_first is " << leader_first->node_id();
 
     // apply something
     bthread::CountdownEvent cond(10);
     for (int i = 0; i < 10; i++) {
-        base::IOBuf data;
+        butil::IOBuf data;
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
         data.append(data_buf);
-        raft::Task task;
+        braft::Task task;
         task.data = &data;
         task.done = NEW_APPLYCLOSURE(&cond, 0);
         leader_first->apply(task);
@@ -2233,7 +2236,7 @@ TEST_F(RaftTestSuits, on_start_following_and_on_stop_following) {
     cond.wait();
    
     // check _on_start_following_times and _on_stop_following_times
-    std::vector<raft::Node*> followers_first;
+    std::vector<braft::Node*> followers_first;
     cluster.followers(&followers_first);
     ASSERT_EQ(followers_first.size(), 4);
     // leader_first's _on_start_following_times and _on_stop_following_times should both be 0.
@@ -2245,23 +2248,23 @@ TEST_F(RaftTestSuits, on_start_following_and_on_stop_following) {
     }
 
     // stop old leader and elect a new one
-    base::EndPoint leader_first_endpoint = leader_first->node_id().peer_id.addr;
+    butil::EndPoint leader_first_endpoint = leader_first->node_id().peer_id.addr;
     LOG(WARNING) << "stop leader_first " << leader_first->node_id();
     cluster.stop(leader_first_endpoint);
     // elect new leader
     cluster.wait_leader();
-    raft::Node* leader_second = cluster.leader();
+    braft::Node* leader_second = cluster.leader();
     ASSERT_TRUE(leader_second != NULL);
     LOG(WARNING) << "elect new leader " << leader_second->node_id();
 
     // apply something
     cond.reset(10);
     for (int i = 0; i < 10; i++) {
-        base::IOBuf data;
+        butil::IOBuf data;
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
         data.append(data_buf);
-        raft::Task task;
+        braft::Task task;
         task.data = &data;
         task.done = NEW_APPLYCLOSURE(&cond, 0);
         leader_second->apply(task);
@@ -2269,7 +2272,7 @@ TEST_F(RaftTestSuits, on_start_following_and_on_stop_following) {
     cond.wait();
  
     // check _on_start_following_times and _on_stop_following_times again
-    std::vector<raft::Node*> followers_second;
+    std::vector<braft::Node*> followers_second;
     cluster.followers(&followers_second);
     ASSERT_EQ(followers_second.size(), 3);
     // leader_second's _on_start_following_times and _on_stop_following_times should both be 1.
@@ -2288,21 +2291,21 @@ TEST_F(RaftTestSuits, on_start_following_and_on_stop_following) {
     }
 
     // transfer leadership to a follower
-    raft::PeerId target = followers_second[0]->node_id().peer_id;
+    braft::PeerId target = followers_second[0]->node_id().peer_id;
     ASSERT_EQ(0, leader_second->transfer_leadership_to(target));
     usleep(10 * 1000);
     cluster.wait_leader();
-    raft::Node* leader_third = cluster.leader();
+    braft::Node* leader_third = cluster.leader();
     ASSERT_EQ(target, leader_third->node_id().peer_id);
     
     // apply something
     cond.reset(10);
     for (int i = 0; i < 10; i++) {
-        base::IOBuf data;
+        butil::IOBuf data;
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
         data.append(data_buf);
-        raft::Task task;
+        braft::Task task;
         task.data = &data;
         task.done = NEW_APPLYCLOSURE(&cond, 0);
         leader_third->apply(task);
@@ -2310,7 +2313,7 @@ TEST_F(RaftTestSuits, on_start_following_and_on_stop_following) {
     cond.wait();
     
     // check _on_start_following_times and _on_stop_following_times again 
-    std::vector<raft::Node*> followers_third;
+    std::vector<braft::Node*> followers_third;
     cluster.followers(&followers_third);
     ASSERT_EQ(followers_second.size(), 3);
     // leader_third's _on_start_following_times and _on_stop_following_times should both be 2.
@@ -2338,10 +2341,10 @@ TEST_F(RaftTestSuits, on_start_following_and_on_stop_following) {
 }
 
 TEST_F(RaftTestSuits, read_committed_user_log) {
-    std::vector<raft::PeerId> peers;
+    std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
-        raft::PeerId peer;
-        peer.addr.ip = base::get_host_ip();
+        braft::PeerId peer;
+        peer.addr.ip = butil::get_host_ip();
         peer.addr.port = 5006 + i;
         peer.idx = 0;
         peers.push_back(peer);
@@ -2355,18 +2358,18 @@ TEST_F(RaftTestSuits, read_committed_user_log) {
 
     // elect leader_first
     cluster.wait_leader();
-    raft::Node* leader = cluster.leader();
+    braft::Node* leader = cluster.leader();
     ASSERT_TRUE(leader != NULL);
     LOG(WARNING) << "leader is " << leader->node_id();
 
     // apply something
     bthread::CountdownEvent cond(10);
     for (int i = 0; i < 10; i++) {
-        base::IOBuf data;
+        butil::IOBuf data;
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
         data.append(data_buf);
-        raft::Task task;
+        braft::Task task;
         task.data = &data;
         task.done = NEW_APPLYCLOSURE(&cond, 0);
         leader->apply(task);
@@ -2376,8 +2379,8 @@ TEST_F(RaftTestSuits, read_committed_user_log) {
     
     // index == 1 is a CONFIGURATION log, so real_index will be 2 when returned.
     int64_t index = 1;
-    raft::UserLog* user_log = new raft::UserLog();
-    base::Status status = leader->read_committed_user_log(index, user_log);
+    braft::UserLog* user_log = new braft::UserLog();
+    butil::Status status = leader->read_committed_user_log(index, user_log);
     ASSERT_EQ(0, status.error_code());
     ASSERT_EQ(2, user_log->log_index());
     LOG(INFO) << "read local committed user log from leader:" << leader->node_id() << ", index:"
@@ -2398,7 +2401,7 @@ TEST_F(RaftTestSuits, read_committed_user_log) {
     index = 15;
     user_log->reset();
     status = leader->read_committed_user_log(index, user_log);
-    ASSERT_EQ(raft::ENOMOREUSERLOG, status.error_code());
+    ASSERT_EQ(braft::ENOMOREUSERLOG, status.error_code());
     LOG(INFO) << "read local committed user log from leader:" << leader->node_id() << ", index:"
         << index << ", real_index:" << user_log->log_index() << ", data:" << user_log->log_data() 
         << ", status:" << status; 
@@ -2419,15 +2422,15 @@ TEST_F(RaftTestSuits, read_committed_user_log) {
     cond.wait();
     
     // remove and add a peer to add two CONFIGURATION logs
-    std::vector<raft::Node*> followers;
+    std::vector<braft::Node*> followers;
     cluster.followers(&followers);
-    raft::PeerId follower_test = followers[0]->node_id().peer_id;
+    braft::PeerId follower_test = followers[0]->node_id().peer_id;
     leader->remove_peer(peers, follower_test, NEW_REMOVEPEERCLOSURE(&cond, 0));
     sleep(2);
-    std::vector<raft::PeerId> new_peers;
+    std::vector<braft::PeerId> new_peers;
     for (int i = 0; i < 3; i++) {
-        raft::PeerId peer;
-        peer.addr.ip = base::get_host_ip();
+        braft::PeerId peer;
+        peer.addr.ip = butil::get_host_ip();
         peer.addr.port = 5006 + i;
         peer.idx = 0;
 
@@ -2441,11 +2444,11 @@ TEST_F(RaftTestSuits, read_committed_user_log) {
     // apply something again
     cond.reset(10);
     for (int i = 10; i < 20; i++) {
-        base::IOBuf data;
+        butil::IOBuf data;
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
         data.append(data_buf);
-        raft::Task task;
+        braft::Task task;
         task.data = &data;
         task.done = NEW_APPLYCLOSURE(&cond, 0);
         leader->apply(task);
@@ -2462,7 +2465,7 @@ TEST_F(RaftTestSuits, read_committed_user_log) {
     index = 5;
     user_log->reset();
     status = leader->read_committed_user_log(index, user_log);
-    ASSERT_EQ(raft::ELOGDELETED, status.error_code());
+    ASSERT_EQ(braft::ELOGDELETED, status.error_code());
     LOG(INFO) << "read local committed user log from leader:" << leader->node_id() << ", index:"
         << index << ", real_index:" << user_log->log_index() << ", data:" << user_log->log_data() 
         << ", status:" << status; 
@@ -2494,28 +2497,28 @@ TEST_F(RaftTestSuits, read_committed_user_log) {
 }
 
 TEST_F(RaftTestSuits, boostrap_with_snapshot) {
-    base::EndPoint addr;
-    ASSERT_EQ(0, base::str2endpoint("127.0.0.1:5006", &addr));
+    butil::EndPoint addr;
+    ASSERT_EQ(0, butil::str2endpoint("127.0.0.1:5006", &addr));
     MockFSM fsm(addr);
     for (char c = 'a'; c <= 'z'; ++c) {
-        base::IOBuf buf;
+        butil::IOBuf buf;
         buf.resize(100, c);
         fsm.logs.push_back(buf);
     }
-    raft::BootstrapOptions boptions;
+    braft::BootstrapOptions boptions;
     boptions.last_log_index = fsm.logs.size();
     boptions.log_uri = "local://./data/log";
     boptions.stable_uri = "local://./data/stable";
     boptions.snapshot_uri = "local://./data/snapshot";
-    boptions.group_conf.add_peer(raft::PeerId(addr));
+    boptions.group_conf.add_peer(braft::PeerId(addr));
     boptions.node_owns_fsm = false;
     boptions.fsm = &fsm;
-    ASSERT_EQ(0, raft::bootstrap(boptions));
-    baidu::rpc::Server server;
-    ASSERT_EQ(0, raft::add_service(&server, addr));
+    ASSERT_EQ(0, braft::bootstrap(boptions));
+    brpc::Server server;
+    ASSERT_EQ(0, braft::add_service(&server, addr));
     ASSERT_EQ(0, server.Start(addr, NULL));
-    raft::Node node("test", raft::PeerId(addr));
-    raft::NodeOptions options;
+    braft::Node node("test", braft::PeerId(addr));
+    braft::NodeOptions options;
     options.log_uri = "local://./data/log";
     options.stable_uri = "local://./data/stable";
     options.snapshot_uri = "local://./data/snapshot";
@@ -2536,20 +2539,20 @@ TEST_F(RaftTestSuits, boostrap_with_snapshot) {
 }
 
 TEST_F(RaftTestSuits, boostrap_without_snapshot) {
-    base::EndPoint addr;
-    ASSERT_EQ(0, base::str2endpoint("127.0.0.1:5006", &addr));
-    raft::BootstrapOptions boptions;
+    butil::EndPoint addr;
+    ASSERT_EQ(0, butil::str2endpoint("127.0.0.1:5006", &addr));
+    braft::BootstrapOptions boptions;
     boptions.last_log_index = 0;
     boptions.log_uri = "local://./data/log";
     boptions.stable_uri = "local://./data/stable";
     boptions.snapshot_uri = "local://./data/snapshot";
-    boptions.group_conf.add_peer(raft::PeerId(addr));
-    ASSERT_EQ(0, raft::bootstrap(boptions));
-    baidu::rpc::Server server;
-    ASSERT_EQ(0, raft::add_service(&server, addr));
+    boptions.group_conf.add_peer(braft::PeerId(addr));
+    ASSERT_EQ(0, braft::bootstrap(boptions));
+    brpc::Server server;
+    ASSERT_EQ(0, braft::add_service(&server, addr));
     ASSERT_EQ(0, server.Start(addr, NULL));
-    raft::Node node("test", raft::PeerId(addr));
-    raft::NodeOptions options;
+    braft::Node node("test", braft::PeerId(addr));
+    braft::NodeOptions options;
     options.log_uri = "local://./data/log";
     options.stable_uri = "local://./data/stable";
     options.snapshot_uri = "local://./data/snapshot";

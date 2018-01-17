@@ -4,9 +4,8 @@
 // Date: 2016/04/11 12:15:37
 
 #include <gtest/gtest.h>
-#include <raft/util.h>
-#include <base/crc32c.h>
-#include <util/crc32c.h>
+#include <braft/util.h>
+#include <butil/crc32c.h>
 
 class ChecksumTest : public testing::Test {
 protected:
@@ -17,34 +16,26 @@ protected:
 TEST_F(ChecksumTest, benchmark) {
     char data[4096];
     for (size_t i = 0; i < ARRAY_SIZE(data); ++i) {
-        data[i] = base::fast_rand_in('a', 'z');
+        data[i] = butil::fast_rand_in('a', 'z');
     }
-    base::Timer timer;
+    butil::Timer timer;
     const size_t N = 10000;
     timer.start();
     for (size_t i = 0; i < N; ++i) {
-        raft::murmurhash32(data, sizeof(data));
+        braft::murmurhash32(data, sizeof(data));
     }
     timer.stop();
     const long mur_elp = timer.u_elapsed();
     
     timer.start();
     for (size_t i = 0; i < N; ++i) {
-        base::crc32c::Value(data, sizeof(data));
+        butil::crc32c::Value(data, sizeof(data));
     }
     timer.stop();
     const long crc_elp = timer.u_elapsed();
 
-    timer.start();
-    for (size_t i = 0; i < N; ++i) {
-        leveldb::crc32c::Value(data, sizeof(data));
-    }
-    timer.stop();
-    const long leveldb_crc_elp = timer.u_elapsed();
-
     LOG(INFO) << "murmurhash32_TP=" << sizeof(data) * N / (double)mur_elp << "MB/s"
-              << " base_crc32_TP=" << sizeof(data) * N / (double)crc_elp << "MB/s"
-              << " leveldb_crc32_TP=" << sizeof(data) * N / (double)leveldb_crc_elp << "MB/s";
-    LOG(INFO) << "base_is_fast_crc32_support=" << base::crc32c::IsFastCrc32Supported();
+              << " base_crc32_TP=" << sizeof(data) * N / (double)crc_elp << "MB/s";
+    LOG(INFO) << "base_is_fast_crc32_support=" << butil::crc32c::IsFastCrc32Supported();
 
 }

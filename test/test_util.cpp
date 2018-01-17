@@ -1,26 +1,17 @@
-/*
- * =====================================================================================
- *
- *       Filename:  test_util.cpp
- *
- *    Description:  
- *
- *        Version:  1.0
- *        Created:  2015年11月06日 17时48分54秒
- *       Revision:  none
- *       Compiler:  gcc
- *
- *         Author:  WangYao (fisherman), wangyao02@baidu.com
- *        Company:  Baidu, Inc
- *
- * =====================================================================================
- */
+// libraft - Quorum-based replication of states accross machines.
+// Copyright (c) 2015 Baidu.com, Inc. All Rights Reserved
+
+// Author: WangYao (fisherman), wangyao02@baidu.com
+// Date: 2015/10/08 17:00:05
 
 #include <gtest/gtest.h>
-#include <base/logging.h>
-#include <base/files/scoped_temp_dir.h>
+#include <butil/logging.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <butil/files/scoped_temp_dir.h>
 
-#include "raft/util.h"
+#include "braft/util.h"
 
 class TestUsageSuits : public testing::Test {
 protected:
@@ -64,16 +55,16 @@ TEST_F(TestUsageSuits, lock) {
 }
 
 TEST_F(TestUsageSuits, get_host_ip) {
-    base::ip_t not_exist_ip = base::get_host_ip_by_interface("not_exist");
-    ASSERT_EQ(not_exist_ip, base::IP_ANY);
+    butil::ip_t not_exist_ip = butil::get_host_ip_by_interface("not_exist");
+    ASSERT_EQ(not_exist_ip, butil::IP_ANY);
 
-    base::ip_t host_ip = base::get_host_ip();
-    base::ip_t xgbe0_ip = base::get_host_ip_by_interface("xgbe0");
-    base::ip_t xgbe1_ip = base::get_host_ip_by_interface("xgbe1");
-    base::ip_t eth1_ip = base::get_host_ip_by_interface("eth1");
-    base::ip_t eth0_ip = base::get_host_ip_by_interface("eth0");
-    base::ip_t bond0_ip = base::get_host_ip_by_interface("bond0");
-    base::ip_t brex_ip = base::get_host_ip_by_interface("br-ex");
+    butil::ip_t host_ip = butil::get_host_ip();
+    butil::ip_t xgbe0_ip = butil::get_host_ip_by_interface("xgbe0");
+    butil::ip_t xgbe1_ip = butil::get_host_ip_by_interface("xgbe1");
+    butil::ip_t eth1_ip = butil::get_host_ip_by_interface("eth1");
+    butil::ip_t eth0_ip = butil::get_host_ip_by_interface("eth0");
+    butil::ip_t bond0_ip = butil::get_host_ip_by_interface("bond0");
+    butil::ip_t brex_ip = butil::get_host_ip_by_interface("br-ex");
 
     ASSERT_TRUE(host_ip == xgbe0_ip || host_ip == xgbe1_ip ||
                 host_ip == eth1_ip || host_ip == eth0_ip ||
@@ -85,53 +76,53 @@ TEST_F(TestUsageSuits, murmurhash) {
     for (int i = 0; i < 1024*1024; i++) {
         data[i] = 'a' + i % 26;
     }
-    int32_t val1 = raft::murmurhash32(data, 1024*1024);
+    int32_t val1 = braft::murmurhash32(data, 1024*1024);
 
-    base::IOBuf buf;
+    butil::IOBuf buf;
     for (int i = 0; i < 1024 * 1024; i++) {
         char c = 'a' + i % 26;
         buf.push_back(c);
     }
-    int32_t val2 = raft::murmurhash32(buf);
+    int32_t val2 = braft::murmurhash32(buf);
     ASSERT_EQ(val1, val2);
     free(data);
 }
 
 TEST_F(TestUsageSuits, fileuri) {
     {
-        ASSERT_EQ(raft::fileuri2path("./data/log"), std::string("./data/log"));
+        ASSERT_EQ(braft::fileuri2path("./data/log"), std::string("./data/log"));
     }
 
     {
-        ASSERT_EQ(raft::fileuri2path("file://data/log"), std::string("data/log"));
-        ASSERT_EQ(raft::fileuri2path("file://data"), std::string("data"));
-        ASSERT_EQ(raft::fileuri2path("file://./data/log"), std::string("./data/log"));
-        ASSERT_EQ(raft::fileuri2path("file://./data"), std::string("./data"));
+        ASSERT_EQ(braft::fileuri2path("file://data/log"), std::string("data/log"));
+        ASSERT_EQ(braft::fileuri2path("file://data"), std::string("data"));
+        ASSERT_EQ(braft::fileuri2path("file://./data/log"), std::string("./data/log"));
+        ASSERT_EQ(braft::fileuri2path("file://./data"), std::string("./data"));
 
-        ASSERT_EQ(raft::fileuri2path("file://1.2.3.4:80/data/log"), std::string("data/log"));
-        ASSERT_EQ(raft::fileuri2path("file://1.2.3.4:80/data"), std::string("data"));
-        ASSERT_EQ(raft::fileuri2path("file://1.2.3.4:80//data/log"), std::string("/data/log"));
-        ASSERT_EQ(raft::fileuri2path("file://1.2.3.4:80//data"), std::string("/data"));
+        ASSERT_EQ(braft::fileuri2path("file://1.2.3.4:80/data/log"), std::string("data/log"));
+        ASSERT_EQ(braft::fileuri2path("file://1.2.3.4:80/data"), std::string("data"));
+        ASSERT_EQ(braft::fileuri2path("file://1.2.3.4:80//data/log"), std::string("/data/log"));
+        ASSERT_EQ(braft::fileuri2path("file://1.2.3.4:80//data"), std::string("/data"));
 
-        ASSERT_EQ(raft::fileuri2path("file://www.baidu.com:80/data/log"), std::string("data/log"));
-        ASSERT_EQ(raft::fileuri2path("file://www.baidu.com:80/data"), std::string("data"));
-        ASSERT_EQ(raft::fileuri2path("file://www.baidu.com:80//data/log"), std::string("/data/log"));
-        ASSERT_EQ(raft::fileuri2path("file://www.baidu.com:80//data"), std::string("/data"));
+        ASSERT_EQ(braft::fileuri2path("file://www.baidu.com:80/data/log"), std::string("data/log"));
+        ASSERT_EQ(braft::fileuri2path("file://www.baidu.com:80/data"), std::string("data"));
+        ASSERT_EQ(braft::fileuri2path("file://www.baidu.com:80//data/log"), std::string("/data/log"));
+        ASSERT_EQ(braft::fileuri2path("file://www.baidu.com:80//data"), std::string("/data"));
     }
 
     {
         int ret = 0;
-        base::EndPoint addr;
+        butil::EndPoint addr;
         std::string path;
 
-        ret = raft::fileuri_parse("./a/b/c", &addr, &path);
+        ret = braft::fileuri_parse("./a/b/c", &addr, &path);
         ASSERT_NE(ret, 0);
 
         std::string uri("file://127.0.0.1:1000/a/b/c");
-        ret = raft::fileuri_parse(uri, &addr, &path);
+        ret = braft::fileuri_parse(uri, &addr, &path);
         ASSERT_EQ(ret, 0);
-        base::EndPoint point;
-        base::str2endpoint("127.0.0.1:1000", &point);
+        butil::EndPoint point;
+        butil::str2endpoint("127.0.0.1:1000", &point);
         ASSERT_EQ(ret, 0);
         ASSERT_EQ(point, addr);
         ASSERT_EQ(path, "a/b/c");
@@ -141,26 +132,26 @@ TEST_F(TestUsageSuits, fileuri) {
 TEST_F(TestUsageSuits, pread_pwrite) {
     int fd = ::open("./pread_pwrite.data", O_CREAT | O_TRUNC | O_RDWR, 0644);
 
-    base::IOPortal portal;
-    ssize_t nread = raft::file_pread(&portal, fd, 1000, 10);
+    butil::IOPortal portal;
+    ssize_t nread = braft::file_pread(&portal, fd, 1000, 10);
     ASSERT_EQ(nread, 0);
 
-    base::IOBuf data;
+    butil::IOBuf data;
     data.append("hello");
-    ssize_t nwriten = raft::file_pwrite(data, fd, 1000);
+    ssize_t nwriten = braft::file_pwrite(data, fd, 1000);
     ASSERT_EQ(nwriten, data.size());
 
     portal.clear();
-    nread = raft::file_pread(&portal, fd, 1000, 10);
+    nread = braft::file_pread(&portal, fd, 1000, 10);
     ASSERT_EQ(nread, data.size());
-    ASSERT_EQ(raft::murmurhash32(data), raft::murmurhash32(portal));
+    ASSERT_EQ(braft::murmurhash32(data), braft::murmurhash32(portal));
 
     ::close(fd);
     ::unlink("./pread_pwrite.data");
 }
 
 TEST_F(TestUsageSuits, FileSegData) {
-    raft::FileSegData seg_writer;
+    braft::FileSegData seg_writer;
     for (uint64_t i = 0; i < 10UL; i++) {
         char buf[1024];
         snprintf(buf, sizeof(buf), "raw hello %lu", i);
@@ -169,14 +160,14 @@ TEST_F(TestUsageSuits, FileSegData) {
     for (uint64_t i = 10; i < 20UL; i++) {
         char buf[1024];
         snprintf(buf, sizeof(buf), "iobuf hello %lu", i);
-        base::IOBuf piece_buf;
+        butil::IOBuf piece_buf;
         piece_buf.append(buf, strlen(buf));
         seg_writer.append(piece_buf, 1000 * i);
     }
 
-    raft::FileSegData seg_reader(seg_writer.data());
+    braft::FileSegData seg_reader(seg_writer.data());
     uint64_t seg_offset = 0;
-    base::IOBuf seg_data;
+    butil::IOBuf seg_data;
     uint64_t index = 0;
     while (0 != seg_reader.next(&seg_offset, &seg_data)) {
         ASSERT_EQ(index * 1000, seg_offset);
@@ -191,7 +182,7 @@ TEST_F(TestUsageSuits, FileSegData) {
         char new_buf[1024] = {0};
         seg_data.copy_to(new_buf, strlen(buf));
         printf("index:%lu old: %s new: %s\n", index, buf, new_buf);
-        ASSERT_EQ(raft::murmurhash32(seg_data), raft::murmurhash32(buf, strlen(buf)));
+        ASSERT_EQ(braft::murmurhash32(seg_data), braft::murmurhash32(buf, strlen(buf)));
 
         seg_data.clear();
         index ++;
@@ -204,14 +195,14 @@ TEST_F(TestUsageSuits, crc32) {
     for (int i = 0; i < 1024*1024; i++) {
         data[i] = 'a' + i % 26;
     }
-    int32_t val1 = raft::crc32(data, 1024*1024);
+    int32_t val1 = braft::crc32(data, 1024*1024);
 
-    base::IOBuf buf;
+    butil::IOBuf buf;
     for (int i = 0; i < 1024 * 1024; i++) {
         char c = 'a' + i % 26;
         buf.push_back(c);
     }
-    int32_t val2 = raft::crc32(buf);
+    int32_t val2 = braft::crc32(buf);
     ASSERT_EQ(val1, val2);
 
     free(data);
@@ -264,9 +255,9 @@ int is_zero_memcmp(const char* buff, size_t size) {
 
 #define IS_ZERO_TEST(func, size)                                               \
     do {                                                                       \
-        int64_t start = base::detail::clock_cycles();                          \
+        int64_t start = butil::detail::clock_cycles();                          \
         ASSERT_TRUE(func(data, size));                                         \
-        int64_t end = base::detail::clock_cycles();                            \
+        int64_t end = butil::detail::clock_cycles();                            \
         LOG(INFO) << #func << " cycle: " << end - start;     \
     } while (0)
 
@@ -290,40 +281,40 @@ TEST_F(TestUsageSuits, is_zero) {
         IS_ZERO_TEST(is_zero4, test_sizes[i]);
         IS_ZERO_TEST(is_zero5, test_sizes[i]);
         IS_ZERO_TEST(is_zero_memcmp, test_sizes[i]);
-        IS_ZERO_TEST(raft::is_zero, test_sizes[i]);
+        IS_ZERO_TEST(braft::is_zero, test_sizes[i]);
     }
 
     for (int i = 1024; i >= 1; i--) {
-        ASSERT_TRUE(raft::is_zero(data, i*1024));
+        ASSERT_TRUE(braft::is_zero(data, i*1024));
     }
     for (int i = 1; i < 8; i++) {
-        ASSERT_TRUE(raft::is_zero(data, i));
+        ASSERT_TRUE(braft::is_zero(data, i));
     }
 
     int rand_pos = rand() % (1024 * 1024);
     data[rand_pos] = 'a' + rand() % 26;
-    ASSERT_FALSE(raft::is_zero(data, 1024 * 1024));
-    ASSERT_TRUE(raft::is_zero(data, rand_pos));
-    ASSERT_TRUE(raft::is_zero(data + rand_pos + 1, 1024 * 1024 - 1 - rand_pos));
+    ASSERT_FALSE(braft::is_zero(data, 1024 * 1024));
+    ASSERT_TRUE(braft::is_zero(data, rand_pos));
+    ASSERT_TRUE(braft::is_zero(data + rand_pos + 1, 1024 * 1024 - 1 - rand_pos));
 
     memset(data, 0, 1024*1024);
     rand_pos = rand() % 8;
     data[rand_pos] = 'a' + rand() % 26;
-    ASSERT_FALSE(raft::is_zero(data, 8));
-    ASSERT_TRUE(raft::is_zero(data, rand_pos));
-    ASSERT_TRUE(raft::is_zero(data + rand_pos + 1, 8 - 1 - rand_pos));
+    ASSERT_FALSE(braft::is_zero(data, 8));
+    ASSERT_TRUE(braft::is_zero(data, rand_pos));
+    ASSERT_TRUE(braft::is_zero(data + rand_pos + 1, 8 - 1 - rand_pos));
 
     free(data);
 }
 
 TEST_F(TestUsageSuits, file_path) {
-    base::FilePath path("dir/");
+    butil::FilePath path("dir/");
     LOG(INFO) << "dir_name=" << path.DirName().value()
               << " base_name=" << path.BaseName().value();
-    path = base::FilePath("dir");
+    path = butil::FilePath("dir");
     LOG(INFO) << "dir_name=" << path.DirName().value()
               << " base_name=" << path.BaseName().value();
-    path = base::FilePath("../sub4/sub5/dir");
+    path = butil::FilePath("../sub4/sub5/dir");
     LOG(INFO) << path.ReferencesParent();
 }
 

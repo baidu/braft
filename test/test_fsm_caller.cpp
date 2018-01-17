@@ -4,13 +4,13 @@
 // Date: 2015/12/01 17:03:46
 
 #include <gtest/gtest.h>
-#include <base/string_printf.h>
-#include <base/memory/scoped_ptr.h>
-#include "raft/fsm_caller.h"
-#include "raft/raft.h"
-#include "raft/log.h"
-#include "raft/configuration.h"
-#include "raft/log_manager.h"
+#include <butil/string_printf.h>
+#include <butil/memory/scoped_ptr.h>
+#include "braft/fsm_caller.h"
+#include "braft/raft.h"
+#include "braft/log.h"
+#include "braft/configuration.h"
+#include "braft/log_manager.h"
 
 class FSMCallerTest : public testing::Test {
 protected:
@@ -18,7 +18,7 @@ protected:
     void TearDown() {}
 };
 
-class OrderedStateMachine : public raft::StateMachine {
+class OrderedStateMachine : public braft::StateMachine {
 public:
     OrderedStateMachine() 
         : _expected_next(0)
@@ -28,10 +28,10 @@ public:
         , _on_snapshot_save_times(0)
         , _on_snapshot_load_times(0)
     {}
-    void on_apply(raft::Iterator& iter) {
+    void on_apply(braft::Iterator& iter) {
         for (; iter.valid(); iter.next()) {
             std::string expected;
-            base::string_printf(&expected, "hello_%lu", _expected_next++);
+            butil::string_printf(&expected, "hello_%lu", _expected_next++);
             ASSERT_EQ(expected, iter.data().to_string());
             if (iter.done()) {
                 ASSERT_TRUE(iter.done()->status().ok()) << "index=" << iter.index();
@@ -42,11 +42,11 @@ public:
     void on_shutdown() {
         _stopped = true;
     }
-    void on_snapshot_save(raft::SnapshotWriter* /*writer*/, raft::Closure* done) {
+    void on_snapshot_save(braft::SnapshotWriter* /*writer*/, braft::Closure* done) {
         done->Run();
         ++_on_snapshot_save_times;
     }
-    int on_snapshot_load(raft::SnapshotReader* /*reader*/) {
+    int on_snapshot_load(braft::SnapshotReader* /*reader*/) {
         ++_on_snapshot_load_times;
         return 0;
     }
@@ -70,10 +70,10 @@ private:
     int _on_snapshot_load_times;
 };
 
-class SyncClosure : public raft::LogManager::StableClosure {
+class SyncClosure : public braft::LogManager::StableClosure {
 public:
     SyncClosure() {
-        _butex = bthread::butex_create_checked<base::atomic<int> >();
+        _butex = bthread::butex_create_checked<butil::atomic<int> >();
         *_butex = 0;
     }
     ~SyncClosure() {
@@ -93,44 +93,44 @@ public:
         }
     }
 private:
-    base::atomic<int> *_butex;
+    butil::atomic<int> *_butex;
 };
 
 TEST_F(FSMCallerTest, sanity) {
     system("rm -rf ./data");
-    scoped_ptr<raft::ConfigurationManager> cm(
-                                new raft::ConfigurationManager);
-    scoped_ptr<raft::SegmentLogStorage> storage(
-                                new raft::SegmentLogStorage("./data"));
-    scoped_ptr<raft::LogManager> lm(new raft::LogManager());
-    raft::LogManagerOptions log_opt;
+    scoped_ptr<braft::ConfigurationManager> cm(
+                                new braft::ConfigurationManager);
+    scoped_ptr<braft::SegmentLogStorage> storage(
+                                new braft::SegmentLogStorage("./data"));
+    scoped_ptr<braft::LogManager> lm(new braft::LogManager());
+    braft::LogManagerOptions log_opt;
     log_opt.log_storage = storage.get();
     log_opt.configuration_manager = cm.get();
     ASSERT_EQ(0, lm->init(log_opt));
 
-    raft::ClosureQueue cq(false);
+    braft::ClosureQueue cq(false);
 
     OrderedStateMachine fsm;
     fsm._expected_next = 0;
 
-    raft::FSMCallerOptions opt;
+    braft::FSMCallerOptions opt;
     opt.log_manager = lm.get();
     opt.after_shutdown = NULL;
     opt.fsm = &fsm;
     opt.closure_queue = &cq;
 
-    raft::FSMCaller caller;
+    braft::FSMCaller caller;
     ASSERT_EQ(0, caller.init(opt));
 
     const size_t N = 1000;
 
     for (size_t i = 0; i < N; ++i) {
-        std::vector<raft::LogEntry*> entries;
-        raft::LogEntry* entry = new raft::LogEntry;
+        std::vector<braft::LogEntry*> entries;
+        braft::LogEntry* entry = new braft::LogEntry;
         entry->AddRef();
-        entry->type = raft::ENTRY_TYPE_DATA;
+        entry->type = braft::ENTRY_TYPE_DATA;
         std::string buf;
-        base::string_printf(&buf, "hello_%lu", i);
+        butil::string_printf(&buf, "hello_%lu", i);
         entry->data.append(buf);
         entry->id.index = i + 1;
         entry->id.term = i;
@@ -147,18 +147,18 @@ TEST_F(FSMCallerTest, sanity) {
 }
 
 TEST_F(FSMCallerTest, on_leader_start_and_stop) {
-    scoped_ptr<raft::LogManager> lm(new raft::LogManager());
+    scoped_ptr<braft::LogManager> lm(new braft::LogManager());
     OrderedStateMachine fsm;
     fsm._expected_next = 0;
-    raft::ClosureQueue cq(false);
-    raft::FSMCallerOptions opt;
+    braft::ClosureQueue cq(false);
+    braft::FSMCallerOptions opt;
     opt.log_manager = lm.get();
     opt.after_shutdown = NULL;
     opt.fsm = &fsm;
     opt.closure_queue = &cq;
-    raft::FSMCaller caller;
+    braft::FSMCaller caller;
     ASSERT_EQ(0, caller.init(opt));
-    base::Status status;
+    butil::Status status;
     caller.on_leader_stop(status);
     caller.shutdown();
     fsm.join();
@@ -166,9 +166,9 @@ TEST_F(FSMCallerTest, on_leader_start_and_stop) {
     ASSERT_EQ(1, fsm._on_leader_stop_times);
 }
 
-class DummySnapshotReader : public raft::SnapshotReader {
+class DummySnapshotReader : public braft::SnapshotReader {
 public:
-    DummySnapshotReader(raft::SnapshotMeta* meta) 
+    DummySnapshotReader(braft::SnapshotMeta* meta) 
         : _meta(meta)
     {
     };
@@ -177,19 +177,19 @@ public:
     void list_files(std::vector<std::string>*) {}
     int get_file_meta(const std::string&, google::protobuf::Message*) { return 0; }
     std::string get_path() { return std::string(); }
-    int load_meta(raft::SnapshotMeta* meta) {
+    int load_meta(braft::SnapshotMeta* meta) {
         *meta = *_meta;
         return 0;
     }
 private:
-    raft::SnapshotMeta* _meta;
+    braft::SnapshotMeta* _meta;
 };
 
-class DummySnapshoWriter : public raft::SnapshotWriter {
+class DummySnapshoWriter : public braft::SnapshotWriter {
 public:
     DummySnapshoWriter() {}
     ~DummySnapshoWriter() {}
-    int save_meta(const raft::SnapshotMeta&) {
+    int save_meta(const braft::SnapshotMeta&) {
         EXPECT_TRUE(false) << "Should never be called";
         return 0;
     }
@@ -201,10 +201,10 @@ public:
 private:
 };
 
-class MockSaveSnapshotClosure : public raft::SaveSnapshotClosure {
+class MockSaveSnapshotClosure : public braft::SaveSnapshotClosure {
 public:
-    MockSaveSnapshotClosure(raft::SnapshotWriter* writer, 
-                            raft::SnapshotMeta *expected_meta) 
+    MockSaveSnapshotClosure(braft::SnapshotWriter* writer, 
+                            braft::SnapshotMeta *expected_meta) 
         : _start_times(0)
         , _writer(writer)
         , _expected_meta(expected_meta)
@@ -214,7 +214,7 @@ public:
     void Run() {
         ASSERT_TRUE(status().ok()) << status();
     }
-    raft::SnapshotWriter* start(const raft::SnapshotMeta& meta) {
+    braft::SnapshotWriter* start(const braft::SnapshotMeta& meta) {
         EXPECT_EQ(meta.last_included_index(), 
                     _expected_meta->last_included_index());
         EXPECT_EQ(meta.last_included_term(), 
@@ -224,13 +224,13 @@ public:
     }
 private:
     int _start_times;
-    raft::SnapshotWriter* _writer;
-    raft::SnapshotMeta* _expected_meta;
+    braft::SnapshotWriter* _writer;
+    braft::SnapshotMeta* _expected_meta;
 };
 
-class MockLoadSnapshotClosure : public raft::LoadSnapshotClosure {
+class MockLoadSnapshotClosure : public braft::LoadSnapshotClosure {
 public:
-    MockLoadSnapshotClosure(raft::SnapshotReader* reader)
+    MockLoadSnapshotClosure(braft::SnapshotReader* reader)
         : _start_times(0)
         , _reader(reader)
     {}
@@ -238,42 +238,42 @@ public:
     void Run() {
         ASSERT_TRUE(status().ok()) << status();
     }
-    raft::SnapshotReader* start() {
+    braft::SnapshotReader* start() {
         ++_start_times;
         return _reader;
     }
 private:
     int _start_times;
-    raft::SnapshotReader* _reader;
+    braft::SnapshotReader* _reader;
 };
 
 TEST_F(FSMCallerTest, snapshot) {
-    raft::SnapshotMeta snapshot_meta;
+    braft::SnapshotMeta snapshot_meta;
     snapshot_meta.set_last_included_index(0);
     snapshot_meta.set_last_included_term(0);
     DummySnapshotReader dummy_reader(&snapshot_meta);
     DummySnapshoWriter dummy_writer;
     MockSaveSnapshotClosure save_snapshot_done(&dummy_writer, &snapshot_meta);
     system("rm -rf ./data");
-    scoped_ptr<raft::ConfigurationManager> cm(
-                                new raft::ConfigurationManager);
-    scoped_ptr<raft::SegmentLogStorage> storage(
-                                new raft::SegmentLogStorage("./data"));
-    scoped_ptr<raft::LogManager> lm(new raft::LogManager());
-    raft::LogManagerOptions log_opt;
+    scoped_ptr<braft::ConfigurationManager> cm(
+                                new braft::ConfigurationManager);
+    scoped_ptr<braft::SegmentLogStorage> storage(
+                                new braft::SegmentLogStorage("./data"));
+    scoped_ptr<braft::LogManager> lm(new braft::LogManager());
+    braft::LogManagerOptions log_opt;
     log_opt.log_storage = storage.get();
     log_opt.configuration_manager = cm.get();
     ASSERT_EQ(0, lm->init(log_opt));
 
     OrderedStateMachine fsm;
     fsm._expected_next = 0;
-    raft::ClosureQueue cq(false);
-    raft::FSMCallerOptions opt;
+    braft::ClosureQueue cq(false);
+    braft::FSMCallerOptions opt;
     opt.log_manager = lm.get();
     opt.after_shutdown = NULL;
     opt.fsm = &fsm;
     opt.closure_queue = &cq;
-    raft::FSMCaller caller;
+    braft::FSMCaller caller;
     ASSERT_EQ(0, caller.init(opt));
     ASSERT_EQ(0, caller.on_snapshot_save(&save_snapshot_done));
     MockLoadSnapshotClosure load_snapshot_done(&dummy_reader);

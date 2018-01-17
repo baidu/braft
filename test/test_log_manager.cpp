@@ -5,14 +5,14 @@
 
 #include <gtest/gtest.h>
 
-#include <base/memory/scoped_ptr.h>
-#include <base/string_printf.h>
-#include <base/macros.h>
+#include <butil/memory/scoped_ptr.h>
+#include <butil/string_printf.h>
+#include <butil/macros.h>
 
 #include <bthread/butex.h>
-#include "raft/log_manager.h"
-#include "raft/configuration.h"
-#include "raft/log.h"
+#include "braft/log_manager.h"
+#include "braft/configuration.h"
+#include "braft/log.h"
 
 class LogManagerTest : public testing::Test {
 protected:
@@ -21,7 +21,7 @@ protected:
     void TearDown() { }
 };
 
-class StuckClosure : public raft::LogManager::StableClosure {
+class StuckClosure : public braft::LogManager::StableClosure {
 public:
     StuckClosure()
         : _stuck(NULL)
@@ -43,10 +43,10 @@ private:
     int64_t* _expected_next_log_index;
 };
 
-class SyncClosure : public raft::LogManager::StableClosure {
+class SyncClosure : public braft::LogManager::StableClosure {
 public:
     SyncClosure() {
-        _butex = bthread::butex_create_checked<base::atomic<int> >();
+        _butex = bthread::butex_create_checked<butil::atomic<int> >();
         *_butex = 0;
     }
     ~SyncClosure() {
@@ -69,47 +69,47 @@ public:
         return *_butex == 1;
     }
 private:
-    base::atomic<int> *_butex;
+    butil::atomic<int> *_butex;
 };
 
 TEST_F(LogManagerTest, get_should_be_ok_when_disk_thread_stucks) {
     bool stuck = true;
     system("rm -rf ./data");
-    scoped_ptr<raft::ConfigurationManager> cm(
-                                new raft::ConfigurationManager);
-    scoped_ptr<raft::SegmentLogStorage> storage(
-                                new raft::SegmentLogStorage("./data"));
-    scoped_ptr<raft::LogManager> lm(new raft::LogManager());
-    raft::LogManagerOptions opt;
+    scoped_ptr<braft::ConfigurationManager> cm(
+                                new braft::ConfigurationManager);
+    scoped_ptr<braft::SegmentLogStorage> storage(
+                                new braft::SegmentLogStorage("./data"));
+    scoped_ptr<braft::LogManager> lm(new braft::LogManager());
+    braft::LogManagerOptions opt;
     opt.log_storage = storage.get();
     opt.configuration_manager = cm.get();
     ASSERT_EQ(0, lm->init(opt));
     const size_t N = 10000;
-    DEFINE_SMALL_ARRAY(raft::LogEntry*, saved_entries, N, 256);
+    DEFINE_SMALL_ARRAY(braft::LogEntry*, saved_entries, N, 256);
     int64_t expected_next_log_index = 1;
     for (size_t i = 0; i < N; ++i) {
-        raft::LogEntry* entry = new raft::LogEntry;
+        braft::LogEntry* entry = new braft::LogEntry;
         entry->AddRef();
-        entry->type = raft::ENTRY_TYPE_DATA;
-        entry->id = raft::LogId(i + 1, 1);
+        entry->type = braft::ENTRY_TYPE_DATA;
+        entry->id = braft::LogId(i + 1, 1);
         StuckClosure* c = new StuckClosure;
         c->_stuck = &stuck;
         c->_expected_next_log_index = &expected_next_log_index;
         std::string buf;
-        base::string_printf(&buf, "hello_%lu", i);
+        butil::string_printf(&buf, "hello_%lu", i);
         entry->data.append(buf);
         entry->AddRef();
         saved_entries[i] = entry;
-        std::vector<raft::LogEntry*> entries;
+        std::vector<braft::LogEntry*> entries;
         entries.push_back(entry);
         lm->append_entries(&entries, c);
     }
 
     for (size_t i = 0; i < N; ++i) {
-        raft::LogEntry *entry = lm->get_entry(i + 1);
+        braft::LogEntry *entry = lm->get_entry(i + 1);
         ASSERT_TRUE(entry != NULL) << "i=" << i;
         std::string exptected;
-        base::string_printf(&exptected, "hello_%lu", i);
+        butil::string_printf(&exptected, "hello_%lu", i);
         ASSERT_EQ(exptected, entry->data.to_string());
         entry->Release();
     }
@@ -117,7 +117,7 @@ TEST_F(LogManagerTest, get_should_be_ok_when_disk_thread_stucks) {
     stuck = false;
     LOG(INFO) << "Stop and join disk thraad";
     ASSERT_EQ(0, lm->stop_disk_thread());
-    lm->clear_memory_logs(raft::LogId(N, 1));
+    lm->clear_memory_logs(braft::LogId(N, 1));
     // After clear all the memory logs, all the saved entries should have no
     // other reference
     for (size_t i = 0; i < N; ++i) {
@@ -128,31 +128,31 @@ TEST_F(LogManagerTest, get_should_be_ok_when_disk_thread_stucks) {
 
 TEST_F(LogManagerTest, configuration_changes) {
     system("rm -rf ./data");
-    scoped_ptr<raft::ConfigurationManager> cm(
-                                new raft::ConfigurationManager);
-    scoped_ptr<raft::SegmentLogStorage> storage(
-                                new raft::SegmentLogStorage("./data"));
-    scoped_ptr<raft::LogManager> lm(new raft::LogManager());
-    raft::LogManagerOptions opt;
+    scoped_ptr<braft::ConfigurationManager> cm(
+                                new braft::ConfigurationManager);
+    scoped_ptr<braft::SegmentLogStorage> storage(
+                                new braft::SegmentLogStorage("./data"));
+    scoped_ptr<braft::LogManager> lm(new braft::LogManager());
+    braft::LogManagerOptions opt;
     opt.log_storage = storage.get();
     opt.configuration_manager = cm.get();
     ASSERT_EQ(0, lm->init(opt));
     const size_t N = 5;
-    DEFINE_SMALL_ARRAY(raft::LogEntry*, saved_entries, N, 256);
-    raft::ConfigurationPair conf;
+    DEFINE_SMALL_ARRAY(braft::LogEntry*, saved_entries, N, 256);
+    braft::ConfigurationPair conf;
     SyncClosure sc;
     for (size_t i = 0; i < N; ++i) {
-        std::vector<raft::PeerId> peers;
+        std::vector<braft::PeerId> peers;
         for (size_t j = 0; j <= i; ++j) {
-            peers.push_back(raft::PeerId(base::EndPoint(), j));
+            peers.push_back(braft::PeerId(butil::EndPoint(), j));
         }
-        std::vector<raft::LogEntry*> entries;
-        raft::LogEntry* entry = new raft::LogEntry;
+        std::vector<braft::LogEntry*> entries;
+        braft::LogEntry* entry = new braft::LogEntry;
         entry->AddRef();
-        entry->type = raft::ENTRY_TYPE_CONFIGURATION;
-        entry->peers = new std::vector<raft::PeerId>(peers);
+        entry->type = braft::ENTRY_TYPE_CONFIGURATION;
+        entry->peers = new std::vector<braft::PeerId>(peers);
         entry->AddRef();
-        entry->id = raft::LogId(i + 1, 1);
+        entry->id = braft::LogId(i + 1, 1);
         saved_entries[i] = entry;
         entries.push_back(entry);
         sc.reset();
@@ -162,11 +162,11 @@ TEST_F(LogManagerTest, configuration_changes) {
         sc.join();
         ASSERT_TRUE(sc.status().ok()) << sc.status();
     }
-    raft::ConfigurationPair new_conf;
+    braft::ConfigurationPair new_conf;
     ASSERT_TRUE(lm->check_and_set_configuration(&new_conf));
     ASSERT_EQ(N, new_conf.second._peers.size());
 
-    lm->clear_memory_logs(raft::LogId(N, 1));
+    lm->clear_memory_logs(braft::LogId(N, 1));
     // After clear all the memory logs, all the saved entries should have no
     // other reference
     for (size_t i = 0; i < N; ++i) {
@@ -177,31 +177,31 @@ TEST_F(LogManagerTest, configuration_changes) {
 
 TEST_F(LogManagerTest, truncate_suffix_also_revert_configuration) {
     system("rm -rf ./data");
-    scoped_ptr<raft::ConfigurationManager> cm(
-                                new raft::ConfigurationManager);
-    scoped_ptr<raft::SegmentLogStorage> storage(
-                                new raft::SegmentLogStorage("./data"));
-    scoped_ptr<raft::LogManager> lm(new raft::LogManager());
-    raft::LogManagerOptions opt;
+    scoped_ptr<braft::ConfigurationManager> cm(
+                                new braft::ConfigurationManager);
+    scoped_ptr<braft::SegmentLogStorage> storage(
+                                new braft::SegmentLogStorage("./data"));
+    scoped_ptr<braft::LogManager> lm(new braft::LogManager());
+    braft::LogManagerOptions opt;
     opt.log_storage = storage.get();
     opt.configuration_manager = cm.get();
     ASSERT_EQ(0, lm->init(opt));
     const size_t N = 5;
-    DEFINE_SMALL_ARRAY(raft::LogEntry*, saved_entries, N, 256);
-    raft::ConfigurationPair conf;
+    DEFINE_SMALL_ARRAY(braft::LogEntry*, saved_entries, N, 256);
+    braft::ConfigurationPair conf;
     SyncClosure sc;
     for (size_t i = 0; i < N; ++i) {
-        std::vector<raft::PeerId> peers;
+        std::vector<braft::PeerId> peers;
         for (size_t j = 0; j <= i; ++j) {
-            peers.push_back(raft::PeerId(base::EndPoint(), j));
+            peers.push_back(braft::PeerId(butil::EndPoint(), j));
         }
-        std::vector<raft::LogEntry*> entries;
-        raft::LogEntry* entry = new raft::LogEntry;
+        std::vector<braft::LogEntry*> entries;
+        braft::LogEntry* entry = new braft::LogEntry;
         entry->AddRef();
-        entry->type = raft::ENTRY_TYPE_CONFIGURATION;
-        entry->peers = new std::vector<raft::PeerId>(peers);
+        entry->type = braft::ENTRY_TYPE_CONFIGURATION;
+        entry->peers = new std::vector<braft::PeerId>(peers);
         entry->AddRef();
-        entry->id = raft::LogId(i + 1, 1);
+        entry->id = braft::LogId(i + 1, 1);
         saved_entries[i] = entry;
         entries.push_back(entry);
         sc.reset();
@@ -211,7 +211,7 @@ TEST_F(LogManagerTest, truncate_suffix_also_revert_configuration) {
         sc.join();
         ASSERT_TRUE(sc.status().ok()) << sc.status();
     }
-    raft::ConfigurationPair new_conf;
+    braft::ConfigurationPair new_conf;
     ASSERT_TRUE(lm->check_and_set_configuration(&new_conf));
     ASSERT_EQ(N, new_conf.second._peers.size());
 
@@ -220,7 +220,7 @@ TEST_F(LogManagerTest, truncate_suffix_also_revert_configuration) {
     ASSERT_EQ(2u, new_conf.second._peers.size());
     
 
-    lm->clear_memory_logs(raft::LogId(N, 1));
+    lm->clear_memory_logs(braft::LogId(N, 1));
     // After clear all the memory logs, all the saved entries should have no
     // other reference
     for (size_t i = 0; i < N; ++i) {
@@ -231,29 +231,29 @@ TEST_F(LogManagerTest, truncate_suffix_also_revert_configuration) {
 
 TEST_F(LogManagerTest, append_with_the_same_index) {
     system("rm -rf ./data");
-    scoped_ptr<raft::ConfigurationManager> cm(
-                                new raft::ConfigurationManager);
-    scoped_ptr<raft::SegmentLogStorage> storage(
-                                new raft::SegmentLogStorage("./data"));
-    scoped_ptr<raft::LogManager> lm(new raft::LogManager());
-    raft::LogManagerOptions opt;
+    scoped_ptr<braft::ConfigurationManager> cm(
+                                new braft::ConfigurationManager);
+    scoped_ptr<braft::SegmentLogStorage> storage(
+                                new braft::SegmentLogStorage("./data"));
+    scoped_ptr<braft::LogManager> lm(new braft::LogManager());
+    braft::LogManagerOptions opt;
     opt.log_storage = storage.get();
     opt.configuration_manager = cm.get();
     ASSERT_EQ(0, lm->init(opt));
     const size_t N = 1000;
-    std::vector<raft::LogEntry*> entries0;
+    std::vector<braft::LogEntry*> entries0;
     for (size_t i = 0; i < N; ++i) {
-        raft::LogEntry* entry = new raft::LogEntry;
+        braft::LogEntry* entry = new braft::LogEntry;
         entry->AddRef();
-        entry->type = raft::ENTRY_TYPE_DATA;
+        entry->type = braft::ENTRY_TYPE_DATA;
         std::string buf;
-        base::string_printf(&buf, "hello_%lu", i);
+        butil::string_printf(&buf, "hello_%lu", i);
         entry->data.append(buf);
-        entry->id = raft::LogId(i + 1, 1);
+        entry->id = braft::LogId(i + 1, 1);
         entries0.push_back(entry);
         entry->AddRef();
     }
-    std::vector<raft::LogEntry*> saved_entries0(entries0);
+    std::vector<braft::LogEntry*> saved_entries0(entries0);
     SyncClosure sc;
     lm->append_entries(&entries0, &sc);
     sc.join();
@@ -261,20 +261,20 @@ TEST_F(LogManagerTest, append_with_the_same_index) {
     ASSERT_EQ(N, lm->last_log_index());
 
     // Append the same logs, should be ok
-    std::vector<raft::LogEntry*> entries1;
+    std::vector<braft::LogEntry*> entries1;
     for (size_t i = 0; i < N; ++i) {
-        raft::LogEntry* entry = new raft::LogEntry;
+        braft::LogEntry* entry = new braft::LogEntry;
         entry->AddRef();
-        entry->type = raft::ENTRY_TYPE_DATA;
+        entry->type = braft::ENTRY_TYPE_DATA;
         std::string buf;
-        base::string_printf(&buf, "hello_%lu", i);
+        butil::string_printf(&buf, "hello_%lu", i);
         entry->data.append(buf);
-        entry->id = raft::LogId(i + 1, 1);
+        entry->id = braft::LogId(i + 1, 1);
         entries1.push_back(entry);
         entry->AddRef();
     }
 
-    std::vector<raft::LogEntry*> saved_entries1(entries1);
+    std::vector<braft::LogEntry*> saved_entries1(entries1);
     sc.reset();
     lm->append_entries(&entries1, &sc);
     sc.join();
@@ -285,19 +285,19 @@ TEST_F(LogManagerTest, append_with_the_same_index) {
     }
 
     // new term should overwrite the old ones
-    std::vector<raft::LogEntry*> entries2;
+    std::vector<braft::LogEntry*> entries2;
     for (size_t i = 0; i < N; ++i) {
-        raft::LogEntry* entry = new raft::LogEntry;
+        braft::LogEntry* entry = new braft::LogEntry;
         entry->AddRef();
-        entry->type = raft::ENTRY_TYPE_DATA;
+        entry->type = braft::ENTRY_TYPE_DATA;
         std::string buf;
-        base::string_printf(&buf, "hello_%lu", (i + 1) * 10);
+        butil::string_printf(&buf, "hello_%lu", (i + 1) * 10);
         entry->data.append(buf);
-        entry->id = raft::LogId(i + 1, 2);
+        entry->id = braft::LogId(i + 1, 2);
         entries2.push_back(entry);
         entry->AddRef();
     }
-    std::vector<raft::LogEntry*> saved_entries2(entries2);
+    std::vector<braft::LogEntry*> saved_entries2(entries2);
     sc.reset();
     lm->append_entries(&entries2, &sc);
     sc.join();
@@ -311,15 +311,15 @@ TEST_F(LogManagerTest, append_with_the_same_index) {
     }
 
     for (size_t i = 0; i < N; ++i) {
-        raft::LogEntry* entry = lm->get_entry(i + 1);
+        braft::LogEntry* entry = lm->get_entry(i + 1);
         ASSERT_TRUE(entry != NULL);
         std::string buf;
-        base::string_printf(&buf, "hello_%lu", (i + 1) * 10);
+        butil::string_printf(&buf, "hello_%lu", (i + 1) * 10);
         ASSERT_EQ(buf, entry->data.to_string());
-        ASSERT_EQ(raft::LogId(i + 1, 2), entry->id);
+        ASSERT_EQ(braft::LogId(i + 1, 2), entry->id);
         entry->Release();
     }
-    lm->set_applied_id(raft::LogId(N, 2));
+    lm->set_applied_id(braft::LogId(N, 2));
 
     for (size_t i = 0; i < N; ++i) {
         ASSERT_EQ(1u, saved_entries0[i]->ref_count_);
@@ -328,12 +328,12 @@ TEST_F(LogManagerTest, append_with_the_same_index) {
     }
 
     for (size_t i = 0; i < N; ++i) {
-        raft::LogEntry* entry = lm->get_entry(i + 1);
+        braft::LogEntry* entry = lm->get_entry(i + 1);
         ASSERT_TRUE(entry != NULL);
         std::string buf;
-        base::string_printf(&buf, "hello_%lu", (i + 1) * 10);
+        butil::string_printf(&buf, "hello_%lu", (i + 1) * 10);
         ASSERT_EQ(buf, entry->data.to_string());
-        ASSERT_EQ(raft::LogId(i + 1, 2), entry->id);
+        ASSERT_EQ(braft::LogId(i + 1, 2), entry->id);
         entry->Release();
     }
 
@@ -346,88 +346,88 @@ TEST_F(LogManagerTest, append_with_the_same_index) {
 
 TEST_F(LogManagerTest, pipelined_append) {
     system("rm -rf ./data");
-    scoped_ptr<raft::ConfigurationManager> cm(
-                                new raft::ConfigurationManager);
-    scoped_ptr<raft::SegmentLogStorage> storage(
-                                new raft::SegmentLogStorage("./data"));
-    scoped_ptr<raft::LogManager> lm(new raft::LogManager());
-    raft::LogManagerOptions opt;
+    scoped_ptr<braft::ConfigurationManager> cm(
+                                new braft::ConfigurationManager);
+    scoped_ptr<braft::SegmentLogStorage> storage(
+                                new braft::SegmentLogStorage("./data"));
+    scoped_ptr<braft::LogManager> lm(new braft::LogManager());
+    braft::LogManagerOptions opt;
     opt.log_storage = storage.get();
     opt.configuration_manager = cm.get();
     ASSERT_EQ(0, lm->init(opt));
     const size_t N = 1000;
-    raft::ConfigurationPair conf;
-    std::vector<raft::LogEntry*> entries0;
+    braft::ConfigurationPair conf;
+    std::vector<braft::LogEntry*> entries0;
     for (size_t i = 0; i < N - 1; ++i) {
-        raft::LogEntry* entry = new raft::LogEntry;
+        braft::LogEntry* entry = new braft::LogEntry;
         entry->AddRef();
-        entry->type = raft::ENTRY_TYPE_DATA;
+        entry->type = braft::ENTRY_TYPE_DATA;
         std::string buf;
-        base::string_printf(&buf, "hello_%lu", 0lu);
+        butil::string_printf(&buf, "hello_%lu", 0lu);
         entry->data.append(buf);
-        entry->id = raft::LogId(i + 1, 1);
+        entry->id = braft::LogId(i + 1, 1);
         entries0.push_back(entry);
         entry->AddRef();
     }
     {
-        std::vector<raft::PeerId> peers;
-        peers.push_back(raft::PeerId("127.0.0.1:1234"));
-        raft::LogEntry* entry = new raft::LogEntry;
+        std::vector<braft::PeerId> peers;
+        peers.push_back(braft::PeerId("127.0.0.1:1234"));
+        braft::LogEntry* entry = new braft::LogEntry;
         entry->AddRef();
-        entry->type = raft::ENTRY_TYPE_CONFIGURATION;
-        entry->id = raft::LogId(N, 1);
-        entry->peers = new std::vector<raft::PeerId>(peers);
+        entry->type = braft::ENTRY_TYPE_CONFIGURATION;
+        entry->id = braft::LogId(N, 1);
+        entry->peers = new std::vector<braft::PeerId>(peers);
         entries0.push_back(entry);
     }
     SyncClosure sc0;
     lm->append_entries(&entries0, &sc0);
     ASSERT_TRUE(lm->check_and_set_configuration(&conf));
-    ASSERT_EQ(raft::LogId(N, 1), conf.first);
+    ASSERT_EQ(braft::LogId(N, 1), conf.first);
     ASSERT_EQ(1u, conf.second.size());
     ASSERT_EQ(N, lm->last_log_index());
 
     // entries1 overwrites entries0
-    std::vector<raft::LogEntry*> entries1;
+    std::vector<braft::LogEntry*> entries1;
     for (size_t i = 0; i < N - 1; ++i) {
-        raft::LogEntry* entry = new raft::LogEntry;
+        braft::LogEntry* entry = new braft::LogEntry;
         entry->AddRef();
-        entry->type = raft::ENTRY_TYPE_DATA;
+        entry->type = braft::ENTRY_TYPE_DATA;
         std::string buf;
-        base::string_printf(&buf, "hello_%lu", i + 1);
+        butil::string_printf(&buf, "hello_%lu", i + 1);
         entry->data.append(buf);
-        entry->id = raft::LogId(i + 1, 2);
+        entry->id = braft::LogId(i + 1, 2);
         entries1.push_back(entry);
         entry->AddRef();
     }
     {
-        std::vector<raft::PeerId> peers;
-        peers.push_back(raft::PeerId("127.0.0.2:1234"));
-        peers.push_back(raft::PeerId("127.0.0.2:2345"));
-        raft::LogEntry* entry = new raft::LogEntry;
+        std::vector<braft::PeerId> peers;
+        peers.push_back(braft::PeerId("127.0.0.2:1234"));
+        peers.push_back(braft::PeerId("127.0.0.2:2345"));
+        braft::LogEntry* entry = new braft::LogEntry;
         entry->AddRef();
-        entry->type = raft::ENTRY_TYPE_CONFIGURATION;
-        entry->id = raft::LogId(N, 2);
-        entry->peers = new std::vector<raft::PeerId>(peers);
+        entry->type = braft::ENTRY_TYPE_CONFIGURATION;
+        entry->id = braft::LogId(N, 2);
+        entry->peers = new std::vector<braft::PeerId>(peers);
         entries1.push_back(entry);
     }
     SyncClosure sc1;
     lm->append_entries(&entries1, &sc1);
     ASSERT_TRUE(lm->check_and_set_configuration(&conf));
-    ASSERT_EQ(raft::LogId(N, 2), conf.first);
+    ASSERT_EQ(braft::LogId(N, 2), conf.first);
     ASSERT_EQ(2u, conf.second.size());
     ASSERT_EQ(N, lm->last_log_index());
 
     // entries2 is next to entries1
     ASSERT_EQ(2, lm->get_term(N));
-    std::vector<raft::LogEntry*> entries2;
+    std::vector<braft::LogEntry*> entries2;
     for (size_t i = N; i < 2 * N; ++i) {
-        raft::LogEntry* entry = new raft::LogEntry;
+        braft::LogEntry* entry = new braft::LogEntry;
         entry->AddRef();
-        entry->type = raft::ENTRY_TYPE_DATA;
+        entry->type = braft::ENTRY_TYPE_DATA;
         std::string buf;
-        base::string_printf(&buf, "hello_%lu", i + 1);
+        butil::string_printf(&buf, "hello_%lu", i + 1);
         entry->data.append(buf);
-        entry->id = raft::LogId(i + 1, 2);
+        entry->id = braft::LogId(i + 1, 2);
         entries2.push_back(entry);
         entry->AddRef();
     }
@@ -435,21 +435,21 @@ TEST_F(LogManagerTest, pipelined_append) {
     SyncClosure sc2;
     lm->append_entries(&entries2, &sc2);
     ASSERT_FALSE(lm->check_and_set_configuration(&conf));
-    ASSERT_EQ(raft::LogId(N, 2), conf.first);
+    ASSERT_EQ(braft::LogId(N, 2), conf.first);
     ASSERT_EQ(2u, conf.second.size());
     ASSERT_EQ(2 * N, lm->last_log_index());
     LOG(INFO) << conf.second;
 
     // It's safe to get entry when disk thread is still running
     for (size_t i = 0; i < 2 * N; ++i) {
-        raft::LogEntry* entry = lm->get_entry(i + 1);
+        braft::LogEntry* entry = lm->get_entry(i + 1);
         ASSERT_TRUE(entry != NULL);
-        if (entry->type == raft::ENTRY_TYPE_DATA) {
+        if (entry->type == braft::ENTRY_TYPE_DATA) {
             std::string buf;
-            base::string_printf(&buf, "hello_%lu", i + 1);
+            butil::string_printf(&buf, "hello_%lu", i + 1);
             ASSERT_EQ(buf, entry->data.to_string());
         }
-        ASSERT_EQ(raft::LogId(i + 1, 2), entry->id);
+        ASSERT_EQ(braft::LogId(i + 1, 2), entry->id);
         entry->Release();
     }
 
@@ -461,42 +461,42 @@ TEST_F(LogManagerTest, pipelined_append) {
     ASSERT_TRUE(sc2.status().ok()) << sc2.status();
 
     // Wrong applied id doen't change _logs_in_memory
-    lm->set_applied_id(raft::LogId(N * 2, 1));
+    lm->set_applied_id(braft::LogId(N * 2, 1));
     ASSERT_EQ(N * 2, lm->_logs_in_memory.size());
 
-    lm->set_applied_id(raft::LogId(N * 2, 2));
+    lm->set_applied_id(braft::LogId(N * 2, 2));
     ASSERT_TRUE(lm->_logs_in_memory.empty());
 
     // We can still get the right data from storage
     for (size_t i = 0; i < 2 * N; ++i) {
-        raft::LogEntry* entry = lm->get_entry(i + 1);
+        braft::LogEntry* entry = lm->get_entry(i + 1);
         ASSERT_TRUE(entry != NULL);
-        if (entry->type == raft::ENTRY_TYPE_DATA) {
+        if (entry->type == braft::ENTRY_TYPE_DATA) {
             std::string buf;
-            base::string_printf(&buf, "hello_%lu", i + 1);
+            butil::string_printf(&buf, "hello_%lu", i + 1);
             ASSERT_EQ(buf, entry->data.to_string());
         }
-        ASSERT_EQ(raft::LogId(i + 1, 2), entry->id);
+        ASSERT_EQ(braft::LogId(i + 1, 2), entry->id);
         entry->Release();
     }
 }
 
 TEST_F(LogManagerTest, set_snapshot) {
     system("rm -rf ./data");
-    scoped_ptr<raft::ConfigurationManager> cm(
-                                new raft::ConfigurationManager);
-    scoped_ptr<raft::SegmentLogStorage> storage(
-                                new raft::SegmentLogStorage("./data"));
-    scoped_ptr<raft::LogManager> lm(new raft::LogManager());
-    raft::LogManagerOptions opt;
+    scoped_ptr<braft::ConfigurationManager> cm(
+                                new braft::ConfigurationManager);
+    scoped_ptr<braft::SegmentLogStorage> storage(
+                                new braft::SegmentLogStorage("./data"));
+    scoped_ptr<braft::LogManager> lm(new braft::LogManager());
+    braft::LogManagerOptions opt;
     opt.log_storage = storage.get();
     opt.configuration_manager = cm.get();
     ASSERT_EQ(0, lm->init(opt));
-    raft::SnapshotMeta meta;
+    braft::SnapshotMeta meta;
     meta.set_last_included_index(1000);
     meta.set_last_included_term(2);
     lm->set_snapshot(&meta);
-    ASSERT_EQ(raft::LogId(1000, 2), lm->last_log_id(false));
+    ASSERT_EQ(braft::LogId(1000, 2), lm->last_log_id(false));
 }
 
 int on_new_log(void* arg, int /*error_code*/) {
@@ -505,14 +505,14 @@ int on_new_log(void* arg, int /*error_code*/) {
     return 0;
 }
 
-int append_entry(raft::LogManager* lm, base::StringPiece data, int64_t index, int64_t term = 1) {
-    raft::LogEntry* entry = new raft::LogEntry;
+int append_entry(braft::LogManager* lm, butil::StringPiece data, int64_t index, int64_t term = 1) {
+    braft::LogEntry* entry = new braft::LogEntry;
     entry->AddRef();
-    entry->type = raft::ENTRY_TYPE_DATA;
+    entry->type = braft::ENTRY_TYPE_DATA;
     entry->data.append(data.data(), data.size());
-    entry->id = raft::LogId(index, term);
+    entry->id = braft::LogId(index, term);
     SyncClosure sc;
-    std::vector<raft::LogEntry*> entries;
+    std::vector<braft::LogEntry*> entries;
     entries.push_back(entry);
     lm->append_entries(&entries, &sc);
     sc.join();
@@ -521,17 +521,17 @@ int append_entry(raft::LogManager* lm, base::StringPiece data, int64_t index, in
 
 TEST_F(LogManagerTest, wait) {
     system("rm -rf ./data");
-    scoped_ptr<raft::ConfigurationManager> cm(
-                                new raft::ConfigurationManager);
-    scoped_ptr<raft::SegmentLogStorage> storage(
-                                new raft::SegmentLogStorage("./data"));
-    scoped_ptr<raft::LogManager> lm(new raft::LogManager());
-    raft::LogManagerOptions opt;
+    scoped_ptr<braft::ConfigurationManager> cm(
+                                new braft::ConfigurationManager);
+    scoped_ptr<braft::SegmentLogStorage> storage(
+                                new braft::SegmentLogStorage("./data"));
+    scoped_ptr<braft::LogManager> lm(new braft::LogManager());
+    braft::LogManagerOptions opt;
     opt.log_storage = storage.get();
     opt.configuration_manager = cm.get();
     ASSERT_EQ(0, lm->init(opt));
     SyncClosure sc;   
-    raft::LogManager::WaitId wait_id = 
+    braft::LogManager::WaitId wait_id = 
             lm->wait(lm->last_log_index(), on_new_log, &sc);
     ASSERT_NE(0, wait_id);
     ASSERT_EQ(0, lm->remove_waiter(wait_id));
@@ -551,58 +551,58 @@ TEST_F(LogManagerTest, wait) {
 TEST_F(LogManagerTest, flush_and_get_last_id) {
     system("rm -rf ./data");
     {
-        scoped_ptr<raft::ConfigurationManager> cm(
-                                    new raft::ConfigurationManager);
-        scoped_ptr<raft::SegmentLogStorage> storage(
-                                    new raft::SegmentLogStorage("./data"));
-        scoped_ptr<raft::LogManager> lm(new raft::LogManager());
-        raft::LogManagerOptions opt;
+        scoped_ptr<braft::ConfigurationManager> cm(
+                                    new braft::ConfigurationManager);
+        scoped_ptr<braft::SegmentLogStorage> storage(
+                                    new braft::SegmentLogStorage("./data"));
+        scoped_ptr<braft::LogManager> lm(new braft::LogManager());
+        braft::LogManagerOptions opt;
         opt.log_storage = storage.get();
         opt.configuration_manager = cm.get();
         ASSERT_EQ(0, lm->init(opt));
-        raft::SnapshotMeta meta;
+        braft::SnapshotMeta meta;
         meta.set_last_included_index(100);
         meta.set_last_included_term(100);
         lm->set_snapshot(&meta);
-        ASSERT_EQ(raft::LogId(100, 100), lm->last_log_id(false));
-        ASSERT_EQ(raft::LogId(100, 100), lm->last_log_id(true));
+        ASSERT_EQ(braft::LogId(100, 100), lm->last_log_id(false));
+        ASSERT_EQ(braft::LogId(100, 100), lm->last_log_id(true));
     }
     // Load from disk again
     {
-        scoped_ptr<raft::ConfigurationManager> cm(
-                                    new raft::ConfigurationManager);
-        scoped_ptr<raft::SegmentLogStorage> storage(
-                                    new raft::SegmentLogStorage("./data"));
-        scoped_ptr<raft::LogManager> lm(new raft::LogManager());
-        raft::LogManagerOptions opt;
+        scoped_ptr<braft::ConfigurationManager> cm(
+                                    new braft::ConfigurationManager);
+        scoped_ptr<braft::SegmentLogStorage> storage(
+                                    new braft::SegmentLogStorage("./data"));
+        scoped_ptr<braft::LogManager> lm(new braft::LogManager());
+        braft::LogManagerOptions opt;
         opt.log_storage = storage.get();
         opt.configuration_manager = cm.get();
         ASSERT_EQ(0, lm->init(opt));
-        raft::SnapshotMeta meta;
+        braft::SnapshotMeta meta;
         meta.set_last_included_index(100);
         meta.set_last_included_term(100);
         lm->set_snapshot(&meta);
-        ASSERT_EQ(raft::LogId(100, 100), lm->last_log_id(false));
-        ASSERT_EQ(raft::LogId(100, 100), lm->last_log_id(true));
+        ASSERT_EQ(braft::LogId(100, 100), lm->last_log_id(false));
+        ASSERT_EQ(braft::LogId(100, 100), lm->last_log_id(true));
     }
 }
 
 TEST_F(LogManagerTest, check_consistency) {
     system("rm -rf ./data");
     {
-        scoped_ptr<raft::ConfigurationManager> cm(
-                                    new raft::ConfigurationManager);
-        scoped_ptr<raft::SegmentLogStorage> storage(
-                                    new raft::SegmentLogStorage("./data"));
-        scoped_ptr<raft::LogManager> lm(new raft::LogManager());
-        raft::LogManagerOptions opt;
+        scoped_ptr<braft::ConfigurationManager> cm(
+                                    new braft::ConfigurationManager);
+        scoped_ptr<braft::SegmentLogStorage> storage(
+                                    new braft::SegmentLogStorage("./data"));
+        scoped_ptr<braft::LogManager> lm(new braft::LogManager());
+        braft::LogManagerOptions opt;
         opt.log_storage = storage.get();
         opt.configuration_manager = cm.get();
         ASSERT_EQ(0, lm->init(opt));
-        base::Status st;
+        butil::Status st;
         st = lm->check_consistency();
         ASSERT_TRUE(st.ok()) << st;
-        raft::SnapshotMeta meta;
+        braft::SnapshotMeta meta;
         for (int i = 1; i < 1001; ++i) {
             append_entry(lm.get(), "dummy", i);
         }
@@ -618,16 +618,16 @@ TEST_F(LogManagerTest, check_consistency) {
         ASSERT_TRUE(st.ok()) << st;
     }
     {
-        scoped_ptr<raft::ConfigurationManager> cm(
-                                    new raft::ConfigurationManager);
-        scoped_ptr<raft::SegmentLogStorage> storage(
-                                    new raft::SegmentLogStorage("./data"));
-        scoped_ptr<raft::LogManager> lm(new raft::LogManager());
-        raft::LogManagerOptions opt;
+        scoped_ptr<braft::ConfigurationManager> cm(
+                                    new braft::ConfigurationManager);
+        scoped_ptr<braft::SegmentLogStorage> storage(
+                                    new braft::SegmentLogStorage("./data"));
+        scoped_ptr<braft::LogManager> lm(new braft::LogManager());
+        braft::LogManagerOptions opt;
         opt.log_storage = storage.get();
         opt.configuration_manager = cm.get();
         ASSERT_EQ(0, lm->init(opt));
-        base::Status st;
+        butil::Status st;
         st = lm->check_consistency();
         LOG(INFO) << "st : " << st;
         ASSERT_FALSE(st.ok()) << st;
@@ -636,35 +636,35 @@ TEST_F(LogManagerTest, check_consistency) {
 
 TEST_F(LogManagerTest, truncate_suffix_to_last_snapshot) {
     system("rm -rf ./data");
-    scoped_ptr<raft::ConfigurationManager> cm(
-            new raft::ConfigurationManager);
-    scoped_ptr<raft::SegmentLogStorage> storage(
-            new raft::SegmentLogStorage("./data"));
-    scoped_ptr<raft::LogManager> lm(new raft::LogManager());
-    raft::LogManagerOptions opt;
+    scoped_ptr<braft::ConfigurationManager> cm(
+            new braft::ConfigurationManager);
+    scoped_ptr<braft::SegmentLogStorage> storage(
+            new braft::SegmentLogStorage("./data"));
+    scoped_ptr<braft::LogManager> lm(new braft::LogManager());
+    braft::LogManagerOptions opt;
     opt.log_storage = storage.get();
     opt.configuration_manager = cm.get();
     ASSERT_EQ(0, lm->init(opt));
-    base::Status st;
+    butil::Status st;
     ASSERT_TRUE(st.ok()) << st;
-    raft::SnapshotMeta meta;
+    braft::SnapshotMeta meta;
     meta.set_last_included_index(1000);
     meta.set_last_included_term(2);
     lm->set_snapshot(&meta);
-    ASSERT_EQ(raft::LogId(1000, 2), lm->last_log_id(true));
+    ASSERT_EQ(braft::LogId(1000, 2), lm->last_log_id(true));
     ASSERT_EQ(0, append_entry(lm.get(), "dummy2", 1001, 2));
     ASSERT_EQ(0, append_entry(lm.get(), "dummy3", 1001, 3));
-    ASSERT_EQ(raft::LogId(1001, 3), lm->last_log_id(true));
+    ASSERT_EQ(braft::LogId(1001, 3), lm->last_log_id(true));
 }
 
 TEST_F(LogManagerTest, set_snapshot_and_get_log_term) {
     system("rm -rf ./data");
-    scoped_ptr<raft::ConfigurationManager> cm(
-            new raft::ConfigurationManager);
-    scoped_ptr<raft::SegmentLogStorage> storage(
-            new raft::SegmentLogStorage("./data"));
-    scoped_ptr<raft::LogManager> lm(new raft::LogManager());
-    raft::LogManagerOptions opt;
+    scoped_ptr<braft::ConfigurationManager> cm(
+            new braft::ConfigurationManager);
+    scoped_ptr<braft::SegmentLogStorage> storage(
+            new braft::SegmentLogStorage("./data"));
+    scoped_ptr<braft::LogManager> lm(new braft::LogManager());
+    braft::LogManagerOptions opt;
     opt.log_storage = storage.get();
     opt.configuration_manager = cm.get();
     ASSERT_EQ(0, lm->init(opt));
@@ -672,12 +672,12 @@ TEST_F(LogManagerTest, set_snapshot_and_get_log_term) {
     for (int i = 0; i < N; ++i) {
         append_entry(lm.get(), "test", i + 1, 1);
     }
-    raft::SnapshotMeta meta;
+    braft::SnapshotMeta meta;
     meta.set_last_included_index(N - 1);
     meta.set_last_included_term(1);
     lm->set_snapshot(&meta);
     lm->set_snapshot(&meta);
-    ASSERT_EQ(raft::LogId(N, 1), lm->last_log_id());
+    ASSERT_EQ(braft::LogId(N, 1), lm->last_log_id());
     ASSERT_EQ(1L, lm->get_term(N - 1));
     LOG(INFO) << "Last_index=" << lm->last_log_index();
 }

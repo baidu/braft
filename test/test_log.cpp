@@ -1,34 +1,25 @@
-/*
- * =====================================================================================
- *
- *       Filename:  test_log.cpp
- *
- *    Description:  
- *
- *        Version:  1.0
- *        Created:  2015/09/23 11:14:18
- *       Revision:  none
- *       Compiler:  gcc
- *
- *         Author:  WangYao (fisherman), wangyao02@baidu.com
- *        Company:  Baidu, Inc
- *
- * =====================================================================================
- */
+// libraft - Quorum-based replication of states accross machines.
+// Copyright (c) 2015 Baidu.com, Inc. All Rights Reserved
+
+// Author: WangYao (fisherman), wangyao02@baidu.com
+// Date: 2015/10/08 17:00:05
 
 #include <gtest/gtest.h>
-#include <base/atomicops.h>
-#include <base/file_util.h>
-#include <base/files/file_path.h>
-#include <base/files/file_enumerator.h>
-#include <base/string_printf.h>
-#include <base/logging.h>
-#include "raft/log.h"
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <butil/atomicops.h>
+#include <butil/file_util.h>
+#include <butil/files/file_path.h>
+#include <butil/files/file_enumerator.h>
+#include <butil/string_printf.h>
+#include <butil/logging.h>
+#include "braft/log.h"
 
 class TestUsageSuits : public testing::Test {
 protected:
     void SetUp() {
-        raft::FLAGS_raft_sync = false;
+        braft::FLAGS_raft_sync = false;
     }
     void TearDown() {}
 };
@@ -36,10 +27,10 @@ protected:
 TEST_F(TestUsageSuits, open_segment) {
     // open segment operation
     ::system("mkdir data/");
-    raft::Segment* seg1 = new raft::Segment("./data", 1L, 0);
+    braft::Segment* seg1 = new braft::Segment("./data", 1L, 0);
 
     // not open
-    raft::LogEntry* entry = seg1->get(1);
+    braft::LogEntry* entry = seg1->get(1);
     ASSERT_TRUE(entry == NULL);
 
     // create and open
@@ -48,8 +39,8 @@ TEST_F(TestUsageSuits, open_segment) {
 
     // append entry
     for (int i = 0; i < 10; i++) {
-        raft::LogEntry* entry = new raft::LogEntry();
-        entry->type = raft::ENTRY_TYPE_DATA;
+        braft::LogEntry* entry = new braft::LogEntry();
+        entry->type = braft::ENTRY_TYPE_DATA;
         entry->id.term = 1;
         entry->id.index = i + 1;
 
@@ -67,9 +58,9 @@ TEST_F(TestUsageSuits, open_segment) {
         int64_t term = seg1->get_term(i+1);
         ASSERT_EQ(term, 1);
 
-        raft::LogEntry* entry = seg1->get(i+1);
+        braft::LogEntry* entry = seg1->get(i+1);
         ASSERT_EQ(entry->id.term, 1);
-        ASSERT_EQ(entry->type, raft::ENTRY_TYPE_DATA);
+        ASSERT_EQ(entry->type, braft::ENTRY_TYPE_DATA);
         ASSERT_EQ(entry->id.index, i+1);
 
         char data_buf[128];
@@ -78,21 +69,21 @@ TEST_F(TestUsageSuits, open_segment) {
         entry->Release();
     }
     {
-        raft::LogEntry* entry = seg1->get(0);
+        braft::LogEntry* entry = seg1->get(0);
         ASSERT_TRUE(entry == NULL);
         entry = seg1->get(11);
         ASSERT_TRUE(entry == NULL);
     }
 
-    raft::ConfigurationManager* configuration_manager = new raft::ConfigurationManager;
+    braft::ConfigurationManager* configuration_manager = new braft::ConfigurationManager;
     // load open segment
-    raft::Segment* seg2 = new raft::Segment("./data", 1, 0);
+    braft::Segment* seg2 = new braft::Segment("./data", 1, 0);
     ASSERT_EQ(0, seg2->load(configuration_manager));
 
     for (int i = 0; i < 10; i++) {
-        raft::LogEntry* entry = seg2->get(i+1);
+        braft::LogEntry* entry = seg2->get(i+1);
         ASSERT_EQ(entry->id.term, 1);
-        ASSERT_EQ(entry->type, raft::ENTRY_TYPE_DATA);
+        ASSERT_EQ(entry->type, braft::ENTRY_TYPE_DATA);
         ASSERT_EQ(entry->id.index, i+1);
 
         char data_buf[128];
@@ -101,7 +92,7 @@ TEST_F(TestUsageSuits, open_segment) {
         entry->Release();
     }
     {
-        raft::LogEntry* entry = seg2->get(0);
+        braft::LogEntry* entry = seg2->get(0);
         ASSERT_TRUE(entry == NULL);
         entry = seg2->get(11);
         ASSERT_TRUE(entry == NULL);
@@ -111,8 +102,8 @@ TEST_F(TestUsageSuits, open_segment) {
     // truncate and read
     ASSERT_EQ(0, seg1->truncate(5));
     for (int i = 0; i < 5; i++) {
-        raft::LogEntry* entry = new raft::LogEntry();
-        entry->type = raft::ENTRY_TYPE_DATA;
+        braft::LogEntry* entry = new braft::LogEntry();
+        entry->type = braft::ENTRY_TYPE_DATA;
         entry->id.term = 1;
         entry->id.index = i + 6;
 
@@ -125,9 +116,9 @@ TEST_F(TestUsageSuits, open_segment) {
         entry->Release();
     }
     for (int i = 0; i < 10; i++) {
-        raft::LogEntry* entry = seg1->get(i+1);
+        braft::LogEntry* entry = seg1->get(i+1);
         ASSERT_EQ(entry->id.term, 1);
-        ASSERT_EQ(entry->type, raft::ENTRY_TYPE_DATA);
+        ASSERT_EQ(entry->type, braft::ENTRY_TYPE_DATA);
         ASSERT_EQ(entry->id.index, i+1);
 
         char data_buf[128];
@@ -149,13 +140,13 @@ TEST_F(TestUsageSuits, open_segment) {
 
 TEST_F(TestUsageSuits, closed_segment) {
     // open segment operation
-    raft::Segment* seg1 = new raft::Segment("./data", 1L, 0);
+    braft::Segment* seg1 = new braft::Segment("./data", 1L, 0);
     ASSERT_EQ(0, seg1->create());
     ASSERT_TRUE(seg1->is_open());
     // append entry
     for (int i = 0; i < 10; i++) {
-        raft::LogEntry* entry = new raft::LogEntry();
-        entry->type = raft::ENTRY_TYPE_DATA;
+        braft::LogEntry* entry = new braft::LogEntry();
+        entry->type = braft::ENTRY_TYPE_DATA;
         entry->id.term = 1;
         entry->id.index = i + 1;
 
@@ -171,9 +162,9 @@ TEST_F(TestUsageSuits, closed_segment) {
 
     // read entry
     for (int i = 0; i < 10; i++) {
-        raft::LogEntry* entry = seg1->get(i+1);
+        braft::LogEntry* entry = seg1->get(i+1);
         ASSERT_EQ(entry->id.term, 1);
-        ASSERT_EQ(entry->type, raft::ENTRY_TYPE_DATA);
+        ASSERT_EQ(entry->type, braft::ENTRY_TYPE_DATA);
         ASSERT_EQ(entry->id.index, i+1);
 
         char data_buf[128];
@@ -182,21 +173,21 @@ TEST_F(TestUsageSuits, closed_segment) {
         entry->Release();
     }
     {
-        raft::LogEntry* entry = seg1->get(0);
+        braft::LogEntry* entry = seg1->get(0);
         ASSERT_TRUE(entry == NULL);
         entry = seg1->get(11);
         ASSERT_TRUE(entry == NULL);
     }
 
-    raft::ConfigurationManager* configuration_manager = new raft::ConfigurationManager;
+    braft::ConfigurationManager* configuration_manager = new braft::ConfigurationManager;
     // load open segment
-    raft::Segment* seg2 = new raft::Segment("./data", 1, 10, 0);
+    braft::Segment* seg2 = new braft::Segment("./data", 1, 10, 0);
     ASSERT_EQ(0, seg2->load(configuration_manager));
 
     for (int i = 0; i < 10; i++) {
-        raft::LogEntry* entry = seg2->get(i+1);
+        braft::LogEntry* entry = seg2->get(i+1);
         ASSERT_EQ(entry->id.term, 1);
-        ASSERT_EQ(entry->type, raft::ENTRY_TYPE_DATA);
+        ASSERT_EQ(entry->type, braft::ENTRY_TYPE_DATA);
         ASSERT_EQ(entry->id.index, i+1);
 
         char data_buf[128];
@@ -205,7 +196,7 @@ TEST_F(TestUsageSuits, closed_segment) {
         entry->Release();
     }
     {
-        raft::LogEntry* entry = seg2->get(0);
+        braft::LogEntry* entry = seg2->get(0);
         ASSERT_TRUE(entry == NULL);
         entry = seg2->get(11);
         ASSERT_TRUE(entry == NULL);
@@ -215,8 +206,8 @@ TEST_F(TestUsageSuits, closed_segment) {
     // truncate and read
     ASSERT_EQ(0, seg1->truncate(5));
     for (int i = 0; i < 5; i++) {
-        raft::LogEntry* entry = new raft::LogEntry();
-        entry->type = raft::ENTRY_TYPE_DATA;
+        braft::LogEntry* entry = new braft::LogEntry();
+        entry->type = braft::ENTRY_TYPE_DATA;
         entry->id.term = 1;
         entry->id.index = i + 6;
 
@@ -229,7 +220,7 @@ TEST_F(TestUsageSuits, closed_segment) {
         entry->Release();
     }
     for (int i = 0; i < 10; i++) {
-        raft::LogEntry* entry = seg1->get(i+1);
+        braft::LogEntry* entry = seg1->get(i+1);
         char data_buf[128];
         if (i < 5) {
             snprintf(data_buf, sizeof(data_buf), "hello, world: %d", i + 1);
@@ -239,7 +230,7 @@ TEST_F(TestUsageSuits, closed_segment) {
             continue;
         }
         ASSERT_EQ(entry->id.term, 1);
-        ASSERT_EQ(entry->type, raft::ENTRY_TYPE_DATA);
+        ASSERT_EQ(entry->type, braft::ENTRY_TYPE_DATA);
         ASSERT_EQ(entry->id.index, i+1);
         ASSERT_EQ(data_buf, entry->data.to_string());
         entry->Release();
@@ -252,20 +243,20 @@ TEST_F(TestUsageSuits, closed_segment) {
 
 TEST_F(TestUsageSuits, multi_segment_and_segment_logstorage) {
     ::system("rm -rf data");
-    raft::SegmentLogStorage* storage = new raft::SegmentLogStorage("./data");
+    braft::SegmentLogStorage* storage = new braft::SegmentLogStorage("./data");
 
     // init
-    ASSERT_EQ(0, storage->init(new raft::ConfigurationManager()));
+    ASSERT_EQ(0, storage->init(new braft::ConfigurationManager()));
     ASSERT_EQ(1, storage->first_log_index());
     ASSERT_EQ(0, storage->last_log_index());
 
     // append entry
     for (int i = 0; i < 100000; i++) {
-        std::vector<raft::LogEntry*> entries;
+        std::vector<braft::LogEntry*> entries;
         for (int j = 0; j < 5; j++) {
             int64_t index = 5*i + j + 1;
-            raft::LogEntry* entry = new raft::LogEntry();
-            entry->type = raft::ENTRY_TYPE_DATA;
+            braft::LogEntry* entry = new braft::LogEntry();
+            entry->type = braft::ENTRY_TYPE_DATA;
             entry->id.term = 1;
             entry->id.index = index;
 
@@ -285,9 +276,9 @@ TEST_F(TestUsageSuits, multi_segment_and_segment_logstorage) {
     // read entry
     for (int i = 0; i < 500000; i++) {
         int64_t index = i + 1;
-        raft::LogEntry* entry = storage->get_entry(index);
+        braft::LogEntry* entry = storage->get_entry(index);
         ASSERT_EQ(entry->id.term, 1);
-        ASSERT_EQ(entry->type, raft::ENTRY_TYPE_DATA);
+        ASSERT_EQ(entry->type, braft::ENTRY_TYPE_DATA);
         ASSERT_EQ(entry->id.index, index);
 
         char data_buf[128];
@@ -305,16 +296,16 @@ TEST_F(TestUsageSuits, multi_segment_and_segment_logstorage) {
 
     // boundary truncate prefix
     {
-        raft::SegmentLogStorage::SegmentMap& segments1 = storage->segments();
+        braft::SegmentLogStorage::SegmentMap& segments1 = storage->segments();
         size_t old_segment_num = segments1.size();
-        raft::Segment* first_seg = segments1.begin()->second.get();
+        braft::Segment* first_seg = segments1.begin()->second.get();
 
         ASSERT_EQ(0, storage->truncate_prefix(first_seg->last_index()));
-        raft::SegmentLogStorage::SegmentMap& segments2 = storage->segments();
+        braft::SegmentLogStorage::SegmentMap& segments2 = storage->segments();
         ASSERT_EQ(old_segment_num, segments2.size());
 
         ASSERT_EQ(0, storage->truncate_prefix(first_seg->last_index() + 1));
-        raft::SegmentLogStorage::SegmentMap& segments3 = storage->segments();
+        braft::SegmentLogStorage::SegmentMap& segments3 = storage->segments();
         ASSERT_EQ(old_segment_num - 1, segments3.size());
     }
 
@@ -323,9 +314,9 @@ TEST_F(TestUsageSuits, multi_segment_and_segment_logstorage) {
     ASSERT_EQ(storage->last_log_index(), 500000);
     for (int i = 250001; i <= 500000; i++) {
         int64_t index = i;
-        raft::LogEntry* entry = storage->get_entry(index);
+        braft::LogEntry* entry = storage->get_entry(index);
         ASSERT_EQ(entry->id.term, 1);
-        ASSERT_EQ(entry->type, raft::ENTRY_TYPE_DATA);
+        ASSERT_EQ(entry->type, braft::ENTRY_TYPE_DATA);
         ASSERT_EQ(entry->id.index, index);
 
         char data_buf[128];
@@ -336,11 +327,11 @@ TEST_F(TestUsageSuits, multi_segment_and_segment_logstorage) {
 
     // append
     for (int i = 100000; i < 200000; i++) {
-        std::vector<raft::LogEntry*> entries;
+        std::vector<braft::LogEntry*> entries;
         for (int j = 0; j < 5; j++) {
             int64_t index = 5*i + j + 1;
-            raft::LogEntry* entry = new raft::LogEntry();
-            entry->type = raft::ENTRY_TYPE_DATA;
+            braft::LogEntry* entry = new braft::LogEntry();
+            entry->type = braft::ENTRY_TYPE_DATA;
             entry->id.term = 1;
             entry->id.index = index;
 
@@ -366,16 +357,16 @@ TEST_F(TestUsageSuits, multi_segment_and_segment_logstorage) {
 
     // boundary truncate suffix
     {
-        raft::SegmentLogStorage::SegmentMap& segments1 = storage->segments();
-        raft::Segment* first_seg = segments1.begin()->second.get();
+        braft::SegmentLogStorage::SegmentMap& segments1 = storage->segments();
+        braft::Segment* first_seg = segments1.begin()->second.get();
         if (segments1.size() > 1) {
             storage->truncate_suffix(first_seg->last_index() + 1);
         }
-        raft::SegmentLogStorage::SegmentMap& segments2 = storage->segments();
+        braft::SegmentLogStorage::SegmentMap& segments2 = storage->segments();
         ASSERT_EQ(2ul, segments2.size());
         ASSERT_EQ(storage->last_log_index(), first_seg->last_index() + 1);
         storage->truncate_suffix(first_seg->last_index());
-        raft::SegmentLogStorage::SegmentMap& segments3 = storage->segments();
+        braft::SegmentLogStorage::SegmentMap& segments3 = storage->segments();
         ASSERT_EQ(1ul, segments3.size());
         ASSERT_EQ(storage->last_log_index(), first_seg->last_index());
     }
@@ -383,9 +374,9 @@ TEST_F(TestUsageSuits, multi_segment_and_segment_logstorage) {
     // read
     for (int i = 250001; i <= storage->last_log_index(); i++) {
         int64_t index = i;
-        raft::LogEntry* entry = storage->get_entry(index);
+        braft::LogEntry* entry = storage->get_entry(index);
         ASSERT_EQ(entry->id.term, 1);
-        ASSERT_EQ(entry->type, raft::ENTRY_TYPE_DATA);
+        ASSERT_EQ(entry->type, braft::ENTRY_TYPE_DATA);
         ASSERT_EQ(entry->id.index, index);
 
         char data_buf[128];
@@ -398,8 +389,8 @@ TEST_F(TestUsageSuits, multi_segment_and_segment_logstorage) {
 
     // re load
     ::system("rm -rf data/log_meta");
-    raft::SegmentLogStorage* storage2 = new raft::SegmentLogStorage("./data");
-    ASSERT_EQ(0, storage2->init(new raft::ConfigurationManager()));
+    braft::SegmentLogStorage* storage2 = new braft::SegmentLogStorage("./data");
+    ASSERT_EQ(0, storage2->init(new braft::ConfigurationManager()));
     ASSERT_EQ(1, storage2->first_log_index());
     ASSERT_EQ(0, storage2->last_log_index());
     delete storage2;
@@ -407,17 +398,17 @@ TEST_F(TestUsageSuits, multi_segment_and_segment_logstorage) {
 
 TEST_F(TestUsageSuits, append_close_load_append) {
     ::system("rm -rf data");
-    raft::LogStorage* storage = new raft::SegmentLogStorage("./data");
-    raft::ConfigurationManager* configuration_manager = new raft::ConfigurationManager;
+    braft::LogStorage* storage = new braft::SegmentLogStorage("./data");
+    braft::ConfigurationManager* configuration_manager = new braft::ConfigurationManager;
     ASSERT_EQ(0, storage->init(configuration_manager));
 
     // append entry
     for (int i = 0; i < 100000; i++) {
-        std::vector<raft::LogEntry*> entries;
+        std::vector<braft::LogEntry*> entries;
         for (int j = 0; j < 5; j++) {
             int64_t index = 5*i + j + 1;
-            raft::LogEntry* entry = new raft::LogEntry();
-            entry->type = raft::ENTRY_TYPE_DATA;
+            braft::LogEntry* entry = new braft::LogEntry();
+            entry->type = braft::ENTRY_TYPE_DATA;
             entry->id.term = 1;
             entry->id.index = index;
 
@@ -438,17 +429,17 @@ TEST_F(TestUsageSuits, append_close_load_append) {
     delete configuration_manager;
 
     // reinit 
-    storage = new raft::SegmentLogStorage("./data");
-    configuration_manager = new raft::ConfigurationManager;
+    storage = new braft::SegmentLogStorage("./data");
+    configuration_manager = new braft::ConfigurationManager;
     ASSERT_EQ(0, storage->init(configuration_manager));
 
     // append entry
     for (int i = 100000; i < 200000; i++) {
-        std::vector<raft::LogEntry*> entries;
+        std::vector<braft::LogEntry*> entries;
         for (int j = 0; j < 5; j++) {
             int64_t index = 5*i + j + 1;
-            raft::LogEntry* entry = new raft::LogEntry();
-            entry->type = raft::ENTRY_TYPE_DATA;
+            braft::LogEntry* entry = new braft::LogEntry();
+            entry->type = braft::ENTRY_TYPE_DATA;
             entry->id.term = 2;
             entry->id.index = index;
 
@@ -471,13 +462,13 @@ TEST_F(TestUsageSuits, append_close_load_append) {
 
     for (int i = 0; i < 200000*5; i++) {
         int64_t index = i + 1;
-        raft::LogEntry* entry = storage->get_entry(index);
+        braft::LogEntry* entry = storage->get_entry(index);
         if (i < 100000*5) {
             ASSERT_EQ(entry->id.term, 1);
         } else {
             ASSERT_EQ(entry->id.term, 2);
         }
-        ASSERT_EQ(entry->type, raft::ENTRY_TYPE_DATA);
+        ASSERT_EQ(entry->type, braft::ENTRY_TYPE_DATA);
         ASSERT_EQ(entry->id.index, index);
 
         char data_buf[128];
@@ -492,17 +483,17 @@ TEST_F(TestUsageSuits, append_close_load_append) {
 
 TEST_F(TestUsageSuits, append_read_badcase) {
     ::system("rm -rf data");
-    raft::LogStorage* storage = new raft::SegmentLogStorage("./data");
-    raft::ConfigurationManager* configuration_manager = new raft::ConfigurationManager;
+    braft::LogStorage* storage = new braft::SegmentLogStorage("./data");
+    braft::ConfigurationManager* configuration_manager = new braft::ConfigurationManager;
     ASSERT_EQ(0, storage->init(configuration_manager));
 
     // append entry
     for (int i = 0; i < 100000; i++) {
-        std::vector<raft::LogEntry*> entries;
+        std::vector<braft::LogEntry*> entries;
         for (int j = 0; j < 5; j++) {
             int64_t index = 5*i + j + 1;
-            raft::LogEntry* entry = new raft::LogEntry();
-            entry->type = raft::ENTRY_TYPE_DATA;
+            braft::LogEntry* entry = new braft::LogEntry();
+            entry->type = braft::ENTRY_TYPE_DATA;
             entry->id.term = 1;
             entry->id.index = index;
 
@@ -527,47 +518,47 @@ TEST_F(TestUsageSuits, append_read_badcase) {
     delete configuration_manager;
 
     // make file unwrite
-    base::FileEnumerator dir1(base::FilePath("./data"), false, 
-                              base::FileEnumerator::FILES 
-                              | base::FileEnumerator::DIRECTORIES);
-    for (base::FilePath sub_path = dir1.Next(); !sub_path.empty(); sub_path = dir1.Next()) {
-        base::File::Info info;
-        base::GetFileInfo(sub_path, &info);
+    butil::FileEnumerator dir1(butil::FilePath("./data"), false, 
+                              butil::FileEnumerator::FILES 
+                              | butil::FileEnumerator::DIRECTORIES);
+    for (butil::FilePath sub_path = dir1.Next(); !sub_path.empty(); sub_path = dir1.Next()) {
+        butil::File::Info info;
+        butil::GetFileInfo(sub_path, &info);
         if (!info.is_directory) {
             chmod(sub_path.value().c_str(), 0444);
         }
     }
 
     // reinit failed, because load open no permission
-    storage = new raft::SegmentLogStorage("./data");
-    configuration_manager = new raft::ConfigurationManager;
+    storage = new braft::SegmentLogStorage("./data");
+    configuration_manager = new braft::ConfigurationManager;
     ASSERT_NE(0, storage->init(configuration_manager));
     delete storage;
     delete configuration_manager;
 
-    base::FileEnumerator dir2(base::FilePath("./data"), false, 
-                              base::FileEnumerator::FILES 
-                              | base::FileEnumerator::DIRECTORIES);
-    for (base::FilePath sub_path = dir2.Next(); !sub_path.empty(); sub_path = dir2.Next()) {
-        base::File::Info info;
-        base::GetFileInfo(sub_path, &info);
+    butil::FileEnumerator dir2(butil::FilePath("./data"), false, 
+                              butil::FileEnumerator::FILES 
+                              | butil::FileEnumerator::DIRECTORIES);
+    for (butil::FilePath sub_path = dir2.Next(); !sub_path.empty(); sub_path = dir2.Next()) {
+        butil::File::Info info;
+        butil::GetFileInfo(sub_path, &info);
         if (!info.is_directory) {
             chmod(sub_path.value().c_str(), 0644);
         }
     }
 
     // reinit success
-    storage = new raft::SegmentLogStorage("./data");
-    configuration_manager = new raft::ConfigurationManager;
+    storage = new braft::SegmentLogStorage("./data");
+    configuration_manager = new braft::ConfigurationManager;
     ASSERT_EQ(0, storage->init(configuration_manager));
 
     // make file chaos
-    base::FileEnumerator dir3(base::FilePath("./data"), false, 
-                              base::FileEnumerator::FILES 
-                              | base::FileEnumerator::DIRECTORIES);
-    for (base::FilePath sub_path = dir3.Next(); !sub_path.empty(); sub_path = dir3.Next()) {
-        base::File::Info info;
-        base::GetFileInfo(sub_path, &info);
+    butil::FileEnumerator dir3(butil::FilePath("./data"), false, 
+                              butil::FileEnumerator::FILES 
+                              | butil::FileEnumerator::DIRECTORIES);
+    for (butil::FilePath sub_path = dir3.Next(); !sub_path.empty(); sub_path = dir3.Next()) {
+        butil::File::Info info;
+        butil::GetFileInfo(sub_path, &info);
         if (!info.is_directory) {
             chmod(sub_path.value().c_str(), 0644);
 
@@ -586,7 +577,7 @@ TEST_F(TestUsageSuits, append_read_badcase) {
     // read will fail
     for (int i = 0; i < 100000*5; i++) {
         int64_t index = i + 1;
-        raft::LogEntry* entry = storage->get_entry(index);
+        braft::LogEntry* entry = storage->get_entry(index);
         if (entry) {
             entry->Release();
         }
@@ -598,13 +589,13 @@ TEST_F(TestUsageSuits, append_read_badcase) {
 
 TEST_F(TestUsageSuits, configuration) {
     ::system("rm -rf data");
-    raft::SegmentLogStorage* storage = new raft::SegmentLogStorage("./data");
-    raft::ConfigurationManager* configuration_manager = new raft::ConfigurationManager;
+    braft::SegmentLogStorage* storage = new braft::SegmentLogStorage("./data");
+    braft::ConfigurationManager* configuration_manager = new braft::ConfigurationManager;
     ASSERT_EQ(0, storage->init(configuration_manager));
 
     {
-        raft::LogEntry entry;
-        entry.type = raft::ENTRY_TYPE_NO_OP;
+        braft::LogEntry entry;
+        entry.type = braft::ENTRY_TYPE_NO_OP;
         entry.id.term = 1;
         entry.id.index = 1;
 
@@ -613,24 +604,24 @@ TEST_F(TestUsageSuits, configuration) {
 
     // add peer
     {
-        raft::LogEntry entry;
-        entry.type = raft::ENTRY_TYPE_CONFIGURATION;
+        braft::LogEntry entry;
+        entry.type = braft::ENTRY_TYPE_CONFIGURATION;
         entry.id.term = 1;
         entry.id.index = 2;
-        entry.peers = new std::vector<raft::PeerId>;
-        entry.peers->push_back(raft::PeerId("1.1.1.1:1000:0"));
-        entry.peers->push_back(raft::PeerId("1.1.1.1:2000:0"));
-        entry.peers->push_back(raft::PeerId("1.1.1.1:3000:0"));
+        entry.peers = new std::vector<braft::PeerId>;
+        entry.peers->push_back(braft::PeerId("1.1.1.1:1000:0"));
+        entry.peers->push_back(braft::PeerId("1.1.1.1:2000:0"));
+        entry.peers->push_back(braft::PeerId("1.1.1.1:3000:0"));
         storage->append_entry(&entry);
     }
 
     // append entry
     for (int i = 0; i < 100000; i++) {
-        std::vector<raft::LogEntry*> entries;
+        std::vector<braft::LogEntry*> entries;
         for (int j = 0; j < 5; j++) {
             int64_t index = 3 + i*5+j;
-            raft::LogEntry* entry = new raft::LogEntry();
-            entry->type = raft::ENTRY_TYPE_DATA;
+            braft::LogEntry* entry = new braft::LogEntry();
+            entry->type = braft::ENTRY_TYPE_DATA;
             entry->id.term = 1;
             entry->id.index = index;
 
@@ -649,22 +640,22 @@ TEST_F(TestUsageSuits, configuration) {
     // remove peer
     {
         int64_t index = 2 + 100000*5 + 1;
-        raft::LogEntry entry;
-        entry.type = raft::ENTRY_TYPE_CONFIGURATION;
+        braft::LogEntry entry;
+        entry.type = braft::ENTRY_TYPE_CONFIGURATION;
         entry.id.term = 1;
         entry.id.index = index;
-        entry.peers = new std::vector<raft::PeerId>;
-        entry.peers->push_back(raft::PeerId("1.1.1.1:1000:0"));
-        entry.peers->push_back(raft::PeerId("1.1.1.1:2000:0"));
+        entry.peers = new std::vector<braft::PeerId>;
+        entry.peers->push_back(braft::PeerId("1.1.1.1:1000:0"));
+        entry.peers->push_back(braft::PeerId("1.1.1.1:2000:0"));
         storage->append_entry(&entry);
     }
 
     delete storage;
 
-    raft::SegmentLogStorage* storage2 = new raft::SegmentLogStorage("./data");
+    braft::SegmentLogStorage* storage2 = new braft::SegmentLogStorage("./data");
     ASSERT_EQ(0, storage2->init(configuration_manager));
 
-    raft::ConfigurationPair pair;
+    braft::ConfigurationPair pair;
     configuration_manager->get_configuration(2 + 100000*5, &pair);
     ASSERT_EQ(2, pair.first.index);
     LOG(NOTICE) << pair.second;
@@ -684,21 +675,21 @@ TEST_F(TestUsageSuits, configuration) {
     delete storage2;
 }
 
-base::atomic<int> g_first_read_index(0); 
-base::atomic<int> g_last_read_index(0);
+butil::atomic<int> g_first_read_index(0); 
+butil::atomic<int> g_last_read_index(0);
 bool g_stop = false;
 
 void* read_thread_routine(void* arg) {
-    raft::SegmentLogStorage* storage = (raft::SegmentLogStorage*)arg;
+    braft::SegmentLogStorage* storage = (braft::SegmentLogStorage*)arg;
     while (!g_stop) {
-        int a = g_first_read_index.load(base::memory_order_relaxed);
-        int b = g_last_read_index.load(base::memory_order_relaxed);
+        int a = g_first_read_index.load(butil::memory_order_relaxed);
+        int b = g_last_read_index.load(butil::memory_order_relaxed);
         EXPECT_LE(a, b);
-        int index = base::fast_rand_in(a, b);
-        raft::LogEntry* entry = storage->get_entry(index);
+        int index = butil::fast_rand_in(a, b);
+        braft::LogEntry* entry = storage->get_entry(index);
         if (entry != NULL) {
             std::string expect;
-            base::string_printf(&expect, "hello_%d", index);
+            butil::string_printf(&expect, "hello_%d", index);
             EXPECT_EQ(expect, entry->data.to_string());
             entry->Release();
         } else {
@@ -714,7 +705,7 @@ void* read_thread_routine(void* arg) {
 }
 
 void* write_thread_routine(void* arg) {
-    raft::SegmentLogStorage* storage = (raft::SegmentLogStorage*)arg;
+    braft::SegmentLogStorage* storage = (braft::SegmentLogStorage*)arg;
     // Write operation distrubution: 
     //  - 10% truncate_prefix
     //  - 10% truncate_suffix,
@@ -723,30 +714,30 @@ void* write_thread_routine(void* arg) {
     //  - 50% append new entry
     int next_log_index = storage->last_log_index() + 1;
     while (!g_stop) {
-        const int r = base::fast_rand_in(0, 9);
+        const int r = butil::fast_rand_in(0, 9);
         if (r < 1) {  // truncate_prefix
-            int truncate_index = base::fast_rand_in(
-                    g_first_read_index.load(base::memory_order_relaxed), 
-                    g_last_read_index.load(base::memory_order_relaxed));
+            int truncate_index = butil::fast_rand_in(
+                    g_first_read_index.load(butil::memory_order_relaxed), 
+                    g_last_read_index.load(butil::memory_order_relaxed));
             EXPECT_EQ(0, storage->truncate_prefix(truncate_index));
-            g_first_read_index.store(truncate_index, base::memory_order_relaxed);
+            g_first_read_index.store(truncate_index, butil::memory_order_relaxed);
         } else if (r < 2) {  // truncate suffix
-            int truncate_index = base::fast_rand_in(
-                    g_last_read_index.load(base::memory_order_relaxed),
+            int truncate_index = butil::fast_rand_in(
+                    g_last_read_index.load(butil::memory_order_relaxed),
                     next_log_index - 1);
             EXPECT_EQ(0, storage->truncate_suffix(truncate_index));
             next_log_index = truncate_index + 1;
         } else if (r < 5) { // increase last_read_index which cannot be truncate
-            int next_read_index = base::fast_rand_in(
-                    g_last_read_index.load(base::memory_order_relaxed),
+            int next_read_index = butil::fast_rand_in(
+                    g_last_read_index.load(butil::memory_order_relaxed),
                     next_log_index - 1);
-            g_last_read_index.store(next_read_index, base::memory_order_relaxed);
+            g_last_read_index.store(next_read_index, butil::memory_order_relaxed);
         } else  {  // Append entry
-            raft::LogEntry* entry = new raft::LogEntry;
-            entry->type = raft::ENTRY_TYPE_DATA;
+            braft::LogEntry* entry = new braft::LogEntry;
+            entry->type = braft::ENTRY_TYPE_DATA;
             entry->id.index = next_log_index;
             std::string data;
-            base::string_printf(&data, "hello_%d", next_log_index);
+            butil::string_printf(&data, "hello_%d", next_log_index);
             entry->data.append(data);
             ++next_log_index;
             EXPECT_EQ(0, storage->append_entry(entry));
@@ -756,24 +747,24 @@ void* write_thread_routine(void* arg) {
     return NULL;
 }
 
-namespace raft {
+namespace braft {
 DECLARE_int32(raft_max_segment_size);
 }
 
 TEST_F(TestUsageSuits, multi_read_single_modify_thread_safe) {
-    int32_t saved_max_segment_size = raft::FLAGS_raft_max_segment_size;
-    raft::FLAGS_raft_max_segment_size = 1024;
+    int32_t saved_max_segment_size = braft::FLAGS_raft_max_segment_size;
+    braft::FLAGS_raft_max_segment_size = 1024;
     system("rm -rf ./data");
-    raft::SegmentLogStorage* storage = new raft::SegmentLogStorage("./data");
-    raft::ConfigurationManager* configuration_manager = new raft::ConfigurationManager;
+    braft::SegmentLogStorage* storage = new braft::SegmentLogStorage("./data");
+    braft::ConfigurationManager* configuration_manager = new braft::ConfigurationManager;
     ASSERT_EQ(0, storage->init(configuration_manager));
     const int N = 10000;
     for (int i = 1; i <= N; ++i) {
-        raft::LogEntry* entry = new raft::LogEntry;
-        entry->type = raft::ENTRY_TYPE_DATA;
+        braft::LogEntry* entry = new braft::LogEntry;
+        entry->type = braft::ENTRY_TYPE_DATA;
         entry->id.index = i;
         std::string data;
-        base::string_printf(&data, "hello_%d", i);
+        butil::string_printf(&data, "hello_%d", i);
         entry->data.append(data);
         ASSERT_EQ(0, storage->append_entry(entry));
         entry->Release();
@@ -799,16 +790,16 @@ TEST_F(TestUsageSuits, multi_read_single_modify_thread_safe) {
 
     delete configuration_manager;
     delete storage;
-    raft::FLAGS_raft_max_segment_size = saved_max_segment_size;
+    braft::FLAGS_raft_max_segment_size = saved_max_segment_size;
 }
 
 TEST_F(TestUsageSuits, large_entry) {
     system("rm -rf ./data");
-    raft::SegmentLogStorage* storage = new raft::SegmentLogStorage("./data");
-    raft::ConfigurationManager* configuration_manager = new raft::ConfigurationManager;
+    braft::SegmentLogStorage* storage = new braft::SegmentLogStorage("./data");
+    braft::ConfigurationManager* configuration_manager = new braft::ConfigurationManager;
     ASSERT_EQ(0, storage->init(configuration_manager));
-    raft::LogEntry* entry = new raft::LogEntry;
-    entry->type = raft::ENTRY_TYPE_DATA;
+    braft::LogEntry* entry = new braft::LogEntry;
+    entry->type = braft::ENTRY_TYPE_DATA;
     entry->id.index = 1;
     entry->id.term = 1;
     std::string data;
@@ -823,13 +814,13 @@ TEST_F(TestUsageSuits, large_entry) {
 
 TEST_F(TestUsageSuits, reboot_with_checksum_type_changed) {
     system("rm -rf ./data");
-    raft::SegmentLogStorage* storage = new raft::SegmentLogStorage("./data");
-    raft::ConfigurationManager* configuration_manager = new raft::ConfigurationManager;
+    braft::SegmentLogStorage* storage = new braft::SegmentLogStorage("./data");
+    braft::ConfigurationManager* configuration_manager = new braft::ConfigurationManager;
     ASSERT_EQ(0, storage->init(configuration_manager));
     storage->_checksum_type = 0;  // murmurhash
     for (int i = 0; i < 10; i++) {
-        raft::LogEntry* entry = new raft::LogEntry();
-        entry->type = raft::ENTRY_TYPE_DATA;
+        braft::LogEntry* entry = new braft::LogEntry();
+        entry->type = braft::ENTRY_TYPE_DATA;
         entry->id.term = 1;
         entry->id.index = i + 1;
 
@@ -842,12 +833,12 @@ TEST_F(TestUsageSuits, reboot_with_checksum_type_changed) {
         entry->Release();
     }
     delete storage;
-    storage = new raft::SegmentLogStorage("./data");
+    storage = new braft::SegmentLogStorage("./data");
     ASSERT_EQ(0, storage->init(configuration_manager));
     storage->_checksum_type = 1;  // crc32
     for (int i = 10; i < 20; i++) {
-        raft::LogEntry* entry = new raft::LogEntry();
-        entry->type = raft::ENTRY_TYPE_DATA;
+        braft::LogEntry* entry = new braft::LogEntry();
+        entry->type = braft::ENTRY_TYPE_DATA;
         entry->id.term = 1;
         entry->id.index = i + 1;
 
@@ -860,12 +851,12 @@ TEST_F(TestUsageSuits, reboot_with_checksum_type_changed) {
         entry->Release();
     }
     delete storage;
-    storage = new raft::SegmentLogStorage("./data");
+    storage = new braft::SegmentLogStorage("./data");
     ASSERT_EQ(0, storage->init(configuration_manager));
     for (int index = 1; index <= 20; ++index) {
-        raft::LogEntry* entry = storage->get_entry(index);
+        braft::LogEntry* entry = storage->get_entry(index);
         ASSERT_EQ(entry->id.term, 1);
-        ASSERT_EQ(entry->type, raft::ENTRY_TYPE_DATA);
+        ASSERT_EQ(entry->type, braft::ENTRY_TYPE_DATA);
         ASSERT_EQ(entry->id.index, index);
 
         char data_buf[128];

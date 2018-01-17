@@ -1,32 +1,20 @@
-/*
- * =====================================================================================
- *
- *       Filename:  test_snapshot.cpp
- *
- *    Description:  
- *
- *        Version:  1.0
- *        Created:  2015年11月26日 16时58分05秒
- *       Revision:  none
- *       Compiler:  gcc
- *
- *         Author:  WangYao (fisherman), wangyao02@baidu.com
- *        Company:  Baidu, Inc
- *
- * =====================================================================================
- */
+// libraft - Quorum-based replication of states accross machines.
+// Copyright (c) 2015 Baidu.com, Inc. All Rights Reserved
+
+// Author: WangYao (fisherman), wangyao02@baidu.com
+// Date: 2015/10/08 17:00:05
 
 #include <gtest/gtest.h>
-#include <base/logging.h>
-#include <base/file_util.h>
+#include <butil/logging.h>
+#include <butil/file_util.h>
 #include <errno.h>
-#include <baidu/rpc/server.h>
-#include "raft/snapshot.h"
-#include "raft/raft.h"
-#include "raft/util.h"
+#include <brpc/server.h>
+#include "braft/snapshot.h"
+#include "braft/raft.h"
+#include "braft/util.h"
+#include "braft/local_file_meta.pb.h"
+#include "braft/snapshot_throttle.h"
 #include "memory_file_system_adaptor.h"
-#include "raft/local_file_meta.pb.h"
-#include "raft/snapshot_throttle.h"
 
 class TestUsageSuits : public testing::Test {
 protected:
@@ -35,8 +23,8 @@ protected:
 };
 
 #define FOR_EACH_FILE_SYSTEM_ADAPTOR_BEGIN(fs)                                   \
-    raft::FileSystemAdaptor* file_system_adaptors[] = {                          \
-        NULL, new raft::PosixFileSystemAdaptor, new MemoryFileSystemAdaptor \
+    braft::FileSystemAdaptor* file_system_adaptors[] = {                          \
+        NULL, new braft::PosixFileSystemAdaptor, new MemoryFileSystemAdaptor \
     };                                                                           \
     for (size_t fs_index = 0; fs_index != sizeof(file_system_adaptors)           \
          / sizeof(file_system_adaptors[0]); ++fs_index) {                        \
@@ -45,7 +33,7 @@ protected:
 #define FOR_EACH_FILE_SYSTEM_ADAPTOR_END }
 
 TEST_F(TestUsageSuits, writer_and_reader) {
-    raft::FileSystemAdaptor* fs;
+    braft::FileSystemAdaptor* fs;
     FOR_EACH_FILE_SYSTEM_ADAPTOR_BEGIN(fs);
     
     if (fs == NULL) {
@@ -53,7 +41,7 @@ TEST_F(TestUsageSuits, writer_and_reader) {
     } else {
         fs->delete_file("data", true);
     }
-    raft::SnapshotStorage* storage = new raft::LocalSnapshotStorage("./data");
+    braft::SnapshotStorage* storage = new braft::LocalSnapshotStorage("./data");
     if (fs) {
         ASSERT_EQ(storage->set_file_system_adaptor(fs), 0);
     }
@@ -61,21 +49,21 @@ TEST_F(TestUsageSuits, writer_and_reader) {
     ASSERT_EQ(0, storage->init());
 
     // empty snapshot
-    raft::SnapshotReader* reader = storage->open();
+    braft::SnapshotReader* reader = storage->open();
     ASSERT_TRUE(reader == NULL);
 
-    std::vector<raft::PeerId> peers;
-    peers.push_back(raft::PeerId("1.2.3.4:1000"));
-    peers.push_back(raft::PeerId("1.2.3.4:2000"));
-    peers.push_back(raft::PeerId("1.2.3.4:3000"));
+    std::vector<braft::PeerId> peers;
+    peers.push_back(braft::PeerId("1.2.3.4:1000"));
+    peers.push_back(braft::PeerId("1.2.3.4:2000"));
+    peers.push_back(braft::PeerId("1.2.3.4:3000"));
 
-    raft::SnapshotMeta meta;
+    braft::SnapshotMeta meta;
     meta.set_last_included_index(1000);
     meta.set_last_included_term(2);
-    //meta.last_configuration = raft::Configuration(peers);
+    //meta.last_configuration = braft::Configuration(peers);
 
     // normal create writer
-    raft::SnapshotWriter* writer = storage->create();
+    braft::SnapshotWriter* writer = storage->create();
     ASSERT_TRUE(writer != NULL);
     ASSERT_EQ(0, writer->save_meta(meta));
     ASSERT_EQ(0, storage->close(writer));
@@ -88,7 +76,7 @@ TEST_F(TestUsageSuits, writer_and_reader) {
 
     // double create will fail, because flock
     // lockf only work in multi processes
-    //raft::SnapshotWriter* writer2 = storage->create(meta);
+    //braft::SnapshotWriter* writer2 = storage->create(meta);
     //ASSERT_TRUE(writer2 == NULL);
 
     ASSERT_EQ(0, writer->save_meta(meta));
@@ -97,7 +85,7 @@ TEST_F(TestUsageSuits, writer_and_reader) {
     // normal open reader
     reader = storage->open();
     ASSERT_TRUE(reader != NULL);
-    raft::SnapshotMeta new_meta;
+    braft::SnapshotMeta new_meta;
     ASSERT_EQ(0, reader->load_meta(&new_meta));
     ASSERT_EQ(meta.last_included_index(), new_meta.last_included_index());
     ASSERT_EQ(meta.last_included_term(), new_meta.last_included_term());
@@ -107,7 +95,7 @@ TEST_F(TestUsageSuits, writer_and_reader) {
     delete storage;
 
     // reinit
-    storage = new raft::LocalSnapshotStorage("./data");
+    storage = new braft::LocalSnapshotStorage("./data");
     ASSERT_TRUE(storage);
     ASSERT_EQ(0, storage->init());
 
@@ -123,7 +111,7 @@ TEST_F(TestUsageSuits, writer_and_reader) {
     // normal open reader after reinit
     reader = storage->open();
     ASSERT_TRUE(reader != NULL);
-    raft::SnapshotMeta new_meta2;
+    braft::SnapshotMeta new_meta2;
     ASSERT_EQ(0, reader->load_meta(&new_meta2));
     ASSERT_EQ(meta.last_included_index(), new_meta2.last_included_index());
     ASSERT_EQ(meta.last_included_term(), new_meta2.last_included_term());
@@ -135,7 +123,7 @@ TEST_F(TestUsageSuits, writer_and_reader) {
 }
 
 TEST_F(TestUsageSuits, copy) {
-    raft::FileSystemAdaptor* fs;
+    braft::FileSystemAdaptor* fs;
     FOR_EACH_FILE_SYSTEM_ADAPTOR_BEGIN(fs);
 
     if (fs == NULL) {
@@ -144,16 +132,16 @@ TEST_F(TestUsageSuits, copy) {
         fs->delete_file("data", true);
     }
 
-    baidu::rpc::Server server;
-    ASSERT_EQ(0, raft::add_service(&server, "0.0.0.0:60006"));
+    brpc::Server server;
+    ASSERT_EQ(0, braft::add_service(&server, "0.0.0.0:60006"));
     ASSERT_EQ(0, server.Start(60006, NULL));
 
-    std::vector<raft::PeerId> peers;
-    peers.push_back(raft::PeerId("1.2.3.4:1000"));
-    peers.push_back(raft::PeerId("1.2.3.4:2000"));
-    peers.push_back(raft::PeerId("1.2.3.4:3000"));
+    std::vector<braft::PeerId> peers;
+    peers.push_back(braft::PeerId("1.2.3.4:1000"));
+    peers.push_back(braft::PeerId("1.2.3.4:2000"));
+    peers.push_back(braft::PeerId("1.2.3.4:3000"));
 
-    raft::SnapshotMeta meta;
+    braft::SnapshotMeta meta;
     meta.set_last_included_index(1000);
     meta.set_last_included_term(2);
     for (size_t i = 0; i < peers.size(); ++i) {
@@ -161,20 +149,20 @@ TEST_F(TestUsageSuits, copy) {
     }
 
     // storage
-    raft::LocalSnapshotStorage* storage1 = new raft::LocalSnapshotStorage("./data");
+    braft::LocalSnapshotStorage* storage1 = new braft::LocalSnapshotStorage("./data");
     ASSERT_TRUE(storage1);
     if (fs) {
         ASSERT_EQ(storage1->set_file_system_adaptor(fs), 0);
     }
     ASSERT_EQ(0, storage1->init());
-    storage1->set_server_addr(base::EndPoint(base::get_host_ip(), 60006));
+    storage1->set_server_addr(butil::EndPoint(butil::get_host_ip(), 60006));
     // normal create writer
-    raft::SnapshotWriter* writer1 = storage1->create();
+    braft::SnapshotWriter* writer1 = storage1->create();
     ASSERT_TRUE(writer1 != NULL);
     ASSERT_EQ(0, writer1->save_meta(meta));
     ASSERT_EQ(0, storage1->close(writer1));
 
-    raft::SnapshotReader* reader1 = storage1->open();
+    braft::SnapshotReader* reader1 = storage1->open();
     ASSERT_TRUE(reader1 != NULL);
     std::string uri = reader1->generate_uri_for_copy();
 
@@ -184,12 +172,12 @@ TEST_F(TestUsageSuits, copy) {
     } else {
         fs->delete_file("data2", true);
     }
-    raft::SnapshotStorage* storage2 = new raft::LocalSnapshotStorage("./data2");
+    braft::SnapshotStorage* storage2 = new braft::LocalSnapshotStorage("./data2");
     if (fs) {
         ASSERT_EQ(storage2->set_file_system_adaptor(fs), 0);
     }
     ASSERT_EQ(0, storage2->init());
-    raft::SnapshotReader* reader2 = storage2->copy_from(uri);
+    braft::SnapshotReader* reader2 = storage2->copy_from(uri);
     ASSERT_TRUE(reader2 != NULL);
     ASSERT_EQ(0, storage1->close(reader1));
     ASSERT_EQ(0, storage2->close(reader2));
@@ -200,7 +188,7 @@ TEST_F(TestUsageSuits, copy) {
 }
 
 TEST_F(TestUsageSuits, file_escapes_directory) {
-    raft::FileSystemAdaptor* fs;
+    braft::FileSystemAdaptor* fs;
     FOR_EACH_FILE_SYSTEM_ADAPTOR_BEGIN(fs);
 
     if (fs == NULL) {
@@ -209,16 +197,16 @@ TEST_F(TestUsageSuits, file_escapes_directory) {
         fs->delete_file("data", true);
     }
 
-    baidu::rpc::Server server;
-    ASSERT_EQ(0, raft::add_service(&server, "0.0.0.0:60006"));
+    brpc::Server server;
+    ASSERT_EQ(0, braft::add_service(&server, "0.0.0.0:60006"));
     ASSERT_EQ(0, server.Start(60006, NULL));
 
-    std::vector<raft::PeerId> peers;
-    peers.push_back(raft::PeerId("1.2.3.4:1000"));
-    peers.push_back(raft::PeerId("1.2.3.4:2000"));
-    peers.push_back(raft::PeerId("1.2.3.4:3000"));
+    std::vector<braft::PeerId> peers;
+    peers.push_back(braft::PeerId("1.2.3.4:1000"));
+    peers.push_back(braft::PeerId("1.2.3.4:2000"));
+    peers.push_back(braft::PeerId("1.2.3.4:3000"));
 
-    raft::SnapshotMeta meta;
+    braft::SnapshotMeta meta;
     meta.set_last_included_index(1000);
     meta.set_last_included_term(2);
     for (size_t i = 0; i < peers.size(); ++i) {
@@ -226,8 +214,8 @@ TEST_F(TestUsageSuits, file_escapes_directory) {
     }
 
     // storage1
-    raft::LocalSnapshotStorage* storage1
-            = new raft::LocalSnapshotStorage("./data/snapshot1/data");
+    braft::LocalSnapshotStorage* storage1
+            = new braft::LocalSnapshotStorage("./data/snapshot1/data");
     ASSERT_TRUE(storage1);
     if (fs) {
         ASSERT_EQ(storage1->set_file_system_adaptor(fs), 0);
@@ -237,33 +225,33 @@ TEST_F(TestUsageSuits, file_escapes_directory) {
         ASSERT_EQ(0, system("mkdir -p ./data/snapshot1/dir1/ && touch ./data/snapshot1/dir1/file"));
     } else {
         ASSERT_TRUE(fs->create_directory("./data/snapshot1/dir1/", NULL, true));
-        raft::FileAdaptor* file = fs->open("./data/snapshot1/dir1/file", 
+        braft::FileAdaptor* file = fs->open("./data/snapshot1/dir1/file", 
                 O_CREAT | O_TRUNC | O_RDWR, NULL, NULL);
         CHECK(file != NULL);
         delete file;
     }
-    storage1->set_server_addr(base::EndPoint(base::get_host_ip(), 60006));
+    storage1->set_server_addr(butil::EndPoint(butil::get_host_ip(), 60006));
     // normal create writer
-    raft::SnapshotWriter* writer1 = storage1->create();
+    braft::SnapshotWriter* writer1 = storage1->create();
     ASSERT_TRUE(writer1 != NULL);
     ASSERT_EQ(0, writer1->add_file("../../dir1/file"));
     ASSERT_EQ(0, writer1->save_meta(meta));
     ASSERT_EQ(0, storage1->close(writer1));
 
-    raft::SnapshotReader* reader1 = storage1->open();
+    braft::SnapshotReader* reader1 = storage1->open();
     ASSERT_TRUE(reader1 != NULL);
     std::string uri = reader1->generate_uri_for_copy();
 
     // storage2
-    raft::LocalSnapshotStorage* storage2
-            = new raft::LocalSnapshotStorage("./data/snapshot2/data");
+    braft::LocalSnapshotStorage* storage2
+            = new braft::LocalSnapshotStorage("./data/snapshot2/data");
     if (fs) {
         ASSERT_EQ(storage2->set_file_system_adaptor(fs), 0);
     }
     ASSERT_EQ(0, storage2->init());
-    raft::SnapshotReader* reader2 = storage2->copy_from(uri);
+    braft::SnapshotReader* reader2 = storage2->copy_from(uri);
     if (!fs) {
-        ASSERT_TRUE(base::PathExists(base::FilePath("./data/snapshot2/dir1/file")));
+        ASSERT_TRUE(butil::PathExists(butil::FilePath("./data/snapshot2/dir1/file")));
     } else {
         ASSERT_TRUE(fs->path_exists("./data/snapshot2/dir1/file"));
     }
@@ -277,15 +265,15 @@ TEST_F(TestUsageSuits, file_escapes_directory) {
 }
 
 struct Arg {
-    raft::SnapshotStorage* storage;
+    braft::SnapshotStorage* storage;
     volatile bool stopped;
 };
 
 void *read_thread(void* arg) {
     Arg *a = (Arg*)arg;
     while (!a->stopped) {
-        raft::SnapshotMeta meta;
-        raft::SnapshotReader* reader = a->storage->open();
+        braft::SnapshotMeta meta;
+        braft::SnapshotReader* reader = a->storage->open();
         if (reader == NULL) {
             EXPECT_TRUE(false);
             break;
@@ -304,18 +292,18 @@ void *read_thread(void* arg) {
 
 void *write_thread(void* arg) {
     Arg *a = (Arg*)arg;
-    std::vector<raft::PeerId> peers;
-    peers.push_back(raft::PeerId("1.2.3.4:1000"));
-    peers.push_back(raft::PeerId("1.2.3.4:2000"));
-    peers.push_back(raft::PeerId("1.2.3.4:3000"));
+    std::vector<braft::PeerId> peers;
+    peers.push_back(braft::PeerId("1.2.3.4:1000"));
+    peers.push_back(braft::PeerId("1.2.3.4:2000"));
+    peers.push_back(braft::PeerId("1.2.3.4:3000"));
 
-    raft::SnapshotMeta meta;
+    braft::SnapshotMeta meta;
     meta.set_last_included_index(1000);
     meta.set_last_included_term(2);
 
     while (!a->stopped) {
         // normal create writer
-        raft::SnapshotWriter* writer = a->storage->create();
+        braft::SnapshotWriter* writer = a->storage->create();
         if (writer == NULL) {
             EXPECT_TRUE(false);
             break;
@@ -333,10 +321,10 @@ void *write_thread(void* arg) {
 }
 
 TEST_F(TestUsageSuits, thread_safety) {
-    raft::FileSystemAdaptor* fs;
+    braft::FileSystemAdaptor* fs;
     FOR_EACH_FILE_SYSTEM_ADAPTOR_BEGIN(fs);
 
-    raft::SnapshotStorage* storage = new raft::LocalSnapshotStorage("./data");
+    braft::SnapshotStorage* storage = new braft::LocalSnapshotStorage("./data");
     if (fs) {
         ASSERT_EQ(storage->set_file_system_adaptor(fs), 0);
     }
@@ -358,23 +346,23 @@ TEST_F(TestUsageSuits, thread_safety) {
     FOR_EACH_FILE_SYSTEM_ADAPTOR_END;
 }
 
-void write_file(raft::FileSystemAdaptor* fs, const std::string& path, const std::string& data) {
+void write_file(braft::FileSystemAdaptor* fs, const std::string& path, const std::string& data) {
     if (!fs) {
-        fs = raft::default_file_system();
+        fs = braft::default_file_system();
     }
-    raft::FileAdaptor* file = fs->open(path, O_CREAT | O_TRUNC | O_RDWR, NULL, NULL);
+    braft::FileAdaptor* file = fs->open(path, O_CREAT | O_TRUNC | O_RDWR, NULL, NULL);
     CHECK(file != NULL);
-    base::IOBuf io_buf;
+    butil::IOBuf io_buf;
     io_buf.append(data);
     CHECK_EQ(data.size(), file->write(io_buf, 0));
     delete file;
 }
 
-void add_file_meta(raft::FileSystemAdaptor* fs, raft::SnapshotWriter* writer, int index, 
+void add_file_meta(braft::FileSystemAdaptor* fs, braft::SnapshotWriter* writer, int index, 
                    const std::string* checksum, const std::string& data) {
     std::stringstream path;
     path << "file" << index;
-    raft::LocalFileMeta file_meta;
+    braft::LocalFileMeta file_meta;
     if (checksum) {
         file_meta.set_checksum(*checksum);
     }
@@ -382,31 +370,31 @@ void add_file_meta(raft::FileSystemAdaptor* fs, raft::SnapshotWriter* writer, in
     ASSERT_EQ(0, writer->add_file(path.str(), &file_meta));
 }
 
-bool check_file_exist(raft::FileSystemAdaptor* fs, const std::string& path, int index) {
+bool check_file_exist(braft::FileSystemAdaptor* fs, const std::string& path, int index) {
     if (fs == NULL) {
-        fs = raft::default_file_system();
+        fs = braft::default_file_system();
     }
     std::stringstream ss;
     ss << path << "/file" << index;
     return fs->path_exists(ss.str());
 }
 
-std::string read_from_file(raft::FileSystemAdaptor* fs, const std::string& path, int index) {
+std::string read_from_file(braft::FileSystemAdaptor* fs, const std::string& path, int index) {
     if (fs == NULL) {
-        fs = raft::default_file_system();
+        fs = braft::default_file_system();
     }
     std::stringstream ss;
     ss << path << "/file" << index;
-    raft::FileAdaptor* file = fs->open(ss.str(), O_RDONLY, NULL, NULL);
+    braft::FileAdaptor* file = fs->open(ss.str(), O_RDONLY, NULL, NULL);
     ssize_t size = file->size();
-    base::IOPortal buf;
+    butil::IOPortal buf;
     file->read(&buf, 0, size_t(size));
     delete file;
     return buf.to_string();
 }
 
 TEST_F(TestUsageSuits, filter_before_copy) {
-    raft::FileSystemAdaptor* fs;
+    braft::FileSystemAdaptor* fs;
     FOR_EACH_FILE_SYSTEM_ADAPTOR_BEGIN(fs);
 
     if (fs == NULL) {
@@ -415,16 +403,16 @@ TEST_F(TestUsageSuits, filter_before_copy) {
         fs->delete_file("data", true);
     }
 
-    baidu::rpc::Server server;
-    ASSERT_EQ(0, raft::add_service(&server, "0.0.0.0:60006"));
+    brpc::Server server;
+    ASSERT_EQ(0, braft::add_service(&server, "0.0.0.0:60006"));
     ASSERT_EQ(0, server.Start(60006, NULL));
 
-    std::vector<raft::PeerId> peers;
-    peers.push_back(raft::PeerId("1.2.3.4:1000"));
-    peers.push_back(raft::PeerId("1.2.3.4:2000"));
-    peers.push_back(raft::PeerId("1.2.3.4:3000"));
+    std::vector<braft::PeerId> peers;
+    peers.push_back(braft::PeerId("1.2.3.4:1000"));
+    peers.push_back(braft::PeerId("1.2.3.4:2000"));
+    peers.push_back(braft::PeerId("1.2.3.4:3000"));
 
-    raft::SnapshotMeta meta;
+    braft::SnapshotMeta meta;
     meta.set_last_included_index(1000);
     meta.set_last_included_term(2);
     for (size_t i = 0; i < peers.size(); ++i) {
@@ -432,15 +420,15 @@ TEST_F(TestUsageSuits, filter_before_copy) {
     }
 
     // storage
-    raft::LocalSnapshotStorage* storage1 = new raft::LocalSnapshotStorage("./data");
+    braft::LocalSnapshotStorage* storage1 = new braft::LocalSnapshotStorage("./data");
     ASSERT_TRUE(storage1);
     if (fs) {
         ASSERT_EQ(storage1->set_file_system_adaptor(fs), 0);
     }
     ASSERT_EQ(0, storage1->init());
-    storage1->set_server_addr(base::EndPoint(base::get_host_ip(), 60006));
+    storage1->set_server_addr(butil::EndPoint(butil::get_host_ip(), 60006));
     // normal create writer
-    raft::SnapshotWriter* writer1 = storage1->create();
+    braft::SnapshotWriter* writer1 = storage1->create();
     ASSERT_TRUE(writer1 != NULL);
 
     const std::string data1("aaa");
@@ -458,7 +446,7 @@ TEST_F(TestUsageSuits, filter_before_copy) {
     ASSERT_EQ(0, writer1->save_meta(meta));
     ASSERT_EQ(0, storage1->close(writer1));
 
-    raft::SnapshotReader* reader1 = storage1->open();
+    braft::SnapshotReader* reader1 = storage1->open();
     ASSERT_TRUE(reader1 != NULL);
     std::string uri = reader1->generate_uri_for_copy();
 
@@ -471,14 +459,14 @@ TEST_F(TestUsageSuits, filter_before_copy) {
         fs->delete_file("snapshot_temp", true);
     }
 
-    raft::SnapshotStorage* storage2 = new raft::LocalSnapshotStorage("./data2");
+    braft::SnapshotStorage* storage2 = new braft::LocalSnapshotStorage("./data2");
     if (fs) {
         ASSERT_EQ(storage2->set_file_system_adaptor(fs), 0);
     }
     storage2->set_filter_before_copy_remote();
     ASSERT_EQ(0, storage2->init());
 
-    raft::SnapshotWriter* writer2 = storage2->create();
+    braft::SnapshotWriter* writer2 = storage2->create();
     ASSERT_TRUE(writer2 != NULL);
 
     meta.set_last_included_index(900);
@@ -530,7 +518,7 @@ TEST_F(TestUsageSuits, filter_before_copy) {
     }
 
     ASSERT_EQ(0, storage2->init());
-    raft::SnapshotReader* reader2 = storage2->copy_from(uri);
+    braft::SnapshotReader* reader2 = storage2->copy_from(uri);
     ASSERT_TRUE(reader2 != NULL);
     ASSERT_EQ(0, storage1->close(reader1));
     ASSERT_EQ(0, storage2->close(reader2));
@@ -559,7 +547,7 @@ TEST_F(TestUsageSuits, filter_before_copy) {
 }
 
 TEST_F(TestUsageSuits, snapshot_throttle_for_reading) {
-    raft::FileSystemAdaptor* fs;
+    braft::FileSystemAdaptor* fs;
     FOR_EACH_FILE_SYSTEM_ADAPTOR_BEGIN(fs);
 
     if (fs == NULL) {
@@ -568,16 +556,16 @@ TEST_F(TestUsageSuits, snapshot_throttle_for_reading) {
         fs->delete_file("data", true);
     }
 
-    baidu::rpc::Server server;
-    ASSERT_EQ(0, raft::add_service(&server, "0.0.0.0:60006"));
+    brpc::Server server;
+    ASSERT_EQ(0, braft::add_service(&server, "0.0.0.0:60006"));
     ASSERT_EQ(0, server.Start(60006, NULL));
 
-    std::vector<raft::PeerId> peers;
-    peers.push_back(raft::PeerId("1.2.3.4:1000"));
-    peers.push_back(raft::PeerId("1.2.3.4:2000"));
-    peers.push_back(raft::PeerId("1.2.3.4:3000"));
+    std::vector<braft::PeerId> peers;
+    peers.push_back(braft::PeerId("1.2.3.4:1000"));
+    peers.push_back(braft::PeerId("1.2.3.4:2000"));
+    peers.push_back(braft::PeerId("1.2.3.4:3000"));
 
-    raft::SnapshotMeta meta;
+    braft::SnapshotMeta meta;
     meta.set_last_included_index(1000);
     meta.set_last_included_term(2);
     for (size_t i = 0; i < peers.size(); ++i) {
@@ -585,20 +573,20 @@ TEST_F(TestUsageSuits, snapshot_throttle_for_reading) {
     }
 
     // storage1
-    raft::LocalSnapshotStorage* storage1 = new raft::LocalSnapshotStorage("./data");
+    braft::LocalSnapshotStorage* storage1 = new braft::LocalSnapshotStorage("./data");
     ASSERT_TRUE(storage1);
     if (fs) {
         ASSERT_EQ(storage1->set_file_system_adaptor(fs), 0);
     }
     // create and set snapshot throttle
-    raft::ThroughputSnapshotThrottle* throttle = new 
-        raft::ThroughputSnapshotThrottle(30, 10);
+    braft::ThroughputSnapshotThrottle* throttle = new 
+        braft::ThroughputSnapshotThrottle(30, 10);
     ASSERT_TRUE(throttle);
     ASSERT_EQ(storage1->set_snapshot_throttle(throttle), 0);
     ASSERT_EQ(0, storage1->init());
-    storage1->set_server_addr(base::EndPoint(base::get_host_ip(), 60006));
+    storage1->set_server_addr(butil::EndPoint(butil::get_host_ip(), 60006));
     // normal create writer
-    raft::SnapshotWriter* writer1 = storage1->create();
+    braft::SnapshotWriter* writer1 = storage1->create();
     ASSERT_TRUE(writer1 != NULL);
     // add file meta for storage1
     const std::string data1("aaa");
@@ -608,7 +596,7 @@ TEST_F(TestUsageSuits, snapshot_throttle_for_reading) {
     ASSERT_EQ(0, writer1->save_meta(meta));
     ASSERT_EQ(0, storage1->close(writer1));
 
-    raft::SnapshotReader* reader1 = storage1->open();
+    braft::SnapshotReader* reader1 = storage1->open();
     ASSERT_TRUE(reader1 != NULL);
     std::string uri = reader1->generate_uri_for_copy();
 
@@ -618,13 +606,13 @@ TEST_F(TestUsageSuits, snapshot_throttle_for_reading) {
     } else {
         fs->delete_file("data2", true);
     }
-    raft::SnapshotStorage* storage2 = new raft::LocalSnapshotStorage("./data2");
+    braft::SnapshotStorage* storage2 = new braft::LocalSnapshotStorage("./data2");
     if (fs) {
         ASSERT_EQ(storage2->set_file_system_adaptor(fs), 0);
     }
     ASSERT_EQ(0, storage2->init());
     // copy
-    raft::SnapshotReader* reader2 = storage2->copy_from(uri);
+    braft::SnapshotReader* reader2 = storage2->copy_from(uri);
     LOG(INFO) << "Copy finish.";
     ASSERT_TRUE(reader2 != NULL);
     ASSERT_EQ(0, storage1->close(reader1));
@@ -636,7 +624,7 @@ TEST_F(TestUsageSuits, snapshot_throttle_for_reading) {
 }
 
 TEST_F(TestUsageSuits, snapshot_throttle_for_writing) {
-    raft::FileSystemAdaptor* fs;
+    braft::FileSystemAdaptor* fs;
     FOR_EACH_FILE_SYSTEM_ADAPTOR_BEGIN(fs);
 
     if (fs == NULL) {
@@ -645,16 +633,16 @@ TEST_F(TestUsageSuits, snapshot_throttle_for_writing) {
         fs->delete_file("data", true);
     }
 
-    baidu::rpc::Server server;
-    ASSERT_EQ(0, raft::add_service(&server, "0.0.0.0:60006"));
+    brpc::Server server;
+    ASSERT_EQ(0, braft::add_service(&server, "0.0.0.0:60006"));
     ASSERT_EQ(0, server.Start(60006, NULL));
 
-    std::vector<raft::PeerId> peers;
-    peers.push_back(raft::PeerId("1.2.3.4:1000"));
-    peers.push_back(raft::PeerId("1.2.3.4:2000"));
-    peers.push_back(raft::PeerId("1.2.3.4:3000"));
+    std::vector<braft::PeerId> peers;
+    peers.push_back(braft::PeerId("1.2.3.4:1000"));
+    peers.push_back(braft::PeerId("1.2.3.4:2000"));
+    peers.push_back(braft::PeerId("1.2.3.4:3000"));
 
-    raft::SnapshotMeta meta;
+    braft::SnapshotMeta meta;
     meta.set_last_included_index(1000);
     meta.set_last_included_term(2);
     for (size_t i = 0; i < peers.size(); ++i) {
@@ -662,15 +650,15 @@ TEST_F(TestUsageSuits, snapshot_throttle_for_writing) {
     }
 
     // storage1
-    raft::LocalSnapshotStorage* storage1 = new raft::LocalSnapshotStorage("./data");
+    braft::LocalSnapshotStorage* storage1 = new braft::LocalSnapshotStorage("./data");
     ASSERT_TRUE(storage1);
     if (fs) {
         ASSERT_EQ(storage1->set_file_system_adaptor(fs), 0);
     }
     ASSERT_EQ(0, storage1->init());
-    storage1->set_server_addr(base::EndPoint(base::get_host_ip(), 60006));
+    storage1->set_server_addr(butil::EndPoint(butil::get_host_ip(), 60006));
     // create writer1
-    raft::SnapshotWriter* writer1 = storage1->create();
+    braft::SnapshotWriter* writer1 = storage1->create();
     ASSERT_TRUE(writer1 != NULL);
     // add nomal file for storage1
     LOG(INFO) << "add nomal file";
@@ -681,7 +669,7 @@ TEST_F(TestUsageSuits, snapshot_throttle_for_writing) {
     ASSERT_EQ(0, writer1->save_meta(meta));
     ASSERT_EQ(0, storage1->close(writer1));
     // get uri of storage1
-    raft::SnapshotReader* reader1 = storage1->open();
+    braft::SnapshotReader* reader1 = storage1->open();
     ASSERT_TRUE(reader1 != NULL);
     std::string uri = reader1->generate_uri_for_copy();
 
@@ -691,20 +679,20 @@ TEST_F(TestUsageSuits, snapshot_throttle_for_writing) {
     } else {
         fs->delete_file("data2", true);
     }
-    raft::SnapshotStorage* storage2 = new raft::LocalSnapshotStorage("./data2");
+    braft::SnapshotStorage* storage2 = new braft::LocalSnapshotStorage("./data2");
     if (fs) {
         ASSERT_EQ(storage2->set_file_system_adaptor(fs), 0);
     }
     // create and set snapshot throttle for storage2
-    raft::SnapshotThrottle* throttle = 
-        new raft::ThroughputSnapshotThrottle(10, 10);
+    braft::SnapshotThrottle* throttle = 
+        new braft::ThroughputSnapshotThrottle(10, 10);
     ASSERT_TRUE(throttle);
     ASSERT_EQ(storage2->set_snapshot_throttle(throttle), 0);
     ASSERT_EQ(0, storage2->init());
 
     // copy from storage1 to storage2
     LOG(INFO) << "Copy start.";
-    raft::SnapshotCopier* copier = storage2->start_to_copy_from(uri);
+    braft::SnapshotCopier* copier = storage2->start_to_copy_from(uri);
     ASSERT_TRUE(copier != NULL);
     copier->join();
     LOG(INFO) << "Copy finish.";

@@ -64,6 +64,6 @@ typedef ::butil::Mutex raft_mutex_t;
     } while (0)
 
 #define BRAFT_RETURN_IF(expr, args...)   \
-        BRAFT_GET_ARG3(1, ##args, RAFT_RETURN_IF1, RAFT_RETURN_IF0)(expr, ##args)
+        BRAFT_GET_ARG3(1, ##args, BRAFT_RETURN_IF1, BRAFT_RETURN_IF0)(expr, ##args)
 
 #endif  //BRAFT_MACROS_H

@@ -5,10 +5,10 @@
 
 #include <algorithm>
 #include <gtest/gtest.h>
-#include <base/string_printf.h>
-#include "raft/commitment_manager.h"
-#include "raft/configuration.h"
-#include "raft/fsm_caller.h"
+#include <butil/string_printf.h>
+#include "braft/commitment_manager.h"
+#include "braft/configuration.h"
+#include "braft/fsm_caller.h"
 
 class CommitmentManagerTest : public testing::Test {
 protected:
@@ -17,24 +17,24 @@ protected:
 };
 
 void benchmark_vector_set(int num_peers) {
-    std::set<raft::PeerId> peer_set;
-    std::vector<raft::PeerId> peer_vector;
+    std::set<braft::PeerId> peer_set;
+    std::vector<braft::PeerId> peer_vector;
     for (int i = 0; i < num_peers; ++i) {
         std::string peer_desc;
-        base::string_printf(&peer_desc, "192.168.1.%d:9876", i);
-        raft::PeerId peer(peer_desc);
+        butil::string_printf(&peer_desc, "192.168.1.%d:9876", i);
+        braft::PeerId peer(peer_desc);
         peer_set.insert(peer);
         peer_vector.push_back(peer);
     }
-    std::vector<raft::PeerId> find_list(peer_vector);
+    std::vector<braft::PeerId> find_list(peer_vector);
     std::random_shuffle(find_list.begin(), find_list.end());
     const size_t N = 100000;
     size_t counter = 0;
-    base::Timer timer;
+    butil::Timer timer;
     timer.start();
     for (size_t i = 0; i < N; ++i) {
         for (size_t j = 0; j < find_list.size(); ++j) {
-            std::vector<raft::PeerId>::iterator it;
+            std::vector<braft::PeerId>::iterator it;
             for (it = peer_vector.begin(); 
                     it < peer_vector.end() && *it != find_list[j]; ++it) {}
             counter += (it != peer_vector.end());
@@ -77,7 +77,7 @@ TEST_F(CommitmentManagerTest, benchmark_vector_set) {
     }
 }
 
-class DummyCaller : public raft::FSMCaller {
+class DummyCaller : public braft::FSMCaller {
 public:
     DummyCaller() : _committed_index(0) {}
     virtual int on_committed(int64_t committed_index) { 
@@ -91,20 +91,20 @@ private:
 
 TEST_F(CommitmentManagerTest, odd_cluster) {
     DummyCaller caller;
-    raft::ClosureQueue cq(false);
-    raft::CommitmentManagerOptions opt;
+    braft::ClosureQueue cq(false);
+    braft::CommitmentManagerOptions opt;
     opt.waiter = &caller;
     opt.closure_queue = &cq;
-    raft::CommitmentManager cm;
+    braft::CommitmentManager cm;
     ASSERT_EQ(0, cm.init(opt));
     ASSERT_EQ(0, cm.reset_pending_index(1));
-    std::vector<raft::PeerId> peers;
+    std::vector<braft::PeerId> peers;
     for (int i = 1; i <= 3; ++i) {
         std::string peer_addr;
-        base::string_printf(&peer_addr, "192.168.1.%d:8888", i);
-        peers.push_back(raft::PeerId(peer_addr));
+        butil::string_printf(&peer_addr, "192.168.1.%d:8888", i);
+        peers.push_back(braft::PeerId(peer_addr));
     }
-    raft::Configuration conf(peers);
+    braft::Configuration conf(peers);
     const int num_tasks = 10000;
     for (int i = 0; i < num_tasks; ++i) {
         ASSERT_EQ(0, cm.append_pending_task(conf, NULL));
@@ -124,20 +124,20 @@ TEST_F(CommitmentManagerTest, odd_cluster) {
 
 TEST_F(CommitmentManagerTest, even_cluster) {
     DummyCaller caller;
-    raft::ClosureQueue cq(false);
-    raft::CommitmentManagerOptions opt;
+    braft::ClosureQueue cq(false);
+    braft::CommitmentManagerOptions opt;
     opt.waiter = &caller;
     opt.closure_queue = &cq;
-    raft::CommitmentManager cm;
+    braft::CommitmentManager cm;
     ASSERT_EQ(0, cm.init(opt));
     ASSERT_EQ(0, cm.reset_pending_index(1));
-    std::vector<raft::PeerId> peers;
+    std::vector<braft::PeerId> peers;
     for (int i = 1; i <= 4; ++i) {
         std::string peer_addr;
-        base::string_printf(&peer_addr, "192.168.1.%d:8888", i);
-        peers.push_back(raft::PeerId(peer_addr));
+        butil::string_printf(&peer_addr, "192.168.1.%d:8888", i);
+        peers.push_back(braft::PeerId(peer_addr));
     }
-    raft::Configuration conf(peers);
+    braft::Configuration conf(peers);
     const int num_tasks = 10000;
     for (int i = 0; i < num_tasks; ++i) {
         ASSERT_EQ(0, cm.append_pending_task(conf, NULL));

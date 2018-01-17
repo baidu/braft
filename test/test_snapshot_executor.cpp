@@ -4,14 +4,14 @@
 // Date: 2016/07/27 20:13:42
 
 #include <gtest/gtest.h>
-#include <base/atomicops.h>
-#include <baidu/rpc/server.h>
-#include "raft/snapshot_executor.h"
-#include "raft/fsm_caller.h"
-#include "raft/util.h"
-#include "raft/raft.h"
+#include <butil/atomicops.h>
+#include <brpc/server.h>
+#include "braft/snapshot_executor.h"
+#include "braft/fsm_caller.h"
+#include "braft/util.h"
+#include "braft/raft.h"
 
-namespace raft {
+namespace braft {
 
 static const char* SERVER_ADDR = "127.0.0.1:54321";
 
@@ -19,58 +19,58 @@ class SnapshotExecutorTest : public testing::Test {
 protected:
     void SetUp() {
         system("rm -rf .data");
-        ASSERT_EQ(0, raft::add_service(&_server, SERVER_ADDR));
+        ASSERT_EQ(0, braft::add_service(&_server, SERVER_ADDR));
         ASSERT_EQ(0, _server.Start(SERVER_ADDR, NULL));
     }
     void TearDown() {
         _server.Stop(0);
         _server.Join();
     }
-    baidu::rpc::Server _server;
+    brpc::Server _server;
 };
 
-class MockFSMCaller : public raft::FSMCaller {
+class MockFSMCaller : public braft::FSMCaller {
 protected:
-    RAFT_MOCK int on_committed(int64_t /*committed_index*/) { return 0; }
-    RAFT_MOCK int on_snapshot_load(LoadSnapshotClosure* done) {
+    BRAFT_MOCK int on_committed(int64_t /*committed_index*/) { return 0; }
+    BRAFT_MOCK int on_snapshot_load(LoadSnapshotClosure* done) {
         _snapshot_load_times.fetch_add(1);
-        raft::run_closure_in_bthread(done);
+        braft::run_closure_in_bthread(done);
         return 0;
     }
-    RAFT_MOCK int on_snapshot_save(SaveSnapshotClosure* done) {
+    BRAFT_MOCK int on_snapshot_save(SaveSnapshotClosure* done) {
         _snapshot_save_times.fetch_add(1);
-        raft::run_closure_in_bthread(done);
+        braft::run_closure_in_bthread(done);
         return 0;
     }
-    RAFT_MOCK int on_error(const Error& /*e*/) {
+    BRAFT_MOCK int on_error(const Error& /*e*/) {
         _on_error_times.fetch_add(1);
         return 0;
     }
-    base::atomic<int> _on_error_times;
-    base::atomic<int> _snapshot_load_times;
-    base::atomic<int> _snapshot_save_times;
+    butil::atomic<int> _on_error_times;
+    butil::atomic<int> _snapshot_load_times;
+    butil::atomic<int> _snapshot_save_times;
 };
 
-class MockLogManager : public raft::LogManager {
+class MockLogManager : public braft::LogManager {
 protected:
     // Notify the log manager about the latest snapshot, which indicates the
     // logs which can be safely truncated.
-    RAFT_MOCK void set_snapshot(const SnapshotMeta* /*meta*/) {
+    BRAFT_MOCK void set_snapshot(const SnapshotMeta* /*meta*/) {
         _set_times.fetch_add(1);
     }
 
     // We don't delete all the logs before last snapshot to avoid installing
     // snapshot on slow replica. Call this method to drop all the logs before
     // last snapshot immediately.
-    RAFT_MOCK void clear_bufferred_logs() {
+    BRAFT_MOCK void clear_bufferred_logs() {
         _clear_timers.fetch_add(1);
     }
 
-    base::atomic<int> _set_times;
-    base::atomic<int> _clear_timers;
+    butil::atomic<int> _set_times;
+    butil::atomic<int> _clear_timers;
 };
 
-class MockSnapshotReader : public raft::SnapshotReader {
+class MockSnapshotReader : public braft::SnapshotReader {
 public:
     MockSnapshotReader(const std::string& path)
         : _path(path)
@@ -100,7 +100,7 @@ private:
 
 class MockSnapshotStorage;
 
-class MockSnapshotCopier : public raft::SnapshotCopier {
+class MockSnapshotCopier : public braft::SnapshotCopier {
 friend class MockSnapshotStorage;
 public:
     MockSnapshotCopier();
@@ -122,7 +122,7 @@ private:
     SnapshotReader* _reader;
 };
 
-class MockSnapshotStorage : public raft::SnapshotStorage {
+class MockSnapshotStorage : public braft::SnapshotStorage {
 friend class MockSnapshotCopier;
 public:
     MockSnapshotStorage(const std::string& path)
@@ -212,13 +212,13 @@ void* MockSnapshotCopier::start_copy(void* arg) {
 }
 
 void write_file(const std::string& file, const std::string& content) {
-    base::ScopedFILE fp(fopen(file.c_str(), "w"));
+    butil::ScopedFILE fp(fopen(file.c_str(), "w"));
     ASSERT_TRUE(fp) << berror();
     fprintf(fp.get(), "%s", content.c_str());
 }
 
 std::string read_file(const std::string& file) {
-    base::ScopedFILE fp(fopen(file.c_str(), "r"));
+    butil::ScopedFILE fp(fopen(file.c_str(), "r"));
     char buf[1024];
     fscanf(fp.get(), "%s", buf);
     return buf;
@@ -241,7 +241,7 @@ struct InstallArg {
     SnapshotExecutor* e;
     InstallSnapshotRequest request;
     InstallSnapshotResponse response;
-    baidu::rpc::Controller cntl;
+    brpc::Controller cntl;
     SyncClosure done;
 };
 

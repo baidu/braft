@@ -5,42 +5,41 @@
 
 #include <gtest/gtest.h>
 #include <gflags/gflags.h>
-#include <base/logging.h>
-#include <base/file_util.h>
+#include <butil/logging.h>
+#include <butil/file_util.h>
 
-#include <baidu/rpc/server.h>
-#include "raft/file_service.h"
-#include "raft/util.h"
-#include "raft/remote_file_copier.h"
-#include "raft/file_system_adaptor.h"
+#include <brpc/server.h>
+#include "braft/file_service.h"
+#include "braft/util.h"
+#include "braft/remote_file_copier.h"
+#include "braft/file_system_adaptor.h"
 
-namespace raft {
+namespace braft {
 DECLARE_bool(raft_file_check_hole);
 }
 
 class FileServiceTest : public testing::Test {
 protected:
     void SetUp() {
-        logging::FLAGS_verbose = 90;
-        ASSERT_EQ(0, _server.AddService(raft::file_service(), 
-                                        baidu::rpc::SERVER_DOESNT_OWN_SERVICE));
+        ASSERT_EQ(0, _server.AddService(braft::file_service(), 
+                                        brpc::SERVER_DOESNT_OWN_SERVICE));
         ASSERT_EQ(0, _server.Start(60006, NULL));
     }
     void TearDown() {
         _server.Stop(0);
         _server.Join();
     }
-    baidu::rpc::Server _server;
+    brpc::Server _server;
 };
 
 TEST_F(FileServiceTest, sanity) {
-    raft::FileSystemAdaptor* fs = raft::default_file_system();
-    scoped_refptr<raft::LocalDirReader> reader(new raft::LocalDirReader(fs, "a"));
+    braft::FileSystemAdaptor* fs = braft::default_file_system();
+    scoped_refptr<braft::LocalDirReader> reader(new braft::LocalDirReader(fs, "a"));
     int64_t reader_id = 0;
-    ASSERT_EQ(0, raft::file_service_add(reader.get(), &reader_id));
+    ASSERT_EQ(0, braft::file_service_add(reader.get(), &reader_id));
     std::string uri;
-    base::string_printf(&uri, "remote://127.0.0.1:60006/%ld", reader_id);
-    raft::RemoteFileCopier copier;
+    butil::string_printf(&uri, "remote://127.0.0.1:60006/%ld", reader_id);
+    braft::RemoteFileCopier copier;
     ASSERT_NE(0, copier.init("local://127.0.0.1:60006/123456", fs, NULL));
     ASSERT_NE(0, copier.init("remote://127.0.0.1:60006//123456", fs, NULL));
     ASSERT_NE(0, copier.init("remote://127.0.1:60006//123456", fs, NULL));
@@ -50,9 +49,9 @@ TEST_F(FileServiceTest, sanity) {
     // normal copy dir
     system("chmod -R 755 ./a; chmod -R 755 ./b");
     ASSERT_EQ(0, system("rm -rf a; rm -rf b; mkdir a; mkdir a/b; echo '123' > a/c"));
-    ASSERT_TRUE(base::CreateDirectory(base::FilePath("./b")));
+    ASSERT_TRUE(butil::CreateDirectory(butil::FilePath("./b")));
     ASSERT_EQ(0, copier.copy_to_file("c", "./b/c", NULL));
-    base::IOBuf c_data;
+    butil::IOBuf c_data;
     ASSERT_EQ(0, copier.copy_to_iobuf("c", &c_data, NULL));
     ASSERT_TRUE(c_data.equals("123\n")) << c_data.to_string();
     // Copy Directory is not allowed
@@ -66,7 +65,7 @@ TEST_F(FileServiceTest, sanity) {
     ASSERT_NE(0, copier.copy_to_file("c", "./b/cc", NULL));
     ASSERT_EQ(0, system("chmod -R 755 ./a"));
 
-    ASSERT_EQ(0, raft::file_service_remove(reader_id));
+    ASSERT_EQ(0, braft::file_service_remove(reader_id));
 
     // Copy after reader is remove
     ASSERT_NE(0, copier.copy_to_file("c", "./b/d", NULL));
@@ -87,24 +86,24 @@ TEST_F(FileServiceTest, hole_file) {
         ASSERT_EQ(static_cast<size_t>(nwriten), strlen(buf));
     }
     ::close(fd);
-    raft::FileSystemAdaptor* fs = raft::default_file_system();
-    scoped_refptr<raft::LocalDirReader> reader(new raft::LocalDirReader(fs, "a"));
+    braft::FileSystemAdaptor* fs = braft::default_file_system();
+    scoped_refptr<braft::LocalDirReader> reader(new braft::LocalDirReader(fs, "a"));
     int64_t reader_id = 0;
-    ASSERT_EQ(0, raft::file_service_add(reader.get(), &reader_id));
+    ASSERT_EQ(0, braft::file_service_add(reader.get(), &reader_id));
 
-    raft::RemoteFileCopier copier;
+    braft::RemoteFileCopier copier;
     std::string uri;
-    base::string_printf(&uri, "remote://127.0.0.1:60006/%ld", reader_id);
+    butil::string_printf(&uri, "remote://127.0.0.1:60006/%ld", reader_id);
     // normal init
-    raft::FLAGS_raft_file_check_hole = false;
+    braft::FLAGS_raft_file_check_hole = false;
     ASSERT_EQ(0, copier.init(uri, fs, NULL));
-    ASSERT_TRUE(base::CreateDirectory(base::FilePath("./b")));
+    ASSERT_TRUE(butil::CreateDirectory(butil::FilePath("./b")));
     ASSERT_EQ(0, copier.copy_to_file("hole.data", "./b/hole.data", NULL));
     ret = system("diff ./a/hole.data ./b/hole.data");
     ASSERT_EQ(0, ret);
 
-    raft::FLAGS_raft_file_check_hole = true;
-    ASSERT_TRUE(base::CreateDirectory(base::FilePath("./c")));
+    braft::FLAGS_raft_file_check_hole = true;
+    ASSERT_TRUE(butil::CreateDirectory(butil::FilePath("./c")));
     ASSERT_EQ(0, copier.copy_to_file("hole.data", "./c/hole.data", NULL));
     ret = system("diff ./a/hole.data ./c/hole.data");
     ASSERT_EQ(0, ret);
