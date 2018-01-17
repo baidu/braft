@@ -1,0 +1,10 @@
+package braft;
+option cc_generic_services = true;
+
+message IndexRequest {};
+message IndexResponse {};
+
+service raft_stat {
+    rpc default_method(IndexRequest) returns (IndexResponse);
+}
+

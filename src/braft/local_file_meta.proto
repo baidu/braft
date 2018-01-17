@@ -1,0 +1,13 @@
+syntax="proto2";
+package braft;
+
+enum FileSource {
+    FILE_SOURCE_LOCAL = 0;
+    FILE_SOURCE_REFERENCE = 1;
+}
+
+message LocalFileMeta {
+    optional bytes user_meta   = 1;
+    optional FileSource source = 2;
+    optional string checksum   = 3;
+}

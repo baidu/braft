@@ -1,0 +1,17 @@
+syntax="proto2";
+package braft;
+
+enum EntryType {
+    ENTRY_TYPE_UNKNOWN = 0;
+    ENTRY_TYPE_NO_OP = 1;
+    ENTRY_TYPE_DATA = 2;
+    ENTRY_TYPE_CONFIGURATION= 3;
+};
+
+enum ErrorType {
+    ERROR_TYPE_NONE = 0;
+    ERROR_TYPE_LOG = 1;
+    ERROR_TYPE_STABLE = 2;
+    ERROR_TYPE_SNAPSHOT = 3;
+    ERROR_TYPE_STATE_MACHINE = 4;
+};
