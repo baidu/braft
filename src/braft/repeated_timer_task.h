@@ -15,8 +15,8 @@
 // Authors: Zhangyi Chen(chenzhangyi01@baidu.com)
 //          Ma,Jingwei(majingwei@baidu.com)
 
-#ifndef  PUBLIC_RAFT_REPEATED_TIMER_TASK_H
-#define  PUBLIC_RAFT_REPEATED_TIMER_TASK_H
+#ifndef  BRAFT_REPEATED_TIMER_TASK_H
+#define  BRAFT_REPEATED_TIMER_TASK_H
 
 #include "braft/macros.h"
 
@@ -83,4 +83,4 @@ private:
 
 }  //  namespace braft
 
-#endif  //PUBLIC_RAFT_REPEATED_TIMER_TASK_H
+#endif  //BRAFT_REPEATED_TIMER_TASK_H

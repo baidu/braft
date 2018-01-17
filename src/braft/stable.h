@@ -14,8 +14,8 @@
 
 // Authors: Wang,Yao(wangyao02@baidu.com)
 
-#ifndef PUBLIC_RAFT_STABLE_H
-#define PUBLIC_RAFT_STABLE_H
+#ifndef BRAFT_STABLE_H
+#define BRAFT_STABLE_H
 
 #include "braft/storage.h"
 
@@ -60,4 +60,4 @@ private:
 
 }
 
-#endif //~PUBLIC_RAFT_STABLE_H
+#endif //~BRAFT_STABLE_H

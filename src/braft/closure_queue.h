@@ -14,8 +14,8 @@
 
 // Authors: Zhangyi Chen(chenzhangyi01@baidu.com)
 
-#ifndef  PUBLIC_RAFT_CLOSURE_QUEUE_H
-#define  PUBLIC_RAFT_CLOSURE_QUEUE_H
+#ifndef  BRAFT_CLOSURE_QUEUE_H
+#define  BRAFT_CLOSURE_QUEUE_H
 
 #include "braft/util.h"
 
@@ -55,4 +55,4 @@ private:
 
 } //  namespace braft
 
-#endif  //PUBLIC_RAFT_CLOSURE_QUEUE_H
+#endif  //BRAFT_CLOSURE_QUEUE_H

@@ -213,7 +213,7 @@ void Replicator::_block(long start_time_us, int /*error_code NOTE*/) {
     bthread_timer_t timer;
     const int rc = bthread_timer_add(&timer, due_time, 
                                   _on_block_timedout, (void*)_id.value);
-    RAFT_VLOG << "Blocking " << _options.peer_id << " for " 
+    BRAFT_VLOG << "Blocking " << _options.peer_id << " for " 
               << *_options.dynamic_heartbeat_timeout_ms << "ms";
     if (rc == 0) {
         _st.st = BLOCKING;
@@ -241,13 +241,13 @@ void Replicator::_on_heartbeat_returned(
         return;
     }
 
-    RAFT_VLOG << "node " << r->_options.group_id << ":" << r->_options.server_id 
+    BRAFT_VLOG << "node " << r->_options.group_id << ":" << r->_options.server_id 
         << " received HeartbeatResponse from "
         << r->_options.peer_id << " prev_log_index " << request->prev_log_index()
         << " prev_log_term " << request->prev_log_term()
         << noflush;
     if (cntl->Failed()) {
-        RAFT_VLOG << " fail, sleep.";
+        BRAFT_VLOG << " fail, sleep.";
 
         // TODO: Should it be VLOG?
         LOG_IF(WARNING, (r->_consecutive_error_times++) % 10 == 0) 
@@ -260,7 +260,7 @@ void Replicator::_on_heartbeat_returned(
     }
     r->_consecutive_error_times = 0;
     if (response->term() > r->_options.term) {
-        RAFT_VLOG << " fail, greater term " << response->term()
+        BRAFT_VLOG << " fail, greater term " << response->term()
             << " expect term " << r->_options.term;
 
         NodeImpl *node_impl = r->_options.node;
@@ -277,7 +277,7 @@ void Replicator::_on_heartbeat_returned(
         node_impl->Release();
         return;
     }
-    RAFT_VLOG;
+    BRAFT_VLOG;
     if (rpc_send_time > r->_last_rpc_send_timestamp){
         r->_last_rpc_send_timestamp = rpc_send_time; 
     }
@@ -300,14 +300,14 @@ void Replicator::_on_rpc_returned(ReplicatorId id, brpc::Controller* cntl,
         return;
     }
 
-    RAFT_VLOG << "node " << r->_options.group_id << ":" << r->_options.server_id 
+    BRAFT_VLOG << "node " << r->_options.group_id << ":" << r->_options.server_id 
         << " received AppendEntriesResponse from "
         << r->_options.peer_id << " prev_log_index " << request->prev_log_index()
         << " prev_log_term " << request->prev_log_term() << " count " << request->entries_size()
         << noflush;
 
     if (cntl->Failed()) {
-        RAFT_VLOG << " fail, sleep.";
+        BRAFT_VLOG << " fail, sleep.";
 
         // TODO: Should it be VLOG?
         LOG_IF(WARNING, (r->_consecutive_error_times++) % 10 == 0) 
@@ -323,7 +323,7 @@ void Replicator::_on_rpc_returned(ReplicatorId id, brpc::Controller* cntl,
     r->_consecutive_error_times = 0;
     if (!response->success()) {
         if (response->term() > r->_options.term) {
-            RAFT_VLOG << " fail, greater term " << response->term()
+            BRAFT_VLOG << " fail, greater term " << response->term()
                 << " expect term " << r->_options.term;
 
             NodeImpl *node_impl = r->_options.node;
@@ -339,14 +339,14 @@ void Replicator::_on_rpc_returned(ReplicatorId id, brpc::Controller* cntl,
             node_impl->Release();
             return;
         }
-        RAFT_VLOG << " fail, find next_index remote last_log_index " << response->last_log_index()
+        BRAFT_VLOG << " fail, find next_index remote last_log_index " << response->last_log_index()
             << " local next_index " << r->_next_index;
         if (rpc_send_time > r->_last_rpc_send_timestamp) {
             r->_last_rpc_send_timestamp = rpc_send_time; 
         }
         // prev_log_index and prev_log_term doesn't match
         if (response->last_log_index() + 1 < r->_next_index) {
-            RAFT_VLOG << "last_log_index at peer=" << r->_options.peer_id 
+            BRAFT_VLOG << "last_log_index at peer=" << r->_options.peer_id 
                       << " is " << response->last_log_index();
             // The peer contains less logs than leader
             r->_next_index = response->last_log_index() + 1;
@@ -354,7 +354,7 @@ void Replicator::_on_rpc_returned(ReplicatorId id, brpc::Controller* cntl,
             // The peer contains logs from old term which should be truncated,
             // decrease _last_log_at_peer by one to test the right index to keep
             if (BAIDU_LIKELY(r->_next_index > 1)) {
-                RAFT_VLOG << "log_index=" << r->_next_index << " dismatch";
+                BRAFT_VLOG << "log_index=" << r->_next_index << " dismatch";
                 --r->_next_index;
             } else {
                 LOG(ERROR) << "Peer=" << r->_options.peer_id
@@ -367,7 +367,7 @@ void Replicator::_on_rpc_returned(ReplicatorId id, brpc::Controller* cntl,
         return;
     }
 
-    RAFT_VLOG << " success";
+    BRAFT_VLOG << " success";
     
     if (response->term() != r->_options.term) {
         LOG(ERROR) << "Fail, response term " << response->term() << " dismatch, expect term " << r->_options.term;
@@ -377,7 +377,7 @@ void Replicator::_on_rpc_returned(ReplicatorId id, brpc::Controller* cntl,
         r->_last_rpc_send_timestamp = rpc_send_time; 
     }
     const int entries_size = request->entries_size();
-    RAFT_VLOG_IF(entries_size > 0) << "Replicated logs in [" 
+    BRAFT_VLOG_IF(entries_size > 0) << "Replicated logs in [" 
                                    << r->_next_index << ", " 
                                    << r->_next_index + entries_size - 1
                                    << "] to peer " << r->_options.peer_id;
@@ -409,7 +409,7 @@ int Replicator::_fill_common_fields(AppendEntriesRequest* request,
     if (prev_log_term == 0 && prev_log_index != 0) {
         if (!is_heartbeat) {
             CHECK_LT(prev_log_index, _options.log_manager->first_log_index());
-            RAFT_VLOG << "log_index=" << prev_log_index << " was compacted";
+            BRAFT_VLOG << "log_index=" << prev_log_index << " was compacted";
             return -1;
         } else {
             // The log at prev_log_index has been compacted, which indicates 
@@ -453,7 +453,7 @@ void Replicator::_send_empty_entries(bool is_heartbeat) {
         _append_entries_counter++;
     }
 
-    RAFT_VLOG << "node " << _options.group_id << ":" << _options.server_id
+    BRAFT_VLOG << "node " << _options.group_id << ":" << _options.server_id
         << " send HeartbeatRequest to " << _options.peer_id 
         << " term " << _options.term
         << " last_committed_index " << request->committed_index();
@@ -519,7 +519,7 @@ void Replicator::_send_entries() {
     _rpc_in_fly = cntl->call_id();
     _append_entries_counter++;
 
-    RAFT_VLOG << "node " << _options.group_id << ":" << _options.server_id
+    BRAFT_VLOG << "node " << _options.group_id << ":" << _options.server_id
         << " send AppendEntriesRequest to " << _options.peer_id << " term " << _options.term
         << " last_committed_index " << request->committed_index()
         << " prev_log_index " << request->prev_log_index()
@@ -562,7 +562,7 @@ int Replicator::_continue_sending(void* arg, int error_code) {
 void Replicator::_wait_more_entries() {
     _wait_id = _options.log_manager->wait(
             _next_index - 1, _continue_sending, (void*)_id.value);
-    RAFT_VLOG << "node " << _options.group_id << ":" << _options.peer_id
+    BRAFT_VLOG << "node " << _options.group_id << ":" << _options.peer_id
         << " wait more entries";
     _st.st = IDLE;
     CHECK_EQ(0, bthread_id_unlock(_id)) << "Fail to unlock " << _id;
@@ -663,7 +663,7 @@ void Replicator::_on_install_snapshot_returned(
         }
         if (!response->success()) {
             succ = false;
-            RAFT_VLOG << " fail.";
+            BRAFT_VLOG << " fail.";
             // Let hearbeat do step down
             break;
         }
@@ -866,13 +866,13 @@ void Replicator::_on_timeout_now_returned(
     if (bthread_id_lock(dummy_id, (void**)&r) != 0) {
         return;
     }
-    RAFT_VLOG << "node " << r->_options.group_id << ":" << r->_options.server_id 
+    BRAFT_VLOG << "node " << r->_options.group_id << ":" << r->_options.server_id 
         << " received TimeoutNowResponse from "
         << r->_options.peer_id
         << noflush;
 
     if (cntl->Failed()) {
-        RAFT_VLOG << " fail : " << cntl->ErrorText();
+        BRAFT_VLOG << " fail : " << cntl->ErrorText();
         if (stop_after_finish) {
             r->_notify_on_caught_up(ESTOP, true);
             r->_destroy();
@@ -881,7 +881,7 @@ void Replicator::_on_timeout_now_returned(
         }
         return;
     }
-    RAFT_VLOG << (response->success() ? " success " : "fail:");
+    BRAFT_VLOG << (response->success() ? " success " : "fail:");
     if (response->term() > r->_options.term) {
         NodeImpl *node_impl = r->_options.node;
         // Acquire a reference of Node here in case that Node is detroyed

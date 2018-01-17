@@ -14,8 +14,8 @@
 
 // Authors: Zhangyi Chen(chenzhangyi01@baidu.com)
 
-#ifndef  PUBLIC_RAFT_CLI_SERVICE_H
-#define  PUBLIC_RAFT_CLI_SERVICE_H
+#ifndef  BRAFT_CLI_SERVICE_H
+#define  BRAFT_CLI_SERVICE_H
 
 #include <butil/status.h>
 #include "braft/cli.pb.h"                // CliService
@@ -53,4 +53,4 @@ private:
 
 }
 
-#endif  //PUBLIC_RAFT_CLI_SERVICE_H
+#endif  //BRAFT_CLI_SERVICE_H

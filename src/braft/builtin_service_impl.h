@@ -15,8 +15,8 @@
 // Authors: Zhangyi Chen(chenzhangyi01@baidu.com)
 //          Ge,Jun(gejun@baiud.com)
 
-#ifndef  PUBLIC_RAFT_BUILTIN_SERVICE_IMPL_H
-#define  PUBLIC_RAFT_BUILTIN_SERVICE_IMPL_H
+#ifndef  BRAFT_BUILTIN_SERVICE_IMPL_H
+#define  BRAFT_BUILTIN_SERVICE_IMPL_H
 
 #include "braft/builtin_service.pb.h"
 #include <brpc/builtin/tabbed.h>
@@ -35,4 +35,4 @@ public:
 
 }  //  namespace braft
 
-#endif  //PUBLIC_RAFT_BUILTIN_SERVICE_IMPL_H
+#endif  //BRAFT_BUILTIN_SERVICE_IMPL_H

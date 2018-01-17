@@ -17,8 +17,8 @@
 //          Xiong,Kai(xiongkai@baidu.com)
 //          Yang,Guodong(yangguodong01@baidu.com)
 
-#ifndef  PUBLIC_RAFT_FILE_READER_H
-#define  PUBLIC_RAFT_FILE_READER_H
+#ifndef  BRAFT_FILE_READER_H
+#define  BRAFT_FILE_READER_H
 
 #include <set>                              // std::set
 #include <butil/memory/ref_counted.h>        // butil::RefCountedThreadsafe
@@ -89,4 +89,4 @@ private:
 
 }  //  namespace braft
 
-#endif  //PUBLIC_RAFT_FILE_READER_H
+#endif  //BRAFT_FILE_READER_H

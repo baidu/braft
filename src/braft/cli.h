@@ -14,8 +14,8 @@
 
 // Authors: Zhangyi Chen(chenzhangyi01@baidu.com)
 
-#ifndef  PUBLIC_RAFT_CLI_H
-#define  PUBLIC_RAFT_CLI_H
+#ifndef  BRAFT_CLI_H
+#define  BRAFT_CLI_H
 
 #include "braft/raft.h"
 
@@ -44,4 +44,4 @@ butil::Status snapshot(const GroupId& group_id, const PeerId& peer_id,
 }  // namespace cli
 }  //  namespace braft
 
-#endif  //PUBLIC_RAFT_CLI_H
+#endif  //BRAFT_CLI_H

@@ -14,8 +14,8 @@
 
 // Authors: Zhangyi Chen(chenzhangyi01@baidu.com)
 
-#ifndef  PUBLIC_RAFT_FILE_SERVICE_H
-#define  PUBLIC_RAFT_FILE_SERVICE_H
+#ifndef  BRAFT_FILE_SERVICE_H
+#define  BRAFT_FILE_SERVICE_H
 
 #include <butil/memory/singleton.h>
 #include "braft/file_service.pb.h"
@@ -60,4 +60,4 @@ inline int file_service_remove(int64_t reader_id) {
 
 }  //  namespace braft
 
-#endif  //PUBLIC_RAFT_FILE_SERVICE_H
+#endif  //BRAFT_FILE_SERVICE_H

@@ -14,8 +14,8 @@
 
 // Authors: Zhangyi Chen(chenzhangyi01@baidu.com)
 
-#ifndef  PUBLIC_RAFT_CONFIGURATION_MANAGER_H
-#define  PUBLIC_RAFT_CONFIGURATION_MANAGER_H
+#ifndef  BRAFT_CONFIGURATION_MANAGER_H
+#define  BRAFT_CONFIGURATION_MANAGER_H
 
 #include "braft/configuration.h"         // Configuration
 #include "braft/log_entry.h"             // LogId
@@ -55,4 +55,4 @@ private:
 
 }  //  namespace braft
 
-#endif  //PUBLIC_RAFT_CONFIGURATION_MANAGER_H
+#endif  //BRAFT_CONFIGURATION_MANAGER_H

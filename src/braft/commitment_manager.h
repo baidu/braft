@@ -14,8 +14,8 @@
 
 // Authors: Zhangyi Chen(chenzhangyi01@baidu.com)
 
-#ifndef  PUBLIC_RAFT_COMMITMENT_MANAGER_H
-#define  PUBLIC_RAFT_COMMITMENT_MANAGER_H
+#ifndef  BRAFT_COMMITMENT_MANAGER_H
+#define  BRAFT_COMMITMENT_MANAGER_H
 
 #include <stdint.h>                             // int64_t
 #include <set>                                  // std::set
@@ -108,4 +108,4 @@ private:
 
 }  //  namespace braft
 
-#endif  //PUBLIC_RAFT_COMMITMENT_MANAGER_H
+#endif  //BRAFT_COMMITMENT_MANAGER_H

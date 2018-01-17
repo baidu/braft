@@ -15,8 +15,8 @@
 // Authors: Wang,Yao(wangyao02@baidu.com)
 //          Zhangyi Chen(chenzhangyi01@baidu.com)
 
-#ifndef PUBLIC_RAFT_RAFT_UTIL_H
-#define PUBLIC_RAFT_RAFT_UTIL_H
+#ifndef BRAFT_RAFT_UTIL_H
+#define BRAFT_RAFT_UTIL_H
 
 #include <zlib.h>
 #include <net/if.h>
@@ -228,4 +228,4 @@ private:
 
 }  //  namespace braft
 
-#endif // PUBLIC_RAFT_RAFT_UTIL_H
+#endif // BRAFT_RAFT_UTIL_H

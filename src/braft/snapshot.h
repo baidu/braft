@@ -17,8 +17,8 @@
 //          Zheng,Pengfei(zhengpengfei@baidu.com)
 //          Xiong,Kai(xiongkai@baidu.com)
 
-#ifndef PUBLIC_RAFT_RAFT_SNAPSHOT_H
-#define PUBLIC_RAFT_RAFT_SNAPSHOT_H
+#ifndef BRAFT_RAFT_SNAPSHOT_H
+#define BRAFT_RAFT_SNAPSHOT_H
 
 #include <string>
 #include "braft/storage.h"
@@ -221,4 +221,4 @@ private:
 
 }  //  namespace braft
 
-#endif //~PUBLIC_RAFT_RAFT_SNAPSHOT_H
+#endif //~BRAFT_RAFT_SNAPSHOT_H

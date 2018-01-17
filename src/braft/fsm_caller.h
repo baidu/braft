@@ -16,8 +16,8 @@
 //          Wang,Yao(wangyao02@baidu.com)
 //          Xiong,Kai(xiongkai@baidu.com)
 
-#ifndef  PUBLIC_RAFT_FSM_CALLER_H
-#define  PUBLIC_RAFT_FSM_CALLER_H
+#ifndef  BRAFT_FSM_CALLER_H
+#define  BRAFT_FSM_CALLER_H
 
 #include <butil/macros.h>                        // BAIDU_CACHELINE_ALIGNMENT
 #include <bthread/bthread.h>
@@ -105,17 +105,17 @@ public:
 class BAIDU_CACHELINE_ALIGNMENT FSMCaller {
 public:
     FSMCaller();
-    RAFT_MOCK ~FSMCaller();
+    BRAFT_MOCK ~FSMCaller();
     int init(const FSMCallerOptions& options);
     int shutdown();
-    RAFT_MOCK int on_committed(int64_t committed_index);
-    RAFT_MOCK int on_snapshot_load(LoadSnapshotClosure* done);
-    RAFT_MOCK int on_snapshot_save(SaveSnapshotClosure* done);
+    BRAFT_MOCK int on_committed(int64_t committed_index);
+    BRAFT_MOCK int on_snapshot_load(LoadSnapshotClosure* done);
+    BRAFT_MOCK int on_snapshot_save(SaveSnapshotClosure* done);
     int on_leader_stop(const butil::Status& status);
     int on_leader_start(int64_t term);
     int on_start_following(const LeaderChangeContext& start_following_context);
     int on_stop_following(const LeaderChangeContext& stop_following_context);
-    RAFT_MOCK int on_error(const Error& e);
+    BRAFT_MOCK int on_error(const Error& e);
     int64_t last_applied_index() const {
         return _last_applied_index.load(butil::memory_order_relaxed);
     }
@@ -187,4 +187,4 @@ friend class IteratorImpl;
 
 };
 
-#endif  //PUBLIC_RAFT_FSM_CALLER_H
+#endif  //BRAFT_FSM_CALLER_H

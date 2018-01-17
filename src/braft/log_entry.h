@@ -14,8 +14,8 @@
 
 // Authors: Zhangyi Chen(chenzhangyi01@baidu.com)
 
-#ifndef  PUBLIC_RAFT_LOG_ENTRY_H
-#define  PUBLIC_RAFT_LOG_ENTRY_H
+#ifndef  BRAFT_LOG_ENTRY_H
+#define  BRAFT_LOG_ENTRY_H
 
 #include <butil/iobuf.h>                         // butil::IOBuf
 #include <butil/memory/ref_counted.h>            // butil::RefCountedThreadSafe
@@ -95,4 +95,4 @@ inline std::ostream& operator<<(std::ostream& os, const LogId& id) {
 
 }  //  namespace braft
 
-#endif  //PUBLIC_RAFT_LOG_ENTRY_H
+#endif  //BRAFT_LOG_ENTRY_H

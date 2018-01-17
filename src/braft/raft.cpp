@@ -31,15 +31,15 @@
 
 namespace braft {
 
-#if defined(RAFT_REVISION)
-static const char* s_libraft_version = "libraft_version_" RAFT_REVISION;
+#if defined(BRAFT_REVISION)
+static const char* s_libraft_version = "libraft_version_" BRAFT_REVISION;
 #else
 static const char* s_libraft_version = "libraft_version_unknown";
-#endif  // __RAFT_VERSION_ID__
+#endif
 
 static void print_revision(std::ostream& os, void*) {
-#if defined(RAFT_REVISION)
-        os << RAFT_REVISION;
+#if defined(BRAFT_REVISION)
+        os << BRAFT_REVISION;
 #else
         os << "undefined";
 #endif
@@ -58,8 +58,6 @@ struct GlobalExtension {
     LocalSnapshotStorage local_snapshot;
 };
 
-int __attribute__((weak)) register_rocksdb_extension();
-
 static void global_init_or_die_impl() {
     static GlobalExtension s_ext;
 
@@ -68,10 +66,6 @@ static void global_init_or_die_impl() {
     log_storage_extension()->RegisterOrDie("memory", &s_ext.memory_log);
     stable_storage_extension()->RegisterOrDie("local", &s_ext.local_stable);
     snapshot_storage_extension()->RegisterOrDie("local", &s_ext.local_snapshot);
-
-    if ((void*)register_rocksdb_extension != NULL) {
-        register_rocksdb_extension();
-    }
 }
 
 // Non-static for unit test

@@ -45,7 +45,7 @@ void FileServiceImpl::get_file(::google::protobuf::RpcController* controller,
     // Don't touch iter ever after
     reader = iter->second;
     lck.unlock();
-    RAFT_VLOG << "get_file from " << cntl->remote_side() << " path=" << reader->path() 
+    BRAFT_VLOG << "get_file from " << cntl->remote_side() << " path=" << reader->path() 
          << " filename=" << request->filename()
          << " offset=" << request->offset() << " count=" << request->count();
 

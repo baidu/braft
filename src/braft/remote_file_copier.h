@@ -16,8 +16,8 @@
 //          Zheng,Pengfei(zhengpengfei@baidu.com)
 //          Xiong,Kai(xiongkai@baidu.com)
 
-#ifndef  PUBLIC_RAFT_REMOTE_FILE_COPIER_H
-#define  PUBLIC_RAFT_REMOTE_FILE_COPIER_H
+#ifndef  BRAFT_REMOTE_FILE_COPIER_H
+#define  BRAFT_REMOTE_FILE_COPIER_H
 
 #include <brpc/channel.h>
 #include <bthread/countdown_event.h>
@@ -123,4 +123,4 @@ private:
 
 }  //  namespace braft
 
-#endif  //PUBLIC_RAFT_REMOTE_FILE_COPIER_H
+#endif  //BRAFT_REMOTE_FILE_COPIER_H

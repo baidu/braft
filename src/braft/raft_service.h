@@ -14,8 +14,8 @@
 
 // Authors: Wang,Yao(wangyao02@baidu.com)
 
-#ifndef PUBLIC_RAFT_RAFT_SERVICE_H
-#define PUBLIC_RAFT_RAFT_SERVICE_H
+#ifndef BRAFT_RAFT_SERVICE_H
+#define BRAFT_RAFT_SERVICE_H
 
 #include "braft/raft.pb.h"
 
@@ -56,4 +56,4 @@ private:
 
 }
 
-#endif //~PUBLIC_RAFT_RAFT_SERVICE_H
+#endif //~BRAFT_RAFT_SERVICE_H

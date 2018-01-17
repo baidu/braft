@@ -69,7 +69,7 @@ butil::Status add_peer(const GroupId& group_id, const Configuration& conf,
                       const PeerId& peer_id, const CliOptions& options) {
     PeerId leader_id;
     butil::Status st = get_leader(group_id, conf, &leader_id);
-    RAFT_RETURN_IF(!st.ok(), st);
+    BRAFT_RETURN_IF(!st.ok(), st);
     brpc::Channel channel;
     if (channel.Init(leader_id.addr, NULL) != 0) {
         return butil::Status(-1, "Fail to init channel to %s",
@@ -111,7 +111,7 @@ butil::Status remove_peer(const GroupId& group_id, const Configuration& conf,
                          const PeerId& peer_id, const CliOptions& options) {
     PeerId leader_id;
     butil::Status st = get_leader(group_id, conf, &leader_id);
-    RAFT_RETURN_IF(!st.ok(), st);
+    BRAFT_RETURN_IF(!st.ok(), st);
     brpc::Channel channel;
     if (channel.Init(leader_id.addr, NULL) != 0) {
         return butil::Status(-1, "Fail to init channel to %s",

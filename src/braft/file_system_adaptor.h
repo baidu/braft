@@ -14,8 +14,8 @@
 
 // Authors: Zheng,PengFei(zhengpengfei@baidu.com)
 
-#ifndef  PUBLIC_RAFT_FILE_SYSTEM_ADAPTOR_H
-#define  PUBLIC_RAFT_FILE_SYSTEM_ADAPTOR_H
+#ifndef  BRAFT_FILE_SYSTEM_ADAPTOR_H
+#define  BRAFT_FILE_SYSTEM_ADAPTOR_H
 
 #include <fcntl.h>
 #include <butil/file_util.h>
@@ -221,4 +221,4 @@ bool create_sub_directory(const std::string& parent_path,
 
 } //  namespace braft
 
-#endif // PUBLIC_RAFT_FILE_SYSTEM_ADAPTOR_H
+#endif // BRAFT_FILE_SYSTEM_ADAPTOR_H

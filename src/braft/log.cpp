@@ -33,9 +33,9 @@
 #include "braft/util.h"
 #include "braft/fsync.h"
 
-#define RAFT_SEGMENT_OPEN_PATTERN "log_inprogress_%020ld"
-#define RAFT_SEGMENT_CLOSED_PATTERN "log_%020ld_%020ld"
-#define RAFT_SEGMENT_META_FILE  "log_meta"
+#define BRAFT_SEGMENT_OPEN_PATTERN "log_inprogress_%020ld"
+#define BRAFT_SEGMENT_CLOSED_PATTERN "log_%020ld_%020ld"
+#define BRAFT_SEGMENT_META_FILE  "log_meta"
 
 namespace braft {
 
@@ -93,7 +93,7 @@ int Segment::create() {
     }
 
     std::string path(_path);
-    butil::string_appendf(&path, "/" RAFT_SEGMENT_OPEN_PATTERN, _first_index);
+    butil::string_appendf(&path, "/" BRAFT_SEGMENT_OPEN_PATTERN, _first_index);
     _fd = ::open(path.c_str(), O_RDWR | O_CREAT | O_TRUNC, 0644);
     if (_fd >= 0) {
         butil::make_close_on_exec(_fd);
@@ -219,11 +219,11 @@ int Segment::_get_meta(int64_t index, LogMeta* meta) const {
     if (index > _last_index.load(butil::memory_order_relaxed) 
                     || index < _first_index) {
         // out of range
-        RAFT_VLOG << "_last_index=" << _last_index.load(butil::memory_order_relaxed)
+        BRAFT_VLOG << "_last_index=" << _last_index.load(butil::memory_order_relaxed)
                   << " _first_index=" << _first_index;
         return -1;
     } else if (_last_index == _first_index - 1) {
-        RAFT_VLOG << "_last_index=" << _last_index.load(butil::memory_order_relaxed)
+        BRAFT_VLOG << "_last_index=" << _last_index.load(butil::memory_order_relaxed)
                   << " _first_index=" << _first_index;
         // empty
         return -1;
@@ -245,9 +245,9 @@ int Segment::load(ConfigurationManager* configuration_manager) {
     std::string path(_path);
     // create fd
     if (_is_open) {
-        butil::string_appendf(&path, "/" RAFT_SEGMENT_OPEN_PATTERN, _first_index);
+        butil::string_appendf(&path, "/" BRAFT_SEGMENT_OPEN_PATTERN, _first_index);
     } else {
-        butil::string_appendf(&path, "/" RAFT_SEGMENT_CLOSED_PATTERN, 
+        butil::string_appendf(&path, "/" BRAFT_SEGMENT_CLOSED_PATTERN, 
                              _first_index, _last_index.load());
     }
     _fd = ::open(path.c_str(), O_RDWR);
@@ -496,10 +496,10 @@ int Segment::close(bool will_sync) {
     CHECK(_is_open);
     
     std::string old_path(_path);
-    butil::string_appendf(&old_path, "/" RAFT_SEGMENT_OPEN_PATTERN,
+    butil::string_appendf(&old_path, "/" BRAFT_SEGMENT_OPEN_PATTERN,
                          _first_index);
     std::string new_path(_path);
-    butil::string_appendf(&new_path, "/" RAFT_SEGMENT_CLOSED_PATTERN, 
+    butil::string_appendf(&new_path, "/" BRAFT_SEGMENT_CLOSED_PATTERN, 
                          _first_index, _last_index.load());
 
     // TODO: optimize index memory usage by reconstruct vector
@@ -527,9 +527,9 @@ int Segment::close(bool will_sync) {
 
 std::string Segment::file_name() {
     if (!_is_open) {
-        return butil::string_printf(RAFT_SEGMENT_CLOSED_PATTERN, _first_index, _last_index.load());
+        return butil::string_printf(BRAFT_SEGMENT_CLOSED_PATTERN, _first_index, _last_index.load());
     } else {
-        return butil::string_printf(RAFT_SEGMENT_OPEN_PATTERN, _first_index);
+        return butil::string_printf(BRAFT_SEGMENT_OPEN_PATTERN, _first_index);
     }
 }
 
@@ -539,7 +539,7 @@ static void* run_unlink(void* arg) {
     timer.start();
     int ret = ::unlink(file_path->c_str());
     timer.stop();
-    RAFT_VLOG << "unlink " << *file_path << " ret " << ret << " time: " << timer.u_elapsed();
+    BRAFT_VLOG << "unlink " << *file_path << " ret " << ret << " time: " << timer.u_elapsed();
     delete file_path;
 
     return NULL;
@@ -550,10 +550,10 @@ int Segment::unlink() {
     do {
         std::string path(_path);
         if (_is_open) {
-            butil::string_appendf(&path, "/" RAFT_SEGMENT_OPEN_PATTERN,
+            butil::string_appendf(&path, "/" BRAFT_SEGMENT_OPEN_PATTERN,
                                  _first_index);
         } else {
-            butil::string_appendf(&path, "/" RAFT_SEGMENT_CLOSED_PATTERN,
+            butil::string_appendf(&path, "/" BRAFT_SEGMENT_CLOSED_PATTERN,
                                 _first_index, _last_index.load());
         }
 
@@ -588,7 +588,7 @@ int Segment::truncate(const int64_t last_index_kept) {
     }
     first_truncate_in_offset = last_index_kept + 1 - _first_index;
     truncate_size = _offset_and_term[first_truncate_in_offset].first;
-    RAFT_VLOG << "Truncating " << _path << " first_index: " << _first_index
+    BRAFT_VLOG << "Truncating " << _path << " first_index: " << _first_index
               << " last_index from " << _last_index << " to " << last_index_kept
               << " truncate size to " << truncate_size;
     lck.unlock();
@@ -609,11 +609,11 @@ int Segment::truncate(const int64_t last_index_kept) {
     // rename
     if (!_is_open) {
         std::string old_path(_path);
-        butil::string_appendf(&old_path, "/" RAFT_SEGMENT_CLOSED_PATTERN,
+        butil::string_appendf(&old_path, "/" BRAFT_SEGMENT_CLOSED_PATTERN,
                              _first_index, _last_index.load());
 
         std::string new_path(_path);
-        butil::string_appendf(&new_path, "/" RAFT_SEGMENT_CLOSED_PATTERN,
+        butil::string_appendf(&new_path, "/" BRAFT_SEGMENT_CLOSED_PATTERN,
                              _first_index, last_index_kept);
         ret = ::rename(old_path.c_str(), new_path.c_str());
         LOG_IF(INFO, ret == 0) << "Renamed `" << old_path << "' to `"
@@ -776,7 +776,7 @@ void SegmentLogStorage::pop_segments(
 int SegmentLogStorage::truncate_prefix(const int64_t first_index_kept) {
     // segment files
     if (_first_log_index.load(butil::memory_order_acquire) >= first_index_kept) {
-      RAFT_VLOG << "Nothing is going to happen since _first_log_index=" 
+      BRAFT_VLOG << "Nothing is going to happen since _first_log_index=" 
                      << _first_log_index.load(butil::memory_order_relaxed)
                      << " >= first_index_kept="
                      << first_index_kept;
@@ -926,7 +926,7 @@ int SegmentLogStorage::list_segments(bool is_empty) {
         int match = 0;
         int64_t first_index = 0;
         int64_t last_index = 0;
-        match = sscanf(dir_reader.name(), RAFT_SEGMENT_CLOSED_PATTERN, 
+        match = sscanf(dir_reader.name(), BRAFT_SEGMENT_CLOSED_PATTERN, 
                        &first_index, &last_index);
         if (match == 2) {
             LOG(INFO) << "restore closed segment, path: " << _path
@@ -937,10 +937,10 @@ int SegmentLogStorage::list_segments(bool is_empty) {
             continue;
         }
 
-        match = sscanf(dir_reader.name(), RAFT_SEGMENT_OPEN_PATTERN, 
+        match = sscanf(dir_reader.name(), BRAFT_SEGMENT_OPEN_PATTERN, 
                        &first_index);
         if (match == 1) {
-            RAFT_VLOG << "restore open segment, path: " << _path
+            BRAFT_VLOG << "restore open segment, path: " << _path
                 << " first_index: " << first_index;
             if (!_open_segment) {
                 _open_segment = new Segment(_path, first_index, _checksum_type);
@@ -1056,7 +1056,7 @@ int SegmentLogStorage::save_meta(const int64_t log_index) {
     timer.start();
 
     std::string meta_path(_path);
-    meta_path.append("/" RAFT_SEGMENT_META_FILE);
+    meta_path.append("/" BRAFT_SEGMENT_META_FILE);
 
     LogPBMeta meta;
     meta.set_first_log_index(log_index);
@@ -1065,7 +1065,7 @@ int SegmentLogStorage::save_meta(const int64_t log_index) {
 
     timer.stop();
     PLOG_IF(ERROR, ret != 0) << "Fail to save meta to " << meta_path;
-    RAFT_VLOG << "log save_meta " << meta_path << " log_index: " << log_index
+    BRAFT_VLOG << "log save_meta " << meta_path << " log_index: " << log_index
         << " time: " << timer.u_elapsed();
     return ret;
 }
@@ -1075,7 +1075,7 @@ int SegmentLogStorage::load_meta() {
     timer.start();
 
     std::string meta_path(_path);
-    meta_path.append("/" RAFT_SEGMENT_META_FILE);
+    meta_path.append("/" BRAFT_SEGMENT_META_FILE);
 
     ProtoBufFile pb_file(meta_path);
     LogPBMeta meta;
@@ -1087,7 +1087,7 @@ int SegmentLogStorage::load_meta() {
     _first_log_index.store(meta.first_log_index());
 
     timer.stop();
-    RAFT_VLOG << "log load_meta " << meta_path << " log_index: " << meta.first_log_index()
+    BRAFT_VLOG << "log load_meta " << meta_path << " log_index: " << meta.first_log_index()
         << " time: " << timer.u_elapsed();
     return 0;
 }
@@ -1161,7 +1161,7 @@ int SegmentLogStorage::get_segment(int64_t index, scoped_refptr<Segment>* ptr) {
 
 void SegmentLogStorage::list_files(std::vector<std::string>* seg_files) {
     BAIDU_SCOPED_LOCK(_mutex);
-    seg_files->push_back(RAFT_SEGMENT_META_FILE);
+    seg_files->push_back(BRAFT_SEGMENT_META_FILE);
     for (SegmentMap::iterator it = _segments.begin(); it != _segments.end(); ++it) {
         scoped_refptr<Segment>& segment = it->second;
         seg_files->push_back(segment->file_name());

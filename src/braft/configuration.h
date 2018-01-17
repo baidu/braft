@@ -16,8 +16,8 @@
 //          Zhangyi Chen(chenzhangyi01@baidu.com)
 //          Ge,Jun(gejun@baidu.com)
 
-#ifndef PUBLIC_RAFT_RAFT_CONFIGURATION_H
-#define PUBLIC_RAFT_RAFT_CONFIGURATION_H
+#ifndef BRAFT_RAFT_CONFIGURATION_H
+#define BRAFT_RAFT_CONFIGURATION_H
 
 #include <string>
 #include <ostream>
@@ -255,4 +255,4 @@ std::ostream& operator<<(std::ostream& os, const Configuration& a);
 
 }  //  namespace braft
 
-#endif //~PUBLIC_RAFT_RAFT_CONFIGURATION_H
+#endif //~BRAFT_RAFT_CONFIGURATION_H

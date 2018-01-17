@@ -14,8 +14,8 @@
 
 // Authors: Qin,Duohao(qinduohao@baidu.com)
 
-#ifndef PUBLIC_RAFT_MEMORY_LOG_H
-#define PUBLIC_RAFT_MEMORY_LOG_H
+#ifndef BRAFT_MEMORY_LOG_H
+#define BRAFT_MEMORY_LOG_H
 
 #include <vector>
 #include <deque>
@@ -91,4 +91,4 @@ private:
 
 } //  namespace braft
 
-#endif //~PUBLIC_RAFT_MEMORY_LOG_H
+#endif //~BRAFT_MEMORY_LOG_H

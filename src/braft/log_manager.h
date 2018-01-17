@@ -15,8 +15,8 @@
 // Authors: Zhangyi Chen(chenzhangyi01@baidu.com)
 //          Wang,Yao(wangyao02@baidu.com)
 
-#ifndef  PUBLIC_RAFT_LOG_MANAGER_H
-#define  PUBLIC_RAFT_LOG_MANAGER_H
+#ifndef  BRAFT_LOG_MANAGER_H
+#define  BRAFT_LOG_MANAGER_H
 
 #include <butil/macros.h>                        // BAIDU_CACHELINE_ALIGNMENT
 #include <butil/containers/flat_map.h>           // butil::FlatMap
@@ -58,7 +58,7 @@ public:
     };
 
     LogManager();
-    RAFT_MOCK ~LogManager();
+    BRAFT_MOCK ~LogManager();
     int init(const LogManagerOptions& options);
 
     void shutdown();
@@ -69,12 +69,12 @@ public:
 
     // Notify the log manager about the latest snapshot, which indicates the
     // logs which can be safely truncated.
-    RAFT_MOCK void set_snapshot(const SnapshotMeta* meta);
+    BRAFT_MOCK void set_snapshot(const SnapshotMeta* meta);
 
     // We don't delete all the logs before last snapshot to avoid installing
     // snapshot on slow replica. Call this method to drop all the logs before
     // last snapshot immediately.
-    RAFT_MOCK void clear_bufferred_logs();
+    BRAFT_MOCK void clear_bufferred_logs();
 
     // Get the log at |index|
     // Returns:
@@ -208,4 +208,4 @@ friend class AppendBatcher;
 
 }  //  namespace braft
 
-#endif  //PUBLIC_RAFT_LOG_MANAGER_H
+#endif  //BRAFT_LOG_MANAGER_H

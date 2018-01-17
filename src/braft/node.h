@@ -16,8 +16,8 @@
 //          Zhangyi Chen(chenzhangyi01@baidu.com)
 //          Xiong,Kai(xionkai@baidu.com)
 
-#ifndef PUBLIC_RAFT_RAFT_NODE_H
-#define PUBLIC_RAFT_RAFT_NODE_H
+#ifndef BRAFT_RAFT_NODE_H
+#define BRAFT_RAFT_NODE_H
 
 #include <set>
 #include <butil/atomic_ref_count.h>
@@ -360,4 +360,4 @@ private:
 
 }
 
-#endif //~PUBLIC_RAFT_RAFT_NODE_H
+#endif //~BRAFT_RAFT_NODE_H

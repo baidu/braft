@@ -16,8 +16,8 @@
 //          Wang,Yao(wangyao02@baidu.com)
 //          Xiong,Kai(xiongkai@baidu.com)
 
-#ifndef  PUBLIC_RAFT_REPLICATOR_H
-#define  PUBLIC_RAFT_REPLICATOR_H
+#ifndef  BRAFT_REPLICATOR_H
+#define  BRAFT_REPLICATOR_H
 
 #include <bthread/bthread.h>                            // bthread_id
 #include <brpc/channel.h>                  // brpc::Channel
@@ -299,4 +299,4 @@ private:
 
 }  //  namespace braft
 
-#endif  //PUBLIC_RAFT_REPLICATOR_H
+#endif  //BRAFT_REPLICATOR_H

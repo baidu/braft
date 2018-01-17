@@ -16,8 +16,8 @@
 //          Zhangyi Chen(chenzhangyi01@baidu.com)
 //          Xiong,Kai(xiongkai@baidu.com)
 
-#ifndef PUBLIC_RAFT_LOG_H
-#define PUBLIC_RAFT_LOG_H
+#ifndef BRAFT_LOG_H
+#define BRAFT_LOG_H
 
 #include <vector>
 #include <map>
@@ -224,4 +224,4 @@ private:
 
 }  //  namespace braft
 
-#endif //~PUBLIC_RAFT_LOG_H
+#endif //~BRAFT_LOG_H

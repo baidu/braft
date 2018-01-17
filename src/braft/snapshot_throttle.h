@@ -14,8 +14,8 @@
 
 // Authors: Xiong,Kai(xiongkai@baidu.com)
 
-#ifndef  PUBLIC_RAFT_SNAPSHOT_THROTTLE_H
-#define  PUBLIC_RAFT_SNAPSHOT_THROTTLE_H
+#ifndef  BRAFT_SNAPSHOT_THROTTLE_H
+#define  BRAFT_SNAPSHOT_THROTTLE_H
 
 #include <butil/memory/ref_counted.h>                // butil::RefCountedThreadSafe
 #include "braft/util.h"
@@ -62,4 +62,4 @@ inline int64_t caculate_check_time_us(int64_t current_time_us,
 
 } //  namespace braft
 
-#endif  // PUBLIC_RAFT_SNAPSHOT_THROTTLE_H
+#endif  // BRAFT_SNAPSHOT_THROTTLE_H

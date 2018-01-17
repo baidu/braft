@@ -14,8 +14,8 @@
 
 // Authors: Wang,Yao(wangyao02@baidu.com)
 
-#ifndef PUBLIC_RAFT_PROTOBUF_FILE_H
-#define PUBLIC_RAFT_PROTOBUF_FILE_H
+#ifndef BRAFT_PROTOBUF_FILE_H
+#define BRAFT_PROTOBUF_FILE_H
 
 #include <string>
 #include <google/protobuf/message.h>
@@ -42,4 +42,4 @@ private:
 
 }
 
-#endif //~PUBLIC_RAFT_PROTOBUF_FILE_H
+#endif //~BRAFT_PROTOBUF_FILE_H

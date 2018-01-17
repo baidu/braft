@@ -45,7 +45,7 @@ int RepeatedTimerTask::init(int timeout_ms) {
 
 void RepeatedTimerTask::stop() {
     BAIDU_SCOPED_LOCK(_mutex);
-    RAFT_RETURN_IF(_stopped);
+    BRAFT_RETURN_IF(_stopped);
     _stopped = true;
     CHECK(_running);
     const int rc = bthread_timer_del(_timer);
@@ -86,11 +86,11 @@ void RepeatedTimerTask::start() {
     //       a) _timer is still running right now
     //       b) _timer is finished
     std::unique_lock<raft_mutex_t> lck(_mutex);
-    RAFT_RETURN_IF(_destroyed);
-    RAFT_RETURN_IF(!_stopped);
+    BRAFT_RETURN_IF(_destroyed);
+    BRAFT_RETURN_IF(!_stopped);
     _stopped = false;
 
-    RAFT_RETURN_IF(_running);
+    BRAFT_RETURN_IF(_running);
                  //  ^^^ _timer was not successfully deleted and the former task
                  // is still running, in which case on_timedout would invoke
                  // schedule as it would not see _stopped
@@ -136,7 +136,7 @@ void RepeatedTimerTask::schedule(std::unique_lock<raft_mutex_t>& lck) {
 
 void RepeatedTimerTask::reset() {
     std::unique_lock<raft_mutex_t> lck(_mutex);
-    RAFT_RETURN_IF(_stopped);
+    BRAFT_RETURN_IF(_stopped);
     CHECK(_running);
     const int rc = bthread_timer_del(_timer);
     if (rc == 0) {
@@ -148,7 +148,7 @@ void RepeatedTimerTask::reset() {
 void RepeatedTimerTask::reset(int timeout_ms) {
     std::unique_lock<raft_mutex_t> lck(_mutex);
     _timeout_ms = timeout_ms;
-    RAFT_RETURN_IF(_stopped);
+    BRAFT_RETURN_IF(_stopped);
     CHECK(_running);
     const int rc = bthread_timer_del(_timer);
     if (rc == 0) {
@@ -159,7 +159,7 @@ void RepeatedTimerTask::reset(int timeout_ms) {
 
 void RepeatedTimerTask::destroy() {
     std::unique_lock<raft_mutex_t> lck(_mutex);
-    RAFT_RETURN_IF(_destroyed);
+    BRAFT_RETURN_IF(_destroyed);
     _destroyed = true;
     if (!_running) {
         CHECK(_stopped);
@@ -167,7 +167,7 @@ void RepeatedTimerTask::destroy() {
         on_destroy();
         return;
     }
-    RAFT_RETURN_IF(_stopped);
+    BRAFT_RETURN_IF(_stopped);
     _stopped = true;
     const int rc = bthread_timer_del(_timer);
     if (rc == 0) {

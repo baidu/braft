@@ -499,7 +499,7 @@ int NodeImpl::init(const NodeOptions& options) {
 
     // start snapshot timer
     if (_snapshot_executor && _options.snapshot_interval_s > 0) {
-        RAFT_VLOG << "node " << _group_id << ":" << _server_id
+        BRAFT_VLOG << "node " << _group_id << ":" << _server_id
             << " term " << _current_term << " start snapshot_timer";
         _snapshot_timer.start();
     }
@@ -729,7 +729,7 @@ void NodeImpl::handle_stepdown_timeout() {
 
     // check state
     if (_state > STATE_TRANSFERING) {
-        RAFT_VLOG << "node " << _group_id << ":" << _server_id
+        BRAFT_VLOG << "node " << _group_id << ":" << _server_id
             << " term " << _current_term << " stop stepdown_timer"
             << " state is " << state2str(_state);
         return;
@@ -1318,7 +1318,7 @@ void NodeImpl::handle_vote_timeout() {
     // check state
     if (_state == STATE_CANDIDATE) {
         // retry vote
-        RAFT_VLOG << "node " << _group_id << ":" << _server_id
+        BRAFT_VLOG << "node " << _group_id << ":" << _server_id
             << " term " << _current_term << " retry elect";
         elect_self(&lck);
     }
@@ -1542,7 +1542,7 @@ void NodeImpl::elect_self(std::unique_lock<raft_mutex_t>* lck) {
     }
     // cancel follower election timer
     if (_state == STATE_FOLLOWER) {
-        RAFT_VLOG << "node " << _group_id << ":" << _server_id
+        BRAFT_VLOG << "node " << _group_id << ":" << _server_id
             << " term " << _current_term << " stop election_timer";
         _election_timer.stop();
     }
@@ -1558,7 +1558,7 @@ void NodeImpl::elect_self(std::unique_lock<raft_mutex_t>* lck) {
     _voted_id = _server_id;
     _vote_ctx.reset();
 
-    RAFT_VLOG << "node " << _group_id << ":" << _server_id
+    BRAFT_VLOG << "node " << _group_id << ":" << _server_id
         << " term " << _current_term << " start vote_timer";
     _vote_timer.start();
 
@@ -1617,7 +1617,7 @@ void NodeImpl::elect_self(std::unique_lock<raft_mutex_t>* lck) {
 // in lock
 void NodeImpl::step_down(const int64_t term, bool wakeup_a_candidate, 
         const butil::Status& status) {
-    RAFT_VLOG << "node " << _group_id << ":" << _server_id
+    BRAFT_VLOG << "node " << _group_id << ":" << _server_id
               << " term " << _current_term 
               << " stepdown from " << state2str(_state)
               << " new_term " << term <<
@@ -1764,7 +1764,7 @@ void NodeImpl::become_leader() {
             continue;
         }
 
-        RAFT_VLOG << "node " << _group_id << ":" << _server_id
+        BRAFT_VLOG << "node " << _group_id << ":" << _server_id
             << " term " << _current_term
             << " add replicator " << peers[i];
         //TODO: check return code
@@ -1830,7 +1830,7 @@ void NodeImpl::apply(LogEntryAndClosure tasks[], size_t size) {
             st.set_error(EBUSY, "is transfering leadership");
         }
         lck.unlock();
-        RAFT_VLOG << "node " << _group_id << ":" << _server_id << " can't apply : " << st;
+        BRAFT_VLOG << "node " << _group_id << ":" << _server_id << " can't apply : " << st;
         for (size_t i = 0; i < size; ++i) {
             tasks[i].entry->Release();
             if (tasks[i].done) {
@@ -1842,7 +1842,7 @@ void NodeImpl::apply(LogEntryAndClosure tasks[], size_t size) {
     }
     for (size_t i = 0; i < size; ++i) {
         if (tasks[i].expected_term != -1 && tasks[i].expected_term != _current_term) {
-            RAFT_VLOG << "node " << _group_id << ":" << _server_id
+            BRAFT_VLOG << "node " << _group_id << ":" << _server_id
                       << " can't apply taks whose expected_term=" << tasks[i].expected_term
                       << " doesn't match current_term=" << _current_term;
             if (tasks[i].done) {
@@ -2474,7 +2474,7 @@ void NodeImpl::describe(std::ostream& os, bool use_html) {
 
 // Timers
 int NodeTimer::init(NodeImpl* node, int timeout_ms) {
-    RAFT_RETURN_IF(RepeatedTimerTask::init(timeout_ms) != 0, -1);
+    BRAFT_RETURN_IF(RepeatedTimerTask::init(timeout_ms) != 0, -1);
     _node = node;
     node->AddRef();
     return 0;

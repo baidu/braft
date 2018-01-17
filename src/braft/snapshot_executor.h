@@ -14,8 +14,8 @@
 
 // Authors: Zhangyi Chen(chenzhangyi01@baidu.com)
 
-#ifndef  PUBLIC_RAFT_SNAPSHOT_EXECUTOR_H
-#define  PUBLIC_RAFT_SNAPSHOT_EXECUTOR_H
+#ifndef  BRAFT_SNAPSHOT_EXECUTOR_H
+#define  BRAFT_SNAPSHOT_EXECUTOR_H
 
 #include <brpc/controller.h>
 
@@ -175,4 +175,4 @@ inline SnapshotExecutorOptions::SnapshotExecutorOptions()
 
 }  //  namespace braft
 
-#endif  // PUBLIC_RAFT_SNAPSHOT_EXECUTOR_H
+#endif  // BRAFT_SNAPSHOT_EXECUTOR_H

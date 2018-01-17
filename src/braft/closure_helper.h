@@ -32,8 +32,8 @@
 //
 // Contains basic types and utilities used by the rest of the library.
 
-#ifndef PUBLIC_RAFT_CLOSURE_HELPER_H
-#define PUBLIC_RAFT_CLOSURE_HELPER_H
+#ifndef BRAFT_CLOSURE_HELPER_H
+#define BRAFT_CLOSURE_HELPER_H
 
 #if defined(__osf__)
 // Tru64 lacks stdint.h, but has inttypes.h which defines a superset of
@@ -1072,4 +1072,4 @@ inline Closure* NewPermanentCallback(
 
 }  //  namespace braft
 
-#endif  // PUBLIC_RAFT_CLOSURE_HELPER_H
+#endif  // BRAFT_CLOSURE_HELPER_H

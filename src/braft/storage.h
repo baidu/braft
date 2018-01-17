@@ -15,8 +15,8 @@
 // Authors: Wang,Yao(wangyao02@baidu.com)
 //          Zhangyi Chen(chenzhangyi01@baidu.com)
 
-#ifndef PUBLIC_RAFT_RAFT_STORAGE_H
-#define PUBLIC_RAFT_RAFT_STORAGE_H
+#ifndef BRAFT_RAFT_STORAGE_H
+#define BRAFT_RAFT_STORAGE_H
 
 #include <string>
 #include <vector>
@@ -252,4 +252,4 @@ inline brpc::Extension<const SnapshotStorage>* snapshot_storage_extension() {
 
 }
 
-#endif //~PUBLIC_RAFT_RAFT_STORAGE_H
+#endif //~BRAFT_RAFT_STORAGE_H

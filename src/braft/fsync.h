@@ -15,8 +15,8 @@
 // Authors: Zhangyi Chen(chenzhangyi01@baidu.com)
 //          Xiong,Kai(xiongkai@baidu.com)
 
-#ifndef  PUBLIC_RAFT_FSYNC_H
-#define  PUBLIC_RAFT_FSYNC_H
+#ifndef  BRAFT_FSYNC_H
+#define  BRAFT_FSYNC_H
 
 #include <unistd.h>
 #include <gflags/gflags.h>
@@ -40,4 +40,4 @@ inline bool raft_sync_meta() {
 
 }  //  namespace braft
 
-#endif  //PUBLIC_RAFT_FSYNC_H
+#endif  //BRAFT_FSYNC_H

@@ -17,8 +17,8 @@
 //          Xiong,Kai(xiongkai@baidu.com)
 //          Ge,Jun(gejun@baidu.com)
 
-#ifndef PUBLIC_RAFT_RAFT_H
-#define PUBLIC_RAFT_RAFT_H
+#ifndef BRAFT_RAFT_H
+#define BRAFT_RAFT_H
 
 #include <string>
 
@@ -602,4 +602,4 @@ int add_service(brpc::Server* server, const char* listen_ip_and_port);
 
 }  //  namespace braft
 
-#endif //~PUBLIC_RAFT_RAFT_H
+#endif //~BRAFT_RAFT_H

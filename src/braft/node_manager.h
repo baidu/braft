@@ -14,8 +14,8 @@
 
 // Authors: Zhangyi Chen(chenzhangyi01@baidu.com)
 
-#ifndef  PUBLIC_RAFT_NODE_MANAGER_H
-#define  PUBLIC_RAFT_NODE_MANAGER_H
+#ifndef  BRAFT_NODE_MANAGER_H
+#define  BRAFT_NODE_MANAGER_H
 
 #include <butil/memory/singleton.h>
 #include <butil/containers/doubly_buffered_data.h>
@@ -84,4 +84,4 @@ private:
 
 }   //  namespace braft
 
-#endif  // PUBLIC_RAFT_NODE_MANAGER_H
+#endif  // BRAFT_NODE_MANAGER_H

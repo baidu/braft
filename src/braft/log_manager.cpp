@@ -553,7 +553,7 @@ int LogManager::disk_thread(void* meta,
                 TruncatePrefixClosure* tpc = 
                         dynamic_cast<TruncatePrefixClosure*>(done);
                 if (tpc) {
-                    RAFT_VLOG << "Truncating storage to first_index_kept="
+                    BRAFT_VLOG << "Truncating storage to first_index_kept="
                         << tpc->first_index_kept();
                     ret = log_manager->_log_storage->truncate_prefix(
                                     tpc->first_index_kept());
@@ -597,7 +597,7 @@ int LogManager::disk_thread(void* meta,
 }
 
 void LogManager::set_snapshot(const SnapshotMeta* meta) {
-    RAFT_VLOG << "Set snapshot last_included_index="
+    BRAFT_VLOG << "Set snapshot last_included_index="
               << meta->last_included_index()
               << " last_included_term=" <<  meta->last_included_term();
     std::unique_lock<raft_mutex_t> lck(_mutex);
