@@ -35,7 +35,7 @@ if ((NOT GFLAGS_INCLUDE_PATH) OR (NOT GFLAGS_LIB))
 endif()
 
 find_path(BRPC_INCLUDE_PATH NAMES brpc/server.h)
-find_library(BRPC_LIB NAMES brpc)
+find_library(BRPC_LIB NAMES libbrpc.a)
 if ((NOT BRPC_INCLUDE_PATH) OR (NOT BRPC_LIB))
     message(FATAL_ERROR "Fail to find brpc")
 endif()
@@ -64,9 +64,11 @@ include_directories(
         ${BRPC_INCLUDE_PATH}
         )
 
+message ("protobuf_lib is ${PROTOBUF_LIBRARY} sdlkfjlskjgds")
+
 set(DYNAMIC_LIB
     ${GFLAGS_LIB}
-    ${PROTOBUF_LIBRARIES}
+    ${PROTOBUF_LIBRARY}
     ${LEVELDB_LIB}
     ${PROTOC_LIB}
     ${CMAKE_THREAD_LIBS_INIT}
@@ -135,4 +137,4 @@ add_subdirectory(src)
 if(BUILD_UNIT_TESTS)
     add_subdirectory(test)
 endif()
-#add_subdirectory(tools)
+add_subdirectory(tools)

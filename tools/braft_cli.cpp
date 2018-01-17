@@ -1,15 +1,25 @@
-// libraft - Quorum-based replication of states across machines.
 // Copyright (c) 2018 Baidu.com, Inc. All Rights Reserved
+// 
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+// 
+//     http://www.apache.org/licenses/LICENSE-2.0
+// 
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
-// Author: Zhangyi Chen (chenzhangyi01@baidu.com)
-// Date: 2018/01/12 23:05:44
+// Authors: Zhangyi Chen(chenzhangyi01@baidu.com)
 
 #include <map>                  // std::map
 #include <gflags/gflags.h>      // google::ParseCommandLineFlags
-#include <raft/cli.h>           // raft::cli::*
-#include <base/string_printf.h>
+#include <butil/string_printf.h>
+#include <braft/cli.h>           // raft::cli::*
 
-namespace raft {
+namespace braft {
 namespace cli {
 
 DEFINE_int32(timeout_ms, -1, "Timeout (in milliseconds) of the operation");
@@ -43,7 +53,7 @@ int add_peer() {
     CliOptions opt;
     opt.timeout_ms = FLAGS_timeout_ms;
     opt.max_retry = FLAGS_max_retry;
-    base::Status st = add_peer(FLAGS_group, conf, new_peer, opt);
+    butil::Status st = add_peer(FLAGS_group, conf, new_peer, opt);
     if (!st.ok()) {
         LOG(ERROR) << "Fail to add_peer : " << st;
         return -1;
@@ -68,7 +78,7 @@ int remove_peer() {
     CliOptions opt;
     opt.timeout_ms = FLAGS_timeout_ms;
     opt.max_retry = FLAGS_max_retry;
-    base::Status st = remove_peer(FLAGS_group, conf, removing_peer, opt);
+    butil::Status st = remove_peer(FLAGS_group, conf, removing_peer, opt);
     if (!st.ok()) {
         LOG(ERROR) << "Fail to remove_peer : " << st;
         return -1;
@@ -93,7 +103,7 @@ int set_peer() {
     CliOptions opt;
     opt.timeout_ms = FLAGS_timeout_ms;
     opt.max_retry = FLAGS_max_retry;
-    base::Status st = set_peer(FLAGS_group, target_peer, conf, opt);
+    butil::Status st = set_peer(FLAGS_group, target_peer, conf, opt);
     if (!st.ok()) {
         LOG(ERROR) << "Fail to set_peer : " << st;
         return -1;
@@ -112,7 +122,7 @@ int snapshot() {
     CliOptions opt;
     opt.timeout_ms = FLAGS_timeout_ms;
     opt.max_retry = FLAGS_max_retry;
-    base::Status st = snapshot(FLAGS_group, target_peer, opt);
+    butil::Status st = snapshot(FLAGS_group, target_peer, opt);
     if (!st.ok()) {
         LOG(ERROR) << "Fail to make snapshot : " << st;
         return -1;
@@ -148,7 +158,7 @@ int main(int argc , char* argv[]) {
         ++proc_name;
     }
     std::string help_str;
-    base::string_printf(&help_str,
+    butil::string_printf(&help_str,
                         "Usage: %s [Command] [OPTIONS...]\n"
                         "Command:\n"
                         "  add_peer --group=$group_id "
@@ -165,5 +175,5 @@ int main(int argc , char* argv[]) {
         std::cerr << help_str;
         return -1;
     }
-    return raft::cli::run_command(argv[1]);
+    return braft::cli::run_command(argv[1]);
 }

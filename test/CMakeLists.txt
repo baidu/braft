@@ -18,8 +18,11 @@ foreach(BRAFT_UT ${TEST_BRAFT_SRCS})
     add_executable(${BRAFT_UT_WE} ${BRAFT_UT} 
                    $<TARGET_OBJECTS:OBJ_LIB>)
     target_link_libraries(${BRAFT_UT_WE}
+                          "-Xlinker \"-(\""
                           ${GTEST_MAIN_LIB}
                           ${GTEST_LIB}
-                          ${GPERFTOOLS_LIBRARIES}
-                          ${DYNAMIC_LIB})
+                          ${GPERFTOOLS_LIBRARY}
+                          ${DYNAMIC_LIB}
+                          "-Xlinker \"-)\""
+                          )
 endforeach()
