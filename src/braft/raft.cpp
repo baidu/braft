@@ -31,12 +31,6 @@
 
 namespace braft {
 
-#if defined(BRAFT_REVISION)
-static const char* s_libraft_version = "libraft_version_" BRAFT_REVISION;
-#else
-static const char* s_libraft_version = "libraft_version_unknown";
-#endif
-
 static void print_revision(std::ostream& os, void*) {
 #if defined(BRAFT_REVISION)
         os << BRAFT_REVISION;
@@ -61,7 +55,6 @@ struct GlobalExtension {
 static void global_init_or_die_impl() {
     static GlobalExtension s_ext;
 
-    LOG(TRACE) << "init libraft ver: " << s_libraft_version;
     log_storage_extension()->RegisterOrDie("local", &s_ext.local_log);
     log_storage_extension()->RegisterOrDie("memory", &s_ext.memory_log);
     stable_storage_extension()->RegisterOrDie("local", &s_ext.local_stable);
@@ -258,7 +251,5 @@ int bootstrap(const BootstrapOptions& options) {
     node->Release();  // node acquired an additional reference in ctro.
     return rc;
 }
-
-
 
 }

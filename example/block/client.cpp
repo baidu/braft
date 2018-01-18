@@ -19,27 +19,21 @@
 #include <raft/raft.h>
 #include <raft/util.h>
 #include <raft/route_table.h>
-#include "atomic.pb.h"
+#include "block.pb.h"
 
 DEFINE_bool(log_each_request, false, "Print log for each request");
 DEFINE_bool(use_bthread, false, "Use bthread to send requests");
-DEFINE_int32(add_percentage, 100, "Percentage of fetch_add");
-DEFINE_int64(added_by, 1, "Num added to each peer");
+DEFINE_int32(block_size, 64 * 1024 * 1024u, "Size of block");
+DEFINE_int32(request_size, 1024, "Size of each requst");
 DEFINE_int32(thread_num, 1, "Number of threads sending requests");
-DEFINE_int32(timeout_ms, 100, "Timeout for each request");
+DEFINE_int32(timeout_ms, 500, "Timeout for each request");
+DEFINE_int32(write_percentage, 100, "Percentage of fetch_add");
 DEFINE_string(conf, "", "Configuration of the raft group");
-DEFINE_string(group, "Atomic", "Id of the replication group");
+DEFINE_string(group, "Block", "Id of the replication group");
 
-bvar::LatencyRecorder g_latency_recorder("atomic_client");
-base::atomic<int> g_nthreads(0);
-
-struct SendArg {
-    int64_t id;
-};
+bvar::LatencyRecorder g_latency_recorder("block_client");
 
 static void* sender(void* arg) {
-    SendArg* sa = (SendArg*)arg;
-    int64_t value = 0;
     while (!baidu::rpc::IsAskedToQuit()) {
         raft::PeerId leader;
         // Select leader of the target group from RouteTable
@@ -64,18 +58,25 @@ static void* sender(void* arg) {
             bthread_usleep(FLAGS_timeout_ms * 1000L);
             continue;
         }
-        example::AtomicService_Stub stub(&channel);
+        example::BlockService_Stub stub(&channel);
 
         baidu::rpc::Controller cntl;
         cntl.set_timeout_ms(FLAGS_timeout_ms);
-        example::CompareExchangeRequest request;
-        example::AtomicResponse response;
-        request.set_id(sa->id);
-        request.set_expected_value(value);
-        request.set_new_value(value + 1);
-
-        stub.compare_exchange(&cntl, &request, &response, NULL);
-
+        // Randomly select which request we want send;
+        example::BlockRequest request;
+        example::BlockResponse response;
+        request.set_offset(base::fast_rand_less_than(
+                            FLAGS_block_size - FLAGS_request_size));
+        const char* op = NULL;
+        if (base::fast_rand_less_than(100) < (size_t)FLAGS_write_percentage) {
+            op = "write";
+            cntl.request_attachment().resize(FLAGS_request_size, 'a');
+            stub.write(&cntl, &request, &response, NULL);
+        } else {
+            op = "read";
+            request.set_size(FLAGS_request_size);
+            stub.read(&cntl, &request, &response, NULL);
+        }
         if (cntl.Failed()) {
             LOG(WARNING) << "Fail to send request to " << leader
                          << " : " << cntl.ErrorText();
@@ -84,37 +85,24 @@ static void* sender(void* arg) {
             bthread_usleep(FLAGS_timeout_ms * 1000L);
             continue;
         }
-
         if (!response.success()) {
-            // A redirect response
-            if (!response.has_old_value()) {
-                LOG(WARNING) << "Fail to send request to " << leader
-                             << ", redirecting to "
-                             << (response.has_redirect() 
-                                    ? response.redirect() : "nowhere");
-                // Update route table since we have redirect information
-                raft::rtb::update_leader(FLAGS_group, response.redirect());
-                continue;
-            }
-            // old_value unmatches expected value check if this is the initial
-            // request
-            if (value == 0 || response.old_value() == value + 1) {
-                //   ^^^                          ^^^
-                // It's initalized value          ^^^
-                //                          There was false negative
-                value = response.old_value();
-            } else {
-                CHECK_EQ(value, response.old_value());
-                exit(-1);
-            }
-        } else {
-            value = response.new_value();
+            LOG(WARNING) << "Fail to send request to " << leader
+                         << ", redirecting to "
+                         << (response.has_redirect() 
+                                ? response.redirect() : "nowhere");
+            // Update route table since we have redirect information
+            raft::rtb::update_leader(FLAGS_group, response.redirect());
+            continue;
         }
         g_latency_recorder << cntl.latency_us();
         if (FLAGS_log_each_request) {
             LOG(INFO) << "Received response from " << leader
-                      << " old_value=" << response.old_value()
-                      << " new_value=" << response.new_value()
+                      << " op=" << op
+                      << " offset=" << request.offset()
+                      << " request_attachment="
+                      << cntl.request_attachment().size()
+                      << " response_attachment="
+                      << cntl.response_attachment().size()
                       << " latency=" << cntl.latency_us();
             bthread_usleep(1000L * 1000L);
         }
@@ -133,24 +121,17 @@ int main(int argc, char* argv[]) {
     }
 
     std::vector<bthread_t> tids;
-    std::vector<SendArg> args;
-    for (int i = 1; i <= FLAGS_thread_num; ++i) {
-        SendArg arg = { i };
-        args.push_back(arg);
-    }
     tids.resize(FLAGS_thread_num);
     if (!FLAGS_use_bthread) {
         for (int i = 0; i < FLAGS_thread_num; ++i) {
-            if (pthread_create(
-                        &tids[i], NULL, sender, &args[i]) != 0) {
+            if (pthread_create(&tids[i], NULL, sender, NULL) != 0) {
                 LOG(ERROR) << "Fail to create pthread";
                 return -1;
             }
         }
     } else {
         for (int i = 0; i < FLAGS_thread_num; ++i) {
-            if (bthread_start_background(
-                        &tids[i], NULL, sender, &args[i]) != 0) {
+            if (bthread_start_background(&tids[i], NULL, sender, NULL) != 0) {
                 LOG(ERROR) << "Fail to create bthread";
                 return -1;
             }
@@ -166,7 +147,7 @@ int main(int argc, char* argv[]) {
                 << " latency=" << g_latency_recorder.latency(1);
     }
 
-    LOG(INFO) << "Counter client is going to quit";
+    LOG(INFO) << "Block client is going to quit";
     for (int i = 0; i < FLAGS_thread_num; ++i) {
         if (!FLAGS_use_bthread) {
             pthread_join(tids[i], NULL);
@@ -174,5 +155,6 @@ int main(int argc, char* argv[]) {
             bthread_join(tids[i], NULL);
         }
     }
+
     return 0;
 }

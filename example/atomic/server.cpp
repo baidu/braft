@@ -1,8 +1,16 @@
-// libraft - Quorum-based replication of states accross machines.
-// Copyright (c) 2016 Baidu.com, Inc. All Rights Reserved
-
-// Author: Zhangyi Chen (chenzhangyi01@baidu.com)
-// Date: 2016/01/14 13:45:46
+// Copyright (c) 2018 Baidu.com, Inc. All Rights Reserved
+// 
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+// 
+//     http://www.apache.org/licenses/LICENSE-2.0
+// 
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 #include <fstream>
 #include <bthread_unstable.h>
@@ -13,96 +21,245 @@
 #include <bthread.h>
 #include <baidu/rpc/controller.h>
 #include <baidu/rpc/server.h>
+#include <raft/raft.h>
 #include <raft/util.h>
 #include <raft/storage.h>
-#include "state_machine.h"
-#include "cli_service.h"
+
 #include "atomic.pb.h"
 
-DEFINE_int32(map_capacity, 1024, "Initial capicity of value map");
-DEFINE_string(ip_and_port, "0.0.0.0:8000", "server listen address");
-DEFINE_string(name, "test", "Name of the raft group");
-DEFINE_string(peers, "", "cluster peer set");
-DEFINE_int32(snapshot_interval, 30, "Interval between each snapshot");
-DEFINE_int32(election_timeout_ms, 5000, 
-            "Start election after no message received from leader in such time");
 DEFINE_bool(allow_absent_key, false, "Cas succeeds if the key is absent while "
                                      " exptected value is exactly 0");
+DEFINE_bool(check_term, true, "Check if the leader changed to another term");
+DEFINE_bool(disable_cli, false, "Don't allow raft_cli access this node");
+DEFINE_bool(log_applied_task, false, "Print notice log when a task is applied");
+DEFINE_int32(election_timeout_ms, 5000, 
+            "Start election in such milliseconds if disconnect with the leader");
+DEFINE_int32(map_capacity, 1024, "Initial capicity of value map");
+DEFINE_int32(port, 8100, "Listen port of this peer");
+DEFINE_int32(snapshot_interval, 30, "Interval between each snapshot");
+DEFINE_string(conf, "", "Initial configuration of the replication group");
+DEFINE_string(data_path, "./data", "Path of data stored on");
+DEFINE_string(group, "Atomic", "Id of the replication group");
 
 namespace example {
 
-struct AtomicClosure : public raft::Closure {
-    void Run() {
-        if (!status().ok()) {
-            cntl->SetFailed(status().error_code(), "%s", status().error_cstr());
-        }
-        done->Run();
-        delete this;
-    }
-    baidu::rpc::Controller* cntl;
-    google::protobuf::Message* response;
-    google::protobuf::Closure* done;
-};
-
-enum AtomicOpType {
-    ATOMIC_OP_GET = 0,
-    ATOMIC_OP_SET = 1,
-    ATOMIC_OP_CAS = 2,
-};
-
-class Atomic : public CommonStateMachine {
+class Atomic;
+// Implements Closure which encloses RPC stuff
+class AtomicClosure : public raft::Closure {
 public:
-    Atomic(const raft::GroupId& group_id, const raft::PeerId& peer_id) 
-        : CommonStateMachine(group_id, peer_id), _is_leader(false) {
-            CHECK_EQ(0, _value_map.init(FLAGS_map_capacity));
+    AtomicClosure(Atomic* atomic,
+                  const google::protobuf::Message* request,
+                  AtomicResponse* response,
+                  google::protobuf::Closure* done)
+        : _atomic(atomic)
+        , _request(request)
+        , _response(response)
+        , _done(done)
+    {}
+
+    void Run();
+    const google::protobuf::Message* request() const { return _request; }
+    AtomicResponse* response() const { return _response; }
+
+private:
+    Atomic* _atomic;
+    const google::protobuf::Message* _request;
+    AtomicResponse* _response;
+    google::protobuf::Closure* _done;
+};
+
+// Implementation of example::Atomic as a raft::StateMachine.
+class Atomic : public raft::StateMachine {
+public:
+    // Define types for different operation
+    enum AtomicOpType {
+        OP_UNKNOWN = 0,
+        OP_GET = 1,
+        OP_EXCHANGE = 2,
+        OP_CAS = 3,
+    };
+
+    Atomic()
+        : _node(NULL)
+        , _leader_term(-1)
+    {
+        CHECK_EQ(0, _value_map.init(FLAGS_map_capacity));
     }
 
-    virtual ~Atomic() {}
+    ~Atomic() {
+        delete _node;
+    }
 
-    int get(const int64_t id, int64_t* value) {
-        BAIDU_SCOPED_LOCK(_mutex);
-        if (_is_leader) {
-            *value = _value_map[id];
-            return 0;
-        } else {
-            return EINVAL;
+    // Starts this node
+    int start() {
+        base::EndPoint addr(base::my_ip(), FLAGS_port);
+        raft::NodeOptions node_options;
+        if (node_options.initial_conf.parse_from(FLAGS_conf) != 0) {
+            LOG(ERROR) << "Fail to parse configuration `" << FLAGS_conf << '\'';
+            return -1;
+        }
+        node_options.election_timeout_ms = FLAGS_election_timeout_ms;
+        node_options.fsm = this;
+        node_options.node_owns_fsm = false;
+        node_options.snapshot_interval_s = FLAGS_snapshot_interval;
+        std::string prefix = "local://" + FLAGS_data_path;
+        node_options.log_uri = prefix + "/log";
+        node_options.stable_uri = prefix + "/stable";
+        node_options.snapshot_uri = prefix + "/snapshot";
+        node_options.disable_cli = FLAGS_disable_cli;
+        raft::Node* node = new raft::Node(FLAGS_group, raft::PeerId(addr));
+        if (node->init(node_options) != 0) {
+            LOG(ERROR) << "Fail to init raft node";
+            delete node;
+            return -1;
+        }
+        _node = node;
+        return 0;
+    }
+
+    // Impelements service methods
+    void get(const ::example::GetRequest* request,
+             ::example::AtomicResponse* response,
+             ::google::protobuf::Closure* done) {
+        return apply(OP_GET, request, response, done);
+    }
+
+    void exchange(const ::example::ExchangeRequest* request,
+                  ::example::AtomicResponse* response,
+                  ::google::protobuf::Closure* done) {
+        return apply(OP_EXCHANGE, request, response, done);
+    }
+
+    void compare_exchange(const ::example::CompareExchangeRequest* request,
+                          ::example::AtomicResponse* response,
+                          ::google::protobuf::Closure* done) {
+        return apply(OP_CAS, request, response, done);
+    }
+
+    // Shut this node down.
+    void shutdown() {
+        if (_node) {
+            _node->shutdown(NULL);
         }
     }
 
-    // FSM method
+    // Blocking this thread until the node is eventually down.
+    void join() {
+        if (_node) {
+            _node->join();
+        }
+    }
+
+private:
+friend class AtomicClosure;
+
+    void apply(AtomicOpType type, const google::protobuf::Message* request,
+               AtomicResponse* response, google::protobuf::Closure* done) {
+        baidu::rpc::ClosureGuard done_guard(done);
+        // Serialize request to the replicated write-ahead-log so that all the
+        // peers in the group receive this request as well.
+        // Notice that _value can't be modified in this routine otherwise it
+        // will be inconsistent with others in this group.
+        
+        // Serialize request to IOBuf
+        const int64_t term = _leader_term.load(base::memory_order_relaxed);
+        if (term < 0) {
+            return redirect(response);
+        }
+        base::IOBuf log;
+        log.push_back((uint8_t)type);
+        base::IOBufAsZeroCopyOutputStream wrapper(&log);
+        if (!request->SerializeToZeroCopyStream(&wrapper)) {
+            LOG(ERROR) << "Fail to serialize request";
+            response->set_success(false);
+            return;
+        }
+        // Apply this log as a raft::Task
+        raft::Task task;
+        task.data = &log;
+        // This callback would be iovoked when the task actually excuted or
+        // fail
+        task.done = new AtomicClosure(this, request, response,
+                                      done_guard.release());
+        if (FLAGS_check_term) {
+            // ABA problem can be avoid if expected_term is set
+            task.expected_term = term;
+        }
+        // Now the task is applied to the group, waiting for the result.
+        return _node->apply(task);
+    }
+
+    void redirect(AtomicResponse* response) {
+        response->set_success(false);
+        if (_node) {
+            raft::PeerId leader = _node->leader_id();
+            if (!leader.is_empty()) {
+                response->set_redirect(leader.to_string());
+            }
+        }
+    }
+
+    // @raft::StateMachine
     void on_apply(raft::Iterator& iter) {
+        // A batch of tasks are committed, which must be processed through 
+        // |iter|
         for (; iter.valid(); iter.next()) {
-            raft::Closure* done = iter.done();
-            baidu::rpc::ClosureGuard done_guard(done);
+            // This guard helps invoke iter.done()->Run() asynchronously to
+            // avoid that callback blocks the StateMachine.
+            raft::AsyncClosureGuard done_guard(iter.done());
+
+            // Parse data
             base::IOBuf data = iter.data();
-            AtomicOpType type;
-            data.cutn(&type, sizeof(type));
-            //LOG(INFO) << "on_apply index: " << index;
+            // Fetch the type of operation from the leading byte.
+            uint8_t type = OP_UNKNOWN;
+            data.cutn(&type, sizeof(uint8_t));
 
-            if (type == ATOMIC_OP_SET) {
-                fsm_set(done, &data);
-            } else if (type == ATOMIC_OP_CAS) {
-                fsm_cas(done, &data);
-            } else if (type == ATOMIC_OP_GET) {
-                fsm_get(done, &data);
-            } else {
-                CHECK(false) << "bad log format, type: " << type;
+            AtomicClosure* c = NULL;
+            if (iter.done()) {
+                c = dynamic_cast<AtomicClosure*>(iter.done());
             }
 
-            if (done) {
-                raft::run_closure_in_bthread(done_guard.release());
+            const google::protobuf::Message* request = c ? c->request() : NULL;
+            AtomicResponse r;
+            AtomicResponse* response = c ? c->response() : &r;
+            const char* op = NULL;
+            // Execute the operation according to type
+            switch (type) {
+            case OP_GET:
+                op = "get";
+                get_value(data, request, response);
+                break;
+            case OP_EXCHANGE:
+                op = "exchange";
+                exchange(data, request, response);
+                break;
+            case OP_CAS:
+                op = "cas";
+                cas(data, request, response);
+                break;
+            default:
+                CHECK(false) << "Unknown type=" << static_cast<int>(type);
+                break;
             }
+
+            // The purpose of following logs is to help you understand the way
+            // this StateMachine works.
+            // Remove these logs in performance-sensitive servers.
+            LOG_IF(INFO, FLAGS_log_applied_task) 
+                    << "Handled operation " << op 
+                    << " on id=" << response->id()
+                    << " at log_index=" << iter.index()
+                    << " success=" << response->success()
+                    << " old_value=" << response->old_value()
+                    << " new_value=" << response->new_value();
         }
-    }
-
-    void on_shutdown() {
-        // FIXME: should be more elegant
-        exit(0);
     }
 
     void on_snapshot_save(raft::SnapshotWriter* writer, raft::Closure* done) {
-        BAIDU_SCOPED_LOCK(_mutex);
 
+        // Save current StateMachine in memory and starts a new bthread to avoid
+        // blocking StateMachine since it's a bit slow to write data to disk
+        // file.
         SnapshotClosure* sc = new SnapshotClosure;
         sc->values.reserve(_value_map.size());
         sc->writer = writer;
@@ -111,17 +268,13 @@ public:
                 it = _value_map.begin(); it != _value_map.end(); ++it) {
             sc->values.push_back(std::make_pair(it->first, it->second));
         }
+
         bthread_t tid;
-        if (bthread_start_background(&tid, NULL, save_snaphsot, sc) != 0) {
-            PLOG(ERROR) << "Fail to start bthread";
-            save_snaphsot(sc);
-        }
+        bthread_start_urgent(&tid, NULL, save_snapshot, sc);
     }
 
     int on_snapshot_load(raft::SnapshotReader* reader) {
-        BAIDU_SCOPED_LOCK(_mutex);
-
-        // TODO: verify snapshot
+        CHECK_EQ(-1, _leader_term) << "Leader is not supposed to load snapshot";
         _value_map.clear();
         std::string snapshot_path = reader->get_path();
         snapshot_path.append("/data");
@@ -134,121 +287,118 @@ public:
         return 0;
     }
 
-    // Acutally we don't care now
     void on_leader_start(int64_t term) {
-        LOG(INFO) << "leader start at term: " << term;
-        BAIDU_SCOPED_LOCK(_mutex);
-        _is_leader = true;
+        _leader_term.store(term, base::memory_order_release);
+        LOG(INFO) << "Node becomes leader";
     }
 
-    void on_leader_stop() {
-        BAIDU_SCOPED_LOCK(_mutex);
-        _is_leader = false;
-        int fd = creat("data/leader_flag", 0644);
-        close(fd);
+    void on_leader_stop(const base::Status& status) {
+        _leader_term.store(-1, base::memory_order_release);
+        LOG(INFO) << "Node stepped down : " << status;
     }
 
-    void apply(base::IOBuf *iobuf, raft::Closure* done) {
-        raft::Task task;
-        task.data = iobuf;
-        task.done = done;
-        return _node.apply(task);
+    void on_shutdown() {
+        LOG(INFO) << "This node is down";
+    }
+    void on_error(const ::raft::Error& e) {
+        LOG(ERROR) << "Met raft error " << e;
+    }
+    void on_configuration_committed(const ::raft::Configuration& conf) {
+        LOG(INFO) << "Configuration of this group is " << conf;
+    }
+    void on_stop_following(const ::raft::LeaderChangeContext& ctx) {
+        LOG(INFO) << "Node stops following " << ctx;
+    }
+    void on_start_following(const ::raft::LeaderChangeContext& ctx) {
+        LOG(INFO) << "Node start following " << ctx;
     }
 
-private:
-
-    void fsm_get(raft::Closure* done, base::IOBuf* data) {
-        // follower direct return
-        if (!done) {
-            return;
-        }
-        base::IOBufAsZeroCopyInputStream wrapper(*data);
-        GetRequest req;
-        if (!req.ParseFromZeroCopyStream(&wrapper)) {
-            done->status().set_error(baidu::rpc::EREQUEST,
-                                     "Fail to parse buffer");
-            LOG(INFO) << "Fail to parse GetRequest";
-            return;
-        }
-
-        //LOG(INFO) << "fsm_get, id: " << req.id();
-        BAIDU_SCOPED_LOCK(_mutex);
-        GetResponse* res = (GetResponse*)((AtomicClosure*)done)->response;
-        int64_t* val_ptr = _value_map.seek(req.id());
-        if (val_ptr) {
-            res->set_value(*val_ptr);
-            res->set_success(true);
+    // end of @raft::StateMachine
+    
+    void get_value(const base::IOBuf& data,
+                   const google::protobuf::Message* request,
+                   AtomicResponse* response) {
+        int64_t id = 0;
+        if (request) {
+            // This task is applied by this node, get value from this
+            // closure to avoid addtional parsing.
+            id = dynamic_cast<const GetRequest*>(request)->id();
         } else {
-            res->set_value(0);
-            res->set_success(false);
+            base::IOBufAsZeroCopyInputStream wrapper(data);
+            GetRequest req;
+            CHECK(req.ParseFromZeroCopyStream(&wrapper));
+            id = req.id();
         }
+        int64_t* const v = _value_map.seek(id);
+        response->set_success(true);
+        response->set_id(id);
+        response->set_old_value(v ? *v : 0);
+        response->set_new_value(v ? *v : 0);
     }
 
-    void fsm_set(raft::Closure* done, base::IOBuf* data) {
-        base::IOBufAsZeroCopyInputStream wrapper(*data);
-        SetRequest req;
-        if (!req.ParseFromZeroCopyStream(&wrapper)) {
-            if (done) {
-                done->status().set_error(baidu::rpc::EREQUEST,
-                                "Fail to parse buffer");
-            }
-            LOG(INFO) << "Fail to parse SetRequest";
-            return;
-        }
-
-        //LOG(INFO) << "fsm_set, id: " << req.id() << " val: " << req.value();
-        BAIDU_SCOPED_LOCK(_mutex);
-        _value_map[req.id()] = req.value();
-        if (done) {
-            SetResponse* res = (SetResponse*)((AtomicClosure*)done)->response;
-            res->set_success(true);
-        }
-    }
-
-    void fsm_cas(raft::Closure* done, base::IOBuf* data) {
-        base::IOBufAsZeroCopyInputStream wrapper(*data);
-        CompareExchangeRequest req;
-        if (!req.ParseFromZeroCopyStream(&wrapper)) {
-            if (done) {
-                done->status().set_error(baidu::rpc::EREQUEST,
-                                "Fail to parse buffer");
-            }
-            LOG(INFO) << "Fail to parse CompareExchangeRequest";
-            return;
-        }
-
-        //LOG(INFO) << "fsm_cas, id: " << req.id() << " expected_val: " << req.expected_value()
-        //    << " new_val: " << req.new_value();
-        BAIDU_SCOPED_LOCK(_mutex);
-        CompareExchangeResponse* res = NULL;
-        const int64_t id = req.id();
-        int64_t* val_ptr = _value_map.seek(id);
-        if (val_ptr == NULL) {
-            if (FLAGS_allow_absent_key) {
-                _value_map[id] = 0;
-            } else {
-                if (done) {
-                    res = (CompareExchangeResponse*)((AtomicClosure*)done)->response;
-                    res->set_old_value(0);
-                    res->set_success(false);
-                }
-                return;
-            }
-        }
-        int64_t& cur_val = _value_map[id];
-        if (done) {
-            res = (CompareExchangeResponse*)((AtomicClosure*)done)->response;
-            res->set_old_value(cur_val);
-        }
-        if (cur_val == req.expected_value()) {
-            cur_val = req.new_value();
-            if (res) { res->set_success(true); }
+    void exchange(const base::IOBuf& data,
+                  const google::protobuf::Message* request,
+                  AtomicResponse* response) {
+        int64_t id = 0;
+        int64_t value = 0;
+        if (request) {
+            // This task is applied by this node, get value from this
+            // closure to avoid addtional parsing.
+            const ExchangeRequest* req
+                    = dynamic_cast<const ExchangeRequest*>(request);
+            id = req->id();
+            value = req->value();
         } else {
-            if (res) { res->set_success(false); }
+            base::IOBufAsZeroCopyInputStream wrapper(data);
+            ExchangeRequest req;
+            CHECK(req.ParseFromZeroCopyStream(&wrapper));
+            id = req.id();
+            value = req.value();
+        }
+        int64_t& old_value = _value_map[id];
+        response->set_success(true);
+        response->set_id(id);
+        response->set_old_value(old_value);
+        response->set_new_value(value);
+        old_value = value;
+    }
+
+    void cas(const base::IOBuf& data,
+                  const google::protobuf::Message* request,
+                  AtomicResponse* response) {
+        int64_t id = 0;
+        int64_t value = 0;
+        int64_t expected = 0;
+        if (request) {
+            // This task is applied by this node, get value from this
+            // closure to avoid addtional parsing.
+            const CompareExchangeRequest* req =
+                    dynamic_cast<const CompareExchangeRequest*>(request);
+            id = req->id();
+            value = req->new_value();
+            expected = req->expected_value();
+        } else {
+            base::IOBufAsZeroCopyInputStream wrapper(data);
+            CompareExchangeRequest req;
+            CHECK(req.ParseFromZeroCopyStream(&wrapper));
+            id = req.id();
+            value = req.new_value();
+            expected = req.expected_value();
+        }
+        int64_t& old_value = _value_map[id];
+        response->set_old_value(old_value);
+        response->set_id(id);
+        if (old_value != expected) {
+            response->set_success(false);
+            response->set_new_value(old_value);
+        } else {
+            response->set_success(true);
+            response->set_new_value(value);
+            old_value = value;
         }
     }
 
-    static void* save_snaphsot(void* arg) {
+    static void* save_snapshot(void* arg) {
         SnapshotClosure* sc = (SnapshotClosure*)arg;
         std::unique_ptr<SnapshotClosure> sc_guard(sc);
         baidu::rpc::ClosureGuard done_guard(sc->done);
@@ -270,97 +420,45 @@ private:
         raft::Closure* done;
     };
 
-
-    bool _is_leader;
-    raft_mutex_t _mutex;
-    // TODO: To support the read-only load, _value_map should be COW or doubly
-    // buffered
+    raft::Node* volatile _node;
+    base::atomic<int64_t> _leader_term;
     ValueMap _value_map;
 };
 
+void AtomicClosure::Run() {
+    std::unique_ptr<AtomicClosure> self_guard(this);
+    baidu::rpc::ClosureGuard done_guard(_done);
+    if (status().ok()) {
+        return;
+    }
+    // Try redirect if this request failed.
+    _atomic->redirect(_response);
+}
+
+// Implements example::AtomicService if you are using brpc.
 class AtomicServiceImpl : public AtomicService {
 public:
 
     explicit AtomicServiceImpl(Atomic* atomic) : _atomic(atomic) {}
+    ~AtomicServiceImpl() {}
 
-    // rpc method
-    virtual void get(::google::protobuf::RpcController* controller,
-                       const ::example::GetRequest* request,
-                       ::example::GetResponse* response,
-                       ::google::protobuf::Closure* done) {
-        baidu::rpc::ClosureGuard done_guard(done);
-        baidu::rpc::Controller* cntl = (baidu::rpc::Controller*)controller;
-
-        //XXX: strict linearity check need trigger heartbeat before read, to check leader valid
-#if 0
-        int64_t value = 0;
-        if (0 == _atomic->get(request->id(), &value)) {
-            response->set_success(true);
-            response->set_value(value);
-        } else {
-            cntl->SetFailed(baidu::rpc::SYS_EPERM, "not leader");
-        }
-#else
-        base::IOBuf data;
-        AtomicOpType type = ATOMIC_OP_GET;
-        data.append(&type, sizeof(type));
-        base::IOBufAsZeroCopyOutputStream wrapper(&data);
-        if (!request->SerializeToZeroCopyStream(&wrapper)) {
-            cntl->SetFailed(baidu::rpc::EREQUEST, "Fail to serialize request");
-            return;
-        }
-
-        AtomicClosure* c = new AtomicClosure;
-        c->cntl = cntl;
-        c->response = response;
-        c->done = done_guard.release();
-        return _atomic->apply(&data, c);
-#endif
+    void get(::google::protobuf::RpcController* controller,
+             const ::example::GetRequest* request,
+             ::example::AtomicResponse* response,
+             ::google::protobuf::Closure* done) {
+        return _atomic->get(request, response, done);
     }
-
-    virtual void set(::google::protobuf::RpcController* controller,
-                       const ::example::SetRequest* request,
-                       ::example::SetResponse* response,
-                       ::google::protobuf::Closure* done) {
-        baidu::rpc::ClosureGuard done_guard(done);
-        baidu::rpc::Controller* cntl = (baidu::rpc::Controller*)controller;
-
-        base::IOBuf data;
-        AtomicOpType type = ATOMIC_OP_SET;
-        data.append(&type, sizeof(type));
-        base::IOBufAsZeroCopyOutputStream wrapper(&data);
-        if (!request->SerializeToZeroCopyStream(&wrapper)) {
-            cntl->SetFailed(baidu::rpc::EREQUEST, "Fail to serialize request");
-            return;
-        }
-
-        AtomicClosure* c = new AtomicClosure;
-        c->cntl = cntl;
-        c->response = response;
-        c->done = done_guard.release();
-        return _atomic->apply(&data, c);
+    void exchange(::google::protobuf::RpcController* controller,
+                  const ::example::ExchangeRequest* request,
+                  ::example::AtomicResponse* response,
+                  ::google::protobuf::Closure* done) {
+        return _atomic->exchange(request, response, done);
     }
-
-    virtual void compare_exchange(::google::protobuf::RpcController* controller,
-                       const ::example::CompareExchangeRequest* request,
-                       ::example::CompareExchangeResponse* response,
-                       ::google::protobuf::Closure* done) {
-        baidu::rpc::ClosureGuard done_guard(done);
-        baidu::rpc::Controller* cntl = (baidu::rpc::Controller*)controller;
-
-        base::IOBuf data;
-        AtomicOpType type = ATOMIC_OP_CAS;
-        data.append(&type, sizeof(type));
-        base::IOBufAsZeroCopyOutputStream wrapper(&data);
-        if (!request->SerializeToZeroCopyStream(&wrapper)) {
-            cntl->SetFailed(baidu::rpc::EREQUEST, "Fail to serialize request");
-            return;
-        }
-        AtomicClosure* c = new AtomicClosure;
-        c->cntl = cntl;
-        c->response = response;
-        c->done = done_guard.release();
-        return _atomic->apply(&data, c);
+    void compare_exchange(::google::protobuf::RpcController* controller,
+                          const ::example::CompareExchangeRequest* request,
+                          ::example::AtomicResponse* response,
+                          ::google::protobuf::Closure* done) {
+        return _atomic->compare_exchange(request, response, done);
     }
 
 private:
@@ -372,76 +470,56 @@ private:
 int main(int argc, char* argv[]) {
     google::ParseCommandLineFlags(&argc, &argv, true);
 
-    // [ Setup from ComlogSinkOptions ]
-    logging::ComlogSinkOptions options;
-    //options.async = true;
-    options.process_name = "atomic_server";
-    options.print_vlog_as_warning = false;
-    options.split_type = logging::COMLOG_SPLIT_SIZECUT;
-    if (logging::ComlogSink::GetInstance()->Setup(&options) != 0) {
-        LOG(ERROR) << "Fail to setup comlog";
-        return -1;
-    }
-    logging::SetLogSink(logging::ComlogSink::GetInstance());
-
-    // add service
+    // Generally you only need one Server.
     baidu::rpc::Server server;
-    if (raft::add_service(&server, FLAGS_ip_and_port.c_str()) != 0) {
-        LOG(FATAL) << "Fail to init raft";
+    example::Atomic atomic;
+    example::AtomicServiceImpl service(&atomic);
+
+    // Add your service into RPC rerver
+    if (server.AddService(&service, 
+                          baidu::rpc::SERVER_DOESNT_OWN_SERVICE) != 0) {
+        LOG(ERROR) << "Fail to add service";
+        return -1;
+    }
+    // raft can share the same RPC server. Notice the second parameter, because
+    // adding services into a running server is not allowed and the listen
+    // address of this server is impossible to get before the server starts. You
+    // have to specify the address of the server.
+    if (raft::add_service(&server, FLAGS_port) != 0) {
+        LOG(ERROR) << "Fail to add raft service";
         return -1;
     }
 
-    // init peers
-    std::vector<raft::PeerId> peers;
-    const char* the_string_to_split = FLAGS_peers.c_str();
-    for (base::StringSplitter s(the_string_to_split, ','); s; ++s) {
-        raft::PeerId peer(std::string(s.field(), s.length()));
-        peers.push_back(peer);
-    }
-
-    base::EndPoint addr;
-    base::str2endpoint(FLAGS_ip_and_port.c_str(), &addr);
-    if (base::IP_ANY == addr.ip) {
-        addr.ip = base::get_host_ip();
-    }
-    // init counter
-    example::Atomic* atomic = new example::Atomic(FLAGS_name, raft::PeerId(addr, 0));
-    raft::NodeOptions node_options;
-    node_options.election_timeout_ms = FLAGS_election_timeout_ms;
-    node_options.fsm = atomic;
-    node_options.initial_conf = raft::Configuration(peers); // bootstrap need
-    node_options.snapshot_interval_s = FLAGS_snapshot_interval;
-    // TODO: should be options
-    node_options.log_uri = "local://./data/log";
-    node_options.stable_uri = "local://./data/stable";
-    node_options.snapshot_uri = "local://./data/snapshot";
-
-    if (0 != atomic->init(node_options)) {
-        LOG(FATAL) << "Fail to init node";
-        return -1;
-    }
-    LOG(INFO) << "init Node success";
-
-    example::AtomicServiceImpl service(atomic);
-    if (0 != server.AddService(&service, 
-                baidu::rpc::SERVER_DOESNT_OWN_SERVICE)) {
-        LOG(FATAL) << "Fail to AddService";
-        return -1;
-    }
-    example::CliServiceImpl cli_service_impl(atomic);
-    if (0 != server.AddService(&cli_service_impl, 
-                baidu::rpc::SERVER_DOESNT_OWN_SERVICE)) {
-        LOG(FATAL) << "Fail to AddService";
+    // It's recommended to start the server before Atomic is started to avoid
+    // the case that it becomes the leader while the service is unreacheable by
+    // clients.
+    // Notice the default options of server is used here. Check out details from
+    // the doc of brpc if you would like change some options;
+    if (server.Start(FLAGS_port, NULL) != 0) {
+        LOG(ERROR) << "Fail to start Server";
         return -1;
     }
 
-    if (server.Start(FLAGS_ip_and_port.c_str(), NULL) != 0) {
-        LOG(FATAL) << "Fail to start server";
+    // It's ok to start Atomic;
+    if (atomic.start() != 0) {
+        LOG(ERROR) << "Fail to start Atomic";
         return -1;
     }
-    LOG(INFO) << "Wait until server stopped";
-    server.RunUntilAskedToQuit();
-    LOG(INFO) << "AtomicServer is going to quit";
 
+    LOG(INFO) << "Atomic service is running on " << server.listen_address();
+    // Wait until 'CTRL-C' is pressed. then Stop() and Join() the service
+    while (!baidu::rpc::IsAskedToQuit()) {
+        sleep(1);
+    }
+
+    LOG(INFO) << "Atomic service is going to quit";
+
+    // Stop counter before server
+    atomic.shutdown();
+    server.Stop(0);
+
+    // Wait until all the processing tasks are over.
+    atomic.join();
+    server.Join();
     return 0;
 }

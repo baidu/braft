@@ -7,8 +7,7 @@ CPPFLAGS('-D__const__=  -D_GNU_SOURCE -D__STDC_LIMIT_MACROS -DNDEBUG -Wno-unused
 CPPFLAGS('-g -O2 -fno-omit-frame-pointer')
 CPPFLAGS('-DBAIDU_RPC_ENABLE_CPU_PROFILER -DBAIDU_RPC_ENABLE_HEAP_PROFILER')
 
-INCPATHS('../../src ../common')
-
+INCPATHS('../../src')
 ImportConfigsFrom('../..')
 
 CONFIGS('third-64/tcmalloc@1.7.0.200',Libraries('lib/libtcmalloc_and_profiler.a'))
@@ -16,11 +15,7 @@ CONFIGS('third-64/tcmalloc@1.7.0.200',Libraries('lib/libtcmalloc_and_profiler.a'
 LDFLAGS('-lpthread -lrt -ldl -lz -lssl -lcrypto')
 
 PROTOC(ENV.WorkRoot() + '/third-64/protobuf/bin/protoc')
-LIBS('../../output/lib/libraft.a')
 
-common_sources = (GLOB('../common/*.proto ../common/*.cpp'))
-StaticLibrary('counter',Sources('counter.proto counter_service.cpp counter.cpp', common_sources))
-
-Application('counter_server',Sources('counter_server.cpp'), Libraries('libcounter.a ../../output/lib/libraft.a'))
-Application('counter_client',Sources('counter_client.cpp'), Libraries('libcounter.a ../../output/lib/libraft.a'))
+Application('counter_server',Sources('server.cpp counter.proto'), Libraries('../../output/lib/libraft.a'))
+Application('counter_client',Sources('client.cpp counter.proto'), Libraries('../../output/lib/libraft.a'))
 

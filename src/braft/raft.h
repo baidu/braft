@@ -195,7 +195,7 @@ class StateMachine {
 public:
     virtual ~StateMachine();
 
-    // Update the StateMachine with a batch a tasks that you can access
+    // Update the StateMachine with a batch a tasks that can be accessed
     // through |iterator|.
     //
     // Invoked when one or more tasks that were passed to Node::apply have been
@@ -226,10 +226,8 @@ public:
     // Default: Load nothing and returns error.
     virtual int on_snapshot_load(::braft::SnapshotReader* reader);
 
-    // user defined leader start function
-    // [NOTE] user can direct append to node ignore this callback.
-    //        this callback can ensure read-consistency, after leader's first NO_OP committed
-    // Default: did nothing
+    // Invoked when the belonging node becomes the leader of the group at |term|
+    // Default: Do nothing
     virtual void on_leader_start();
     virtual void on_leader_start(int64_t term);
 
@@ -254,8 +252,8 @@ public:
     // 3. receive timeout_now_request from current leader and start request_vote
     // the parameter stop_following_context gives the information(leader_id, term and status) about the
     // very leader whom the follower followed before.
-    // User can reset the node's information as it stops following some leader. 
-    virtual void on_stop_following(const ::braft::LeaderChangeContext& stop_following_context);
+    // User can reset the node's information as it stops following some leader.
+    virtual void on_stop_following(const ::braft::LeaderChangeContext& ctx);
 
     // this method is called when a follower or candidate starts following a leader and its leader_id
     // (should be NULL before the method is called) is set to the leader's id,
@@ -265,7 +263,7 @@ public:
     // the parameter start_following_context gives the information(leader_id, term and status) about 
     // the very leader whom the follower starts to follow.
     // User can reset the node's information as it starts to follow some leader.
-    virtual void on_start_following(const ::braft::LeaderChangeContext& start_following_context);
+    virtual void on_start_following(const ::braft::LeaderChangeContext& ctx);
 
 };
 
@@ -320,10 +318,10 @@ private:
     butil::Status _st;
 };
 
-inline std::ostream& operator<<(std::ostream& os, const LeaderChangeContext& context) {
-    os << "{leader_id=" << context.leader_id()
-       << ", term=" << context.term() << ", error_code=" << context.status().error_code()
-       << ", error_text=" << context.status().error_cstr()
+inline std::ostream& operator<<(std::ostream& os, const LeaderChangeContext& ctx) {
+    os << "{ leader_id=" << ctx.leader_id()
+       << ", term=" << ctx.term()
+       << ", status=" << ctx.status()
        << "}";
     return os;
 }
@@ -587,7 +585,6 @@ struct BootstrapOptions {
 
 // Bootstrap a non-empty raft node, 
 int bootstrap(const BootstrapOptions& options);
-
 
 // Attach raft services to |server|, this makes the raft services share the same
 // listen address with the user services.

@@ -1,39 +1,25 @@
 syntax="proto2";
-package counter;
+package example;
 option cc_generic_services = true;
 
-// snapshot meta
-message SnapshotInfo {
+message Snapshot {
     required int64 value = 1;
 };
 
-// logic request/response
-message FetchAndAddRequest {
-    required int32 ip = 1;
-    required int32 pid = 2;
-    required int64 req_id = 3;
-    required int64 value = 4;
+message FetchAddRequest {
+    required int64 value = 1;
 };
 
-message FetchAndAddResponse {
+message CounterResponse {
     required bool success = 1;
     optional int64 value = 2;
-    optional int64 index = 3;
-    optional string leader = 4;
+    optional string redirect = 3;
 };
 
 message GetRequest {
-    optional int64 index = 1;
 };
 
-message GetResponse {
-    required bool success = 1;
-    optional int64 value = 2;
-    optional string leader = 3;
-};
-
-// service
 service CounterService {
-    rpc fetch_and_add(FetchAndAddRequest) returns (FetchAndAddResponse);
-    rpc get(GetRequest) returns (GetResponse);
+    rpc fetch_add(FetchAddRequest) returns (CounterResponse);
+    rpc get(GetRequest) returns (CounterResponse);
 };

@@ -22,7 +22,6 @@
 namespace braft {
 
 std::ostream& operator<<(std::ostream& os, const Configuration& a) {
-    os << "Configuration{";
     std::vector<PeerId> peers;
     a.list_peers(&peers);
     for (size_t i = 0; i < peers.size(); i++) {
@@ -31,7 +30,6 @@ std::ostream& operator<<(std::ostream& os, const Configuration& a) {
             os << ",";
         }
     }
-    os << "}";
     return os;
 }
 
@@ -51,4 +49,3 @@ int Configuration::parse_from(butil::StringPiece conf) {
 }
 
 }
-

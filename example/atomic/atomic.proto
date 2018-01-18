@@ -6,18 +6,9 @@ message GetRequest {
     required int64 id = 1;
 };
 
-message GetResponse {
-    required int64 value = 1;
-    required bool success = 2;
-};
-
-message SetRequest {
+message ExchangeRequest {
     required int64 id = 1;
     required int64 value = 2;
-};
-
-message SetResponse {
-    required bool success = 1;
 };
 
 message CompareExchangeRequest {
@@ -26,15 +17,16 @@ message CompareExchangeRequest {
     required int64 new_value = 3;
 };
 
-message CompareExchangeResponse {
-    required int64 old_value = 1;
-    required bool success = 2;
-}
-
-service AtomicService {
-    rpc get(GetRequest) returns (GetResponse);
-    rpc set(SetRequest) returns (SetResponse);
-    rpc compare_exchange(CompareExchangeRequest)
-            returns (CompareExchangeResponse);
+message AtomicResponse {
+    required bool success = 1;
+    optional int64 id = 2;
+    optional int64 new_value = 3;
+    optional int64 old_value = 4;
+    optional string redirect = 5;
 };
 
+service AtomicService {
+    rpc get(GetRequest) returns (AtomicResponse);
+    rpc exchange(ExchangeRequest) returns (AtomicResponse);
+    rpc compare_exchange(CompareExchangeRequest) returns (AtomicResponse);
+};

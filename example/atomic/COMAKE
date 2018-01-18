@@ -6,7 +6,7 @@ WORKROOT('../../../../')
 CPPFLAGS('-D__const__=  -D_GNU_SOURCE -D__STDC_LIMIT_MACROS -DNDEBUG -Wno-unused-parameter -Wall -W -Werror')
 CPPFLAGS('-g -O2 -fno-omit-frame-pointer')
 CPPFLAGS('-DBAIDU_RPC_ENABLE_CPU_PROFILER -DBAIDU_RPC_ENABLE_HEAP_PROFILER')
-INCPATHS('../../src ../common')
+INCPATHS('../../src')
 
 ImportConfigsFrom('../..')
 
@@ -17,9 +17,6 @@ LDFLAGS('-lpthread -lrt -ldl -lz -lssl -lcrypto')
 PROTOC(ENV.WorkRoot() + '/third-64/protobuf/bin/protoc')
 LIBS('../../output/lib/libraft.a')
 
-common_sources = (GLOB('../common/*.proto ../common/*.cpp'))
-
-Application('atomic_server',Sources(common_sources, 'atomic.proto server.cpp'))
-Application('atomic_bench',Sources(common_sources, 'atomic.proto bench.cpp')) 
-Application('atomic_client',Sources(common_sources, 'atomic.proto client.cpp')) 
-
+Application('atomic_server',Sources('atomic.proto server.cpp'))
+Application('atomic_client',Sources('atomic.proto client.cpp')) 
+Application('atomic_test',Sources('atomic.proto test.cpp')) 

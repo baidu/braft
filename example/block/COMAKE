@@ -7,7 +7,7 @@ CPPFLAGS('-D__const__=  -D_GNU_SOURCE -D__STDC_LIMIT_MACROS -DNDEBUG -Wno-unused
 CPPFLAGS('-g -O2 -fno-omit-frame-pointer')
 CPPFLAGS('-DBAIDU_RPC_ENABLE_CPU_PROFILER -DBAIDU_RPC_ENABLE_HEAP_PROFILER')
 
-INCPATHS('../../src ../common')
+INCPATHS('../../src')
 
 ImportConfigsFrom('../..')
 
@@ -18,8 +18,5 @@ LDFLAGS('-lpthread -lrt -ldl -lz -lssl -lcrypto')
 PROTOC(ENV.WorkRoot() + '/third-64/protobuf/bin/protoc')
 LIBS('../../output/lib/libraft.a')
 
-common_sources = (GLOB('../common/*.proto ../common/*.cpp'))
-StaticLibrary('block',Sources('block.proto block_service.cpp block.cpp', common_sources))
-
-Application('block_server',Sources('block_server.cpp'), Libraries('libblock.a ../../output/lib/libraft.a'))
-Application('block_client',Sources('block_client.cpp'), Libraries('libblock.a ../../output/lib/libraft.a'))
+Application('block_server',Sources('server.cpp block.proto'))
+Application('block_client',Sources('client.cpp block.proto'))

@@ -370,7 +370,8 @@ void Replicator::_on_rpc_returned(ReplicatorId id, brpc::Controller* cntl,
     BRAFT_VLOG << " success";
     
     if (response->term() != r->_options.term) {
-        LOG(ERROR) << "Fail, response term " << response->term() << " dismatch, expect term " << r->_options.term;
+        LOG(ERROR) << "Fail, response term " << response->term()
+                   << " dismatch, expect term " << r->_options.term;
         return;
     }
     if (rpc_send_time > r->_last_rpc_send_timestamp) {

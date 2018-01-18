@@ -51,10 +51,16 @@ static butil::Status get_leader(const GroupId& group_id, const Configuration& co
         request.set_group_id(group_id);
         stub.get_leader(&cntl, &request, &response, NULL);
         if (cntl.Failed()) {
-            std::string saved_et = st.error_str();
-            st.set_error(cntl.ErrorCode(), "%s, [%s] %s",  saved_et.c_str(),
-                        butil::endpoint2str(cntl.remote_side()).c_str(),
-                        cntl.ErrorText().c_str());
+            if (st.ok()) {
+                st.set_error(cntl.ErrorCode(), "[%s] %s",
+                            butil::endpoint2str(cntl.remote_side()).c_str(),
+                            cntl.ErrorText().c_str());
+            } else {
+                std::string saved_et = st.error_str();
+                st.set_error(cntl.ErrorCode(), "%s, [%s] %s",  saved_et.c_str(),
+                            butil::endpoint2str(cntl.remote_side()).c_str(),
+                            cntl.ErrorText().c_str());
+                }
             continue;
         }
         leader_id->parse(response.leader_id());

@@ -1,6 +1,0 @@
---cluster_ns=list://10.81.3.186:8400,10.81.3.187:8400,10.81.3.202:8400
---block_num=512
---socket_max_unwritten_bytes=1073741824
---timeout_ms=100000
---bthread_concurrency=24
---bvar_dump

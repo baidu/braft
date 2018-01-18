@@ -202,8 +202,9 @@ int NodeImpl::init_log_storage() {
     CHECK(_fsm_caller);
     _log_storage = LogStorage::create(_options.log_uri);
     if (!_log_storage) {
-        LOG(ERROR) << "Fail to find log storage of `" << _options.log_uri
-            << '\'';
+        LOG(ERROR) << "Fail to find log storage of `"
+                   << _options.log_uri
+                   << '\'';
         return -1;
     }
     _log_manager = new LogManager();
