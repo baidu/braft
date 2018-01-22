@@ -461,7 +461,8 @@ void Replicator::_send_empty_entries(bool is_heartbeat) {
 
     google::protobuf::Closure* done = brpc::NewCallback(
                 is_heartbeat ? _on_heartbeat_returned :  _on_rpc_returned, 
-                _id.value, cntl.get(), request.get(), response.get(), butil::monotonic_time_ms());
+                _id.value, cntl.get(), request.get(), response.get(),
+                butil::monotonic_time_ms());
 
     RaftService_Stub stub(&_sending_channel);
     stub.append_entries(cntl.release(), request.release(), 

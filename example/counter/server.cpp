@@ -13,12 +13,12 @@
 // limitations under the License.
 
 #include <gflags/gflags.h>              // DEFINE_*
-#include <baidu/rpc/controller.h>       // baidu::rpc::Controller
-#include <baidu/rpc/server.h>           // baidu::rpc::Server
-#include <raft/raft.h>                  // raft::Node raft::StateMachine
-#include <raft/storage.h>               // raft::SnapshotWriter
-#include <raft/util.h>                  // raft::AsyncClosureGuard
-#include <raft/protobuf_file.h>         // raft::ProtoBufFile
+#include <brpc/controller.h>       // brpc::Controller
+#include <brpc/server.h>           // brpc::Server
+#include <braft/raft.h>                  // braft::Node braft::StateMachine
+#include <braft/storage.h>               // braft::SnapshotWriter
+#include <braft/util.h>                  // braft::AsyncClosureGuard
+#include <braft/protobuf_file.h>         // braft::ProtoBufFile
 #include "counter.pb.h"                 // CounterService
 
 DEFINE_bool(check_term, true, "Check if the leader changed to another term");
@@ -36,7 +36,7 @@ namespace example {
 class Counter;
 
 // Implements Closure which encloses RPC stuff
-class FetchAddClosure : public raft::Closure {
+class FetchAddClosure : public braft::Closure {
 public:
     FetchAddClosure(Counter* counter, 
                     const FetchAddRequest* request,
@@ -59,8 +59,8 @@ private:
     google::protobuf::Closure* _done;
 };
 
-// Implementation of example::Counter as a raft::StateMachine.
-class Counter : public raft::StateMachine {
+// Implementation of example::Counter as a braft::StateMachine.
+class Counter : public braft::StateMachine {
 public:
     Counter()
         : _node(NULL)
@@ -73,8 +73,8 @@ public:
 
     // Starts this node
     int start() {
-        base::EndPoint addr(base::my_ip(), FLAGS_port);
-        raft::NodeOptions node_options;
+        butil::EndPoint addr(butil::my_ip(), FLAGS_port);
+        braft::NodeOptions node_options;
         if (node_options.initial_conf.parse_from(FLAGS_conf) != 0) {
             LOG(ERROR) << "Fail to parse configuration `" << FLAGS_conf << '\'';
             return -1;
@@ -88,7 +88,7 @@ public:
         node_options.stable_uri = prefix + "/stable";
         node_options.snapshot_uri = prefix + "/snapshot";
         node_options.disable_cli = FLAGS_disable_cli;
-        raft::Node* node = new raft::Node(FLAGS_group, raft::PeerId(addr));
+        braft::Node* node = new braft::Node(FLAGS_group, braft::PeerId(addr));
         if (node->init(node_options) != 0) {
             LOG(ERROR) << "Fail to init raft node";
             delete node;
@@ -102,26 +102,26 @@ public:
     void fetch_add(const FetchAddRequest* request,
                    CounterResponse* response,
                    google::protobuf::Closure* done) {
-        baidu::rpc::ClosureGuard done_guard(done);
+        brpc::ClosureGuard done_guard(done);
         // Serialize request to the replicated write-ahead-log so that all the
         // peers in the group receive this request as well.
         // Notice that _value can't be modified in this routine otherwise it
         // will be inconsistent with others in this group.
         
         // Serialize request to IOBuf
-        const int64_t term = _leader_term.load(base::memory_order_relaxed);
+        const int64_t term = _leader_term.load(butil::memory_order_relaxed);
         if (term < 0) {
             return redirect(response);
         }
-        base::IOBuf log;
-        base::IOBufAsZeroCopyOutputStream wrapper(&log);
+        butil::IOBuf log;
+        butil::IOBufAsZeroCopyOutputStream wrapper(&log);
         if (!request->SerializeToZeroCopyStream(&wrapper)) {
             LOG(ERROR) << "Fail to serialize request";
             response->set_success(false);
             return;
         }
-        // Apply this log as a raft::Task
-        raft::Task task;
+        // Apply this log as a braft::Task
+        braft::Task task;
         task.data = &log;
         // This callback would be iovoked when the task actually excuted or
         // fail
@@ -146,11 +146,11 @@ public:
 
         // This is the leader and is up-to-date. It's safe to respond client
         response->set_success(true);
-        response->set_value(_value.load(base::memory_order_relaxed));
+        response->set_value(_value.load(butil::memory_order_relaxed));
     }
 
     bool is_leader() const 
-    { return _leader_term.load(base::memory_order_acquire) > 0; }
+    { return _leader_term.load(butil::memory_order_acquire) > 0; }
 
     // Shut this node down.
     void shutdown() {
@@ -172,15 +172,15 @@ friend class FetchAddClosure;
     void redirect(CounterResponse* response) {
         response->set_success(false);
         if (_node) {
-            raft::PeerId leader = _node->leader_id();
+            braft::PeerId leader = _node->leader_id();
             if (!leader.is_empty()) {
                 response->set_redirect(leader.to_string());
             }
         }
     }
 
-    // @raft::StateMachine
-    void on_apply(raft::Iterator& iter) {
+    // @braft::StateMachine
+    void on_apply(braft::Iterator& iter) {
         // A batch of tasks are committed, which must be processed through 
         // |iter|
         for (; iter.valid(); iter.next()) {
@@ -188,7 +188,7 @@ friend class FetchAddClosure;
             CounterResponse* response = NULL;
             // This guard helps invoke iter.done()->Run() asynchronously to
             // avoid that callback blocks the StateMachine.
-            raft::AsyncClosureGuard closure_guard(iter.done());
+            braft::AsyncClosureGuard closure_guard(iter.done());
             if (iter.done()) {
                 // This task is applied by this node, get value from this
                 // closure to avoid addtional parsing.
@@ -197,7 +197,7 @@ friend class FetchAddClosure;
                 detal_value = c->request()->value();
             } else {
                 // Have to parse FetchAddRequest from this log.
-                base::IOBufAsZeroCopyInputStream wrapper(iter.data());
+                butil::IOBufAsZeroCopyInputStream wrapper(iter.data());
                 FetchAddRequest request;
                 CHECK(request.ParseFromZeroCopyStream(&wrapper));
                 detal_value = request.value();
@@ -206,7 +206,7 @@ friend class FetchAddClosure;
             // Now the log has been parsed. Update this state machine by this
             // operation.
             const int64_t prev = _value.fetch_add(detal_value, 
-                                                  base::memory_order_relaxed);
+                                                  butil::memory_order_relaxed);
             if (response) {
                 response->set_success(true);
                 response->set_value(prev);
@@ -223,21 +223,21 @@ friend class FetchAddClosure;
 
     struct SnapshotArg {
         int64_t value;
-        raft::SnapshotWriter* writer;
-        raft::Closure* done;
+        braft::SnapshotWriter* writer;
+        braft::Closure* done;
     };
 
     static void *save_snapshot(void* arg) {
         SnapshotArg* sa = (SnapshotArg*) arg;
         std::unique_ptr<SnapshotArg> arg_guard(sa);
         // Serialize StateMachine to the snapshot
-        baidu::rpc::ClosureGuard done_guard(sa->done);
+        brpc::ClosureGuard done_guard(sa->done);
         std::string snapshot_path = sa->writer->get_path() + "/data";
         LOG(INFO) << "Saving snapshot to " << snapshot_path;
         // Use protobuf to store the snapshot for backward compatibility.
         Snapshot s;
         s.set_value(sa->value);
-        raft::ProtoBufFile pb_file(snapshot_path);
+        braft::ProtoBufFile pb_file(snapshot_path);
         if (pb_file.save(&s, true) != 0)  {
             sa->done->status().set_error(EIO, "Fail to save pb_file");
             return NULL;
@@ -251,19 +251,19 @@ friend class FetchAddClosure;
         return NULL;
     }
 
-    void on_snapshot_save(raft::SnapshotWriter* writer, raft::Closure* done) {
+    void on_snapshot_save(braft::SnapshotWriter* writer, braft::Closure* done) {
         // Save current StateMachine in memory and starts a new bthread to avoid
         // blocking StateMachine since it's a bit slow to write data to disk
         // file.
         SnapshotArg* arg = new SnapshotArg;
-        arg->value = _value.load(base::memory_order_relaxed);
+        arg->value = _value.load(butil::memory_order_relaxed);
         arg->writer = writer;
         arg->done = done;
         bthread_t tid;
         bthread_start_urgent(&tid, NULL, save_snapshot, arg);
     }
 
-    int on_snapshot_load(raft::SnapshotReader* reader) {
+    int on_snapshot_load(braft::SnapshotReader* reader) {
         // Load snasphot from reader, replacing the running StateMachine
         CHECK(!is_leader()) << "Leader is not supposed to load snapshot";
         if (reader->get_file_meta("data", NULL) != 0) {
@@ -271,53 +271,53 @@ friend class FetchAddClosure;
             return -1;
         }
         std::string snapshot_path = reader->get_path() + "/data";
-        raft::ProtoBufFile pb_file(snapshot_path);
+        braft::ProtoBufFile pb_file(snapshot_path);
         Snapshot s;
         if (pb_file.load(&s) != 0) {
             LOG(ERROR) << "Fail to load snapshot from " << snapshot_path;
             return -1;
         }
-        _value.store(s.value(), base::memory_order_relaxed);
+        _value.store(s.value(), butil::memory_order_relaxed);
         return 0;
     }
 
     void on_leader_start(int64_t term) {
-        _leader_term.store(term, base::memory_order_release);
+        _leader_term.store(term, butil::memory_order_release);
         LOG(INFO) << "Node becomes leader";
     }
-    void on_leader_stop(const base::Status& status) {
-        _leader_term.store(-1, base::memory_order_release);
+    void on_leader_stop(const butil::Status& status) {
+        _leader_term.store(-1, butil::memory_order_release);
         LOG(INFO) << "Node stepped down : " << status;
     }
 
     void on_shutdown() {
         LOG(INFO) << "This node is down";
     }
-    void on_error(const ::raft::Error& e) {
+    void on_error(const ::braft::Error& e) {
         LOG(ERROR) << "Met raft error " << e;
     }
-    void on_configuration_committed(const ::raft::Configuration& conf) {
+    void on_configuration_committed(const ::braft::Configuration& conf) {
         LOG(INFO) << "Configuration of this group is " << conf;
     }
-    void on_stop_following(const ::raft::LeaderChangeContext& ctx) {
+    void on_stop_following(const ::braft::LeaderChangeContext& ctx) {
         LOG(INFO) << "Node stops following " << ctx;
     }
-    void on_start_following(const ::raft::LeaderChangeContext& ctx) {
+    void on_start_following(const ::braft::LeaderChangeContext& ctx) {
         LOG(INFO) << "Node start following " << ctx;
     }
-    // end of @raft::StateMachine
+    // end of @braft::StateMachine
 
 private:
-    raft::Node* volatile _node;
-    base::atomic<int64_t> _value;
-    base::atomic<int64_t> _leader_term;
+    braft::Node* volatile _node;
+    butil::atomic<int64_t> _value;
+    butil::atomic<int64_t> _leader_term;
 };
 
 void FetchAddClosure::Run() {
     // Auto delete this after Run()
     std::unique_ptr<FetchAddClosure> self_guard(this);
     // Repsond this RPC.
-    baidu::rpc::ClosureGuard done_guard(_done);
+    brpc::ClosureGuard done_guard(_done);
     if (status().ok()) {
         return;
     }
@@ -339,7 +339,7 @@ public:
              const ::example::GetRequest* request,
              ::example::CounterResponse* response,
              ::google::protobuf::Closure* done) {
-        baidu::rpc::ClosureGuard done_guard(done);
+        brpc::ClosureGuard done_guard(done);
         return _counter->get(response);
     }
 private:
@@ -352,13 +352,13 @@ int main(int argc, char* argv[]) {
     google::ParseCommandLineFlags(&argc, &argv, true);
 
     // Generally you only need one Server.
-    baidu::rpc::Server server;
+    brpc::Server server;
     example::Counter counter;
     example::CounterServiceImpl service(&counter);
 
     // Add your service into RPC rerver
     if (server.AddService(&service, 
-                          baidu::rpc::SERVER_DOESNT_OWN_SERVICE) != 0) {
+                          brpc::SERVER_DOESNT_OWN_SERVICE) != 0) {
         LOG(ERROR) << "Fail to add service";
         return -1;
     }
@@ -366,7 +366,7 @@ int main(int argc, char* argv[]) {
     // adding services into a running server is not allowed and the listen
     // address of this server is impossible to get before the server starts. You
     // have to specify the address of the server.
-    if (raft::add_service(&server, FLAGS_port) != 0) {
+    if (braft::add_service(&server, FLAGS_port) != 0) {
         LOG(ERROR) << "Fail to add raft service";
         return -1;
     }
@@ -389,7 +389,7 @@ int main(int argc, char* argv[]) {
 
     LOG(INFO) << "Counter service is running on " << server.listen_address();
     // Wait until 'CTRL-C' is pressed. then Stop() and Join() the service
-    while (!baidu::rpc::IsAskedToQuit()) {
+    while (!brpc::IsAskedToQuit()) {
         sleep(1);
     }
 

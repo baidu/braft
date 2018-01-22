@@ -13,17 +13,16 @@
 // limitations under the License.
 
 #include <fstream>
-#include <bthread_unstable.h>
+#include <bthread/bthread.h>
 #include <gflags/gflags.h>
-#include <base/containers/flat_map.h>
-#include <base/logging.h>
-#include <base/comlog_sink.h>
-#include <bthread.h>
-#include <baidu/rpc/controller.h>
-#include <baidu/rpc/server.h>
-#include <raft/raft.h>
-#include <raft/util.h>
-#include <raft/storage.h>
+#include <butil/containers/flat_map.h>
+#include <butil/logging.h>
+#include <bthread/bthread.h>
+#include <brpc/controller.h>
+#include <brpc/server.h>
+#include <braft/raft.h>
+#include <braft/util.h>
+#include <braft/storage.h>
 
 #include "atomic.pb.h"
 
@@ -45,7 +44,7 @@ namespace example {
 
 class Atomic;
 // Implements Closure which encloses RPC stuff
-class AtomicClosure : public raft::Closure {
+class AtomicClosure : public braft::Closure {
 public:
     AtomicClosure(Atomic* atomic,
                   const google::protobuf::Message* request,
@@ -68,8 +67,8 @@ private:
     google::protobuf::Closure* _done;
 };
 
-// Implementation of example::Atomic as a raft::StateMachine.
-class Atomic : public raft::StateMachine {
+// Implementation of example::Atomic as a braft::StateMachine.
+class Atomic : public braft::StateMachine {
 public:
     // Define types for different operation
     enum AtomicOpType {
@@ -92,8 +91,8 @@ public:
 
     // Starts this node
     int start() {
-        base::EndPoint addr(base::my_ip(), FLAGS_port);
-        raft::NodeOptions node_options;
+        butil::EndPoint addr(butil::my_ip(), FLAGS_port);
+        braft::NodeOptions node_options;
         if (node_options.initial_conf.parse_from(FLAGS_conf) != 0) {
             LOG(ERROR) << "Fail to parse configuration `" << FLAGS_conf << '\'';
             return -1;
@@ -107,7 +106,7 @@ public:
         node_options.stable_uri = prefix + "/stable";
         node_options.snapshot_uri = prefix + "/snapshot";
         node_options.disable_cli = FLAGS_disable_cli;
-        raft::Node* node = new raft::Node(FLAGS_group, raft::PeerId(addr));
+        braft::Node* node = new braft::Node(FLAGS_group, braft::PeerId(addr));
         if (node->init(node_options) != 0) {
             LOG(ERROR) << "Fail to init raft node";
             delete node;
@@ -155,27 +154,27 @@ friend class AtomicClosure;
 
     void apply(AtomicOpType type, const google::protobuf::Message* request,
                AtomicResponse* response, google::protobuf::Closure* done) {
-        baidu::rpc::ClosureGuard done_guard(done);
+        brpc::ClosureGuard done_guard(done);
         // Serialize request to the replicated write-ahead-log so that all the
         // peers in the group receive this request as well.
         // Notice that _value can't be modified in this routine otherwise it
         // will be inconsistent with others in this group.
         
         // Serialize request to IOBuf
-        const int64_t term = _leader_term.load(base::memory_order_relaxed);
+        const int64_t term = _leader_term.load(butil::memory_order_relaxed);
         if (term < 0) {
             return redirect(response);
         }
-        base::IOBuf log;
+        butil::IOBuf log;
         log.push_back((uint8_t)type);
-        base::IOBufAsZeroCopyOutputStream wrapper(&log);
+        butil::IOBufAsZeroCopyOutputStream wrapper(&log);
         if (!request->SerializeToZeroCopyStream(&wrapper)) {
             LOG(ERROR) << "Fail to serialize request";
             response->set_success(false);
             return;
         }
-        // Apply this log as a raft::Task
-        raft::Task task;
+        // Apply this log as a braft::Task
+        braft::Task task;
         task.data = &log;
         // This callback would be iovoked when the task actually excuted or
         // fail
@@ -192,24 +191,24 @@ friend class AtomicClosure;
     void redirect(AtomicResponse* response) {
         response->set_success(false);
         if (_node) {
-            raft::PeerId leader = _node->leader_id();
+            braft::PeerId leader = _node->leader_id();
             if (!leader.is_empty()) {
                 response->set_redirect(leader.to_string());
             }
         }
     }
 
-    // @raft::StateMachine
-    void on_apply(raft::Iterator& iter) {
+    // @braft::StateMachine
+    void on_apply(braft::Iterator& iter) {
         // A batch of tasks are committed, which must be processed through 
         // |iter|
         for (; iter.valid(); iter.next()) {
             // This guard helps invoke iter.done()->Run() asynchronously to
             // avoid that callback blocks the StateMachine.
-            raft::AsyncClosureGuard done_guard(iter.done());
+            braft::AsyncClosureGuard done_guard(iter.done());
 
             // Parse data
-            base::IOBuf data = iter.data();
+            butil::IOBuf data = iter.data();
             // Fetch the type of operation from the leading byte.
             uint8_t type = OP_UNKNOWN;
             data.cutn(&type, sizeof(uint8_t));
@@ -255,7 +254,7 @@ friend class AtomicClosure;
         }
     }
 
-    void on_snapshot_save(raft::SnapshotWriter* writer, raft::Closure* done) {
+    void on_snapshot_save(braft::SnapshotWriter* writer, braft::Closure* done) {
 
         // Save current StateMachine in memory and starts a new bthread to avoid
         // blocking StateMachine since it's a bit slow to write data to disk
@@ -273,7 +272,7 @@ friend class AtomicClosure;
         bthread_start_urgent(&tid, NULL, save_snapshot, sc);
     }
 
-    int on_snapshot_load(raft::SnapshotReader* reader) {
+    int on_snapshot_load(braft::SnapshotReader* reader) {
         CHECK_EQ(-1, _leader_term) << "Leader is not supposed to load snapshot";
         _value_map.clear();
         std::string snapshot_path = reader->get_path();
@@ -288,34 +287,34 @@ friend class AtomicClosure;
     }
 
     void on_leader_start(int64_t term) {
-        _leader_term.store(term, base::memory_order_release);
+        _leader_term.store(term, butil::memory_order_release);
         LOG(INFO) << "Node becomes leader";
     }
 
-    void on_leader_stop(const base::Status& status) {
-        _leader_term.store(-1, base::memory_order_release);
+    void on_leader_stop(const butil::Status& status) {
+        _leader_term.store(-1, butil::memory_order_release);
         LOG(INFO) << "Node stepped down : " << status;
     }
 
     void on_shutdown() {
         LOG(INFO) << "This node is down";
     }
-    void on_error(const ::raft::Error& e) {
+    void on_error(const ::braft::Error& e) {
         LOG(ERROR) << "Met raft error " << e;
     }
-    void on_configuration_committed(const ::raft::Configuration& conf) {
+    void on_configuration_committed(const ::braft::Configuration& conf) {
         LOG(INFO) << "Configuration of this group is " << conf;
     }
-    void on_stop_following(const ::raft::LeaderChangeContext& ctx) {
+    void on_stop_following(const ::braft::LeaderChangeContext& ctx) {
         LOG(INFO) << "Node stops following " << ctx;
     }
-    void on_start_following(const ::raft::LeaderChangeContext& ctx) {
+    void on_start_following(const ::braft::LeaderChangeContext& ctx) {
         LOG(INFO) << "Node start following " << ctx;
     }
 
-    // end of @raft::StateMachine
+    // end of @braft::StateMachine
     
-    void get_value(const base::IOBuf& data,
+    void get_value(const butil::IOBuf& data,
                    const google::protobuf::Message* request,
                    AtomicResponse* response) {
         int64_t id = 0;
@@ -324,7 +323,7 @@ friend class AtomicClosure;
             // closure to avoid addtional parsing.
             id = dynamic_cast<const GetRequest*>(request)->id();
         } else {
-            base::IOBufAsZeroCopyInputStream wrapper(data);
+            butil::IOBufAsZeroCopyInputStream wrapper(data);
             GetRequest req;
             CHECK(req.ParseFromZeroCopyStream(&wrapper));
             id = req.id();
@@ -336,7 +335,7 @@ friend class AtomicClosure;
         response->set_new_value(v ? *v : 0);
     }
 
-    void exchange(const base::IOBuf& data,
+    void exchange(const butil::IOBuf& data,
                   const google::protobuf::Message* request,
                   AtomicResponse* response) {
         int64_t id = 0;
@@ -349,7 +348,7 @@ friend class AtomicClosure;
             id = req->id();
             value = req->value();
         } else {
-            base::IOBufAsZeroCopyInputStream wrapper(data);
+            butil::IOBufAsZeroCopyInputStream wrapper(data);
             ExchangeRequest req;
             CHECK(req.ParseFromZeroCopyStream(&wrapper));
             id = req.id();
@@ -363,7 +362,7 @@ friend class AtomicClosure;
         old_value = value;
     }
 
-    void cas(const base::IOBuf& data,
+    void cas(const butil::IOBuf& data,
                   const google::protobuf::Message* request,
                   AtomicResponse* response) {
         int64_t id = 0;
@@ -378,7 +377,7 @@ friend class AtomicClosure;
             value = req->new_value();
             expected = req->expected_value();
         } else {
-            base::IOBufAsZeroCopyInputStream wrapper(data);
+            butil::IOBufAsZeroCopyInputStream wrapper(data);
             CompareExchangeRequest req;
             CHECK(req.ParseFromZeroCopyStream(&wrapper));
             id = req.id();
@@ -401,7 +400,7 @@ friend class AtomicClosure;
     static void* save_snapshot(void* arg) {
         SnapshotClosure* sc = (SnapshotClosure*)arg;
         std::unique_ptr<SnapshotClosure> sc_guard(sc);
-        baidu::rpc::ClosureGuard done_guard(sc->done);
+        brpc::ClosureGuard done_guard(sc->done);
         std::string snapshot_path = sc->writer->get_path();
         snapshot_path.append("/data");
         std::ofstream os(snapshot_path.c_str());
@@ -412,22 +411,22 @@ friend class AtomicClosure;
         return NULL;
     }
 
-    typedef base::FlatMap<int64_t, int64_t> ValueMap;
+    typedef butil::FlatMap<int64_t, int64_t> ValueMap;
 
     struct SnapshotClosure {
         std::vector<std::pair<int64_t, int64_t> > values;
-        raft::SnapshotWriter* writer;
-        raft::Closure* done;
+        braft::SnapshotWriter* writer;
+        braft::Closure* done;
     };
 
-    raft::Node* volatile _node;
-    base::atomic<int64_t> _leader_term;
+    braft::Node* volatile _node;
+    butil::atomic<int64_t> _leader_term;
     ValueMap _value_map;
 };
 
 void AtomicClosure::Run() {
     std::unique_ptr<AtomicClosure> self_guard(this);
-    baidu::rpc::ClosureGuard done_guard(_done);
+    brpc::ClosureGuard done_guard(_done);
     if (status().ok()) {
         return;
     }
@@ -471,13 +470,13 @@ int main(int argc, char* argv[]) {
     google::ParseCommandLineFlags(&argc, &argv, true);
 
     // Generally you only need one Server.
-    baidu::rpc::Server server;
+    brpc::Server server;
     example::Atomic atomic;
     example::AtomicServiceImpl service(&atomic);
 
     // Add your service into RPC rerver
     if (server.AddService(&service, 
-                          baidu::rpc::SERVER_DOESNT_OWN_SERVICE) != 0) {
+                          brpc::SERVER_DOESNT_OWN_SERVICE) != 0) {
         LOG(ERROR) << "Fail to add service";
         return -1;
     }
@@ -485,7 +484,7 @@ int main(int argc, char* argv[]) {
     // adding services into a running server is not allowed and the listen
     // address of this server is impossible to get before the server starts. You
     // have to specify the address of the server.
-    if (raft::add_service(&server, FLAGS_port) != 0) {
+    if (braft::add_service(&server, FLAGS_port) != 0) {
         LOG(ERROR) << "Fail to add raft service";
         return -1;
     }
@@ -508,7 +507,7 @@ int main(int argc, char* argv[]) {
 
     LOG(INFO) << "Atomic service is running on " << server.listen_address();
     // Wait until 'CTRL-C' is pressed. then Stop() and Join() the service
-    while (!baidu::rpc::IsAskedToQuit()) {
+    while (!brpc::IsAskedToQuit()) {
         sleep(1);
     }
 

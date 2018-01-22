@@ -40,21 +40,9 @@ if ((NOT BRPC_INCLUDE_PATH) OR (NOT BRPC_LIB))
     message(FATAL_ERROR "Fail to find brpc")
 endif()
 
-#execute_process(
-#    COMMAND bash -c "find ${CMAKE_SOURCE_DIR}/../.. -type d -name \"include\" | xargs dirname | tr -d '\n'"
-#    OUTPUT_VARIABLE OUTPUT_PATH
-#)
-
-#set(CMAKE_PREFIX_PATH ${OUTPUT_PATH})
-
-find_library(PROTOC_LIB NAMES protoc)
-if(NOT PROTOC_LIB)
-    message(FATAL_ERROR "Fail to find protoc lib")
-endif()
-
 if (NOT PROTOBUF_PROTOC_EXECUTABLE)
-    get_filename_component(PROTOC_LIB_DIR ${PROTOC_LIB} DIRECTORY)
-    set (PROTOBUF_PROTOC_EXECUTABLE "${PROTOC_LIB_DIR}/../bin/protoc")
+    get_filename_component(PROTO_LIB_DIR ${PROTOBUF_LIBRARY} DIRECTORY)
+    set (PROTOBUF_PROTOC_EXECUTABLE "${PROTO_LIB_DIR}/../bin/protoc")
 endif()
 
 include_directories(
@@ -64,13 +52,10 @@ include_directories(
         ${BRPC_INCLUDE_PATH}
         )
 
-message ("protobuf_lib is ${PROTOBUF_LIBRARY} sdlkfjlskjgds")
-
 set(DYNAMIC_LIB
     ${GFLAGS_LIB}
     ${PROTOBUF_LIBRARY}
     ${LEVELDB_LIB}
-    ${PROTOC_LIB}
     ${CMAKE_THREAD_LIBS_INIT}
     ${BRPC_LIB}
     rt
@@ -138,3 +123,16 @@ if(BUILD_UNIT_TESTS)
     add_subdirectory(test)
 endif()
 add_subdirectory(tools)
+
+file(COPY ${CMAKE_CURRENT_BINARY_DIR}/braft/
+        DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/output/include/braft/
+        FILES_MATCHING 
+        PATTERN "*.h"
+        PATTERN "*.hpp"
+        )
+file(COPY ${CMAKE_SOURCE_DIR}/src/
+        DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/output/include/
+        FILES_MATCHING
+        PATTERN "*.h"
+        PATTERN "*.hpp"
+        )

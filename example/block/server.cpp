@@ -12,13 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <sys/types.h>                  // O_CREAT
+#include <fcntl.h>                      // open
 #include <gflags/gflags.h>              // DEFINE_*
-#include <base/sys_byteorder.h>         // base::NetToHost32
-#include <baidu/rpc/controller.h>       // baidu::rpc::Controller
-#include <baidu/rpc/server.h>           // baidu::rpc::Server
-#include <raft/raft.h>                  // raft::Node raft::StateMachine
-#include <raft/storage.h>               // raft::SnapshotWriter
-#include <raft/util.h>                  // raft::AsyncClosureGuard
+#include <butil/sys_byteorder.h>        // butil::NetToHost32
+#include <brpc/controller.h>            // brpc::Controller
+#include <brpc/server.h>                // brpc::Server
+#include <braft/raft.h>                 // braft::Node braft::StateMachine
+#include <braft/storage.h>              // braft::SnapshotWriter
+#include <braft/util.h>                 // braft::AsyncClosureGuard
 #include "block.pb.h"                   // BlockService
 
 DEFINE_bool(check_term, true, "Check if the leader changed to another term");
@@ -36,12 +38,12 @@ namespace example {
 class Block;
 
 // Implements Closure which encloses RPC stuff
-class BlockClosure: public raft::Closure {
+class BlockClosure : public braft::Closure {
 public:
     BlockClosure(Block* block, 
                  const BlockRequest* request,
                  BlockResponse* response,
-                 base::IOBuf* data,
+                 butil::IOBuf* data,
                  google::protobuf::Closure* done)
         : _block(block)
         , _request(request)
@@ -53,19 +55,19 @@ public:
     const BlockRequest* request() const { return _request; }
     BlockResponse* response() const { return _response; }
     void Run();
-    base::IOBuf* data() const { return _data; }
+    butil::IOBuf* data() const { return _data; }
 
 private:
     // Disable explicitly delete
     Block* _block;
     const BlockRequest* _request;
     BlockResponse* _response;
-    base::IOBuf* _data;
+    butil::IOBuf* _data;
     google::protobuf::Closure* _done;
 };
 
-// Implementation of example::Block as a raft::StateMachine.
-class Block : public raft::StateMachine {
+// Implementation of example::Block as a braft::StateMachine.
+class Block : public braft::StateMachine {
 public:
     Block()
         : _node(NULL)
@@ -78,7 +80,7 @@ public:
 
     // Starts this node
     int start() {
-        if (!base::CreateDirectory(base::FilePath(FLAGS_data_path))) {
+        if (!butil::CreateDirectory(butil::FilePath(FLAGS_data_path))) {
             LOG(ERROR) << "Fail to create directory " << FLAGS_data_path;
             return -1;
         }
@@ -89,8 +91,8 @@ public:
             return -1;
         }
         _fd = new SharedFD(fd);
-        base::EndPoint addr(base::my_ip(), FLAGS_port);
-        raft::NodeOptions node_options;
+        butil::EndPoint addr(butil::my_ip(), FLAGS_port);
+        braft::NodeOptions node_options;
         if (node_options.initial_conf.parse_from(FLAGS_conf) != 0) {
             LOG(ERROR) << "Fail to parse configuration `" << FLAGS_conf << '\'';
             return -1;
@@ -104,7 +106,7 @@ public:
         node_options.stable_uri = prefix + "/stable";
         node_options.snapshot_uri = prefix + "/snapshot";
         node_options.disable_cli = FLAGS_disable_cli;
-        raft::Node* node = new raft::Node(FLAGS_group, raft::PeerId(addr));
+        braft::Node* node = new braft::Node(FLAGS_group, braft::PeerId(addr));
         if (node->init(node_options) != 0) {
             LOG(ERROR) << "Fail to init raft node";
             delete node;
@@ -117,31 +119,31 @@ public:
     // Impelements Service methods
     void write(const BlockRequest* request,
                BlockResponse* response,
-               base::IOBuf* data,
+               butil::IOBuf* data,
                google::protobuf::Closure* done) {
-        baidu::rpc::ClosureGuard done_guard(done);
+        brpc::ClosureGuard done_guard(done);
         // Serialize request to the replicated write-ahead-log so that all the
         // peers in the group receive this request as well.
         // Notice that _value can't be modified in this routine otherwise it
         // will be inconsistent with others in this group.
         
         // Serialize request to IOBuf
-        const int64_t term = _leader_term.load(base::memory_order_relaxed);
+        const int64_t term = _leader_term.load(butil::memory_order_relaxed);
         if (term < 0) {
             return redirect(response);
         }
-        base::IOBuf log;
-        const uint32_t meta_size_raw = base::HostToNet32(request->ByteSize());
+        butil::IOBuf log;
+        const uint32_t meta_size_raw = butil::HostToNet32(request->ByteSize());
         log.append(&meta_size_raw, sizeof(uint32_t));
-        base::IOBufAsZeroCopyOutputStream wrapper(&log);
+        butil::IOBufAsZeroCopyOutputStream wrapper(&log);
         if (!request->SerializeToZeroCopyStream(&wrapper)) {
             LOG(ERROR) << "Fail to serialize request";
             response->set_success(false);
             return;
         }
         log.append(*data);
-        // Apply this log as a raft::Task
-        raft::Task task;
+        // Apply this log as a braft::Task
+        braft::Task task;
         task.data = &log;
         // This callback would be iovoked when the task actually excuted or
         // fail
@@ -156,7 +158,7 @@ public:
     }
 
     void read(const BlockRequest *request, BlockResponse* response,
-              base::IOBuf* buf) {
+              butil::IOBuf* buf) {
         // In consideration of consistency. GetRequest to follower should be 
         // rejected.
         if (!is_leader()) {
@@ -172,8 +174,8 @@ public:
 
         // This is the leader and is up-to-date. It's safe to respond client
         scoped_fd fd = get_fd();
-        base::IOPortal portal;
-        const ssize_t nr = raft::file_pread(
+        butil::IOPortal portal;
+        const ssize_t nr = braft::file_pread(
                 &portal, fd->fd(), request->offset(), request->size());
         if (nr < 0) {
             // Some disk error occured, shutdown this node and another leader
@@ -191,7 +193,7 @@ public:
     }
 
     bool is_leader() const 
-    { return _leader_term.load(base::memory_order_acquire) > 0; }
+    { return _leader_term.load(butil::memory_order_acquire) > 0; }
 
     // Shut this node down.
     void shutdown() {
@@ -208,12 +210,12 @@ public:
     }
 
 private:
-    class SharedFD : public base::RefCountedThreadSafe<SharedFD> {
+    class SharedFD : public butil::RefCountedThreadSafe<SharedFD> {
     public:
         explicit SharedFD(int fd) : _fd(fd) {}
         int fd() const { return _fd; }
     private:
-    friend class base::RefCountedThreadSafe<SharedFD>;
+    friend class butil::RefCountedThreadSafe<SharedFD>;
         ~SharedFD() {
             if (_fd >= 0) {
                 while (true) {
@@ -240,23 +242,23 @@ friend class BlockClosure;
     void redirect(BlockResponse* response) {
         response->set_success(false);
         if (_node) {
-            raft::PeerId leader = _node->leader_id();
+            braft::PeerId leader = _node->leader_id();
             if (!leader.is_empty()) {
                 response->set_redirect(leader.to_string());
             }
         }
     }
 
-    // @raft::StateMachine
-    void on_apply(raft::Iterator& iter) {
+    // @braft::StateMachine
+    void on_apply(braft::Iterator& iter) {
         // A batch of tasks are committed, which must be processed through 
         // |iter|
         for (; iter.valid(); iter.next()) {
             BlockResponse* response = NULL;
             // This guard helps invoke iter.done()->Run() asynchronously to
             // avoid that callback blocks the StateMachine
-            raft::AsyncClosureGuard closure_guard(iter.done());
-            base::IOBuf data;
+            braft::AsyncClosureGuard closure_guard(iter.done());
+            butil::IOBuf data;
             off_t offset = 0;
             if (iter.done()) {
                 // This task is applied by this node, get value from this
@@ -268,21 +270,21 @@ friend class BlockClosure;
             } else {
                 // Have to parse BlockRequest from this log.
                 uint32_t meta_size = 0;
-                base::IOBuf saved_log = iter.data();
+                butil::IOBuf saved_log = iter.data();
                 saved_log.cutn(&meta_size, sizeof(uint32_t));
                 // Remember that meta_size is in network order which hould be
                 // covert to host order
-                meta_size = base::NetToHost32(meta_size);
-                base::IOBuf meta;
+                meta_size = butil::NetToHost32(meta_size);
+                butil::IOBuf meta;
                 saved_log.cutn(&meta, meta_size);
-                base::IOBufAsZeroCopyInputStream wrapper(meta);
+                butil::IOBufAsZeroCopyInputStream wrapper(meta);
                 BlockRequest request;
                 CHECK(request.ParseFromZeroCopyStream(&wrapper));
                 data.swap(saved_log);
                 offset = request.offset();
             }
 
-            const ssize_t nw = raft::file_pwrite(data, _fd->fd(), offset);
+            const ssize_t nw = braft::file_pwrite(data, _fd->fd(), offset);
             if (nw < 0) {
                 PLOG(ERROR) << "Fail to write to fd=" << _fd->fd();
                 if (response) {
@@ -312,8 +314,8 @@ friend class BlockClosure;
 
     struct SnapshotArg {
         scoped_fd fd;
-        raft::SnapshotWriter* writer;
-        raft::Closure* done;
+        braft::SnapshotWriter* writer;
+        braft::Closure* done;
     };
 
     static int link_overwrite(const char* old_path, const char* new_path) {
@@ -328,7 +330,7 @@ friend class BlockClosure;
         SnapshotArg* sa = (SnapshotArg*) arg;
         std::unique_ptr<SnapshotArg> arg_guard(sa);
         // Serialize StateMachine to the snapshot
-        baidu::rpc::ClosureGuard done_guard(sa->done);
+        brpc::ClosureGuard done_guard(sa->done);
         std::string snapshot_path = sa->writer->get_path() + "/data";
         // Sync buffered data before
         int rc = 0;
@@ -354,7 +356,7 @@ friend class BlockClosure;
         return NULL;
     }
 
-    void on_snapshot_save(raft::SnapshotWriter* writer, raft::Closure* done) {
+    void on_snapshot_save(braft::SnapshotWriter* writer, braft::Closure* done) {
         // Save current StateMachine in memory and starts a new bthread to avoid
         // blocking StateMachine since it's a bit slow to write data to disk
         // file.
@@ -366,7 +368,7 @@ friend class BlockClosure;
         bthread_start_urgent(&tid, NULL, save_snapshot, arg);
     }
 
-    int on_snapshot_load(raft::SnapshotReader* reader) {
+    int on_snapshot_load(braft::SnapshotReader* reader) {
         // Load snasphot from reader, replacing the running StateMachine
         CHECK(!is_leader()) << "Leader is not supposed to load snapshot";
         if (reader->get_file_meta("data", NULL) != 0) {
@@ -392,35 +394,35 @@ friend class BlockClosure;
     }
 
     void on_leader_start(int64_t term) {
-        _leader_term.store(term, base::memory_order_release);
+        _leader_term.store(term, butil::memory_order_release);
         LOG(INFO) << "Node becomes leader";
     }
-    void on_leader_stop(const base::Status& status) {
-        _leader_term.store(-1, base::memory_order_release);
+    void on_leader_stop(const butil::Status& status) {
+        _leader_term.store(-1, butil::memory_order_release);
         LOG(INFO) << "Node stepped down : " << status;
     }
 
     void on_shutdown() {
         LOG(INFO) << "This node is down";
     }
-    void on_error(const ::raft::Error& e) {
+    void on_error(const ::braft::Error& e) {
         LOG(ERROR) << "Met raft error " << e;
     }
-    void on_configuration_committed(const ::raft::Configuration& conf) {
+    void on_configuration_committed(const ::braft::Configuration& conf) {
         LOG(INFO) << "Configuration of this group is " << conf;
     }
-    void on_stop_following(const ::raft::LeaderChangeContext& ctx) {
+    void on_stop_following(const ::braft::LeaderChangeContext& ctx) {
         LOG(INFO) << "Node stops following " << ctx;
     }
-    void on_start_following(const ::raft::LeaderChangeContext& ctx) {
+    void on_start_following(const ::braft::LeaderChangeContext& ctx) {
         LOG(INFO) << "Node start following " << ctx;
     }
-    // end of @raft::StateMachine
+    // end of @braft::StateMachine
 
 private:
-    mutable base::Mutex _fd_mutex;
-    raft::Node* volatile _node;
-    base::atomic<int64_t> _leader_term;
+    mutable butil::Mutex _fd_mutex;
+    braft::Node* volatile _node;
+    butil::atomic<int64_t> _leader_term;
     scoped_fd _fd;
 };
 
@@ -428,7 +430,7 @@ void BlockClosure::Run() {
     // Auto delete this after Run()
     std::unique_ptr<BlockClosure> self_guard(this);
     // Repsond this RPC.
-    baidu::rpc::ClosureGuard done_guard(_done);
+    brpc::ClosureGuard done_guard(_done);
     if (status().ok()) {
         return;
     }
@@ -444,7 +446,7 @@ public:
                const ::example::BlockRequest* request,
                ::example::BlockResponse* response,
                ::google::protobuf::Closure* done) {
-        baidu::rpc::Controller* cntl = (baidu::rpc::Controller*)controller;
+        brpc::Controller* cntl = (brpc::Controller*)controller;
         return _block->write(request, response,
                              &cntl->request_attachment(), done);
     }
@@ -452,8 +454,8 @@ public:
               const ::example::BlockRequest* request,
               ::example::BlockResponse* response,
               ::google::protobuf::Closure* done) {
-        baidu::rpc::Controller* cntl = (baidu::rpc::Controller*)controller;
-        baidu::rpc::ClosureGuard done_guard(done);
+        brpc::Controller* cntl = (brpc::Controller*)controller;
+        brpc::ClosureGuard done_guard(done);
         return _block->read(request, response, &cntl->response_attachment());
     }
 private:
@@ -466,13 +468,13 @@ int main(int argc, char* argv[]) {
     google::ParseCommandLineFlags(&argc, &argv, true);
 
     // Generally you only need one Server.
-    baidu::rpc::Server server;
+    brpc::Server server;
     example::Block block;
     example::BlockServiceImpl service(&block);
 
     // Add your service into RPC rerver
     if (server.AddService(&service, 
-                          baidu::rpc::SERVER_DOESNT_OWN_SERVICE) != 0) {
+                          brpc::SERVER_DOESNT_OWN_SERVICE) != 0) {
         LOG(ERROR) << "Fail to add service";
         return -1;
     }
@@ -480,7 +482,7 @@ int main(int argc, char* argv[]) {
     // adding services into a running server is not allowed and the listen
     // address of this server is impossible to get before the server starts. You
     // have to specify the address of the server.
-    if (raft::add_service(&server, FLAGS_port) != 0) {
+    if (braft::add_service(&server, FLAGS_port) != 0) {
         LOG(ERROR) << "Fail to add raft service";
         return -1;
     }
@@ -503,7 +505,7 @@ int main(int argc, char* argv[]) {
 
     LOG(INFO) << "Block service is running on " << server.listen_address();
     // Wait until 'CTRL-C' is pressed. then Stop() and Join() the service
-    while (!baidu::rpc::IsAskedToQuit()) {
+    while (!brpc::IsAskedToQuit()) {
         sleep(1);
     }
     LOG(INFO) << "Block service is going to quit";

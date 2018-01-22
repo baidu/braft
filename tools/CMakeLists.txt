@@ -8,5 +8,5 @@ target_link_libraries(braft_cli
                       "-Xlinker \"-(\""
                       braft-static
                       ${DYNAMIC_LIB}
-                      "-Xlinker \"-(\""
+                      "-Xlinker \"-)\""
                       )

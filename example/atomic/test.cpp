@@ -13,12 +13,12 @@
 // limitations under the License.
 
 #include <gflags/gflags.h>
-#include <bthread.h>
-#include <baidu/rpc/channel.h>
-#include <baidu/rpc/controller.h>
-#include <raft/raft.h>
-#include <raft/util.h>
-#include <raft/route_table.h>
+#include <bthread/bthread.h>
+#include <brpc/channel.h>
+#include <brpc/controller.h>
+#include <braft/raft.h>
+#include <braft/util.h>
+#include <braft/route_table.h>
 #include "atomic.pb.h"
 
 DEFINE_int32(timeout_ms, 3000, "Timeout for each request");
@@ -31,12 +31,12 @@ DEFINE_string(group, "Atomic", "Id of the replication group");
 
 int get(const int64_t id) {
     for (;;) {
-        raft::PeerId leader;
+        braft::PeerId leader;
         // Select leader of the target group from RouteTable
-        if (raft::rtb::select_leader(FLAGS_group, &leader) != 0) {
+        if (braft::rtb::select_leader(FLAGS_group, &leader) != 0) {
             // Leader is unknown in RouteTable. Ask RouteTable to refresh leader
             // by sending RPCs.
-            base::Status st = raft::rtb::refresh_leader(
+            butil::Status st = braft::rtb::refresh_leader(
                         FLAGS_group, FLAGS_timeout_ms);
             if (!st.ok()) {
                 // Not sure about the leader, sleep for a while and the ask again.
@@ -47,7 +47,7 @@ int get(const int64_t id) {
         }
         // Now we known who is the leader, construct Stub and then sending
         // rpc
-        baidu::rpc::Channel channel;
+        brpc::Channel channel;
         if (channel.Init(leader.addr, NULL) != 0) {
             LOG(ERROR) << "Fail to init channel to " << leader;
             bthread_usleep(FLAGS_timeout_ms * 1000L);
@@ -55,7 +55,7 @@ int get(const int64_t id) {
         }
         // get request
         example::AtomicService_Stub stub(&channel);
-        baidu::rpc::Controller cntl;
+        brpc::Controller cntl;
         cntl.set_timeout_ms(FLAGS_timeout_ms);
 
         example::GetRequest request;
@@ -65,11 +65,11 @@ int get(const int64_t id) {
         if (cntl.Failed()) {
             LOG(WARNING) << "Fail to send request to " << leader
                          << " : " << cntl.ErrorText();
-            if (cntl.ErrorCode() == baidu::rpc::ERPCTIMEDOUT) {
+            if (cntl.ErrorCode() == brpc::ERPCTIMEDOUT) {
                 return ETIMEDOUT;
             }
             // Clear leadership since this RPC failed.
-            raft::rtb::update_leader(FLAGS_group, raft::PeerId());
+            braft::rtb::update_leader(FLAGS_group, braft::PeerId());
             bthread_usleep(FLAGS_timeout_ms * 1000L);
             continue;
         }
@@ -79,7 +79,7 @@ int get(const int64_t id) {
                          << (response.has_redirect() 
                                 ? response.redirect() : "nowhere");
             // Update route table since we have redirect information
-            raft::rtb::update_leader(FLAGS_group, response.redirect());
+            braft::rtb::update_leader(FLAGS_group, response.redirect());
             continue;
         }
         // make jepsen parse output of get easily
@@ -92,12 +92,12 @@ int get(const int64_t id) {
 
 int exchange(const int64_t id, const int64_t value) {
     for (;;) {
-        raft::PeerId leader;
+        braft::PeerId leader;
         // Select leader of the target group from RouteTable
-        if (raft::rtb::select_leader(FLAGS_group, &leader) != 0) {
+        if (braft::rtb::select_leader(FLAGS_group, &leader) != 0) {
             // Leader is unknown in RouteTable. Ask RouteTable to refresh leader
             // by sending RPCs.
-            base::Status st = raft::rtb::refresh_leader(
+            butil::Status st = braft::rtb::refresh_leader(
                         FLAGS_group, FLAGS_timeout_ms);
             if (!st.ok()) {
                 // Not sure about the leader, sleep for a while and the ask again.
@@ -108,7 +108,7 @@ int exchange(const int64_t id, const int64_t value) {
         }
         // Now we known who is the leader, construct Stub and then sending
         // rpc
-        baidu::rpc::Channel channel;
+        brpc::Channel channel;
         if (channel.Init(leader.addr, NULL) != 0) {
             LOG(ERROR) << "Fail to init channel to " << leader;
             bthread_usleep(FLAGS_timeout_ms * 1000L);
@@ -116,7 +116,7 @@ int exchange(const int64_t id, const int64_t value) {
         }
         // get request
         example::AtomicService_Stub stub(&channel);
-        baidu::rpc::Controller cntl;
+        brpc::Controller cntl;
         cntl.set_timeout_ms(FLAGS_timeout_ms);
 
         example::ExchangeRequest request;
@@ -127,11 +127,11 @@ int exchange(const int64_t id, const int64_t value) {
         if (cntl.Failed()) {
             LOG(WARNING) << "Fail to send request to " << leader
                          << " : " << cntl.ErrorText();
-            if (cntl.ErrorCode() == baidu::rpc::ERPCTIMEDOUT) {
+            if (cntl.ErrorCode() == brpc::ERPCTIMEDOUT) {
                 return ETIMEDOUT;
             }
             // Clear leadership since this RPC failed.
-            raft::rtb::update_leader(FLAGS_group, raft::PeerId());
+            braft::rtb::update_leader(FLAGS_group, braft::PeerId());
             bthread_usleep(FLAGS_timeout_ms * 1000L);
             continue;
         }
@@ -141,7 +141,7 @@ int exchange(const int64_t id, const int64_t value) {
                          << (response.has_redirect() 
                                 ? response.redirect() : "nowhere");
             // Update route table since we have redirect information
-            raft::rtb::update_leader(FLAGS_group, response.redirect());
+            braft::rtb::update_leader(FLAGS_group, response.redirect());
             continue;
         }
         // make jepsen parse output of get easily
@@ -156,12 +156,12 @@ int exchange(const int64_t id, const int64_t value) {
 
 int cas(const int64_t id, const int64_t old_value, const int64_t new_value) {
     for (;;) {
-        raft::PeerId leader;
+        braft::PeerId leader;
         // Select leader of the target group from RouteTable
-        if (raft::rtb::select_leader(FLAGS_group, &leader) != 0) {
+        if (braft::rtb::select_leader(FLAGS_group, &leader) != 0) {
             // Leader is unknown in RouteTable. Ask RouteTable to refresh leader
             // by sending RPCs.
-            base::Status st = raft::rtb::refresh_leader(
+            butil::Status st = braft::rtb::refresh_leader(
                         FLAGS_group, FLAGS_timeout_ms);
             if (!st.ok()) {
                 // Not sure about the leader, sleep for a while and the ask again.
@@ -173,7 +173,7 @@ int cas(const int64_t id, const int64_t old_value, const int64_t new_value) {
 
         // Now we known who is the leader, construct Stub and then sending
         // rpc
-        baidu::rpc::Channel channel;
+        brpc::Channel channel;
         if (channel.Init(leader.addr, NULL) != 0) {
             LOG(ERROR) << "Fail to init channel to " << leader;
             bthread_usleep(FLAGS_timeout_ms * 1000L);
@@ -181,7 +181,7 @@ int cas(const int64_t id, const int64_t old_value, const int64_t new_value) {
         }
         example::AtomicService_Stub stub(&channel);
 
-        baidu::rpc::Controller cntl;
+        brpc::Controller cntl;
         cntl.set_timeout_ms(FLAGS_timeout_ms);
         example::CompareExchangeRequest request;
         example::AtomicResponse response;
@@ -194,11 +194,11 @@ int cas(const int64_t id, const int64_t old_value, const int64_t new_value) {
         if (cntl.Failed()) {
             LOG(WARNING) << "Fail to send request to " << leader
                          << " : " << cntl.ErrorText();
-            if (cntl.ErrorCode() == baidu::rpc::ERPCTIMEDOUT) {
+            if (cntl.ErrorCode() == brpc::ERPCTIMEDOUT) {
                 return ETIMEDOUT;
             }
             // Clear leadership since this RPC failed.
-            raft::rtb::update_leader(FLAGS_group, raft::PeerId());
+            braft::rtb::update_leader(FLAGS_group, braft::PeerId());
             bthread_usleep(FLAGS_timeout_ms * 1000L);
             continue;
         }
@@ -211,7 +211,7 @@ int cas(const int64_t id, const int64_t old_value, const int64_t new_value) {
                              << (response.has_redirect() 
                                     ? response.redirect() : "nowhere");
                 // Update route table since we have redirect information
-                raft::rtb::update_leader(FLAGS_group, response.redirect());
+                braft::rtb::update_leader(FLAGS_group, response.redirect());
                 continue;
             } else {
                 return EIO;
@@ -230,7 +230,7 @@ int main(int argc, char* argv[]) {
     google::ParseCommandLineFlags(&argc, &argv, true);
 
     // Register configuration of target group to RouteTable
-    if (raft::rtb::update_configuration(FLAGS_group, FLAGS_conf) != 0) {
+    if (braft::rtb::update_configuration(FLAGS_group, FLAGS_conf) != 0) {
         LOG(ERROR) << "Fail to register configuration " << FLAGS_conf
                    << " of group " << FLAGS_group;
         return -1;

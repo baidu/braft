@@ -13,12 +13,12 @@
 // limitations under the License.
 
 #include <gflags/gflags.h>
-#include <bthread.h>
-#include <baidu/rpc/channel.h>
-#include <baidu/rpc/controller.h>
-#include <raft/raft.h>
-#include <raft/util.h>
-#include <raft/route_table.h>
+#include <bthread/bthread.h>
+#include <brpc/channel.h>
+#include <brpc/controller.h>
+#include <braft/raft.h>
+#include <braft/util.h>
+#include <braft/route_table.h>
 #include "block.pb.h"
 
 DEFINE_bool(log_each_request, false, "Print log for each request");
@@ -34,13 +34,13 @@ DEFINE_string(group, "Block", "Id of the replication group");
 bvar::LatencyRecorder g_latency_recorder("block_client");
 
 static void* sender(void* arg) {
-    while (!baidu::rpc::IsAskedToQuit()) {
-        raft::PeerId leader;
+    while (!brpc::IsAskedToQuit()) {
+        braft::PeerId leader;
         // Select leader of the target group from RouteTable
-        if (raft::rtb::select_leader(FLAGS_group, &leader) != 0) {
+        if (braft::rtb::select_leader(FLAGS_group, &leader) != 0) {
             // Leader is unknown in RouteTable. Ask RouteTable to refresh leader
             // by sending RPCs.
-            base::Status st = raft::rtb::refresh_leader(
+            butil::Status st = braft::rtb::refresh_leader(
                         FLAGS_group, FLAGS_timeout_ms);
             if (!st.ok()) {
                 // Not sure about the leader, sleep for a while and the ask again.
@@ -52,7 +52,7 @@ static void* sender(void* arg) {
 
         // Now we known who is the leader, construct Stub and then sending
         // rpc
-        baidu::rpc::Channel channel;
+        brpc::Channel channel;
         if (channel.Init(leader.addr, NULL) != 0) {
             LOG(ERROR) << "Fail to init channel to " << leader;
             bthread_usleep(FLAGS_timeout_ms * 1000L);
@@ -60,15 +60,15 @@ static void* sender(void* arg) {
         }
         example::BlockService_Stub stub(&channel);
 
-        baidu::rpc::Controller cntl;
+        brpc::Controller cntl;
         cntl.set_timeout_ms(FLAGS_timeout_ms);
         // Randomly select which request we want send;
         example::BlockRequest request;
         example::BlockResponse response;
-        request.set_offset(base::fast_rand_less_than(
+        request.set_offset(butil::fast_rand_less_than(
                             FLAGS_block_size - FLAGS_request_size));
         const char* op = NULL;
-        if (base::fast_rand_less_than(100) < (size_t)FLAGS_write_percentage) {
+        if (butil::fast_rand_less_than(100) < (size_t)FLAGS_write_percentage) {
             op = "write";
             cntl.request_attachment().resize(FLAGS_request_size, 'a');
             stub.write(&cntl, &request, &response, NULL);
@@ -81,7 +81,7 @@ static void* sender(void* arg) {
             LOG(WARNING) << "Fail to send request to " << leader
                          << " : " << cntl.ErrorText();
             // Clear leadership since this RPC failed.
-            raft::rtb::update_leader(FLAGS_group, raft::PeerId());
+            braft::rtb::update_leader(FLAGS_group, braft::PeerId());
             bthread_usleep(FLAGS_timeout_ms * 1000L);
             continue;
         }
@@ -91,7 +91,7 @@ static void* sender(void* arg) {
                          << (response.has_redirect() 
                                 ? response.redirect() : "nowhere");
             // Update route table since we have redirect information
-            raft::rtb::update_leader(FLAGS_group, response.redirect());
+            braft::rtb::update_leader(FLAGS_group, response.redirect());
             continue;
         }
         g_latency_recorder << cntl.latency_us();
@@ -114,7 +114,7 @@ int main(int argc, char* argv[]) {
     google::ParseCommandLineFlags(&argc, &argv, true);
 
     // Register configuration of target group to RouteTable
-    if (raft::rtb::update_configuration(FLAGS_group, FLAGS_conf) != 0) {
+    if (braft::rtb::update_configuration(FLAGS_group, FLAGS_conf) != 0) {
         LOG(ERROR) << "Fail to register configuration " << FLAGS_conf
                    << " of group " << FLAGS_group;
         return -1;
@@ -138,12 +138,12 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    while (!baidu::rpc::IsAskedToQuit()) {
+    while (!brpc::IsAskedToQuit()) {
         sleep(1);
         LOG_IF(INFO, !FLAGS_log_each_request)
                 << "Sending Request to " << FLAGS_group
                 << " (" << FLAGS_conf << ')'
-                << " at at qps=" << g_latency_recorder.qps(1)
+                << " at qps=" << g_latency_recorder.qps(1)
                 << " latency=" << g_latency_recorder.latency(1);
     }
 
