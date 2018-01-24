@@ -309,6 +309,8 @@ public:
 StateMachine中还提供了一些接口, 实现这些接口能够监听Node的状态变化，你的系统可以针对这些状态变化实现一些特定的逻辑(比如转发消息给leader节点)
 
 ```cpp
+class StateMachine {
+...
     // Invoked once when the raft node was shut down. Corresponding resources are safe
     // to cleared ever after.
     // Default do nothing
@@ -331,6 +333,8 @@ StateMachine中还提供了一些接口, 实现这些接口能够监听Node的�
     virtual void on_stop_following(const ::braft::LeaderChangeContext& ctx);
     // Invoked when this node starts to follow a new leader.
     virtual void on_start_following(const ::braft::LeaderChangeContext& ctx);
+...
+};
 ```
 
 # 实现Snapshot
