@@ -494,14 +494,14 @@ public:
     // because add_peer/remove_peer immediately modify configuration in memory
     butil::Status list_peers(std::vector<PeerId>* peers);
 
-    // add peer to replicated-state-machine [thread-safe]
-    // done is user defined function, maybe response to client
-    // [NOTE] code after apply can't access resource in done
+    // Add a new peer to the raft group when the current configuration matches
+    // |old_peers|. done->Run() would be invoked after this operation finishes,
+    // describing the detailed result.
     void add_peer(const std::vector<PeerId>& old_peers, const PeerId& peer, Closure* done);
 
-    // remove peer from replicated-state-machine [thread-safe]
-    // done is user defined function, maybe response to client
-    // [NOTE] code after apply can't access resource in done
+    // Remove the peer from the raft group when the current configuration matches
+    // |old_peers|. done->Run() would be invoked after this operation finishes,
+    // describing the detailed result.
     void remove_peer(const std::vector<PeerId>& old_peers, const PeerId& peer, Closure* done);
 
     // set peer to local replica [thread-safe]
