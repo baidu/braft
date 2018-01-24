@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Authors: Wang,Yao(wangyao02@baidu.com)
-//          Zhangyi Chen(chenzhangyi01@baidu.com)
+// Authros: Zhangyi Chen(chenzhangyi01@baidu.com)
+//          Wang,Yao(wangyao02@baidu.com)
 //          Xiong,Kai(xiongkai@baidu.com)
 //          Ge,Jun(gejun@baidu.com)
 
@@ -599,4 +599,4 @@ int add_service(brpc::Server* server, const char* listen_ip_and_port);
 
 }  //  namespace braft
 
-#endif //~BRAFT_RAFT_H
+#endif //BRAFT_RAFT_H

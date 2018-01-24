@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Authors: Wang,Yao(wangyao02@baidu.com)
-//          Zhangyi Chen(chenzhangyi01@baidu.com)
+// Authors: Zhangyi Chen(chenzhangyi01@baidu.com)
+//          Wang,Yao(wangyao02@baidu.com)
 
 #include <pthread.h>
 #include <unistd.h>
