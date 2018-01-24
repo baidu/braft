@@ -7,7 +7,7 @@ braft is an approach of [replicated state machine](https://en.wikipedia.org/wiki
 * Distributed transaction and NewSQL system.
 * Meta services in cloud computing to manage a large scale of clusters, virtual machines and containers.
 
-braft is designed and implemented for high workload and high throughput scenarios. And it makes efforts to reduce overhead of latency. With braft you can easily build a distributed system just like writing a standalone server by defining your business logic as a [finite state machine](https://en.wikipedia.org/wiki/Finite-state_machine), and it's high performanced as well.
+braft is designed and implemented for high workload and high throughput scenarios. And it makes efforts to reduce overhead of latency. With braft you can easily build a distributed system just like writing a standalone server by defining your business logic as a [finite state machine](https://en.wikipedia.org/wiki/Finite-state_machine), and it's high performance as well.
 
 # Getting Started
 
