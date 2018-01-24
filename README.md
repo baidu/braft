@@ -11,7 +11,7 @@ braft is designed and implemented for high workload and high throughput scenario
 
 # Getting Started
 
-* Build [brpc](https://github.com/brpc/brpc/blob/master/docs/cn/getting_started.md) since braft is built upon brpc and bthread
+* Build [brpc](https://github.com/brpc/brpc/blob/master/docs/cn/getting_started.md) since braft is built upon [brpc](https://github.com/brpc/brpc/blob/master/docs/en/overview.md) and [bthread](https://github.com/brpc/brpc/blob/master/docs/cn/bthread.md)
 
 * Compile braft with cmake
 
