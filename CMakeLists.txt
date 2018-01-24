@@ -72,8 +72,6 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/output/lib)
 
 file(GLOB BRAFT_PROTOS "${CMAKE_SOURCE_DIR}/src/braft/*.proto")
 foreach(PROTO ${BRAFT_PROTOS})
-    message("file is ${PROTO}")
-    message("protc is ${PROTOBUF_PROTOC_EXECUTABLE}")
     get_filename_component(PROTO_WE ${PROTO} NAME_WE)
     list(APPEND PROTO_SRCS "${CMAKE_CURRENT_BINARY_DIR}/braft/${PROTO_WE}.pb.cc")
     execute_process(
