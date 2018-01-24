@@ -10,7 +10,7 @@
 
 #一致性状态机
 
-对于一个无限长的序列a[1, 2, 3…], 如果对于任意整数i, a[i]的值满足分布式一致性，这个系统就满足一致性状态机.
+对于一个无限增长的序列a[1, 2, 3…], 如果对于任意整数i, a[i]的值满足分布式一致性，这个系统就满足一致性状态机的要求。
 
 基本上所有的系统都会有源源不断的操作, 这时候单独对某个特定的值达成一致是不够的。为了真实系统保证所有的副本的一致性，通常会把操作转化为[write-ahead-log](https://en.wikipedia.org/wiki/Write-ahead_logging)(简称WAL). 然后让系统的所有副本对WAL保持一致， 这样每个进程按照顺序执行WAL里的操作，就能保证最终的状态是一致的。
 
@@ -45,14 +45,15 @@ Raft可以解决分布式理论中的CP，即一致性和分区容忍性，并�
 
 RAFT协议从2013年出来，社区涌现了非常多的[实现](http://raft.github.io/)，但是其中大部分都是实验性质的，缺乏Membership Changes和Log Compaction等功能。少数较为靠谱的实现都是作为具体Service实现的一部分，没有封装成一个通用的基础库形式。其中大部分的RAFT实现都是采用线程网络模型，即一个peer之间的连接使用一个线程维护，对于多线程的调用处理也比较粗糙，这样不适合一个进程中维护大量RAFT复制实例。
 
-一个良好的RAFT算法实现能够对上层屏蔽细节， 让开发者从复杂的异常处理中解放出来， 专注于自己的业务逻辑，像写单机程序一样构建分布式系统。虽然RAFT算法本身虽然以易于理解著称，但是要实现正确还是得面临复杂的异常处理，并发事件，必须妥善的解决所有的race conditon以及ABA problem, 于此同时还得保证足够优秀的性能。braft在保证正确性和高性能的同时， 还能保证接口足够的简单易用.
+一个良好的RAFT算法实现能够对上层屏蔽细节， 让开发者从复杂的异常处理中解放出来， 专注于自己的业务逻辑，像写单机程序一样构建分布式系统。虽然RAFT算法本身虽然以易于理解著称，但是要实现正确还是得面临复杂的异常处理，并发事件，必须妥善的解决所有的race conditon以及ABA problem, 于此同时还得保证足够优秀的性能。braft在保证正确性和高性能的同时， 还需要保证接口足够的简单易用.
 
 # Suportted features of BRAFT
 
-* Leader election
-* Replication and recovery
-* Membership management
-* Fully concurrent replication
-* Tolerate asymmetric network partition
-* Contention less API
-
+* Leader election.
+* Replication and recovery.
+* Snapshot and log compaction.
+* Membership management.
+* Fully concurrent replication.
+* Fault tolerance.
+* Asymmetric network partition tolerance.
+* Workaround when quorate peers are dead.
