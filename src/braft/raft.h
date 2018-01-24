@@ -429,7 +429,7 @@ struct NodeOptions {
     scoped_refptr<SnapshotThrottle>* snapshot_throttle;
 
     // If true, RPCs through raft_cli will be denied.
-    // Default: true 
+    // Default: false
     bool disable_cli;
 
     // Construct a default instance

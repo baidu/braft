@@ -17,7 +17,7 @@
 #include <map>                  // std::map
 #include <gflags/gflags.h>      // google::ParseCommandLineFlags
 #include <butil/string_printf.h>
-#include <braft/cli.h>           // raft::cli::*
+#include <braft/cli.h>          // raft::cli::*
 
 namespace braft {
 namespace cli {
