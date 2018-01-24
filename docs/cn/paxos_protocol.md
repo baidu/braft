@@ -35,7 +35,7 @@ Paxos的提案过程中为了解决acceptor crash，需要多个acceptor中quoru
 
 如果Acceptor只接受第一个提案值，考虑多个Proposer同时对一个提案进行提议，那么可能任何一个Proposer都不会拿到多数应答。
 
-![img](http://wiki.baidu.com/download/attachments/142513711/image2015-9-15%2015%3A42%3A10.png?version=1&modificationDate=1442302930000&api=v2)
+![img](../images/split_votes.png)
 
 这个时候Acceptor就需要允许接收多个不同的值，来解决Split Votes的问题。
 
@@ -43,11 +43,11 @@ Paxos的提案过程中为了解决acceptor crash，需要多个acceptor中quoru
 
 为了解决Split Votes，Acceptor可以接受多个不同的值，如果Acceptor要接受每一个提议，那么可能不同的Proposer提议不同的值，可能都会被chosen，破坏每个提案只有一个值的原则。
 
-![img](http://wiki.baidu.com/download/attachments/142513711/image2015-9-15%2015%3A45%3A9.png?version=1&modificationDate=1442303109000&api=v2)
+![img](../images/conflict_choices.png)
 
 这个时候就需要采用2-phase协议，对于已经chosen的值，后面的proposal必须提议相同的值。
 
-![img](http://wiki.baidu.com/download/attachments/142513711/image2015-9-15%2015%3A46%3A42.png?version=1&modificationDate=1442303202000&api=v2)
+![img](../images/2pc_choice.png)
 
 如图S3应该拒绝S1的proposal，这样就可以保证S5的提案成功，S1的提案因为冲突而失败。需要对提议进行排序，这样Acceptor可以拒绝老的提议。
 
@@ -57,7 +57,7 @@ Paxos的提案过程中为了解决acceptor crash，需要多个acceptor中quoru
 
 一个简单的Proposal Number的定义为：
 
-![img](http://wiki.baidu.com/download/attachments/142513711/image2015-9-15%2015%3A53%3A42.png?version=1&modificationDate=1442303622000&api=v2)
+![img](../images/proposal_number.png)
 
 Proposer保存maxRound，表示当前看到的最大Round Number，每次重新发起Proposal的时候，增加maxRound，拼接上ServerId构成Proposal Number。
 
@@ -66,16 +66,16 @@ Proposer需要将maxRound持久化，确保宕机之后不会重用之前的maxR
 ## Flow
 
 Paxos执行过程包括两个阶段：Prepare和Accept。其中Prepare阶段用于block当前未完成的老的提案，并发现当前已经被选取的提案（如果已经提案完成或部分完成），Accept过程用于真正的进行提交提案，Acceptor需要持久化提案，但需要保证每个提案号只接受一次提案的原则。具体流程如下：
-![img](http://wiki.baidu.com/download/attachments/141610734/worddav10b3ba3d25a328cb401707a7873549b1.png?version=1&modificationDate=1441594803000&api=v2)
+![img](../images/flow.png)
 
 ## Example
 
 下面针对几种情况来讨论paxos的实际运行。最常见的是之前的提案已经完成，后面又有proposer又发起提案，除了提案号变化之外，提案值并没有变化：
-![img](http://wiki.baidu.com/download/attachments/141610734/worddav71f4af4a6009faa71b4674534258f57a.png?version=1&modificationDate=1441594806000&api=v2)
+![img](../images/pp1.png)
 当多个proposer并发发起提案或者是上一个proposer异常终止，都会出现提案部分完成的情况，如果新的proposer在prepare阶段看到了上一个proposer的提案值，就将其作为自己的提案值，这样即使两个proposer并发提案，依然可以保证两个proposer都成功且value是一致的：
-![img](http://wiki.baidu.com/download/attachments/141610734/worddav0497d66ba04510c2dd4c6952dc8de22f.png?version=1&modificationDate=1441594808000&api=v2)
+![img](../images/pp2.png)
 在上面并发提案的情况下，如果新的proposer在prepare阶段没有看到上一个proposer的提案值，将提交自己新的提案值，这样老的proposer会失败，而接受新的提案值：
-![img](http://wiki.baidu.com/download/attachments/141610734/worddav0e7394956c3fa24b1c3c433b42be4540.png?version=1&modificationDate=1441594810000&api=v2)
+![img](../images/pp3.png)
 
 # Multi Paxos
 
@@ -89,7 +89,7 @@ Lamport并没有在论文中详细描述Multi Paxos的细节，Multi Paxos直观
    1. Yes：完成chosing acceptedValue，跳到1继续处理
    2. No：使用Client的Value进行Accept
 
-![img](http://wiki.baidu.com/download/attachments/142513711/image2015-9-15%2016%3A6%3A21.png?version=1&modificationDate=1442304381000&api=v2)
+![img](../images/multi_paxos.png)
 
 通过上面的流程可以看出，每个提案在最优情况下需要2个RTT。当多个节点同时进行提议的时候，对于index的争抢会比较严重，会造成Split Votes。为了解决Split Votes，节点需要进行随机超时回退，这样写入延迟就会增加。针对这个问题，一般通过如下方案进行解决：
 
@@ -136,11 +136,7 @@ Leader会接收Client的请求，并扮演Proposer和Acceptor；其他节点拒�
 Proposer向Acceptor发送Accept请求的时候带上firstUnChosenIndex，这样Acceptor接收到Accept请求的时候，就可以更新本地Log中Chosen Value的范围：
 
 - i < request.firstUnChosenIndex
-- acceptedProposal[i] = request.proposal
-
-![img](http://wiki.baidu.com/download/attachments/142513711/image2015-9-15%2016%3A58%3A15.png?version=1&modificationDate=1442307496000&api=v2)
-
- 
+- acceptedProposal[i] = request.proposal 
 
 上面讨论的几种方式都是Leader存活期间由Leader来保证其提案值在全部节点上尽可能的被复制和被Chosen，需要考虑Leader故障之后新的Leader需要将上一个Leader尽可能但是没有完成的数据进行复制和Chosen。
 
