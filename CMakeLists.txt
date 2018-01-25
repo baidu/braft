@@ -134,3 +134,9 @@ file(COPY ${CMAKE_SOURCE_DIR}/src/
         PATTERN "*.h"
         PATTERN "*.hpp"
         )
+install(DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/output/include/
+        DESTINATION include
+        FILES_MATCHING
+        PATTERN "*.h"
+        PATTERN "*.hpp"
+        )

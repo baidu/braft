@@ -50,11 +50,10 @@ void RaftServiceImpl::pre_vote(google::protobuf::RpcController* cntl_base,
         return;
     }
 
+    // TODO: should return butil::Status
     int rc = node->handle_pre_vote_request(request, response);
     if (rc != 0) {
-        char err_buf[128];
-        strerror_r(rc, err_buf, sizeof(err_buf));
-        cntl->SetFailed(rc, err_buf);
+        cntl->SetFailed(rc, "%s", berror(rc));
         return;
     }
 }
@@ -83,9 +82,7 @@ void RaftServiceImpl::request_vote(google::protobuf::RpcController* cntl_base,
 
     int rc = node->handle_request_vote_request(request, response);
     if (rc != 0) {
-        char err_buf[128];
-        strerror_r(rc, err_buf, sizeof(err_buf));
-        cntl->SetFailed(rc, err_buf);
+        cntl->SetFailed(rc, "%s", berror(rc));
         return;
     }
 }
