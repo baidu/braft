@@ -14,7 +14,7 @@ cd $example && cmake . && make
 # Run Server
 
 ```sh
-sh run_server.sh
+bash run_server.sh
 ```
 
 * Default number of servers in the group is `3`,  changed by `--server_num` 
@@ -23,7 +23,7 @@ sh run_server.sh
 # Run Client
 
 ```sh
-sh run_client.sh
+bash run_client.sh
 ```
 
 * Default concurrency of client is 1, changed by `--thread_num` 
