@@ -1,8 +1,8 @@
 Brief introduction of examples:
 
 * Counter: A integer which can be added to by a given number in each request.
-* Atomic: : A integer thats supports exchange and compare_exchange operation.
-* Block: A block device supports random read/write from multiple threaded.
+* Atomic: : A integer which supports exchange and compare_exchange operation.
+* Block: A single block device supports randomly read/write concurrently.
 
 # Build steps
 
