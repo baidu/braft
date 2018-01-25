@@ -54,23 +54,6 @@ TEST_F(TestUsageSuits, lock) {
     ASSERT_EQ(meta.value, 10*10000);
 }
 
-TEST_F(TestUsageSuits, get_host_ip) {
-    butil::ip_t not_exist_ip = butil::get_host_ip_by_interface("not_exist");
-    ASSERT_EQ(not_exist_ip, butil::IP_ANY);
-
-    butil::ip_t host_ip = butil::get_host_ip();
-    butil::ip_t xgbe0_ip = butil::get_host_ip_by_interface("xgbe0");
-    butil::ip_t xgbe1_ip = butil::get_host_ip_by_interface("xgbe1");
-    butil::ip_t eth1_ip = butil::get_host_ip_by_interface("eth1");
-    butil::ip_t eth0_ip = butil::get_host_ip_by_interface("eth0");
-    butil::ip_t bond0_ip = butil::get_host_ip_by_interface("bond0");
-    butil::ip_t brex_ip = butil::get_host_ip_by_interface("br-ex");
-
-    ASSERT_TRUE(host_ip == xgbe0_ip || host_ip == xgbe1_ip ||
-                host_ip == eth1_ip || host_ip == eth0_ip ||
-                host_ip == bond0_ip || host_ip == brex_ip);
-}
-
 TEST_F(TestUsageSuits, murmurhash) {
     char* data = (char*)malloc(1024*1024);
     for (int i = 0; i < 1024*1024; i++) {

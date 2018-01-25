@@ -155,7 +155,7 @@ TEST_F(TestUsageSuits, copy) {
         ASSERT_EQ(storage1->set_file_system_adaptor(fs), 0);
     }
     ASSERT_EQ(0, storage1->init());
-    storage1->set_server_addr(butil::EndPoint(butil::get_host_ip(), 60006));
+    storage1->set_server_addr(butil::EndPoint(butil::my_ip(), 60006));
     // normal create writer
     braft::SnapshotWriter* writer1 = storage1->create();
     ASSERT_TRUE(writer1 != NULL);
@@ -230,7 +230,7 @@ TEST_F(TestUsageSuits, file_escapes_directory) {
         CHECK(file != NULL);
         delete file;
     }
-    storage1->set_server_addr(butil::EndPoint(butil::get_host_ip(), 60006));
+    storage1->set_server_addr(butil::EndPoint(butil::my_ip(), 60006));
     // normal create writer
     braft::SnapshotWriter* writer1 = storage1->create();
     ASSERT_TRUE(writer1 != NULL);
@@ -426,7 +426,7 @@ TEST_F(TestUsageSuits, filter_before_copy) {
         ASSERT_EQ(storage1->set_file_system_adaptor(fs), 0);
     }
     ASSERT_EQ(0, storage1->init());
-    storage1->set_server_addr(butil::EndPoint(butil::get_host_ip(), 60006));
+    storage1->set_server_addr(butil::EndPoint(butil::my_ip(), 60006));
     // normal create writer
     braft::SnapshotWriter* writer1 = storage1->create();
     ASSERT_TRUE(writer1 != NULL);
@@ -584,7 +584,7 @@ TEST_F(TestUsageSuits, snapshot_throttle_for_reading) {
     ASSERT_TRUE(throttle);
     ASSERT_EQ(storage1->set_snapshot_throttle(throttle), 0);
     ASSERT_EQ(0, storage1->init());
-    storage1->set_server_addr(butil::EndPoint(butil::get_host_ip(), 60006));
+    storage1->set_server_addr(butil::EndPoint(butil::my_ip(), 60006));
     // normal create writer
     braft::SnapshotWriter* writer1 = storage1->create();
     ASSERT_TRUE(writer1 != NULL);
@@ -656,7 +656,7 @@ TEST_F(TestUsageSuits, snapshot_throttle_for_writing) {
         ASSERT_EQ(storage1->set_file_system_adaptor(fs), 0);
     }
     ASSERT_EQ(0, storage1->init());
-    storage1->set_server_addr(butil::EndPoint(butil::get_host_ip(), 60006));
+    storage1->set_server_addr(butil::EndPoint(butil::my_ip(), 60006));
     // create writer1
     braft::SnapshotWriter* writer1 = storage1->create();
     ASSERT_TRUE(writer1 != NULL);

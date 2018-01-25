@@ -436,7 +436,7 @@ TEST_F(RaftTestSuits, InitShutdown) {
     options.stable_uri = "local://./data/stable";
     options.snapshot_uri = "local://./data/snapshot";
 
-    braft::Node node("unittest", braft::PeerId(butil::EndPoint(butil::get_host_ip(), 5006), 0));
+    braft::Node node("unittest", braft::PeerId(butil::EndPoint(butil::my_ip(), 5006), 0));
     ASSERT_EQ(0, node.init(options));
 
     node.shutdown(NULL);
@@ -470,7 +470,7 @@ TEST_F(RaftTestSuits, SingleNode) {
     ASSERT_EQ(0, ret);
 
     braft::PeerId peer;
-    peer.addr.ip = butil::get_host_ip();
+    peer.addr.ip = butil::my_ip();
     peer.addr.port = 5006;
     peer.idx = 0;
     std::vector<braft::PeerId> peers;
@@ -514,7 +514,7 @@ TEST_F(RaftTestSuits, NoLeader) {
     std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
         braft::PeerId peer;
-        peer.addr.ip = butil::get_host_ip();
+        peer.addr.ip = butil::my_ip();
         peer.addr.port = 5006 + i;
         peer.idx = 0;
 
@@ -547,7 +547,7 @@ TEST_F(RaftTestSuits, NoLeader) {
 
     // add peer1
     braft::PeerId peer3;
-    peer3.addr.ip = butil::get_host_ip();
+    peer3.addr.ip = butil::my_ip();
     peer3.addr.port = 5006 + 3;
     peer3.idx = 0;
 
@@ -558,7 +558,7 @@ TEST_F(RaftTestSuits, NoLeader) {
 
     // remove peer1
     braft::PeerId peer0;
-    peer0.addr.ip = butil::get_host_ip();
+    peer0.addr.ip = butil::my_ip();
     peer0.addr.port = 5006 + 0;
     peer0.idx = 0;
 
@@ -572,7 +572,7 @@ TEST_F(RaftTestSuits, TripleNode) {
     std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
         braft::PeerId peer;
-        peer.addr.ip = butil::get_host_ip();
+        peer.addr.ip = butil::my_ip();
         peer.addr.port = 5006 + i;
         peer.idx = 0;
 
@@ -661,7 +661,7 @@ TEST_F(RaftTestSuits, LeaderFail) {
     std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
         braft::PeerId peer;
-        peer.addr.ip = butil::get_host_ip();
+        peer.addr.ip = butil::my_ip();
         peer.addr.port = 5006 + i;
         peer.idx = 0;
 
@@ -774,7 +774,7 @@ TEST_F(RaftTestSuits, LeaderFail) {
 TEST_F(RaftTestSuits, JoinNode) {
     std::vector<braft::PeerId> peers;
     braft::PeerId peer0;
-    peer0.addr.ip = butil::get_host_ip();
+    peer0.addr.ip = butil::my_ip();
     peer0.addr.port = 5006;
     peer0.idx = 0;
 
@@ -809,7 +809,7 @@ TEST_F(RaftTestSuits, JoinNode) {
 
     // start peer1
     braft::PeerId peer1;
-    peer1.addr.ip = butil::get_host_ip();
+    peer1.addr.ip = butil::my_ip();
     peer1.addr.port = 5006 + 1;
     peer1.idx = 0;
     ASSERT_EQ(0, cluster.start(peer1.addr, true));
@@ -827,7 +827,7 @@ TEST_F(RaftTestSuits, JoinNode) {
 
     // add peer2 when peer not start
     braft::PeerId peer2;
-    peer2.addr.ip = butil::get_host_ip();
+    peer2.addr.ip = butil::my_ip();
     peer2.addr.port = 5006 + 2;
     peer2.idx = 0;
 
@@ -871,7 +871,7 @@ TEST_F(RaftTestSuits, RemoveFollower) {
     std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
         braft::PeerId peer;
-        peer.addr.ip = butil::get_host_ip();
+        peer.addr.ip = butil::my_ip();
         peer.addr.port = 5006 + i;
         peer.idx = 0;
 
@@ -950,7 +950,7 @@ TEST_F(RaftTestSuits, RemoveFollower) {
     peers.clear();
     for (int i = 0; i < 3; i++) {
         braft::PeerId peer;
-        peer.addr.ip = butil::get_host_ip();
+        peer.addr.ip = butil::my_ip();
         peer.addr.port = 5006 + i;
         peer.idx = 0;
 
@@ -979,7 +979,7 @@ TEST_F(RaftTestSuits, RemoveLeader) {
     std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
         braft::PeerId peer;
-        peer.addr.ip = butil::get_host_ip();
+        peer.addr.ip = butil::my_ip();
         peer.addr.port = 5006 + i;
         peer.idx = 0;
 
@@ -1051,7 +1051,7 @@ TEST_F(RaftTestSuits, RemoveLeader) {
     peers.clear();
     for (int i = 0; i < 3; i++) {
         braft::PeerId peer;
-        peer.addr.ip = butil::get_host_ip();
+        peer.addr.ip = butil::my_ip();
         peer.addr.port = 5006 + i;
         peer.idx = 0;
 
@@ -1073,7 +1073,7 @@ TEST_F(RaftTestSuits, TriggerVote) {
     std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
         braft::PeerId peer;
-        peer.addr.ip = butil::get_host_ip();
+        peer.addr.ip = butil::my_ip();
         peer.addr.port = 5006 + i;
         peer.idx = 0;
 
@@ -1138,7 +1138,7 @@ TEST_F(RaftTestSuits, PreVote) {
     std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
         braft::PeerId peer;
-        peer.addr.ip = butil::get_host_ip();
+        peer.addr.ip = butil::my_ip();
         peer.addr.port = 5006 + i;
         peer.idx = 0;
 
@@ -1208,7 +1208,7 @@ TEST_F(RaftTestSuits, PreVote) {
     peers.clear();
     for (int i = 0; i < 3; i++) {
         braft::PeerId peer;
-        peer.addr.ip = butil::get_host_ip();
+        peer.addr.ip = butil::my_ip();
         peer.addr.port = 5006 + i;
         peer.idx = 0;
 
@@ -1230,7 +1230,7 @@ TEST_F(RaftTestSuits, SetPeer1) {
     // bootstrap from null
     Cluster cluster("unittest", std::vector<braft::PeerId>());
     braft::PeerId boot_peer;
-    boot_peer.addr.ip = butil::get_host_ip();
+    boot_peer.addr.ip = butil::my_ip();
     boot_peer.addr.port = 5006;
     boot_peer.idx = 0;
 
@@ -1251,7 +1251,7 @@ TEST_F(RaftTestSuits, SetPeer2) {
     std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
         braft::PeerId peer;
-        peer.addr.ip = butil::get_host_ip();
+        peer.addr.ip = butil::my_ip();
         peer.addr.port = 5006 + i;
         peer.idx = 0;
 
@@ -1321,7 +1321,7 @@ TEST_F(RaftTestSuits, SetPeer2) {
     LOG(WARNING) << "set peer to " << leader_addr;
     for (int i = 0; i < 3; i++) {
         braft::PeerId peer;
-        peer.addr.ip = butil::get_host_ip();
+        peer.addr.ip = butil::my_ip();
         peer.addr.port = 5006 + i;
         peer.idx = 0;
 
@@ -1392,7 +1392,7 @@ TEST_F(RaftTestSuits, RestoreSnapshot) {
     std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
         braft::PeerId peer;
-        peer.addr.ip = butil::get_host_ip();
+        peer.addr.ip = butil::my_ip();
         peer.addr.port = 5006 + i;
         peer.idx = 0;
 
@@ -1454,7 +1454,7 @@ TEST_F(RaftTestSuits, InstallSnapshot) {
     std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
         braft::PeerId peer;
-        peer.addr.ip = butil::get_host_ip();
+        peer.addr.ip = butil::my_ip();
         peer.addr.port = 5006 + i;
         peer.idx = 0;
 
@@ -1557,7 +1557,7 @@ TEST_F(RaftTestSuits, NoSnapshot) {
     ASSERT_EQ(0, server.Start(5006, &server_options));
 
     braft::PeerId peer;
-    peer.addr.ip = butil::get_host_ip();
+    peer.addr.ip = butil::my_ip();
     peer.addr.port = 5006;
     peer.idx = 0;
     std::vector<braft::PeerId> peers;
@@ -1614,7 +1614,7 @@ TEST_F(RaftTestSuits, AutoSnapshot) {
     ASSERT_EQ(0, server.Start(5006, &server_options));
 
     braft::PeerId peer;
-    peer.addr.ip = butil::get_host_ip();
+    peer.addr.ip = butil::my_ip();
     peer.addr.port = 5006;
     peer.idx = 0;
     std::vector<braft::PeerId> peers;
@@ -1667,7 +1667,7 @@ TEST_F(RaftTestSuits, LeaderShouldNotChange) {
     std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
         braft::PeerId peer;
-        peer.addr.ip = butil::get_host_ip();
+        peer.addr.ip = butil::my_ip();
         peer.addr.port = 5006 + i;
         peer.idx = 0;
 
@@ -1699,7 +1699,7 @@ TEST_F(RaftTestSuits, RecoverFollower) {
     std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
         braft::PeerId peer;
-        peer.addr.ip = butil::get_host_ip();
+        peer.addr.ip = butil::my_ip();
         peer.addr.port = 5006 + i;
         peer.idx = 0;
 
@@ -1765,7 +1765,7 @@ TEST_F(RaftTestSuits, leader_transfer) {
     std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
         braft::PeerId peer;
-        peer.addr.ip = butil::get_host_ip();
+        peer.addr.ip = butil::my_ip();
         peer.addr.port = 5006 + i;
         peer.idx = 0;
 
@@ -1798,7 +1798,7 @@ TEST_F(RaftTestSuits, leader_transfer_before_log_is_compleleted) {
     std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
         braft::PeerId peer;
-        peer.addr.ip = butil::get_host_ip();
+        peer.addr.ip = butil::my_ip();
         peer.addr.port = 5006 + i;
         peer.idx = 0;
 
@@ -1855,7 +1855,7 @@ TEST_F(RaftTestSuits, leader_transfer_resume_on_failure) {
     std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
         braft::PeerId peer;
-        peer.addr.ip = butil::get_host_ip();
+        peer.addr.ip = butil::my_ip();
         peer.addr.port = 5006 + i;
         peer.idx = 0;
 
@@ -1934,7 +1934,7 @@ TEST_F(RaftTestSuits, shutdown_and_join_work_after_init_fails) {
     ASSERT_EQ(0, ret);
 
     braft::PeerId peer;
-    peer.addr.ip = butil::get_host_ip();
+    peer.addr.ip = butil::my_ip();
     peer.addr.port = 5006;
     peer.idx = 0;
     std::vector<braft::PeerId> peers;
@@ -1994,7 +1994,7 @@ TEST_F(RaftTestSuits, shutting_leader_triggers_timeout_now) {
     std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
         braft::PeerId peer;
-        peer.addr.ip = butil::get_host_ip();
+        peer.addr.ip = butil::my_ip();
         peer.addr.port = 5006 + i;
         peer.idx = 0;
         peers.push_back(peer);
@@ -2022,7 +2022,7 @@ TEST_F(RaftTestSuits, removing_leader_triggers_timeout_now) {
     std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
         braft::PeerId peer;
-        peer.addr.ip = butil::get_host_ip();
+        peer.addr.ip = butil::my_ip();
         peer.addr.port = 5006 + i;
         peer.idx = 0;
         peers.push_back(peer);
@@ -2051,7 +2051,7 @@ TEST_F(RaftTestSuits, transfer_should_work_after_install_snapshot) {
     std::vector<braft::PeerId> peers;
     for (size_t i = 0; i < 3; ++i) {
         braft::PeerId peer;
-        peer.addr.ip = butil::get_host_ip();
+        peer.addr.ip = butil::my_ip();
         peer.addr.port = 5006 + i;
         peer.idx = 0;
         peers.push_back(peer);
@@ -2108,7 +2108,7 @@ TEST_F(RaftTestSuits, append_entries_when_follower_is_in_error_state) {
     // five nodes
     for (int i = 0; i < 5; i++) {
         braft::PeerId peer;
-        peer.addr.ip = butil::get_host_ip();
+        peer.addr.ip = butil::my_ip();
         peer.addr.port = 5006 + i;
         peer.idx = 0;
         peers.push_back(peer);
@@ -2203,7 +2203,7 @@ TEST_F(RaftTestSuits, on_start_following_and_on_stop_following) {
     // five nodes
     for (int i = 0; i < 5; i++) {
         braft::PeerId peer;
-        peer.addr.ip = butil::get_host_ip();
+        peer.addr.ip = butil::my_ip();
         peer.addr.port = 5006 + i;
         peer.idx = 0;
         peers.push_back(peer);
@@ -2344,7 +2344,7 @@ TEST_F(RaftTestSuits, read_committed_user_log) {
     std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
         braft::PeerId peer;
-        peer.addr.ip = butil::get_host_ip();
+        peer.addr.ip = butil::my_ip();
         peer.addr.port = 5006 + i;
         peer.idx = 0;
         peers.push_back(peer);
@@ -2430,7 +2430,7 @@ TEST_F(RaftTestSuits, read_committed_user_log) {
     std::vector<braft::PeerId> new_peers;
     for (int i = 0; i < 3; i++) {
         braft::PeerId peer;
-        peer.addr.ip = butil::get_host_ip();
+        peer.addr.ip = butil::my_ip();
         peer.addr.port = 5006 + i;
         peer.idx = 0;
 
