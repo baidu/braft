@@ -25,9 +25,9 @@ braft is designed and implemented for high workload and high throughput scenario
 
 * Read [overview](./docs/cn/overview.md) to know what you can do with braft.
 * Read [benchmark](./docs/cn/benchmark.md) to have a quick view about performance of braft
-* [Server](./docs/cn/server.md)
-* [Client](./docs/cn/client.md)
-* [Cli](./docs/cn/cli.md)
+* [Build Service based on braft](./docs/cn/server.md)
+* [Access Service baesd on braft](./docs/cn/client.md)
+* [Cli tools](./docs/cn/cli.md)
 * [Replication Model](./docs/cn/replication.md)
 * Consensus protocol:
   * [RAFT](./docs/cn/raft_protocol.md)
