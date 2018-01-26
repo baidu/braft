@@ -1,17 +1,13 @@
-A fully-functional industrial-grade C++ implementation of [RAFT consensus algorithm](https://raft.github.io/) based on [brpc](https://github.com/brpc/brpc). 
+An industrial-grade C++ implementation of [RAFT consensus algorithm](https://raft.github.io/) and [replicated state machine](https://en.wikipedia.org/wiki/State_machine_replication) based on [brpc](https://github.com/brpc/brpc). braft is designed and implemented for scenarios demanding for high workload and low overhead of latency, with the consideration for easy-to-understand concepts so that engineers inside Baidu can build their own distributed systems individually and correctly.
 
-braft is an approach of [replicated state machine](https://en.wikipedia.org/wiki/State_machine_replication). It is widely used inside Baidu to build highly available distributed systems, such as:
-
-* Various kinds of distributed storage: block, file, object, NoSQL, etc.
-* Highly available MySQL cluster.
-* Distributed transaction and NewSQL system.
-* Meta services in cloud computing to manage a large scale of clusters, virtual machines and containers.
-
-braft is designed and implemented for high workload and high throughput scenarios. And it makes efforts to reduce overhead of latency. With braft you can easily build a distributed system just like writing a standalone server by defining your business logic as a [finite state machine](https://en.wikipedia.org/wiki/Finite-state_machine), and it's high performance as well.
+It's widely used inside Baidu to build highly-available systems, such as:
+* NoSQL storages: block-based, object-based, file systems ...
+* SQL storages: HA MySQL cluster, distributed transactions, NewSQL systems ...
+* Meta services: Various master modules, Zookeeper/etcd like systems ...
 
 # Getting Started
 
-* Build [brpc](https://github.com/brpc/brpc/blob/master/docs/cn/getting_started.md) since braft is built upon [brpc](https://github.com/brpc/brpc/blob/master/docs/en/overview.md) and [bthread](https://github.com/brpc/brpc/blob/master/docs/cn/bthread.md)
+* Build [brpc](https://github.com/brpc/brpc/blob/master/docs/cn/getting_started.md) which is the main dependency of braft.
 
 * Compile braft with cmake
 
