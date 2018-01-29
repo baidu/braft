@@ -1989,7 +1989,7 @@ TEST_F(RaftTestSuits, shutdown_and_join_work_after_init_fails) {
 }
 
 TEST_F(RaftTestSuits, shutting_leader_triggers_timeout_now) {
-    google::SetCommandLineOption("raft_sync", "false");
+    GFLAGS_NS::SetCommandLineOption("raft_sync", "false");
     std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
         braft::PeerId peer;
@@ -2013,11 +2013,11 @@ TEST_F(RaftTestSuits, shutting_leader_triggers_timeout_now) {
     usleep(100 * 1000);
     leader = cluster.leader();
     ASSERT_TRUE(leader != NULL);
-    google::SetCommandLineOption("raft_sync", "true");
+    GFLAGS_NS::SetCommandLineOption("raft_sync", "true");
 }
 
 TEST_F(RaftTestSuits, removing_leader_triggers_timeout_now) {
-    google::SetCommandLineOption("raft_sync", "false");
+    GFLAGS_NS::SetCommandLineOption("raft_sync", "false");
     std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
         braft::PeerId peer;
@@ -2043,7 +2043,7 @@ TEST_F(RaftTestSuits, removing_leader_triggers_timeout_now) {
     leader = cluster.leader();
     ASSERT_TRUE(leader != NULL);
     ASSERT_NE(old_leader_id, leader->node_id().peer_id);
-    google::SetCommandLineOption("raft_sync", "true");
+    GFLAGS_NS::SetCommandLineOption("raft_sync", "true");
 }
 
 TEST_F(RaftTestSuits, transfer_should_work_after_install_snapshot) {

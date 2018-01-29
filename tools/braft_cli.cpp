@@ -169,8 +169,8 @@ int main(int argc , char* argv[]) {
                                    "--peer==$target_peer --conf=$target_conf\n"
                         "  snapshot --group=$group_id --peer=$target_peer\n",
                         proc_name);
-    google::SetUsageMessage(help_str);
-    google::ParseCommandLineFlags(&argc, &argv, true);
+    GFLAGS_NS::SetUsageMessage(help_str);
+    GFLAGS_NS::ParseCommandLineFlags(&argc, &argv, true);
     if (argc != 2) {
         std::cerr << help_str;
         return -1;

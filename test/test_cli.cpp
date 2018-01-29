@@ -13,6 +13,7 @@
 class CliTest : public testing::Test {
 public:
     void SetUp() {
+        GFLAGS_NS::SetCommandLineOption("raft_sync", "false");
         ::system("rm -rf data");
     }
     void TearDown() {
@@ -23,7 +24,6 @@ public:
 class MockFSM : public braft::StateMachine {
 public:
     virtual void on_apply(braft::Iterator& /*iter*/) {
-        google::SetCommandLineOption("raft_sync", "false");
         ASSERT_FALSE(true) << "Can't reach here";
     }
 };
