@@ -703,7 +703,6 @@ TEST_F(RaftTestSuits, LeaderFail) {
     // apply something when follower
     std::vector<braft::Node*> nodes;
     cluster.followers(&nodes);
-    ASSERT_EQ(nodes.size(), 2);
     cond.reset(10);
     for (int i = 0; i < 10; i++) {
         butil::IOBuf data;

@@ -51,8 +51,6 @@ ReplicatorOptions::ReplicatorOptions()
 {
 }
 
-const int ERROR_CODE_UNSET_MAGIC = 0x1234;
-
 Replicator::Replicator() 
     : _next_index(0)
     , _consecutive_error_times(0)

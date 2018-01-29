@@ -44,7 +44,7 @@ class LogStorage;
 class StableStorage;
 class SnapshotStorage;
 class SnapshotExecutor;
-struct StopTransferArg;
+class StopTransferArg;
 
 class NodeImpl;
 class NodeTimer : public RepeatedTimerTask {

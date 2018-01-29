@@ -61,57 +61,6 @@ void run_closure_in_bthread_nosig(google::protobuf::Closure* closure,
     }
 }
 
-std::string fileuri2path(const std::string& uri) {
-    std::string path;
-    std::size_t prefix_found = uri.find("file://");
-    if (std::string::npos == prefix_found) {
-        if (std::string::npos == uri.find("://")) {
-            path = uri;
-        }
-    } else {
-        // file://data -> data
-        // file://./data/log -> data/log
-        // file://data/log -> data/log
-        // file://1.2.3.4:5678/data/log -> data/log
-        // file://www.baidu.com:80/data/log -> data/log
-        butil::EndPoint addr;
-        if (0 != fileuri_parse(uri, &addr, &path)) {
-            std::size_t cursor = prefix_found + strlen("file://");
-            path.assign(uri, cursor, uri.size() - cursor);
-        }
-    }
-
-    return path;
-}
-
-int fileuri_parse(const std::string& uri, butil::EndPoint* addr, std::string* path) {
-    std::size_t prefix_found = uri.find("file://");
-    if (std::string::npos == prefix_found) {
-        return EINVAL;
-    }
-
-    std::size_t path_found = uri.find("/", prefix_found + strlen("file://") + 1);
-    if (std::string::npos == path_found) {
-        return EINVAL;
-    }
-
-    std::size_t addr_found = prefix_found + strlen("file://");
-    std::string addr_str;
-    addr_str.assign(uri, addr_found, path_found - addr_found);
-    path->clear();
-    // skip first /
-    path->assign(uri, path_found + 1, uri.size() - (path_found + 1));
-
-    if (0 != butil::str2endpoint(addr_str.c_str(), addr) &&
-        //            ^^^ Put str2endpoint in front as it's much faster than
-        //            hostname2endpoint
-        0 != butil::hostname2endpoint(addr_str.c_str(), addr)) {
-        return EINVAL;
-    }
-
-    return 0;
-}
-
 ssize_t file_pread(butil::IOPortal* portal, int fd, off_t offset, size_t size) {
     off_t orig_offset = offset;
     ssize_t left = size;

@@ -120,10 +120,6 @@ struct RunClosureInBthreadNoSig {
     }
 };
 
-std::string fileuri2path(const std::string& uri);
-
-int fileuri_parse(const std::string& uri, butil::EndPoint* addr, std::string* path);
-
 ssize_t file_pread(butil::IOPortal* portal, int fd, off_t offset, size_t size);
 
 ssize_t file_pwrite(const butil::IOBuf& data, int fd, off_t offset);
@@ -162,8 +158,8 @@ private:
     uint32_t _seg_len;
 };
 
-// A special braft::Closure which provides synchronization primitives
-class SynchronizedClosure : public braft::Closure {
+// A special Closure which provides synchronization primitives
+class SynchronizedClosure : public Closure {
 public:
     SynchronizedClosure() : _event(1) {}
 

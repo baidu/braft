@@ -71,47 +71,6 @@ TEST_F(TestUsageSuits, murmurhash) {
     free(data);
 }
 
-TEST_F(TestUsageSuits, fileuri) {
-    {
-        ASSERT_EQ(braft::fileuri2path("./data/log"), std::string("./data/log"));
-    }
-
-    {
-        ASSERT_EQ(braft::fileuri2path("file://data/log"), std::string("data/log"));
-        ASSERT_EQ(braft::fileuri2path("file://data"), std::string("data"));
-        ASSERT_EQ(braft::fileuri2path("file://./data/log"), std::string("./data/log"));
-        ASSERT_EQ(braft::fileuri2path("file://./data"), std::string("./data"));
-
-        ASSERT_EQ(braft::fileuri2path("file://1.2.3.4:80/data/log"), std::string("data/log"));
-        ASSERT_EQ(braft::fileuri2path("file://1.2.3.4:80/data"), std::string("data"));
-        ASSERT_EQ(braft::fileuri2path("file://1.2.3.4:80//data/log"), std::string("/data/log"));
-        ASSERT_EQ(braft::fileuri2path("file://1.2.3.4:80//data"), std::string("/data"));
-
-        ASSERT_EQ(braft::fileuri2path("file://www.baidu.com:80/data/log"), std::string("data/log"));
-        ASSERT_EQ(braft::fileuri2path("file://www.baidu.com:80/data"), std::string("data"));
-        ASSERT_EQ(braft::fileuri2path("file://www.baidu.com:80//data/log"), std::string("/data/log"));
-        ASSERT_EQ(braft::fileuri2path("file://www.baidu.com:80//data"), std::string("/data"));
-    }
-
-    {
-        int ret = 0;
-        butil::EndPoint addr;
-        std::string path;
-
-        ret = braft::fileuri_parse("./a/b/c", &addr, &path);
-        ASSERT_NE(ret, 0);
-
-        std::string uri("file://127.0.0.1:1000/a/b/c");
-        ret = braft::fileuri_parse(uri, &addr, &path);
-        ASSERT_EQ(ret, 0);
-        butil::EndPoint point;
-        butil::str2endpoint("127.0.0.1:1000", &point);
-        ASSERT_EQ(ret, 0);
-        ASSERT_EQ(point, addr);
-        ASSERT_EQ(path, "a/b/c");
-    }
-}
-
 TEST_F(TestUsageSuits, pread_pwrite) {
     int fd = ::open("./pread_pwrite.data", O_CREAT | O_TRUNC | O_RDWR, 0644);
 

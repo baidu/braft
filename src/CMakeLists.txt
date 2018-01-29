@@ -15,6 +15,7 @@ set_property(TARGET ${OBJ_LIB} PROPERTY POSITION_INDEPENDENT_CODE 1)
 add_library(braft-shared SHARED $<TARGET_OBJECTS:OBJ_LIB>)
 add_library(braft-static STATIC $<TARGET_OBJECTS:OBJ_LIB>)
 target_link_libraries(braft-shared ${DYNAMIC_LIB})
+target_link_libraries(braft-static ${DYNAMIC_LIB})
 
 SET_TARGET_PROPERTIES(braft-static PROPERTIES OUTPUT_NAME braft CLEAN_DIRECT_OUTPUT 1)
 SET_TARGET_PROPERTIES(braft-shared PROPERTIES OUTPUT_NAME braft CLEAN_DIRECT_OUTPUT 1)

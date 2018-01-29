@@ -38,7 +38,7 @@ if ((NOT GFLAGS_INCLUDE_PATH) OR (NOT GFLAGS_LIB))
 endif()
 
 find_path(BRPC_INCLUDE_PATH NAMES brpc/server.h)
-find_library(BRPC_LIB NAMES libbrpc.a)
+find_library(BRPC_LIB NAMES libbrpc.a brpc)
 if ((NOT BRPC_INCLUDE_PATH) OR (NOT BRPC_LIB))
     message(FATAL_ERROR "Fail to find brpc")
 endif()
@@ -56,11 +56,11 @@ include_directories(
         )
 
 set(DYNAMIC_LIB
+    ${BRPC_LIB}
     ${GFLAGS_LIB}
     ${PROTOBUF_LIBRARY}
     ${LEVELDB_LIB}
     ${CMAKE_THREAD_LIBS_INIT}
-    ${BRPC_LIB}
     rt
     ssl
     crypto

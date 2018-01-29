@@ -320,6 +320,7 @@ TEST_F(LogManagerTest, append_with_the_same_index) {
         entry->Release();
     }
     lm->set_applied_id(braft::LogId(N, 2));
+    usleep(100 * 1000l);
 
     for (size_t i = 0; i < N; ++i) {
         ASSERT_EQ(1u, saved_entries0[i]->ref_count_);

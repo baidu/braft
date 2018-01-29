@@ -34,7 +34,7 @@ class LogManager;
 class StateMachine;
 class SnapshotMeta;
 class OnErrorClousre;
-class LogEntry;
+struct LogEntry;
 class LeaderChangeContext;
 
 // Backing implementation of Iterator
