@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 2.8.10)
 project(counter C CXX)
 
 option(EXAMPLE_LINK_SO "Whether examples are linked dynamically" OFF)
+option(LINK_TCMALLOC "Link tcmalloc if possible" ON)
 
 execute_process(
     COMMAND bash -c "find ${CMAKE_SOURCE_DIR}/../.. -type d -path \"*output/include/braft\" | xargs dirname | xargs dirname | tr -d '\n'"
@@ -62,8 +63,19 @@ if(${GFLAGS_NS} STREQUAL "GFLAGS_NAMESPACE")
         OUTPUT_VARIABLE GFLAGS_NS
     )
 endif()
-set(CMAKE_CPP_FLAGS "-DGFLAGS_NS=${GFLAGS_NS}")
-set(CMAKE_CXX_FLAGS "${CMAKE_CPP_FLAGS} -DNDEBUG -O2 -D__const__= -pipe -W -Wall -Wno-unused-parameter -fPIC -fno-omit-frame-pointer")
+
+if (LINK_TCMALLOC)
+    find_path(GPERFTOOLS_INCLUDE_DIR NAMES gperftools/heap-profiler.h)
+    find_library(GPERFTOOLS_LIBRARIES NAMES tcmalloc_and_profiler)
+    if (GPERFTOOLS_INCLUDE_DIR AND GPERFTOOLS_LIBRARIES)
+        set(CMAKE_CXX_FLAGS "-DBRPC_ENABLE_CPU_PROFILER")
+        include_directories(${GPERFTOOLS_INCLUDE_DIR})
+    else ()
+        set (GPERFTOOLS_LIBRARIES "")
+    endif ()
+endif ()
+
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${CMAKE_CPP_FLAGS} -DNDEBUG -O2 -D__const__= -pipe -W -Wall -Wno-unused-parameter -fPIC -fno-omit-frame-pointer")
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     # require at least gcc 4.8
     if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 4.8)
@@ -104,6 +116,7 @@ set(DYNAMIC_LIB
     ${CMAKE_THREAD_LIBS_INIT}
     ${GFLAGS_LIBRARY}
     ${PROTOBUF_LIBRARY}
+    ${GPERFTOOLS_LIBRARIES}
     ${LEVELDB_LIB}
     ${BRAFT_LIB}
     ${BRPC_LIB}
