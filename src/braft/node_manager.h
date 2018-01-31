@@ -66,8 +66,8 @@ private:
     // TODO(chenzhangyi01): replace std::map with FlatMap
     // To make implementation simplicity, we use two maps here, although
     // it works practically with only one GroupMap
-    typedef std::map<NodeId, NodeImpl*> NodeMap;
-    typedef std::multimap<GroupId, NodeImpl*> GroupMap;
+    typedef std::map<NodeId, scoped_refptr<NodeImpl> > NodeMap;
+    typedef std::multimap<GroupId, NodeImpl* > GroupMap;
     struct Maps {
         NodeMap node_map;
         GroupMap group_map;

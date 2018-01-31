@@ -19,6 +19,10 @@
 #include "braft/enum.pb.h"
 #include "braft/errno.pb.h"
 
+namespace braft {
+extern bvar::Adder<int64_t> g_num_nodes;
+}
+
 class MockFSM : public braft::StateMachine {
 public:
     MockFSM(const butil::EndPoint& address_)
@@ -302,7 +306,7 @@ public:
             if (node) {
                 return;
             } else {
-                sleep(1);
+                usleep(100 * 1000);
             }
         }
     }
@@ -319,7 +323,7 @@ CHECK:
 
         return;
 WAIT:
-        sleep(1);
+        usleep(100 * 1000);
         goto CHECK;
     }
 
@@ -418,9 +422,15 @@ protected:
     void SetUp() {
         //logging::FLAGS_verbose = 90;
         ::system("rm -rf data");
+        ASSERT_EQ(0, braft::g_num_nodes.get_value());
     }
     void TearDown() {
         ::system("rm -rf data");
+        // Sleep for a while to wait all timer has stopped
+        if (braft::g_num_nodes.get_value() != 0) {
+            usleep(1000 * 1000);
+            ASSERT_EQ(0, braft::g_num_nodes.get_value());
+        }
     }
 };
 
@@ -486,8 +496,6 @@ TEST_F(RaftTestSuits, SingleNode) {
 
     braft::Node node("unittest", peer);
     ASSERT_EQ(0, node.init(options));
-
-    sleep(2);
 
     bthread::CountdownEvent cond(10);
     for (int i = 0; i < 10; i++) {
@@ -2424,8 +2432,9 @@ TEST_F(RaftTestSuits, read_committed_user_log) {
     std::vector<braft::Node*> followers;
     cluster.followers(&followers);
     braft::PeerId follower_test = followers[0]->node_id().peer_id;
+    cond.reset(1);
     leader->remove_peer(peers, follower_test, NEW_REMOVEPEERCLOSURE(&cond, 0));
-    sleep(2);
+    cond.wait();
     std::vector<braft::PeerId> new_peers;
     for (int i = 0; i < 3; i++) {
         braft::PeerId peer;
@@ -2437,8 +2446,9 @@ TEST_F(RaftTestSuits, read_committed_user_log) {
             new_peers.push_back(peer);
         }
     }
+    cond.reset(1);
     leader->add_peer(new_peers, follower_test, NEW_REMOVEPEERCLOSURE(&cond, 0));
-    sleep(2);
+    cond.wait();
 
     // apply something again
     cond.reset(10);

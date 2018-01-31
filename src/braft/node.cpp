@@ -36,7 +36,12 @@
 
 namespace braft {
 
+#ifndef UNIT_TEST
 static bvar::Adder<int64_t> g_num_nodes("raft_node_count");
+#else
+// Unit tests should check this value
+bvar::Adder<int64_t> g_num_nodes("raft_node_count");
+#endif
 
 class ConfigurationChangeDone : public Closure {
 public:

@@ -22,11 +22,9 @@
 
 namespace braft {
 
-NodeManager::NodeManager() {
-}
+NodeManager::NodeManager() {}
 
-NodeManager::~NodeManager() {
-}
+NodeManager::~NodeManager() {}
 
 bool NodeManager::server_exists(butil::EndPoint addr) {
     BAIDU_SCOPED_LOCK(_mutex);
@@ -95,18 +93,22 @@ size_t NodeManager::_add_node(Maps& m, const NodeImpl* node) {
 }
 
 size_t NodeManager::_remove_node(Maps& m, const NodeImpl* node) {
-    if (m.node_map.erase(node->node_id()) != 0) {
-        std::pair<GroupMap::iterator, GroupMap::iterator> 
-                range = m.group_map.equal_range(node->node_id().group_id);
-        for (GroupMap::iterator it = range.first; it != range.second; ++it) {
-            if (it->second == node) {
-                m.group_map.erase(it);
-                return 1;
-            }
-        }
-        CHECK(false) << "Can't reach here";
+    NodeMap::iterator iter = m.node_map.find(node->node_id());
+    if (iter == m.node_map.end() || iter->second.get() != node) {
+                                  // ^^
+                                  // Avoid duplicated nodes
         return 0;
     }
+    m.node_map.erase(iter);
+    std::pair<GroupMap::iterator, GroupMap::iterator> 
+            range = m.group_map.equal_range(node->node_id().group_id);
+    for (GroupMap::iterator it = range.first; it != range.second; ++it) {
+        if (it->second == node) {
+            m.group_map.erase(it);
+            return 1;
+        }
+    }
+    CHECK(false) << "Can't reach here";
     return 0;
 }
 

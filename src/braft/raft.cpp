@@ -93,6 +93,8 @@ Node::Node(const GroupId& group_id, const PeerId& peer_id) {
 
 Node::~Node() {
     if (_impl) {
+        _impl->shutdown(NULL);
+        _impl->join();
         _impl->Release();
         _impl = NULL;
     }
