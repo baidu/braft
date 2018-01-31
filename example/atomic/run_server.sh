@@ -36,7 +36,9 @@ eval set -- "${FLAGS_ARGV}"
 # The alias for printing to stderr
 alias error=">&2 echo atomic: "
 
-IP=`hostname -i`
+# hostname prefers ipv6
+IP=`hostname -i | awk '{print $NF}'`
+
 if [ "$FLAGS_valgrind" == "true" ] && [ $(which valgrind) ] ; then
     VALGRIND="valgrind --tool=memcheck --leak-check=full"
 fi
