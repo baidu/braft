@@ -9,8 +9,6 @@ execute_process(
     OUTPUT_VARIABLE OUTPUT_PATH
 )
 
-message("output is " ${OUTPUT_PATH})
-
 set(CMAKE_PREFIX_PATH ${OUTPUT_PATH})
 
 include(FindThreads)
@@ -40,7 +38,6 @@ endif()
 include_directories(${BRPC_INCLUDE_PATH})
 
 find_path(BRAFT_INCLUDE_PATH NAMES braft/raft.h)
-message ("a=" ${BRAFT_INCLUDE_PATH} " b=" ${BRAFT_LIB})
 if ((NOT BRAFT_INCLUDE_PATH) OR (NOT BRAFT_LIB))
     message (FATAL_ERROR "Fail to find braft")
 endif()
