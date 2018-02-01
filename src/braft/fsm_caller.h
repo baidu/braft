@@ -22,7 +22,7 @@
 #include <butil/macros.h>                        // BAIDU_CACHELINE_ALIGNMENT
 #include <bthread/bthread.h>
 #include <bthread/execution_queue.h>
-#include "braft/commitment_manager.h"
+#include "braft/ballot_box.h"
 #include "braft/closure_queue.h"
 #include "braft/macros.h"
 #include "braft/log_entry.h"

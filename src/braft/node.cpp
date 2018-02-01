@@ -100,7 +100,7 @@ NodeImpl::NodeImpl(const GroupId& group_id, const PeerId& peer_id)
     , _config_manager(NULL)
     , _log_manager(NULL)
     , _fsm_caller(NULL)
-    , _commit_manager(NULL)
+    , _ballot_box(NULL)
     , _snapshot_executor(NULL)
     , _stop_transfer_arg(NULL)
     , _vote_triggered(false)
@@ -121,7 +121,7 @@ NodeImpl::NodeImpl()
     , _config_manager(NULL)
     , _log_manager(NULL)
     , _fsm_caller(NULL)
-    , _commit_manager(NULL)
+    , _ballot_box(NULL)
     , _snapshot_executor(NULL)
     , _stop_transfer_arg(NULL)
     , _vote_triggered(false)
@@ -150,9 +150,9 @@ NodeImpl::~NodeImpl() {
         delete _fsm_caller;
         _fsm_caller = NULL;
     }
-    if (_commit_manager) {
-        delete _commit_manager;
-        _commit_manager = NULL;
+    if (_ballot_box) {
+        delete _ballot_box;
+        _ballot_box = NULL;
     }
 
     if (_log_storage) {
@@ -448,13 +448,13 @@ int NodeImpl::init(const NodeOptions& options) {
     }
 
     // commitment manager init
-    _commit_manager = new CommitmentManager();
-    CommitmentManagerOptions commit_manager_options;
-    commit_manager_options.waiter = _fsm_caller;
-    commit_manager_options.closure_queue = _closure_queue;
-    if (_commit_manager->init(commit_manager_options) != 0) {
+    _ballot_box = new BallotBox();
+    BallotBoxOptions ballot_box_options;
+    ballot_box_options.waiter = _fsm_caller;
+    ballot_box_options.closure_queue = _closure_queue;
+    if (_ballot_box->init(ballot_box_options) != 0) {
         LOG(ERROR) << "node " << _group_id << ":" << _server_id
-            << " init _commit_manager failed";
+            << " init _ballot_box failed";
         return -1;
     }
 
@@ -488,7 +488,7 @@ int NodeImpl::init(const NodeOptions& options) {
     rg_options.heartbeat_timeout_ms = heartbeat_timeout(_options.election_timeout_ms);
     rg_options.election_timeout_ms = _options.election_timeout_ms;
     rg_options.log_manager = _log_manager;
-    rg_options.commit_manager = _commit_manager;
+    rg_options.ballot_box = _ballot_box;
     rg_options.node = this;
     rg_options.snapshot_storage = _snapshot_executor
         ?  _snapshot_executor->snapshot_storage()
@@ -1638,7 +1638,7 @@ void NodeImpl::step_down(const int64_t term, bool wakeup_a_candidate,
     } else if (_state <= STATE_TRANSFERING) {
         _stepdown_timer.stop();
 
-        _commit_manager->clear_pending_tasks();
+        _ballot_box->clear_pending_tasks();
 
         // signal fsm leader stop immediately
         if (_state  == STATE_LEADER) {
@@ -1778,7 +1778,7 @@ void NodeImpl::become_leader() {
     }
 
     // init commit manager
-    _commit_manager->reset_pending_index(_log_manager->last_log_index() + 1);
+    _ballot_box->reset_pending_index(_log_manager->last_log_index() + 1);
 
     // Register _conf_ctx to reject configuration changing before the first log
     // is committed.
@@ -1795,26 +1795,26 @@ public:
 private:
     LeaderStableClosure(const NodeId& node_id,
                         size_t nentries,
-                        CommitmentManager* commit_manager);
+                        BallotBox* ballot_box);
     ~LeaderStableClosure() {}
 friend class NodeImpl;
     NodeId _node_id;
     size_t _nentries;
-    CommitmentManager* _commit_manager;
+    BallotBox* _ballot_box;
 };
 
 LeaderStableClosure::LeaderStableClosure(const NodeId& node_id,
                                          size_t nentries,
-                                         CommitmentManager* commit_manager)
-    : _node_id(node_id), _nentries(nentries), _commit_manager(commit_manager)
+                                         BallotBox* ballot_box)
+    : _node_id(node_id), _nentries(nentries), _ballot_box(ballot_box)
 {
 }
 
 void LeaderStableClosure::Run() {
     if (status().ok()) {
-        if (_commit_manager) {
-            // commit_manager check quorum ok, will call fsm_caller
-            _commit_manager->set_stable_at_peer(
+        if (_ballot_box) {
+            // ballot_box check quorum ok, will call fsm_caller
+            _ballot_box->commit_at(
                     _first_log_index, _first_log_index + _nentries - 1, _node_id.peer_id);
         }
     } else {
@@ -1863,13 +1863,13 @@ void NodeImpl::apply(LogEntryAndClosure tasks[], size_t size) {
         entries.push_back(tasks[i].entry);
         entries.back()->id.term = _current_term;
         entries.back()->type = ENTRY_TYPE_DATA;
-        _commit_manager->append_pending_task(_conf.second, tasks[i].done);
+        _ballot_box->append_pending_task(_conf.second, tasks[i].done);
     }
     _log_manager->append_entries(&entries,
                                new LeaderStableClosure(
                                         NodeId(_group_id, _server_id),
                                         entries.size(),
-                                        _commit_manager));
+                                        _ballot_box));
     // update _conf.first
     _log_manager->check_and_set_configuration(&_conf);
 }
@@ -1888,7 +1888,7 @@ void NodeImpl::unsafe_apply_configuration(const Configuration& new_conf,
     // Use the new_conf to deal the quorum of this very log
     std::vector<PeerId> old_peers;
     _conf.second.list_peers(&old_peers);
-    _commit_manager->append_pending_task(new_conf, configuration_change_done);
+    _ballot_box->append_pending_task(new_conf, configuration_change_done);
 
     std::vector<LogEntry*> entries;
     entries.push_back(entry);
@@ -1896,7 +1896,7 @@ void NodeImpl::unsafe_apply_configuration(const Configuration& new_conf,
                                  new LeaderStableClosure(
                                         NodeId(_group_id, _server_id),
                                         1u,
-                                        _commit_manager));
+                                        _ballot_box));
     // update _conf.first
     _log_manager->check_and_set_configuration(&_conf);
 }
@@ -2103,8 +2103,8 @@ private:
                          // untrustable so we can't commit them even if their
                          // indexes are less than request->committed_index()
                         );
-        //_commit_manager is thread safe and tolerats disorder.
-        _node->_commit_manager->set_last_committed_index(committed_index);
+        //_ballot_box is thread safe and tolerats disorder.
+        _node->_ballot_box->set_last_committed_index(committed_index);
     }
 
     brpc::Controller* _cntl;
@@ -2221,7 +2221,7 @@ void NodeImpl::handle_append_entries_request(brpc::Controller* cntl,
         response->set_last_log_index(_log_manager->last_log_index());
         lck.unlock();
         // see the comments at FollowerStableClosure::run()
-        _commit_manager->set_last_committed_index(
+        _ballot_box->set_last_committed_index(
                 std::min(request->committed_index(),
                          prev_log_index));
         return;
@@ -2469,7 +2469,7 @@ void NodeImpl::describe(std::ostream& os, bool use_html) {
 
     _log_manager->describe(os, use_html);
     _fsm_caller->describe(os, use_html);
-    _commit_manager->describe(os, use_html);
+    _ballot_box->describe(os, use_html);
     if (_snapshot_executor) {
         _snapshot_executor->describe(os, use_html);
     }

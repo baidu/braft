@@ -6,11 +6,11 @@
 #include <algorithm>
 #include <gtest/gtest.h>
 #include <butil/string_printf.h>
-#include "braft/commitment_manager.h"
+#include "braft/ballot_box.h"
 #include "braft/configuration.h"
 #include "braft/fsm_caller.h"
 
-class CommitmentManagerTest : public testing::Test {
+class BallotBoxTest : public testing::Test {
 protected:
     void SetUp() {}
     void TearDown() {}
@@ -71,7 +71,7 @@ void benchmark_vector_set(int num_peers) {
               << " set=" << elp_set / counter;
 }
 
-TEST_F(CommitmentManagerTest, benchmark_vector_set) {
+TEST_F(BallotBoxTest, benchmark_vector_set) {
     for (int i = 1; i < 30; ++i) {
         benchmark_vector_set(i);
     }
@@ -89,13 +89,13 @@ private:
     int64_t _committed_index;
 };
 
-TEST_F(CommitmentManagerTest, odd_cluster) {
+TEST_F(BallotBoxTest, odd_cluster) {
     DummyCaller caller;
     braft::ClosureQueue cq(false);
-    braft::CommitmentManagerOptions opt;
+    braft::BallotBoxOptions opt;
     opt.waiter = &caller;
     opt.closure_queue = &cq;
-    braft::CommitmentManager cm;
+    braft::BallotBox cm;
     ASSERT_EQ(0, cm.init(opt));
     ASSERT_EQ(0, cm.reset_pending_index(1));
     std::vector<braft::PeerId> peers;
@@ -110,25 +110,25 @@ TEST_F(CommitmentManagerTest, odd_cluster) {
         ASSERT_EQ(0, cm.append_pending_task(conf, NULL));
     }
 
-    ASSERT_EQ(0, cm.set_stable_at_peer(1, 100, peers[0]));
+    ASSERT_EQ(0, cm.commit_at(1, 100, peers[0]));
     ASSERT_EQ(0, caller.committed_index());
-    ASSERT_EQ(0, cm.set_stable_at_peer(1, 100, peers[0]));
+    ASSERT_EQ(0, cm.commit_at(1, 100, peers[0]));
     ASSERT_EQ(0, caller.committed_index());
-    ASSERT_EQ(0, cm.set_stable_at_peer(1, 50, peers[1]));
+    ASSERT_EQ(0, cm.commit_at(1, 50, peers[1]));
     ASSERT_EQ(50, caller.committed_index());
-    ASSERT_EQ(0, cm.set_stable_at_peer(1, 100, peers[2]));
+    ASSERT_EQ(0, cm.commit_at(1, 100, peers[2]));
     ASSERT_EQ(100, caller.committed_index());
-    ASSERT_NE(0, cm.set_stable_at_peer(
+    ASSERT_NE(0, cm.commit_at(
                         num_tasks + 100, num_tasks + 100, peers[0]));
 }
 
-TEST_F(CommitmentManagerTest, even_cluster) {
+TEST_F(BallotBoxTest, even_cluster) {
     DummyCaller caller;
     braft::ClosureQueue cq(false);
-    braft::CommitmentManagerOptions opt;
+    braft::BallotBoxOptions opt;
     opt.waiter = &caller;
     opt.closure_queue = &cq;
-    braft::CommitmentManager cm;
+    braft::BallotBox cm;
     ASSERT_EQ(0, cm.init(opt));
     ASSERT_EQ(0, cm.reset_pending_index(1));
     std::vector<braft::PeerId> peers;
@@ -143,15 +143,15 @@ TEST_F(CommitmentManagerTest, even_cluster) {
         ASSERT_EQ(0, cm.append_pending_task(conf, NULL));
     }
 
-    ASSERT_EQ(0, cm.set_stable_at_peer(1, 100, peers[0]));
+    ASSERT_EQ(0, cm.commit_at(1, 100, peers[0]));
     ASSERT_EQ(0, caller.committed_index());
-    ASSERT_EQ(0, cm.set_stable_at_peer(1, 100, peers[0]));
+    ASSERT_EQ(0, cm.commit_at(1, 100, peers[0]));
     ASSERT_EQ(0, caller.committed_index());
-    ASSERT_EQ(0, cm.set_stable_at_peer(1, 50, peers[1]));
+    ASSERT_EQ(0, cm.commit_at(1, 50, peers[1]));
     ASSERT_EQ(0, caller.committed_index());
-    ASSERT_EQ(0, cm.set_stable_at_peer(1, 100, peers[2]));
+    ASSERT_EQ(0, cm.commit_at(1, 100, peers[2]));
     ASSERT_EQ(50, caller.committed_index());
-    ASSERT_EQ(0, cm.set_stable_at_peer(1, 100, peers[3]));
+    ASSERT_EQ(0, cm.commit_at(1, 100, peers[3]));
     ASSERT_EQ(100, caller.committed_index());
 }
 

@@ -17,14 +17,14 @@
 #include <butil/scoped_lock.h>
 #include <bvar/latency_recorder.h>
 #include <bthread/unstable.h>
-#include "braft/commitment_manager.h"
+#include "braft/ballot_box.h"
 #include "braft/util.h"
 #include "braft/fsm_caller.h"
 #include "braft/closure_queue.h"
 
 namespace braft {
 
-CommitmentManager::CommitmentManager()
+BallotBox::BallotBox()
     : _waiter(NULL)
     , _closure_queue(NULL)
     , _last_committed_index(0)
@@ -32,11 +32,11 @@ CommitmentManager::CommitmentManager()
 {
 }
 
-CommitmentManager::~CommitmentManager() {
+BallotBox::~BallotBox() {
     clear_pending_tasks();
 }
 
-int CommitmentManager::init(const CommitmentManagerOptions &options) {
+int BallotBox::init(const BallotBoxOptions &options) {
     if (options.waiter == NULL || options.closure_queue == NULL) {
         LOG(ERROR) << "waiter is NULL";
         return EINVAL;
@@ -46,7 +46,7 @@ int CommitmentManager::init(const CommitmentManagerOptions &options) {
     return 0;
 }
 
-int CommitmentManager::set_stable_at_peer(
+int BallotBox::commit_at(
         int64_t first_log_index, int64_t last_log_index, const PeerId& peer) {
     // FIXME(chenzhangyi01): The cricital section is unacceptable because it 
     // blocks all the other Replicators and LogManagers
@@ -106,7 +106,7 @@ int CommitmentManager::set_stable_at_peer(
     return 0;
 }
 
-int CommitmentManager::clear_pending_tasks() {
+int BallotBox::clear_pending_tasks() {
     std::deque<PendingMeta> saved_meta;
     {
         BAIDU_SCOPED_LOCK(_mutex);
@@ -117,7 +117,7 @@ int CommitmentManager::clear_pending_tasks() {
     return 0;
 }
 
-int CommitmentManager::reset_pending_index(int64_t new_pending_index) {
+int BallotBox::reset_pending_index(int64_t new_pending_index) {
     BAIDU_SCOPED_LOCK(_mutex);
     CHECK(_pending_index == 0 && _pending_meta_queue.empty())
         << "pending_index " << _pending_index << " pending_meta_queue " 
@@ -129,7 +129,7 @@ int CommitmentManager::reset_pending_index(int64_t new_pending_index) {
     return 0;
 }
 
-int CommitmentManager::append_pending_task(const Configuration& conf, Closure* closure) {
+int BallotBox::append_pending_task(const Configuration& conf, Closure* closure) {
     if (conf.empty()) {
         CHECK(false) << "Empty configuration";
         return -1;
@@ -153,7 +153,7 @@ int CommitmentManager::append_pending_task(const Configuration& conf, Closure* c
     return 0;
 }
 
-int CommitmentManager::set_last_committed_index(int64_t last_committed_index) {
+int BallotBox::set_last_committed_index(int64_t last_committed_index) {
     // FIXME: it seems that lock is not necessary here
     std::unique_lock<raft_mutex_t> lck(_mutex);
     if (_pending_index != 0 || !_pending_meta_queue.empty()) {
@@ -174,7 +174,7 @@ int CommitmentManager::set_last_committed_index(int64_t last_committed_index) {
     return 0;
 }
 
-void CommitmentManager::describe(std::ostream& os, bool use_html) {
+void BallotBox::describe(std::ostream& os, bool use_html) {
     std::unique_lock<raft_mutex_t> lck(_mutex);
     int64_t committed_index = _last_committed_index;
     int64_t pending_index = 0;

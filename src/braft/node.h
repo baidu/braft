@@ -28,7 +28,7 @@
 
 #include "braft/raft.h"
 #include "braft/log_manager.h"
-#include "braft/commitment_manager.h"
+#include "braft/ballot_box.h"
 #include "braft/storage.h"
 #include "braft/raft_service.h"
 #include "braft/fsm_caller.h"
@@ -342,7 +342,7 @@ private:
     ConfigurationManager* _config_manager;
     LogManager* _log_manager;
     FSMCaller* _fsm_caller;
-    CommitmentManager* _commit_manager;
+    BallotBox* _ballot_box;
     SnapshotExecutor* _snapshot_executor;
     ReplicatorGroup _replicator_group;
     std::vector<Closure*> _shutdown_continuations;

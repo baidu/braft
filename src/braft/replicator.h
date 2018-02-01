@@ -31,7 +31,7 @@
 namespace braft {
 
 class LogManager;
-class CommitmentManager;
+class BallotBox;
 class NodeImpl;
 
 struct ReplicatorOptions {
@@ -42,7 +42,7 @@ struct ReplicatorOptions {
     PeerId server_id;
     PeerId peer_id;
     LogManager* log_manager;
-    CommitmentManager* commit_manager;
+    BallotBox* ballot_box;
     NodeImpl *node;
     int64_t term;
     SnapshotStorage* snapshot_storage;
@@ -204,7 +204,7 @@ struct ReplicatorGroupOptions {
     int heartbeat_timeout_ms;
     int election_timeout_ms;
     LogManager* log_manager;
-    CommitmentManager* commit_manager;
+    BallotBox* ballot_box;
     NodeImpl* node;
     SnapshotStorage* snapshot_storage;
 };

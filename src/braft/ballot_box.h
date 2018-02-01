@@ -14,8 +14,8 @@
 
 // Authors: Zhangyi Chen(chenzhangyi01@baidu.com)
 
-#ifndef  BRAFT_COMMITMENT_MANAGER_H
-#define  BRAFT_COMMITMENT_MANAGER_H
+#ifndef  BRAFT_BALLOT_BOX_H
+#define  BRAFT_BALLOT_BOX_H
 
 #include <stdint.h>                             // int64_t
 #include <set>                                  // std::set
@@ -29,8 +29,8 @@ namespace braft {
 class FSMCaller;
 class ClosureQueue;
 
-struct CommitmentManagerOptions {
-    CommitmentManagerOptions() 
+struct BallotBoxOptions {
+    BallotBoxOptions() 
         : waiter(NULL)
         , closure_queue(NULL)
     {}
@@ -38,17 +38,17 @@ struct CommitmentManagerOptions {
     ClosureQueue* closure_queue;
 };
 
-class CommitmentManager {
+class BallotBox {
 public:
-    CommitmentManager();
-    ~CommitmentManager();
+    BallotBox();
+    ~BallotBox();
 
-    int init(const CommitmentManagerOptions& options);
+    int init(const BallotBoxOptions& options);
 
     // Called by leader, otherwise the behavior is undefined
     // Set logs in [first_log_index, last_log_index] are stable at |peer|.
-    int set_stable_at_peer(
-            int64_t first_log_index, int64_t last_log_index, const PeerId& peer);
+    int commit_at(int64_t first_log_index, int64_t last_log_index,
+                  const PeerId& peer);
 
     // Called when the leader steps down, otherwise the behavior is undefined
     // When a leader steps down, the uncommitted user applications should 
@@ -108,4 +108,4 @@ private:
 
 }  //  namespace braft
 
-#endif  //BRAFT_COMMITMENT_MANAGER_H
+#endif  //BRAFT_BALLOT_BOX_H

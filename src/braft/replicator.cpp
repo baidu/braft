@@ -25,7 +25,7 @@
 #include <brpc/reloadable_flags.h>         // BRPC_VALIDATE_GFLAG
 
 #include "braft/node.h"                          // NodeImpl
-#include "braft/commitment_manager.h"            // CommitmentManager
+#include "braft/ballot_box.h"            // BallotBox 
 #include "braft/log_entry.h"                     // LogEntry
 
 namespace braft {
@@ -44,7 +44,7 @@ static bvar::LatencyRecorder g_normalized_send_entries_latency("raft_send_entrie
 ReplicatorOptions::ReplicatorOptions()
     : dynamic_heartbeat_timeout_ms(NULL)
     , log_manager(NULL)
-    , commit_manager(NULL)
+    , ballot_box(NULL)
     , node(NULL)
     , term(0)
     , snapshot_storage(NULL)
@@ -84,7 +84,7 @@ Replicator::~Replicator() {
 }
 
 int Replicator::start(const ReplicatorOptions& options, ReplicatorId *id) {
-    if (options.log_manager == NULL || options.commit_manager == NULL
+    if (options.log_manager == NULL || options.ballot_box == NULL
             || options.node == NULL) {
         LOG(ERROR) << "Invalid arguments";
         return -1;
@@ -381,7 +381,7 @@ void Replicator::_on_rpc_returned(ReplicatorId id, brpc::Controller* cntl,
                                    << r->_next_index + entries_size - 1
                                    << "] to peer " << r->_options.peer_id;
     if (entries_size > 0) {
-        r->_options.commit_manager->set_stable_at_peer(
+        r->_options.ballot_box->commit_at(
                 r->_next_index, r->_next_index + entries_size - 1,
                 r->_options.peer_id);
         g_send_entries_latency << cntl->latency_us();
@@ -425,7 +425,7 @@ int Replicator::_fill_common_fields(AppendEntriesRequest* request,
     request->set_peer_id(_options.peer_id.to_string());
     request->set_prev_log_index(prev_log_index);
     request->set_prev_log_term(prev_log_term);
-    request->set_committed_index(_options.commit_manager->last_committed_index());
+    request->set_committed_index(_options.ballot_box->last_committed_index());
     return 0;
 }
 
@@ -985,7 +985,7 @@ ReplicatorGroupOptions::ReplicatorGroupOptions()
     : heartbeat_timeout_ms(-1)
     , election_timeout_ms(-1)
     , log_manager(NULL)
-    , commit_manager(NULL)
+    , ballot_box(NULL)
     , node(NULL)
     , snapshot_storage(NULL)
 {}
@@ -1006,7 +1006,7 @@ int ReplicatorGroup::init(const NodeId& node_id, const ReplicatorGroupOptions& o
     _dynamic_timeout_ms = options.heartbeat_timeout_ms;
     _election_timeout_ms = options.election_timeout_ms;
     _common_options.log_manager = options.log_manager;
-    _common_options.commit_manager = options.commit_manager;
+    _common_options.ballot_box = options.ballot_box;
     _common_options.node = options.node;
     _common_options.term = 0;
     _common_options.group_id = node_id.group_id;
