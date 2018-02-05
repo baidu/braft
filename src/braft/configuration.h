@@ -185,6 +185,10 @@ public:
         }
     }
 
+    void append_peers(std::set<PeerId>* peers) {
+        peers->insert(_peers.begin(), _peers.end());
+    }
+
     // Add a peer.
     // Returns true if the peer is newly added.
     bool add_peer(const PeerId& peer) {
@@ -222,6 +226,20 @@ public:
             peer_set.insert(peers[i]);
         }
         return peer_set.size() == _peers.size();
+    }
+
+    bool equals(const Configuration& rhs) const {
+        if (size() != rhs.size()) {
+            return false;
+        }
+        // The cost of the following routine is O(nlogn), which is not the best
+        // approach.
+        for (const_iterator iter = begin(); iter != end(); ++iter) {
+            if (!rhs.contains(*iter)) {
+                return false;
+            }
+        }
+        return true;
     }
     
     // Get the difference between |*this| and |rhs|

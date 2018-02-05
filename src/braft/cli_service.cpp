@@ -89,7 +89,7 @@ void CliServiceImpl::add_peer(::google::protobuf::RpcController* controller,
     Closure* add_peer_done = NewCallback(
             add_peer_returned, cntl, request, response, peers, node,
             done_guard.release());
-    return node->add_peer(peers, adding_peer, add_peer_done);
+    return node->add_peer(adding_peer, add_peer_done);
 }
 
 static void remove_peer_returned(brpc::Controller* cntl,
@@ -153,7 +153,7 @@ void CliServiceImpl::remove_peer(::google::protobuf::RpcController* controller,
     Closure* remove_peer_done = NewCallback(
             remove_peer_returned, cntl, request, response, peers, node,
             done_guard.release());
-    return node->remove_peer(peers, removing_peer, remove_peer_done);
+    return node->remove_peer(removing_peer, remove_peer_done);
 }
 
 void CliServiceImpl::set_peer(::google::protobuf::RpcController* controller,
@@ -168,17 +168,19 @@ void CliServiceImpl::set_peer(::google::protobuf::RpcController* controller,
         cntl->SetFailed(st.error_code(), "%s", st.error_cstr());
         return;
     }
-    std::vector<PeerId> old_peers;
-    for (int i = 0; i < request->old_peers_size(); ++i) {
-        old_peers.push_back(request->old_peers(i));
-    }
-    std::vector<PeerId> new_peers;
+    Configuration new_peers;
     for (int i = 0; i < request->new_peers_size(); ++i) {
-        new_peers.push_back(request->new_peers(i));
+        PeerId peer;
+        if (peer.parse(request->new_peers(i)) != 0) {
+            cntl->SetFailed(EINVAL, "Fail to parse %s",
+                                    request->new_peers(i).c_str());
+            return;
+        }
+        new_peers.add_peer(peer);
     }
     LOG(WARNING) << "Receive set_peer to " << node->node_id()
                  << " from " << cntl->remote_side();
-    st = node->set_peer2(old_peers, new_peers);
+    st = node->reset_peers(new_peers);
     if (!st.ok()) {
         cntl->SetFailed(st.error_code(), "%s", st.error_cstr());
     }

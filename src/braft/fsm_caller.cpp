@@ -254,8 +254,11 @@ void FSMCaller::do_committed(int64_t committed_index) {
     for (; iter_impl.is_good();) {
         if (iter_impl.entry()->type != ENTRY_TYPE_DATA) {
             if (iter_impl.entry()->type == ENTRY_TYPE_CONFIGURATION) {
-                _fsm->on_configuration_committed(
-                        Configuration(*iter_impl.entry()->peers));
+                if (iter_impl.entry()->old_peers != NULL) {
+                    // Joint stage is not supposed to be noticable by end users.
+                    _fsm->on_configuration_committed(
+                            Configuration(*iter_impl.entry()->peers));
+                }
             }
             // For other entries, we have nothing to do besides flush the
             // pending tasks and run this closure to notify the caller that the
@@ -301,12 +304,17 @@ void FSMCaller::do_snapshot_save(SaveSnapshotClosure* done) {
     SnapshotMeta meta;
     meta.set_last_included_index(last_applied_index);
     meta.set_last_included_term(_last_applied_term);
-    ConfigurationPair conf_pair;
-    _log_manager->get_configuration(last_applied_index, &conf_pair);
-    std::vector<PeerId> peers;
-    conf_pair.second.list_peers(&peers);
-    for (size_t i = 0; i < peers.size(); ++i) {
-        *meta.add_peers() = peers[i].to_string();
+    ConfigurationEntry conf_entry;
+    _log_manager->get_configuration(last_applied_index, &conf_entry);
+    for (Configuration::const_iterator
+            iter = conf_entry.conf.begin();
+            iter != conf_entry.conf.end(); ++iter) { 
+        *meta.add_peers() = iter->to_string();
+    }
+    for (Configuration::const_iterator
+            iter = conf_entry.old_conf.begin();
+            iter != conf_entry.old_conf.end(); ++iter) { 
+        *meta.add_old_peers() = iter->to_string();
     }
 
     SnapshotWriter* writer = done->start(meta);
@@ -376,11 +384,14 @@ void FSMCaller::do_snapshot_load(LoadSnapshotClosure* done) {
         return;
     }
 
-    Configuration conf;
-    for (int i = 0; i < meta.peers_size(); ++i) {
-        conf.add_peer(meta.peers(i));
+    if (meta.old_peers_size() == 0) {
+        // Joint stage is not supposed to be noticable by end users.
+        Configuration conf;
+        for (int i = 0; i < meta.peers_size(); ++i) {
+            conf.add_peer(meta.peers(i));
+        }
+        _fsm->on_configuration_committed(conf);
     }
-    _fsm->on_configuration_committed(conf);
 
     _last_applied_index.store(meta.last_included_index(),
                               butil::memory_order_release);

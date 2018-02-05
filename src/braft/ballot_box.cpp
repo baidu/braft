@@ -63,22 +63,11 @@ int BallotBox::commit_at(
 
     int64_t last_committed_index = 0;
     const int64_t start_at = std::max(_pending_index, first_log_index);
-    size_t pos_hint = 0;
+    Ballot::PosHint pos_hint;
     for (int64_t log_index = start_at; log_index <= last_log_index; ++log_index) {
-        PendingMeta &pm = _pending_meta_queue[log_index - _pending_index];
-        std::vector<UnfoundPeerId>::iterator iter;
-        if (pos_hint < pm.peers.size() && pm.peers[pos_hint] == peer) {
-            // For most time peers are all the same
-            iter = pm.peers.begin() + pos_hint;
-        } else {
-            iter = std::find(pm.peers.begin(), pm.peers.end(), peer);
-            pos_hint = iter - pm.peers.begin();
-        }
-        if (iter == pm.peers.end() || iter->found) {
-            continue;
-        }
-        iter->found = true;
-        if (--pm.quorum == 0) {
+        Ballot& bl = _pending_meta_queue[log_index - _pending_index];
+        pos_hint = bl.grant(peer, pos_hint);
+        if (bl.granted()) {
             last_committed_index = log_index;
         }
     }
@@ -99,7 +88,7 @@ int BallotBox::commit_at(
     }
    
     _pending_index = last_committed_index + 1;
-    _last_committed_index.store(last_committed_index, butil::memory_order_release);
+    _last_committed_index.store(last_committed_index, butil::memory_order_relaxed);
     lck.unlock();
     // The order doesn't matter
     _waiter->on_committed(last_committed_index);
@@ -107,7 +96,7 @@ int BallotBox::commit_at(
 }
 
 int BallotBox::clear_pending_tasks() {
-    std::deque<PendingMeta> saved_meta;
+    std::deque<Ballot> saved_meta;
     {
         BAIDU_SCOPED_LOCK(_mutex);
         saved_meta.swap(_pending_meta_queue);
@@ -129,26 +118,18 @@ int BallotBox::reset_pending_index(int64_t new_pending_index) {
     return 0;
 }
 
-int BallotBox::append_pending_task(const Configuration& conf, Closure* closure) {
-    if (conf.empty()) {
-        CHECK(false) << "Empty configuration";
+int BallotBox::append_pending_task(const Configuration& conf, const Configuration* old_conf,
+                                   Closure* closure) {
+    Ballot bl;
+    if (bl.init(conf, old_conf) != 0) {
+        CHECK(false) << "Fail to init ballot";
         return -1;
     }
-    PendingMeta pm;
-    std::vector<PeerId> peers;
-    conf.list_peers(&peers);
-    pm.peers.reserve(peers.size());
-    for (size_t i = 0; i < peers.size(); ++i) {
-        UnfoundPeerId up;
-        up.peer_id = peers[i];
-        up.found = false;
-        pm.peers.push_back(up);
-    }
-    pm.quorum = pm.peers.size() / 2 + 1;
+
     BAIDU_SCOPED_LOCK(_mutex);
     CHECK(_pending_index > 0);
-    _pending_meta_queue.push_back(PendingMeta());
-    _pending_meta_queue.back().swap(pm);
+    _pending_meta_queue.push_back(Ballot());
+    _pending_meta_queue.back().swap(bl);
     _closure_queue->append_pending_closure(closure);
     return 0;
 }

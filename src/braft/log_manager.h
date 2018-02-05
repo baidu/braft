@@ -99,13 +99,12 @@ public:
     // Return the id the last log.
     LogId last_log_id(bool is_flush = false);
 
-    void get_configuration(const int64_t index, ConfigurationPair* conf);
+    void get_configuration(int64_t index, ConfigurationEntry* conf);
 
     // Check if |current| should be updated to the latest configuration
     // Returns true and |current| is assigned to the lastest configuration, returns
     // false otherweise
-    // FIXME: It's not ABA free
-    bool check_and_set_configuration(ConfigurationPair* current);
+    bool check_and_set_configuration(ConfigurationEntry* current);
 
     // Wait until there are more logs since |last_log_index| and |on_new_log| 
     // would be called after there are new logs or error occurs

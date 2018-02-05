@@ -16,7 +16,7 @@
 #include "braft/snapshot_throttle.h"
 #include "memory_file_system_adaptor.h"
 
-class TestUsageSuits : public testing::Test {
+class SnapshotTest : public testing::Test {
 protected:
     void SetUp() {}
     void TearDown() {}
@@ -32,7 +32,7 @@ protected:
 
 #define FOR_EACH_FILE_SYSTEM_ADAPTOR_END }
 
-TEST_F(TestUsageSuits, writer_and_reader) {
+TEST_F(SnapshotTest, writer_and_reader) {
     braft::FileSystemAdaptor* fs;
     FOR_EACH_FILE_SYSTEM_ADAPTOR_BEGIN(fs);
     
@@ -60,7 +60,6 @@ TEST_F(TestUsageSuits, writer_and_reader) {
     braft::SnapshotMeta meta;
     meta.set_last_included_index(1000);
     meta.set_last_included_term(2);
-    //meta.last_configuration = braft::Configuration(peers);
 
     // normal create writer
     braft::SnapshotWriter* writer = storage->create();
@@ -73,11 +72,6 @@ TEST_F(TestUsageSuits, writer_and_reader) {
     meta.set_last_included_term(2);
     writer = storage->create();
     ASSERT_TRUE(writer != NULL);
-
-    // double create will fail, because flock
-    // lockf only work in multi processes
-    //braft::SnapshotWriter* writer2 = storage->create(meta);
-    //ASSERT_TRUE(writer2 == NULL);
 
     ASSERT_EQ(0, writer->save_meta(meta));
     ASSERT_EQ(0, storage->close(writer));
@@ -117,12 +111,47 @@ TEST_F(TestUsageSuits, writer_and_reader) {
     ASSERT_EQ(meta.last_included_term(), new_meta2.last_included_term());
     storage->close(reader);
 
+    // normal create writer after reinit
+    meta.Clear();
+    meta.set_last_included_index(5000);
+    meta.set_last_included_term(4);
+    for (int i = 1; i <= 3; ++i) {
+        meta.add_peers("127.0.0.1:" + std::to_string(i));
+    }
+    for (int i = 4; i <= 6; ++i) {
+        meta.add_old_peers("127.0.0.1:" + std::to_string(i));
+    }
+    writer = storage->create();
+    ASSERT_TRUE(writer != NULL);
+    ASSERT_EQ(0, writer->save_meta(meta));
+    ASSERT_EQ("./data/temp", writer->get_path());
+    ASSERT_EQ(0, storage->close(writer));
+
+    reader = storage->open();
+    ASSERT_TRUE(reader != NULL);
+    braft::SnapshotMeta new_meta3;
+    ASSERT_EQ(0, reader->load_meta(&new_meta3));
+    ASSERT_EQ(meta.last_included_index(), new_meta3.last_included_index());
+    ASSERT_EQ(meta.last_included_term(), new_meta3.last_included_term());
+    storage->close(reader);
+
+    ASSERT_EQ(new_meta3.peers_size(), meta.peers_size());
+    ASSERT_EQ(new_meta3.old_peers_size(), meta.old_peers_size());
+
+    for (int i = 0; i < new_meta3.peers_size(); ++i) {
+        ASSERT_EQ(new_meta3.peers(i), meta.peers(i));
+    }
+
+    for (int i = 0; i < new_meta3.old_peers_size(); ++i) {
+        ASSERT_EQ(new_meta3.old_peers(i), meta.old_peers(i));
+    }
+
     delete storage;
 
     FOR_EACH_FILE_SYSTEM_ADAPTOR_END;
 }
 
-TEST_F(TestUsageSuits, copy) {
+TEST_F(SnapshotTest, copy) {
     braft::FileSystemAdaptor* fs;
     FOR_EACH_FILE_SYSTEM_ADAPTOR_BEGIN(fs);
 
@@ -187,7 +216,7 @@ TEST_F(TestUsageSuits, copy) {
     FOR_EACH_FILE_SYSTEM_ADAPTOR_END;
 }
 
-TEST_F(TestUsageSuits, file_escapes_directory) {
+TEST_F(SnapshotTest, file_escapes_directory) {
     braft::FileSystemAdaptor* fs;
     FOR_EACH_FILE_SYSTEM_ADAPTOR_BEGIN(fs);
 
@@ -320,7 +349,7 @@ void *write_thread(void* arg) {
     return NULL;
 }
 
-TEST_F(TestUsageSuits, thread_safety) {
+TEST_F(SnapshotTest, thread_safety) {
     braft::FileSystemAdaptor* fs;
     FOR_EACH_FILE_SYSTEM_ADAPTOR_BEGIN(fs);
 
@@ -393,7 +422,7 @@ std::string read_from_file(braft::FileSystemAdaptor* fs, const std::string& path
     return buf.to_string();
 }
 
-TEST_F(TestUsageSuits, filter_before_copy) {
+TEST_F(SnapshotTest, filter_before_copy) {
     braft::FileSystemAdaptor* fs;
     FOR_EACH_FILE_SYSTEM_ADAPTOR_BEGIN(fs);
 
@@ -546,7 +575,7 @@ TEST_F(TestUsageSuits, filter_before_copy) {
     FOR_EACH_FILE_SYSTEM_ADAPTOR_END;
 }
 
-TEST_F(TestUsageSuits, snapshot_throttle_for_reading) {
+TEST_F(SnapshotTest, snapshot_throttle_for_reading) {
     braft::FileSystemAdaptor* fs;
     FOR_EACH_FILE_SYSTEM_ADAPTOR_BEGIN(fs);
 
@@ -623,7 +652,7 @@ TEST_F(TestUsageSuits, snapshot_throttle_for_reading) {
     FOR_EACH_FILE_SYSTEM_ADAPTOR_END;
 }
 
-TEST_F(TestUsageSuits, snapshot_throttle_for_writing) {
+TEST_F(SnapshotTest, snapshot_throttle_for_writing) {
     braft::FileSystemAdaptor* fs;
     FOR_EACH_FILE_SYSTEM_ADAPTOR_BEGIN(fs);
 

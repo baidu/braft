@@ -414,8 +414,13 @@ void LogManager::append_entries(
         // Add ref for disk_thread
         (*entries)[i]->AddRef();
         if ((*entries)[i]->type == ENTRY_TYPE_CONFIGURATION) {
-            _config_manager->add((*entries)[i]->id,
-                                 Configuration(*((*entries)[i]->peers)));
+            ConfigurationEntry conf;
+            conf.id = (*entries)[i]->id;
+            conf.conf = *((*entries)[i]->peers);
+            if (((*entries)[i]->old_peers)) {
+                conf.old_conf = *((*entries)[i]->old_peers);
+            }
+            _config_manager->add(conf);
         }
     }
 
@@ -604,14 +609,19 @@ void LogManager::set_snapshot(const SnapshotMeta* meta) {
     if (meta->last_included_index() <= _last_snapshot_id.index) {
         return;
     }
-    Configuration last_configuration;
+    Configuration conf;
     for (int i = 0; i < meta->peers_size(); ++i) {
-        last_configuration.add_peer(meta->peers(i));
+        conf.add_peer(meta->peers(i));
     }
-
-    _config_manager->set_snapshot(
-            LogId(meta->last_included_index(), meta->last_included_term()), 
-            last_configuration);
+    Configuration old_conf;
+    for (int i = 0; i < meta->old_peers_size(); ++i) {
+        old_conf.add_peer(meta->old_peers(i));
+    }
+    ConfigurationEntry entry;
+    entry.id = LogId(meta->last_included_index(), meta->last_included_term());
+    entry.conf = conf;
+    entry.old_conf = old_conf;
+    _config_manager->set_snapshot(entry);
     int64_t term = unsafe_get_term(meta->last_included_index());
 
     const int64_t saved_last_snapshot_index = _last_snapshot_id.index;
@@ -732,20 +742,20 @@ LogEntry* LogManager::get_entry(const int64_t index) {
     return entry;
 }
 
-void LogManager::get_configuration(const int64_t index, ConfigurationPair* conf) {
+void LogManager::get_configuration(const int64_t index, ConfigurationEntry* conf) {
     BAIDU_SCOPED_LOCK(_mutex);
-    return _config_manager->get_configuration(index, conf);
+    return _config_manager->get(index, conf);
 }
 
-bool LogManager::check_and_set_configuration(ConfigurationPair* current) {
+bool LogManager::check_and_set_configuration(ConfigurationEntry* current) {
     if (current == NULL) {
         CHECK(false) << "current should not be NULL";
         return false;
     }
     BAIDU_SCOPED_LOCK(_mutex);
 
-    const ConfigurationPair& last_conf = _config_manager->last_configuration();
-    if (current->first != last_conf.first) {
+    const ConfigurationEntry& last_conf = _config_manager->last_configuration();
+    if (current->id != last_conf.id) {
         *current = last_conf;
         return true;
     }

@@ -16,7 +16,7 @@
 #include <butil/logging.h>
 #include "braft/log.h"
 
-class TestUsageSuits : public testing::Test {
+class LogStorageTest : public testing::Test {
 protected:
     void SetUp() {
         braft::FLAGS_raft_sync = false;
@@ -24,7 +24,7 @@ protected:
     void TearDown() {}
 };
 
-TEST_F(TestUsageSuits, open_segment) {
+TEST_F(LogStorageTest, open_segment) {
     // open segment operation
     ::system("mkdir data/");
     braft::Segment* seg1 = new braft::Segment("./data", 1L, 0);
@@ -40,6 +40,7 @@ TEST_F(TestUsageSuits, open_segment) {
     // append entry
     for (int i = 0; i < 10; i++) {
         braft::LogEntry* entry = new braft::LogEntry();
+        entry->AddRef();
         entry->type = braft::ENTRY_TYPE_DATA;
         entry->id.term = 1;
         entry->id.index = i + 1;
@@ -138,7 +139,7 @@ TEST_F(TestUsageSuits, open_segment) {
     delete configuration_manager;
 }
 
-TEST_F(TestUsageSuits, closed_segment) {
+TEST_F(LogStorageTest, closed_segment) {
     // open segment operation
     braft::Segment* seg1 = new braft::Segment("./data", 1L, 0);
     ASSERT_EQ(0, seg1->create());
@@ -241,7 +242,7 @@ TEST_F(TestUsageSuits, closed_segment) {
     delete configuration_manager;
 }
 
-TEST_F(TestUsageSuits, multi_segment_and_segment_logstorage) {
+TEST_F(LogStorageTest, multi_segment_and_segment_logstorage) {
     ::system("rm -rf data");
     braft::SegmentLogStorage* storage = new braft::SegmentLogStorage("./data");
 
@@ -396,7 +397,7 @@ TEST_F(TestUsageSuits, multi_segment_and_segment_logstorage) {
     delete storage2;
 }
 
-TEST_F(TestUsageSuits, append_close_load_append) {
+TEST_F(LogStorageTest, append_close_load_append) {
     ::system("rm -rf data");
     braft::LogStorage* storage = new braft::SegmentLogStorage("./data");
     braft::ConfigurationManager* configuration_manager = new braft::ConfigurationManager;
@@ -481,7 +482,7 @@ TEST_F(TestUsageSuits, append_close_load_append) {
     delete configuration_manager;
 }
 
-TEST_F(TestUsageSuits, append_read_badcase) {
+TEST_F(LogStorageTest, append_read_badcase) {
     ::system("rm -rf data");
     braft::LogStorage* storage = new braft::SegmentLogStorage("./data");
     braft::ConfigurationManager* configuration_manager = new braft::ConfigurationManager;
@@ -587,7 +588,7 @@ TEST_F(TestUsageSuits, append_read_badcase) {
     delete configuration_manager;
 }
 
-TEST_F(TestUsageSuits, configuration) {
+TEST_F(LogStorageTest, configuration) {
     ::system("rm -rf data");
     braft::SegmentLogStorage* storage = new braft::SegmentLogStorage("./data");
     braft::ConfigurationManager* configuration_manager = new braft::ConfigurationManager;
@@ -655,22 +656,22 @@ TEST_F(TestUsageSuits, configuration) {
     braft::SegmentLogStorage* storage2 = new braft::SegmentLogStorage("./data");
     ASSERT_EQ(0, storage2->init(configuration_manager));
 
-    braft::ConfigurationPair pair;
-    configuration_manager->get_configuration(2 + 100000*5, &pair);
-    ASSERT_EQ(2, pair.first.index);
-    LOG(NOTICE) << pair.second;
+    braft::ConfigurationEntry pair;
+    configuration_manager->get(2 + 100000*5, &pair);
+    ASSERT_EQ(2, pair.id.index);
+    LOG(NOTICE) << pair.conf;
 
-    configuration_manager->get_configuration(2 + 100000*5 + 1, &pair);
-    ASSERT_EQ(2+100000*5+1, pair.first.index);
-    LOG(NOTICE) << pair.second;
+    configuration_manager->get(2 + 100000*5 + 1, &pair);
+    ASSERT_EQ(2+100000*5+1, pair.id.index);
+    LOG(NOTICE) << pair.conf;
 
     storage2->truncate_suffix(400000);
-    configuration_manager->get_configuration(400000, &pair);
-    ASSERT_EQ(2, pair.first.index);
+    configuration_manager->get(400000, &pair);
+    ASSERT_EQ(2, pair.id.index);
 
     storage2->truncate_prefix(2);
-    configuration_manager->get_configuration(400000, &pair);
-    ASSERT_EQ(2, pair.first.index);
+    configuration_manager->get(400000, &pair);
+    ASSERT_EQ(2, pair.id.index);
 
     delete storage2;
 }
@@ -751,7 +752,7 @@ namespace braft {
 DECLARE_int32(raft_max_segment_size);
 }
 
-TEST_F(TestUsageSuits, multi_read_single_modify_thread_safe) {
+TEST_F(LogStorageTest, multi_read_single_modify_thread_safe) {
     int32_t saved_max_segment_size = braft::FLAGS_raft_max_segment_size;
     braft::FLAGS_raft_max_segment_size = 1024;
     system("rm -rf ./data");
@@ -793,7 +794,7 @@ TEST_F(TestUsageSuits, multi_read_single_modify_thread_safe) {
     braft::FLAGS_raft_max_segment_size = saved_max_segment_size;
 }
 
-TEST_F(TestUsageSuits, large_entry) {
+TEST_F(LogStorageTest, large_entry) {
     system("rm -rf ./data");
     braft::SegmentLogStorage* storage = new braft::SegmentLogStorage("./data");
     braft::ConfigurationManager* configuration_manager = new braft::ConfigurationManager;
@@ -812,7 +813,7 @@ TEST_F(TestUsageSuits, large_entry) {
     entry->Release();
 }
 
-TEST_F(TestUsageSuits, reboot_with_checksum_type_changed) {
+TEST_F(LogStorageTest, reboot_with_checksum_type_changed) {
     system("rm -rf ./data");
     braft::SegmentLogStorage* storage = new braft::SegmentLogStorage("./data");
     braft::ConfigurationManager* configuration_manager = new braft::ConfigurationManager;
@@ -866,5 +867,108 @@ TEST_F(TestUsageSuits, reboot_with_checksum_type_changed) {
     }
     
     delete storage;
+}
+
+TEST_F(LogStorageTest, joint_configuration) {
+    system("rm -rf ./data");
+    braft::ConfigurationManager cm;
+    std::unique_ptr<braft::SegmentLogStorage>
+                log_storage(new braft::SegmentLogStorage("./data"));
+    ASSERT_EQ(0, log_storage->init(&cm));
+    for (int i = 1; i <= 20; ++i) {
+        scoped_refptr<braft::LogEntry> entry = new braft::LogEntry;
+        entry->id = braft::LogId(i, 1);
+        entry->peers = new std::vector<braft::PeerId>;
+        entry->type = braft::ENTRY_TYPE_CONFIGURATION;
+        for (int j = 0; j < 3; ++j) {
+            entry->peers->push_back("127.0.0.1:" + std::to_string(i + j));
+        }
+        entry->old_peers = new std::vector<braft::PeerId>;
+        for (int j = 1; j <= 3; ++j) {
+            entry->old_peers->push_back("127.0.0.1:" + std::to_string(i + j));
+        }
+        ASSERT_EQ(0, log_storage->append_entry(entry));
+    }
+
+    for (int i = 1; i <= 20; ++i) {
+        braft::LogEntry* entry = log_storage->get_entry(i);
+        ASSERT_TRUE(entry != NULL);
+        ASSERT_EQ(entry->type, braft::ENTRY_TYPE_CONFIGURATION);
+        ASSERT_TRUE(entry->peers != NULL);
+        ASSERT_TRUE(entry->old_peers != NULL);
+        braft::Configuration conf;
+        for (int j = 0; j < 3; ++j) {
+            conf.add_peer("127.0.0.1:" + std::to_string(i + j));
+        }
+        braft::Configuration old_conf;
+        for (int j = 1; j <= 3; ++j) {
+            old_conf.add_peer("127.0.0.1:" + std::to_string(i + j));
+        }
+        ASSERT_TRUE(conf.equals(*entry->peers))
+            << conf << " xxxx " << braft::Configuration(*entry->peers);
+                    
+        ASSERT_TRUE(old_conf.equals(*entry->old_peers));
+        entry->Release();
+    }
+
+    // Restart
+    log_storage.reset(new braft::SegmentLogStorage("./data"));
+    ASSERT_EQ(0, log_storage->init(&cm));
+    for (int i = 1; i <= 20; ++i) {
+        braft::LogEntry* entry = log_storage->get_entry(i);
+        ASSERT_TRUE(entry != NULL);
+        ASSERT_EQ(entry->type, braft::ENTRY_TYPE_CONFIGURATION);
+        ASSERT_TRUE(entry->peers != NULL);
+        ASSERT_TRUE(entry->old_peers != NULL);
+        braft::Configuration conf;
+        for (int j = 0; j < 3; ++j) {
+            conf.add_peer("127.0.0.1:" + std::to_string(i + j));
+        }
+        braft::Configuration old_conf;
+        for (int j = 1; j <= 3; ++j) {
+            old_conf.add_peer("127.0.0.1:" + std::to_string(i + j));
+        }
+        ASSERT_TRUE(conf.equals(*entry->peers))
+            << conf << " xxxx " << braft::Configuration(*entry->peers);
+                    
+        ASSERT_TRUE(old_conf.equals(*entry->old_peers));
+        entry->Release();
+    }
+
+    for (int i = 1; i <= 20; ++i) {
+        braft::LogEntry* entry = log_storage->get_entry(i);
+        ASSERT_TRUE(entry != NULL);
+        ASSERT_EQ(entry->type, braft::ENTRY_TYPE_CONFIGURATION);
+        ASSERT_TRUE(entry->peers != NULL);
+        ASSERT_TRUE(entry->old_peers != NULL);
+        ASSERT_EQ(1, entry->id.term);
+        braft::Configuration conf;
+        for (int j = 0; j < 3; ++j) {
+            conf.add_peer("127.0.0.1:" + std::to_string(i + j));
+        }
+        braft::Configuration old_conf;
+        for (int j = 1; j <= 3; ++j) {
+            old_conf.add_peer("127.0.0.1:" + std::to_string(i + j));
+        }
+        ASSERT_TRUE(conf.equals(*entry->peers));
+        ASSERT_TRUE(old_conf.equals(*entry->old_peers));
+        entry->Release();
+    }
+
+    for (int i = 1; i <= 20; ++i) {
+        braft::ConfigurationEntry entry;
+        cm.get(i, &entry);
+        ASSERT_EQ(braft::LogId(i, 1), entry.id);
+        braft::Configuration conf;
+        for (int j = 0; j < 3; ++j) {
+            conf.add_peer("127.0.0.1:" + std::to_string(i + j));
+        }
+        braft::Configuration old_conf;
+        for (int j = 1; j <= 3; ++j) {
+            old_conf.add_peer("127.0.0.1:" + std::to_string(i + j));
+        }
+        ASSERT_TRUE(conf.equals(entry.conf));
+        ASSERT_TRUE(old_conf.equals(entry.old_conf));
+    }
 }
 

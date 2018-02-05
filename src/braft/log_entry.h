@@ -40,6 +40,7 @@ public:
     EntryType type; // log type
     LogId id;
     std::vector<PeerId>* peers; // peers
+    std::vector<PeerId>* old_peers; // peers
     butil::IOBuf data;
 
     LogEntry();

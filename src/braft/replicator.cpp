@@ -484,6 +484,11 @@ int Replicator::_prepare_entry(int offset, EntryMeta* em, butil::IOBuf *data) {
         for (size_t i = 0; i < entry->peers->size(); ++i) {
             em->add_peers((*entry->peers)[i].to_string());
         }
+        if (entry->old_peers != NULL) {
+            for (size_t i = 0; i < entry->old_peers->size(); ++i) {
+                em->add_old_peers((*entry->old_peers)[i].to_string());
+            }
+        }
     } else {
         CHECK(entry->type != ENTRY_TYPE_CONFIGURATION) << "log_index=" << log_index;
     }
@@ -1121,10 +1126,10 @@ int ReplicatorGroup::stop_transfer_leadership(const PeerId& peer) {
 }
 
 int ReplicatorGroup::stop_all_and_find_the_next_candidate(
-                ReplicatorId* candidate, const Configuration& current_conf) {
+                ReplicatorId* candidate, const ConfigurationEntry& conf) {
     *candidate = INVALID_BTHREAD_ID.value;
     PeerId candidate_id;
-    const int rc = find_the_next_candidate(&candidate_id, current_conf);
+    const int rc = find_the_next_candidate(&candidate_id, conf);
     if (rc == 0) {
         LOG(INFO) << "Found " << candidate_id << " as the next candidate";
         *candidate = _rmap[candidate_id];
@@ -1142,11 +1147,11 @@ int ReplicatorGroup::stop_all_and_find_the_next_candidate(
 }
 
 int ReplicatorGroup::find_the_next_candidate(
-        PeerId* peer_id, const Configuration& current_conf) {
+        PeerId* peer_id, const ConfigurationEntry& conf) {
     int64_t max_index =  0;
     for (std::map<PeerId, ReplicatorId>::const_iterator
             iter = _rmap.begin();  iter != _rmap.end(); ++iter) {
-        if (!current_conf.contains(iter->first)) {
+        if (!conf.contains(iter->first)) {
             continue;
         }
         const int64_t next_index = Replicator::get_next_index(iter->second);

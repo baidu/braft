@@ -21,17 +21,14 @@ namespace braft {
 
 bvar::Adder<int64_t> g_nentries("raft_num_log_entries");
 
-LogEntry::LogEntry(): type(ENTRY_TYPE_UNKNOWN), peers(NULL) {
-    // FIXME: Use log entry in the RAII way
+LogEntry::LogEntry(): type(ENTRY_TYPE_UNKNOWN), peers(NULL), old_peers(NULL) {
     g_nentries << 1;
 }
 
 LogEntry::~LogEntry() {
     g_nentries << -1;
-    if (peers) {
-        delete peers;
-        peers = NULL;
-    }
+    delete peers;
+    delete old_peers;
 }
 
 }

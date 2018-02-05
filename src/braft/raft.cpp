@@ -132,20 +132,20 @@ butil::Status Node::list_peers(std::vector<PeerId>* peers) {
     return _impl->list_peers(peers);
 }
 
-void Node::add_peer(const std::vector<PeerId>& old_peers, const PeerId& peer, Closure* done) {
-    _impl->add_peer(old_peers, peer, done);
+void Node::add_peer(const PeerId& peer, Closure* done) {
+    _impl->add_peer(peer, done);
 }
 
-void Node::remove_peer(const std::vector<PeerId>& old_peers, const PeerId& peer, Closure* done) {
-    _impl->remove_peer(old_peers, peer, done);
+void Node::remove_peer(const PeerId& peer, Closure* done) {
+    _impl->remove_peer(peer, done);
 }
 
-int Node::set_peer(const std::vector<PeerId>& old_peers, const std::vector<PeerId>& new_peers) {
-    return _impl->set_peer(old_peers, new_peers);
+void Node::change_peers(const Configuration& new_peers, Closure* done) {
+    _impl->change_peers(new_peers, done);
 }
 
-int Node::set_peer(const std::vector<PeerId>& new_peers) {
-    return _impl->set_peer(std::vector<PeerId>(), new_peers);
+butil::Status Node::reset_peers(const Configuration& new_peers) {
+    return _impl->reset_peers(new_peers);
 }
 
 void Node::snapshot(Closure* done) {

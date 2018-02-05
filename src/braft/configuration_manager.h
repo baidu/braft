@@ -22,35 +22,46 @@
 
 namespace braft {
 
-typedef std::pair<LogId, Configuration> ConfigurationPair;
+struct ConfigurationEntry {
+    LogId id;
+    Configuration conf;
+    Configuration old_conf;
+    bool stable() const { return old_conf.empty(); }
+    bool empty() const { return conf.empty(); }
+    void list_peers(std::set<PeerId>* peers) {
+        peers->clear();
+        conf.append_peers(peers);
+        old_conf.append_peers(peers);
+    }
+    bool contains(const PeerId& peer) const
+    { return conf.contains(peer) || old_conf.contains(peer); }
+};
 
 // Manager the history of configuration changing
 class ConfigurationManager {
 public:
-    ConfigurationManager() {
-        _snapshot = ConfigurationPair(LogId(), Configuration());
-    }
-    virtual ~ConfigurationManager() {}
+    ConfigurationManager() {}
+    ~ConfigurationManager() {}
 
     // add new configuration at index
-    int add(const LogId& id, const Configuration& config);
+    int add(const ConfigurationEntry& entry);
 
     // [1, first_index_kept) are being discarded
-    void truncate_prefix(const int64_t first_index_kept);
+    void truncate_prefix(int64_t first_index_kept);
 
     // (last_index_kept, infinity) are being discarded
-    void truncate_suffix(const int64_t last_index_kept);
+    void truncate_suffix(int64_t last_index_kept);
 
-    void set_snapshot(const LogId& id, const Configuration& config);
+    void set_snapshot(const ConfigurationEntry& snapshot);
 
-    void get_configuration(int64_t last_included_index, ConfigurationPair* conf);
+    void get(int64_t last_included_index, ConfigurationEntry* entry);
 
-    const ConfigurationPair& last_configuration() const;
+    const ConfigurationEntry& last_configuration() const;
 
 private:
 
-    std::deque<ConfigurationPair> _configurations;
-    ConfigurationPair _snapshot;
+    std::deque<ConfigurationEntry> _configurations;
+    ConfigurationEntry _snapshot;
 };
 
 }  //  namespace braft

@@ -12,6 +12,7 @@
 #include <butil/logging.h>
 #include <butil/files/file_path.h>
 #include <butil/file_util.h>
+#include <butil/fast_rand.h>
 #include <brpc/closure_guard.h>
 #include <bthread/bthread.h>
 #include <bthread/countdown_event.h>
@@ -22,7 +23,9 @@
 namespace braft {
 extern bvar::Adder<int64_t> g_num_nodes;
 }
+using braft::raft_mutex_t;
 
+bool g_dont_print_apply_log = false;
 class MockFSM : public braft::StateMachine {
 public:
     MockFSM(const butil::EndPoint& address_)
@@ -31,6 +34,7 @@ public:
         , snapshot_index(0)
         , _on_start_following_times(0)
         , _on_stop_following_times(0)
+        , _leader_term(-1)
     {
         pthread_mutex_init(&mutex, NULL);
     }
@@ -45,10 +49,20 @@ public:
     int64_t snapshot_index;
     int64_t _on_start_following_times;
     int64_t _on_stop_following_times;
+    volatile int64_t _leader_term;
 
     void lock() {
         pthread_mutex_lock(&mutex);
     }
+
+    void on_leader_start(int64_t term) {
+        _leader_term = term;
+    }
+    void on_leader_stop(const braft::LeaderChangeContext&) {
+        _leader_term = -1;
+    }
+
+    bool is_leader() { return _leader_term > 0; }
 
     void unlock() {
         pthread_mutex_unlock(&mutex);
@@ -56,7 +70,7 @@ public:
 
     virtual void on_apply(braft::Iterator& iter) {
         for (; iter.valid(); iter.next()) {
-            LOG(TRACE) << "addr " << address << " apply " << iter.index();
+            LOG_IF(TRACE, !g_dont_print_apply_log) << "addr " << address << " apply " << iter.index();
             ::brpc::ClosureGuard guard(iter.done());
             lock();
             logs.push_back(iter.data());
@@ -137,7 +151,6 @@ public:
         LOG(TRACE) << "stop following old leader: " <<  stop_following_context.leader_id();
         ++_on_stop_following_times;
     }
-
 };
 
 class ExpectClosure : public braft::Closure {
@@ -253,9 +266,8 @@ public:
             delete _server_map[listen_addr];
             _server_map.erase(listen_addr);
         }
-        _server_map.erase(listen_addr);
         delete node;
-        return 0;
+        return node ? 0 : -1;
     }
 
     void stop_all() {
@@ -281,7 +293,8 @@ public:
         std::lock_guard<raft_mutex_t> guard(_mutex);
         braft::Node* node = NULL;
         for (size_t i = 0; i < _nodes.size(); i++) {
-            if (_nodes[i]->is_leader()) {
+            if (_nodes[i]->is_leader() &&
+                    _fsms[i]->_leader_term == _nodes[i]->_impl->_current_term) {
                 node = _nodes[i];
                 break;
             }
@@ -417,9 +430,10 @@ private:
     raft_mutex_t _mutex;
 };
 
-class RaftTestSuits : public testing::Test {
+class NodeTest : public testing::Test {
 protected:
     void SetUp() {
+        g_dont_print_apply_log = false;
         //logging::FLAGS_verbose = 90;
         ::system("rm -rf data");
         ASSERT_EQ(0, braft::g_num_nodes.get_value());
@@ -434,7 +448,7 @@ protected:
     }
 };
 
-TEST_F(RaftTestSuits, InitShutdown) {
+TEST_F(NodeTest, InitShutdown) {
     brpc::Server server;
     int ret = braft::add_service(&server, "0.0.0.0:5006");
     ASSERT_EQ(0, ret);
@@ -463,7 +477,7 @@ TEST_F(RaftTestSuits, InitShutdown) {
     cond.wait();
 }
 
-TEST_F(RaftTestSuits, Server) {
+TEST_F(NodeTest, Server) {
     brpc::Server server1;
     brpc::Server server2;
     ASSERT_EQ(0, braft::add_service(&server1, "0.0.0.0:5006"));
@@ -473,7 +487,7 @@ TEST_F(RaftTestSuits, Server) {
     server2.Start("0.0.0.0:5007", NULL);
 }
 
-TEST_F(RaftTestSuits, SingleNode) {
+TEST_F(NodeTest, SingleNode) {
     brpc::Server server;
     int ret = braft::add_service(&server, 5006);
     server.Start(5006, NULL);
@@ -518,7 +532,7 @@ TEST_F(RaftTestSuits, SingleNode) {
     server.Join();
 }
 
-TEST_F(RaftTestSuits, NoLeader) {
+TEST_F(NodeTest, NoLeader) {
     std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
         braft::PeerId peer;
@@ -560,7 +574,7 @@ TEST_F(RaftTestSuits, NoLeader) {
     peer3.idx = 0;
 
     cond.reset(1);
-    follower->add_peer(peers, peer3, NEW_ADDPEERCLOSURE(&cond, EPERM));
+    follower->add_peer(peer3, NEW_ADDPEERCLOSURE(&cond, EPERM));
     cond.wait();
     LOG(NOTICE) << "add peer " << peer3;
 
@@ -571,12 +585,12 @@ TEST_F(RaftTestSuits, NoLeader) {
     peer0.idx = 0;
 
     cond.reset(1);
-    follower->remove_peer(peers, peer0, NEW_REMOVEPEERCLOSURE(&cond, EPERM));
+    follower->remove_peer(peer0, NEW_REMOVEPEERCLOSURE(&cond, EPERM));
     cond.wait();
     LOG(NOTICE) << "remove peer " << peer0;
 }
 
-TEST_F(RaftTestSuits, TripleNode) {
+TEST_F(NodeTest, TripleNode) {
     std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
         braft::PeerId peer;
@@ -665,7 +679,7 @@ TEST_F(RaftTestSuits, TripleNode) {
     cluster.stop_all();
 }
 
-TEST_F(RaftTestSuits, LeaderFail) {
+TEST_F(NodeTest, LeaderFail) {
     std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
         braft::PeerId peer;
@@ -778,7 +792,7 @@ TEST_F(RaftTestSuits, LeaderFail) {
     cluster.stop_all();
 }
 
-TEST_F(RaftTestSuits, JoinNode) {
+TEST_F(NodeTest, JoinNode) {
     std::vector<braft::PeerId> peers;
     braft::PeerId peer0;
     peer0.addr.ip = butil::my_ip();
@@ -791,8 +805,7 @@ TEST_F(RaftTestSuits, JoinNode) {
     ASSERT_EQ(0, cluster.start(peer0.addr));
     LOG(NOTICE) << "start single cluster " << peer0;
 
-    cluster.ensure_leader(peer0.addr);
-    LOG(NOTICE) << "peer become leader " << peer0;
+    cluster.wait_leader();
 
     braft::Node* leader = cluster.leader();
     ASSERT_TRUE(leader != NULL);
@@ -826,7 +839,7 @@ TEST_F(RaftTestSuits, JoinNode) {
 
     // add peer1
     cond.reset(1);
-    leader->add_peer(peers, peer1, NEW_ADDPEERCLOSURE(&cond, 0));
+    leader->add_peer(peer1, NEW_ADDPEERCLOSURE(&cond, 0));
     cond.wait();
     LOG(NOTICE) << "add peer " << peer1;
 
@@ -840,7 +853,7 @@ TEST_F(RaftTestSuits, JoinNode) {
 
     cond.reset(1);
     peers.push_back(peer1);
-    leader->add_peer(peers, peer2, NEW_ADDPEERCLOSURE(&cond, braft::ECATCHUP));
+    leader->add_peer(peer2, NEW_ADDPEERCLOSURE(&cond, braft::ECATCHUP));
     cond.wait();
 
     // start peer2 after some seconds wait 
@@ -853,20 +866,16 @@ TEST_F(RaftTestSuits, JoinNode) {
     braft::PeerId peer4("192.168.1.1:1234");
 
     // re add peer2
-    cond.reset(3);
+    cond.reset(2);
     // {peer0,peer1} add peer2
-    leader->add_peer(peers, peer2, NEW_ADDPEERCLOSURE(&cond, 0));
+    leader->add_peer(peer2, NEW_ADDPEERCLOSURE(&cond, 0));
     // concurrent configration change
-    leader->add_peer(peers, peer4, NEW_ADDPEERCLOSURE(&cond, EBUSY));
-    // new peer equal old configuration
-    leader->add_peer(peers, peer1, NEW_ADDPEERCLOSURE(&cond, EBUSY));
+    leader->add_peer(peer4, NEW_ADDPEERCLOSURE(&cond, EBUSY));
     cond.wait();
 
-    cond.reset(2);
+    cond.reset(1);
     // retry add_peer direct ok
-    leader->add_peer(peers, peer2, NEW_ADDPEERCLOSURE(&cond, 0));
-    // {peer0, peer1, peer2} can't accept peers{peer0, peer1}, must skip same check
-    leader->add_peer(peers, peer1, NEW_ADDPEERCLOSURE(&cond, EINVAL));
+    leader->add_peer(peer2, NEW_ADDPEERCLOSURE(&cond, 0));
     cond.wait();
 
     cluster.ensure_same();
@@ -874,7 +883,7 @@ TEST_F(RaftTestSuits, JoinNode) {
     cluster.stop_all();
 }
 
-TEST_F(RaftTestSuits, RemoveFollower) {
+TEST_F(NodeTest, RemoveFollower) {
     std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
         braft::PeerId peer;
@@ -927,14 +936,8 @@ TEST_F(RaftTestSuits, RemoveFollower) {
     // remove follower
     LOG(WARNING) << "remove follower " << follower_addr;
     cond.reset(1);
-    leader->remove_peer(peers, follower_id, NEW_REMOVEPEERCLOSURE(&cond, 0));
+    leader->remove_peer(follower_id, NEW_REMOVEPEERCLOSURE(&cond, 0));
     cond.wait();
-
-    //stop and clean one follower
-    //LOG(WARNING) << "stop follower " << follower_addr;
-    //cluster.stop(follower_addr);
-    //LOG(WARNING) << "clean follower data " << follower_addr;
-    //cluster.clean(follower_addr);
 
     // apply something
     cond.reset(10);
@@ -973,7 +976,7 @@ TEST_F(RaftTestSuits, RemoveFollower) {
     // re add follower fail when leader step down
     LOG(WARNING) << "add follower " << follower_addr;
     cond.reset(1);
-    leader->add_peer(peers, follower_id, NEW_ADDPEERCLOSURE(&cond, 0));
+    leader->add_peer(follower_id, NEW_ADDPEERCLOSURE(&cond, 0));
     cond.wait();
 
     cluster.followers(&nodes);
@@ -982,7 +985,7 @@ TEST_F(RaftTestSuits, RemoveFollower) {
     cluster.ensure_same();
 }
 
-TEST_F(RaftTestSuits, RemoveLeader) {
+TEST_F(NodeTest, RemoveLeader) {
     std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
         braft::PeerId peer;
@@ -1022,7 +1025,7 @@ TEST_F(RaftTestSuits, RemoveLeader) {
     butil::EndPoint old_leader_addr = leader->node_id().peer_id.addr;
     LOG(WARNING) << "remove leader " << old_leader_addr;
     cond.reset(1);
-    leader->remove_peer(peers, leader->node_id().peer_id, NEW_REMOVEPEERCLOSURE(&cond, 0));
+    leader->remove_peer(leader->node_id().peer_id, NEW_REMOVEPEERCLOSURE(&cond, 0));
     cond.wait();
 
     cluster.wait_leader();
@@ -1066,7 +1069,7 @@ TEST_F(RaftTestSuits, RemoveLeader) {
             peers.push_back(peer);
         }
     }
-    leader->add_peer(peers, braft::PeerId(old_leader_addr, 0), NEW_ADDPEERCLOSURE(&cond, 0));
+    leader->add_peer(braft::PeerId(old_leader_addr, 0), NEW_ADDPEERCLOSURE(&cond, 0));
     cond.wait();
 
     std::vector<braft::Node*> nodes;
@@ -1076,7 +1079,7 @@ TEST_F(RaftTestSuits, RemoveLeader) {
     cluster.ensure_same();
 }
 
-TEST_F(RaftTestSuits, TriggerVote) {
+TEST_F(NodeTest, TriggerVote) {
     std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
         braft::PeerId peer;
@@ -1141,7 +1144,7 @@ TEST_F(RaftTestSuits, TriggerVote) {
     LOG(WARNING) << "new leader is " << leader->node_id();
 }
 
-TEST_F(RaftTestSuits, PreVote) {
+TEST_F(NodeTest, PreVote) {
     std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
         braft::PeerId peer;
@@ -1190,7 +1193,7 @@ TEST_F(RaftTestSuits, PreVote) {
     //remove follower
     LOG(WARNING) << "remove follower " << follower_addr;
     cond.reset(1);
-    leader->remove_peer(peers, follower_id, NEW_REMOVEPEERCLOSURE(&cond, 0));
+    leader->remove_peer(follower_id, NEW_REMOVEPEERCLOSURE(&cond, 0));
     cond.wait();
 
     // apply something
@@ -1224,7 +1227,7 @@ TEST_F(RaftTestSuits, PreVote) {
         }
     }
     cond.reset(1);
-    leader->add_peer(peers, follower_id, NEW_REMOVEPEERCLOSURE(&cond, 0));
+    leader->add_peer(follower_id, NEW_REMOVEPEERCLOSURE(&cond, 0));
     cond.wait();
 
     leader = cluster.leader();
@@ -1233,7 +1236,7 @@ TEST_F(RaftTestSuits, PreVote) {
     ASSERT_EQ(saved_term, leader->_impl->_current_term);
 }
 
-TEST_F(RaftTestSuits, SetPeer1) {
+TEST_F(NodeTest, SetPeer1) {
     // bootstrap from null
     Cluster cluster("unittest", std::vector<braft::PeerId>());
     braft::PeerId boot_peer;
@@ -1248,13 +1251,12 @@ TEST_F(RaftTestSuits, SetPeer1) {
 
     std::vector<braft::PeerId> peers;
     peers.push_back(boot_peer);
-    ASSERT_EQ(EINVAL, nodes[0]->set_peer(peers, peers));
-    ASSERT_EQ(0, nodes[0]->set_peer(std::vector<braft::PeerId>(), peers));
+    ASSERT_TRUE(nodes[0]->reset_peers(braft::Configuration(peers)).ok());
 
     cluster.wait_leader();
 }
 
-TEST_F(RaftTestSuits, SetPeer2) {
+TEST_F(NodeTest, SetPeer2) {
     std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
         braft::PeerId peer;
@@ -1336,15 +1338,10 @@ TEST_F(RaftTestSuits, SetPeer2) {
             new_peers.push_back(peer);
         }
     }
-    std::cout << "Here" << std::endl;
-    ASSERT_EQ(EINVAL, leader->set_peer(peers, new_peers));
-    std::cout << "Here 7" << std::endl;
-
     LOG(WARNING) << "stop and clean follower " << follower_peer2;
     cluster.stop(follower_peer2.addr);
     cluster.clean(follower_peer2.addr);
 
-    std::cout << "Here 8" << std::endl;
     // leader will stepdown, become follower
     sleep(2);
 
@@ -1352,23 +1349,14 @@ TEST_F(RaftTestSuits, SetPeer2) {
     new_peers.push_back(braft::PeerId(leader_addr, 0));
 
     // new peers equal current conf
-    ASSERT_EQ(0, leader->set_peer(new_peers, peers));
-    // old peers not match current conf
-    ASSERT_EQ(EINVAL, leader->set_peer(new_peers, new_peers));
-    // new_peers not include in current conf
-    new_peers.clear();
-    new_peers.push_back(braft::PeerId(leader_addr, 1));
-    ASSERT_EQ(EINVAL, leader->set_peer(peers, new_peers));
-
+    ASSERT_TRUE(leader->reset_peers(braft::Configuration(peers)).ok());
     // set peer when quorum die
     LOG(WARNING) << "set peer to " << leader_addr;
     new_peers.clear();
     new_peers.push_back(braft::PeerId(leader_addr, 0));
-    ASSERT_EQ(0, leader->set_peer(peers, new_peers));
-    std::cout << "Here 9" << std::endl;
+    ASSERT_TRUE(leader->reset_peers(braft::Configuration(new_peers)).ok());
 
     cluster.wait_leader();
-    std::cout << "Here 10" << std::endl;
     leader = cluster.leader();
     ASSERT_TRUE(leader != NULL);
     ASSERT_EQ(leader->node_id().peer_id.addr, leader_addr);
@@ -1380,13 +1368,13 @@ TEST_F(RaftTestSuits, SetPeer2) {
 
     LOG(WARNING) << "add old follower " << follower_peer1;
     cond.reset(1);
-    leader->add_peer(new_peers, follower_peer1, NEW_ADDPEERCLOSURE(&cond, 0));
+    leader->add_peer(follower_peer1, NEW_ADDPEERCLOSURE(&cond, 0));
     cond.wait();
 
     LOG(WARNING) << "add old follower " << follower_peer2;
     cond.reset(1);
     new_peers.push_back(follower_peer1);
-    leader->add_peer(new_peers, follower_peer2, NEW_ADDPEERCLOSURE(&cond, 0));
+    leader->add_peer(follower_peer2, NEW_ADDPEERCLOSURE(&cond, 0));
     cond.wait();
 
     cluster.followers(&nodes);
@@ -1395,7 +1383,7 @@ TEST_F(RaftTestSuits, SetPeer2) {
     cluster.ensure_same();
 }
 
-TEST_F(RaftTestSuits, RestoreSnapshot) {
+TEST_F(NodeTest, RestoreSnapshot) {
     std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
         braft::PeerId peer;
@@ -1457,7 +1445,7 @@ TEST_F(RaftTestSuits, RestoreSnapshot) {
     cluster.stop_all();
 }
 
-TEST_F(RaftTestSuits, InstallSnapshot) {
+TEST_F(NodeTest, InstallSnapshot) {
     std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
         braft::PeerId peer;
@@ -1556,7 +1544,7 @@ TEST_F(RaftTestSuits, InstallSnapshot) {
     cluster.stop_all();
 }
 
-TEST_F(RaftTestSuits, NoSnapshot) {
+TEST_F(NodeTest, NoSnapshot) {
     brpc::Server server;
     brpc::ServerOptions server_options;
     int ret = braft::add_service(&server, "0.0.0.0:5006");
@@ -1613,7 +1601,7 @@ TEST_F(RaftTestSuits, NoSnapshot) {
     server.Join();
 }
 
-TEST_F(RaftTestSuits, AutoSnapshot) {
+TEST_F(NodeTest, AutoSnapshot) {
     brpc::Server server;
     brpc::ServerOptions server_options;
     int ret = braft::add_service(&server, "0.0.0.0:5006");
@@ -1670,7 +1658,7 @@ TEST_F(RaftTestSuits, AutoSnapshot) {
     server.Join();
 }
 
-TEST_F(RaftTestSuits, LeaderShouldNotChange) {
+TEST_F(NodeTest, LeaderShouldNotChange) {
     std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
         braft::PeerId peer;
@@ -1702,7 +1690,7 @@ TEST_F(RaftTestSuits, LeaderShouldNotChange) {
     cluster.stop_all();
 }
 
-TEST_F(RaftTestSuits, RecoverFollower) {
+TEST_F(NodeTest, RecoverFollower) {
     std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
         braft::PeerId peer;
@@ -1768,7 +1756,7 @@ TEST_F(RaftTestSuits, RecoverFollower) {
     cluster.stop_all();
 }
 
-TEST_F(RaftTestSuits, leader_transfer) {
+TEST_F(NodeTest, leader_transfer) {
     std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
         braft::PeerId peer;
@@ -1801,7 +1789,7 @@ TEST_F(RaftTestSuits, leader_transfer) {
     cluster.stop_all();
 }
 
-TEST_F(RaftTestSuits, leader_transfer_before_log_is_compleleted) {
+TEST_F(NodeTest, leader_transfer_before_log_is_compleleted) {
     std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
         braft::PeerId peer;
@@ -1858,7 +1846,7 @@ TEST_F(RaftTestSuits, leader_transfer_before_log_is_compleleted) {
     cluster.stop_all();
 }
 
-TEST_F(RaftTestSuits, leader_transfer_resume_on_failure) {
+TEST_F(NodeTest, leader_transfer_resume_on_failure) {
     std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
         braft::PeerId peer;
@@ -1934,7 +1922,7 @@ protected:
     }
 };
 
-TEST_F(RaftTestSuits, shutdown_and_join_work_after_init_fails) {
+TEST_F(NodeTest, shutdown_and_join_work_after_init_fails) {
     brpc::Server server;
     int ret = braft::add_service(&server, 5006);
     server.Start(5006, NULL);
@@ -1996,7 +1984,7 @@ TEST_F(RaftTestSuits, shutdown_and_join_work_after_init_fails) {
     server.Join();
 }
 
-TEST_F(RaftTestSuits, shutting_leader_triggers_timeout_now) {
+TEST_F(NodeTest, shutting_leader_triggers_timeout_now) {
     GFLAGS_NS::SetCommandLineOption("raft_sync", "false");
     std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
@@ -2024,7 +2012,7 @@ TEST_F(RaftTestSuits, shutting_leader_triggers_timeout_now) {
     GFLAGS_NS::SetCommandLineOption("raft_sync", "true");
 }
 
-TEST_F(RaftTestSuits, removing_leader_triggers_timeout_now) {
+TEST_F(NodeTest, removing_leader_triggers_timeout_now) {
     GFLAGS_NS::SetCommandLineOption("raft_sync", "false");
     std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
@@ -2045,7 +2033,7 @@ TEST_F(RaftTestSuits, removing_leader_triggers_timeout_now) {
     braft::PeerId old_leader_id = leader->node_id().peer_id;
     LOG(WARNING) << "remove leader " << old_leader_id;
     bthread::CountdownEvent cond;
-    leader->remove_peer(peers, old_leader_id, NEW_REMOVEPEERCLOSURE(&cond, 0));
+    leader->remove_peer(old_leader_id, NEW_REMOVEPEERCLOSURE(&cond, 0));
     cond.wait();
     usleep(100 * 1000);
     leader = cluster.leader();
@@ -2054,7 +2042,7 @@ TEST_F(RaftTestSuits, removing_leader_triggers_timeout_now) {
     GFLAGS_NS::SetCommandLineOption("raft_sync", "true");
 }
 
-TEST_F(RaftTestSuits, transfer_should_work_after_install_snapshot) {
+TEST_F(NodeTest, transfer_should_work_after_install_snapshot) {
     std::vector<braft::PeerId> peers;
     for (size_t i = 0; i < 3; ++i) {
         braft::PeerId peer;
@@ -2110,7 +2098,7 @@ TEST_F(RaftTestSuits, transfer_should_work_after_install_snapshot) {
     ASSERT_EQ(last_peer, leader->node_id().peer_id);
 }
 
-TEST_F(RaftTestSuits, append_entries_when_follower_is_in_error_state) {
+TEST_F(NodeTest, append_entries_when_follower_is_in_error_state) {
     std::vector<braft::PeerId> peers;
     // five nodes
     for (int i = 0; i < 5; i++) {
@@ -2205,7 +2193,7 @@ TEST_F(RaftTestSuits, append_entries_when_follower_is_in_error_state) {
     cluster.stop_all();
 }
 
-TEST_F(RaftTestSuits, on_start_following_and_on_stop_following) {
+TEST_F(NodeTest, on_start_following_and_on_stop_following) {
     std::vector<braft::PeerId> peers;
     // five nodes
     for (int i = 0; i < 5; i++) {
@@ -2347,7 +2335,7 @@ TEST_F(RaftTestSuits, on_start_following_and_on_stop_following) {
     cluster.stop_all();
 }
 
-TEST_F(RaftTestSuits, read_committed_user_log) {
+TEST_F(NodeTest, read_committed_user_log) {
     std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
         braft::PeerId peer;
@@ -2433,7 +2421,7 @@ TEST_F(RaftTestSuits, read_committed_user_log) {
     cluster.followers(&followers);
     braft::PeerId follower_test = followers[0]->node_id().peer_id;
     cond.reset(1);
-    leader->remove_peer(peers, follower_test, NEW_REMOVEPEERCLOSURE(&cond, 0));
+    leader->remove_peer(follower_test, NEW_REMOVEPEERCLOSURE(&cond, 0));
     cond.wait();
     std::vector<braft::PeerId> new_peers;
     for (int i = 0; i < 3; i++) {
@@ -2447,7 +2435,7 @@ TEST_F(RaftTestSuits, read_committed_user_log) {
         }
     }
     cond.reset(1);
-    leader->add_peer(new_peers, follower_test, NEW_REMOVEPEERCLOSURE(&cond, 0));
+    leader->add_peer(follower_test, NEW_REMOVEPEERCLOSURE(&cond, 0));
     cond.wait();
 
     // apply something again
@@ -2505,7 +2493,7 @@ TEST_F(RaftTestSuits, read_committed_user_log) {
     cluster.stop_all();
 }
 
-TEST_F(RaftTestSuits, boostrap_with_snapshot) {
+TEST_F(NodeTest, boostrap_with_snapshot) {
     butil::EndPoint addr;
     ASSERT_EQ(0, butil::str2endpoint("127.0.0.1:5006", &addr));
     MockFSM fsm(addr);
@@ -2547,7 +2535,7 @@ TEST_F(RaftTestSuits, boostrap_with_snapshot) {
     node.join();
 }
 
-TEST_F(RaftTestSuits, boostrap_without_snapshot) {
+TEST_F(NodeTest, boostrap_without_snapshot) {
     butil::EndPoint addr;
     ASSERT_EQ(0, butil::str2endpoint("127.0.0.1:5006", &addr));
     braft::BootstrapOptions boptions;
@@ -2576,3 +2564,303 @@ TEST_F(RaftTestSuits, boostrap_without_snapshot) {
     node.join();
 }
 
+TEST_F(NodeTest, change_peers) {
+    std::vector<braft::PeerId> peers;
+    braft::PeerId peer0;
+    peer0.addr.ip = butil::my_ip();
+    peer0.addr.port = 5006;
+    peer0.idx = 0;
+
+    // start cluster
+    peers.push_back(peer0);
+    Cluster cluster("unittest", peers);
+    ASSERT_EQ(0, cluster.start(peer0.addr));
+    LOG(NOTICE) << "start single cluster " << peer0;
+    cluster.wait_leader();
+    braft::Node* leader = cluster.leader();
+    bthread::CountdownEvent cond(10);
+    for (int i = 0; i < 10; i++) {
+        butil::IOBuf data;
+        char data_buf[128];
+        snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
+        data.append(data_buf);
+        braft::Task task;
+        task.data = &data;
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
+        leader->apply(task);
+    }
+    cond.wait();
+
+    for (int i = 1; i < 10; ++i) {
+        braft::PeerId peer = peer0;
+        peer.addr.port += i;
+        ASSERT_EQ(0, cluster.start(peer.addr, true));
+    }
+    for (int i = 0; i < 9; ++i) {
+        cluster.wait_leader();
+        braft::Node* leader = cluster.leader();
+        braft::PeerId peer = peer0;
+        peer.addr.port += i;
+        ASSERT_EQ(leader->node_id().peer_id, peer);
+        peer.addr.port += 1;
+        braft::Configuration conf;
+        conf.add_peer(peer);
+        braft::SynchronizedClosure done;
+        leader->change_peers(conf, &done);
+        done.wait();
+        ASSERT_TRUE(done.status().ok()) << done.status();
+    }
+    ASSERT_TRUE(cluster.ensure_same());
+}
+
+TEST_F(NodeTest, change_peers_add_multiple_node) {
+    std::vector<braft::PeerId> peers;
+    braft::PeerId peer0;
+    peer0.addr.ip = butil::my_ip();
+    peer0.addr.port = 5006;
+    peer0.idx = 0;
+
+    // start cluster
+    peers.push_back(peer0);
+    Cluster cluster("unittest", peers);
+    ASSERT_EQ(0, cluster.start(peer0.addr));
+    LOG(NOTICE) << "start single cluster " << peer0;
+    cluster.wait_leader();
+    braft::Node* leader = cluster.leader();
+    bthread::CountdownEvent cond(10);
+    for (int i = 0; i < 10; i++) {
+        butil::IOBuf data;
+        char data_buf[128];
+        snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
+        data.append(data_buf);
+        braft::Task task;
+        task.data = &data;
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
+        leader->apply(task);
+    }
+    cond.wait();
+    braft::Configuration conf;
+    for (int i = 0; i < 3; ++i) {
+        braft::PeerId peer = peer0;
+        peer.addr.port += i;
+        conf.add_peer(peer);
+    }
+    cluster.wait_leader();
+    braft::SynchronizedClosure done;
+    leader->change_peers(conf, &done);
+    done.wait();
+    ASSERT_EQ(braft::ECATCHUP, done.status().error_code()) << done.status();
+    braft::PeerId peer = peer0;
+    peer.addr.port++;
+    cluster.start(peer.addr, false);
+    done.reset();
+    leader->change_peers(conf, &done);
+    done.wait();
+    ASSERT_EQ(braft::ECATCHUP, done.status().error_code()) << done.status();
+    peer.addr.port++;
+    cluster.start(peer.addr, false);
+    done.reset();
+    leader->change_peers(conf, &done);
+    done.wait();
+    ASSERT_TRUE(done.status().ok()) << done.status();
+    ASSERT_TRUE(cluster.ensure_same());
+}
+
+TEST_F(NodeTest, change_peers_steps_down_in_joint_consensus) {
+    std::vector<braft::PeerId> peers;
+    braft::PeerId peer0("127.0.0.1:5006");
+    braft::PeerId peer1("127.0.0.1:5007");
+    braft::PeerId peer2("127.0.0.1:5008");
+    braft::PeerId peer3("127.0.0.1:5009");
+
+    // start cluster
+    peers.push_back(peer0);
+    Cluster cluster("unittest", peers);
+    ASSERT_EQ(0, cluster.start(peer0.addr));
+    LOG(NOTICE) << "start single cluster " << peer0;
+    cluster.wait_leader();
+    braft::Node* leader = cluster.leader();
+    bthread::CountdownEvent cond(10);
+    for (int i = 0; i < 10; i++) {
+        butil::IOBuf data;
+        char data_buf[128];
+        snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
+        data.append(data_buf);
+        braft::Task task;
+        task.data = &data;
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
+        leader->apply(task);
+    }
+    cond.wait();
+    cluster.start(peer1.addr, false);
+    cluster.start(peer2.addr, false);
+    cluster.start(peer3.addr, false);
+    braft::Configuration conf;
+    conf.add_peer(peer0);
+    conf.add_peer(peer1);
+    conf.add_peer(peer2);
+    conf.add_peer(peer3);
+    braft::SynchronizedClosure done;
+    leader->change_peers(conf, &done);
+    done.wait();
+    ASSERT_TRUE(done.status().ok());
+    ASSERT_EQ(0, cluster.stop(peer3.addr));
+    conf.remove_peer(peer0);
+    conf.remove_peer(peer1);
+
+    // Change peers to [peer2, peer3], which must fail since peer3 is stopped
+    done.reset();
+    leader->change_peers(conf, &done);
+    done.wait();
+    ASSERT_EQ(EPERM, done.status().error_code());
+    ASSERT_FALSE(leader->_impl->_conf.stable());
+    LOG(INFO) << done.status();
+    leader = cluster.leader();
+    ASSERT_TRUE(leader == NULL);
+    cluster.start(peer3.addr, false);
+    cluster.wait_leader();
+    leader = cluster.leader();
+    ASSERT_TRUE(leader->list_peers(&peers).ok());
+    ASSERT_TRUE(conf.equals(peers));
+    ASSERT_FALSE(leader->_impl->_conf_ctx.is_busy());
+}
+
+struct ChangeArg {
+    Cluster* c;
+    std::vector<braft::PeerId> peers;
+    volatile bool stop;
+    bool dont_remove_first_peer;
+};
+
+static void* change_routine(void* arg) {
+    ChangeArg* ca = (ChangeArg*)arg;
+    while (!ca->stop) {
+        ca->c->wait_leader();
+        braft::Node* leader = ca->c->leader();
+        if (!leader) {
+            continue;
+        }
+        // Randomly select peers
+        braft::Configuration conf;
+        if (ca->dont_remove_first_peer) {
+            conf.add_peer(ca->peers[0]);
+        }
+        for (size_t i = 0; i < ca->peers.size(); ++i) {
+            bool select = butil::fast_rand_less_than(64) < 32;
+            if (select) {
+                conf.add_peer(ca->peers[i]);
+            }
+        }
+        if (conf.empty()) {
+            LOG(WARNING) << "No peer has been selected";
+            // Bad luck here
+            continue;
+        }
+        braft::SynchronizedClosure done;
+        leader->change_peers(conf, &done);
+        done.wait();
+        CHECK(done.status().ok());
+    }
+    return NULL;
+}
+
+TEST_F(NodeTest, change_peers_chaos_with_snapshot) {
+    g_dont_print_apply_log = true;
+    GFLAGS_NS::SetCommandLineOption("raft_sync", "false");
+    ASSERT_FALSE(GFLAGS_NS::SetCommandLineOption("crash_on_fatal_log", "true").empty());
+    std::vector<braft::PeerId> peers;
+    // start cluster
+    peers.push_back(braft::PeerId("127.0.0.1:5006"));
+    Cluster cluster("unittest", peers, 1000);
+    cluster.start(peers.front().addr, false, 1);
+    for (int i = 1; i < 10; ++i) {
+        peers.push_back("127.0.0.1:" + std::to_string(5006 + i));
+        cluster.start(peers.back().addr, true, 1);
+    }
+    ChangeArg arg;
+    arg.c = &cluster;
+    arg.peers = peers;
+    arg.stop = false;
+    arg.dont_remove_first_peer = false;
+    pthread_t tid;
+    ASSERT_EQ(0, pthread_create(&tid, NULL, change_routine, &arg));
+    for (int i = 0; i < 1000;) {
+        cluster.wait_leader();
+        braft::Node* leader = cluster.leader();
+        if (!leader) {
+            continue;
+        }
+        butil::IOBuf data;
+        char data_buf[128];
+        snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
+        data.append(data_buf);
+        braft::Task task;
+        braft::SynchronizedClosure done;
+        task.data = &data;
+        task.done = &done;
+        leader->apply(task);
+        done.wait();
+        if (done.status().ok()) {
+            ++i;
+        } else {
+            EXPECT_EQ(EPERM, done.status().error_code());
+        }
+    }
+    arg.stop = true;
+    pthread_join(tid, NULL);
+    GFLAGS_NS::SetCommandLineOption("raft_sync", "true");
+}
+
+TEST_F(NodeTest, change_peers_chaos_without_snapshot) {
+    g_dont_print_apply_log = true;
+    GFLAGS_NS::SetCommandLineOption("raft_sync", "false");
+    ASSERT_FALSE(GFLAGS_NS::SetCommandLineOption("crash_on_fatal_log", "true").empty());
+    std::vector<braft::PeerId> peers;
+    // start cluster
+    peers.push_back(braft::PeerId("127.0.0.1:5006"));
+    Cluster cluster("unittest", peers, 1000);
+    cluster.start(peers.front().addr, false, 100000);
+    for (int i = 1; i < 10; ++i) {
+        peers.push_back("127.0.0.1:" + std::to_string(5006 + i));
+        cluster.start(peers.back().addr, true, 10000);
+    }
+    ChangeArg arg;
+    arg.c = &cluster;
+    arg.peers = peers;
+    arg.stop = false;
+    arg.dont_remove_first_peer = true;
+    pthread_t tid;
+    ASSERT_EQ(0, pthread_create(&tid, NULL, change_routine, &arg));
+    for (int i = 0; i < 100000;) {
+        cluster.wait_leader();
+        braft::Node* leader = cluster.leader();
+        if (!leader) {
+            continue;
+        }
+        butil::IOBuf data;
+        char data_buf[128];
+        snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
+        data.append(data_buf);
+        braft::Task task;
+        braft::SynchronizedClosure done;
+        task.data = &data;
+        task.done = &done;
+        leader->apply(task);
+        done.wait();
+        if (done.status().ok()) {
+            ++i;
+        } else {
+            EXPECT_EQ(EPERM, done.status().error_code());
+        }
+    }
+    arg.stop = true;
+    pthread_join(tid, NULL);
+    cluster.wait_leader();
+    braft::Node* leader = cluster.leader();
+    braft::SynchronizedClosure done;
+    leader->change_peers(braft::Configuration(peers), &done);
+    done.wait();
+    ASSERT_TRUE(done.status().ok()) << done.status();
+    cluster.ensure_same();
+    GFLAGS_NS::SetCommandLineOption("raft_sync", "true");
+}

@@ -7,6 +7,7 @@ package braft;
 
 message ConfigurationPBMeta {
     repeated string peers = 1;
+    repeated string old_peers = 2;
 };
 
 message LogPBMeta {

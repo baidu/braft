@@ -107,7 +107,7 @@ TEST_F(BallotBoxTest, odd_cluster) {
     braft::Configuration conf(peers);
     const int num_tasks = 10000;
     for (int i = 0; i < num_tasks; ++i) {
-        ASSERT_EQ(0, cm.append_pending_task(conf, NULL));
+        ASSERT_EQ(0, cm.append_pending_task(conf, NULL, NULL));
     }
 
     ASSERT_EQ(0, cm.commit_at(1, 100, peers[0]));
@@ -140,7 +140,7 @@ TEST_F(BallotBoxTest, even_cluster) {
     braft::Configuration conf(peers);
     const int num_tasks = 10000;
     for (int i = 0; i < num_tasks; ++i) {
-        ASSERT_EQ(0, cm.append_pending_task(conf, NULL));
+        ASSERT_EQ(0, cm.append_pending_task(conf, NULL, NULL));
     }
 
     ASSERT_EQ(0, cm.commit_at(1, 100, peers[0]));

@@ -494,24 +494,30 @@ public:
     // because add_peer/remove_peer immediately modify configuration in memory
     butil::Status list_peers(std::vector<PeerId>* peers);
 
-    // Add a new peer to the raft group when the current configuration matches
-    // |old_peers|. done->Run() would be invoked after this operation finishes,
-    // describing the detailed result.
-    void add_peer(const std::vector<PeerId>& old_peers, const PeerId& peer, Closure* done);
+    // Add a new peer to the raft group. done->Run() would be invoked after this
+    // operation finishes, describing the detailed result.
+    void add_peer(const PeerId& peer, Closure* done);
 
-    // Remove the peer from the raft group when the current configuration matches
-    // |old_peers|. done->Run() would be invoked after this operation finishes,
-    // describing the detailed result.
-    void remove_peer(const std::vector<PeerId>& old_peers, const PeerId& peer, Closure* done);
+    // Remove the peer from the raft group. done->Run() would be invoked after
+    // this operation finishes, describing the detailed result.
+    void remove_peer(const PeerId& peer, Closure* done);
 
-    // set peer to local replica [thread-safe]
-    // done is user defined function, maybe response to client
-    // only used in major node is down, reduce peerset to make group available
-    int set_peer(const std::vector<PeerId>& old_peers, const std::vector<PeerId>& new_peers);
-    int set_peer(const std::vector<PeerId>& new_peers);
+    // Change the configuration of the raft group to |new_peers| , done->Run()
+    // would be invoked after this operation finishes, describing the detailed
+    // result.
+    void change_peers(const Configuration& new_peers, Closure* done);
 
-    // user trigger snapshot
-    // done is user defined function, maybe response to client
+    // Reset the configuration of this node individually, without any repliation
+    // to other peers before this node beomes the leader. This function is
+    // supposed to be inovoked when the majority of the replication group are
+    // dead and you'd like to revive the service in the consideration of
+    // availability.
+    // Notice that neither consistency nor consensus are guaranteed in this
+    // case, BE CAREFULE when dealing with this method.
+    butil::Status reset_peers(const Configuration& new_peers);
+
+    // Start a snapshot immediately if possible. done->Run() would be invoked
+    // when the snapshot finishes, describing the detailed result.
     void snapshot(Closure* done);
 
     // user trigger vote

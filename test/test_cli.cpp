@@ -100,17 +100,10 @@ TEST_F(CliTest, add_and_remove_peer) {
     braft::PeerId peer3("127.0.0.1:9502");
     RaftNode node3;
     ASSERT_EQ(0, node3.start(peer3.addr.port, false));
-    st = braft::cli::add_peer("test", old_conf, peer3,
-                             braft::cli::CliOptions()); 
-    ASSERT_FALSE(st.ok()) << st;
-    LOG(INFO) << "st=" << st;
     old_conf.add_peer(peer2);
     st = braft::cli::add_peer("test", old_conf, peer3,
                              braft::cli::CliOptions()); 
     ASSERT_TRUE(st.ok()) << st;
-    st = braft::cli::remove_peer("test", old_conf, peer1,
-                                braft::cli::CliOptions()); 
-    ASSERT_FALSE(st.ok()) << st;
     old_conf.add_peer(peer3);
     st = braft::cli::remove_peer("test", old_conf, peer1,
                                 braft::cli::CliOptions()); 
@@ -120,10 +113,6 @@ TEST_F(CliTest, add_and_remove_peer) {
     st = braft::cli::remove_peer("test", old_conf, peer1,
                                 braft::cli::CliOptions()); 
     ASSERT_TRUE(st.ok()) << st;
-
-    st = braft::cli::remove_peer("test", old_conf, peer2,
-                                braft::cli::CliOptions()); 
-    ASSERT_FALSE(st.ok()) << st;
 }
 
 TEST_F(CliTest, set_peer) {

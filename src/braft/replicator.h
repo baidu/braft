@@ -275,14 +275,14 @@ public:
     // found none.
     // Returns 0 on success and -1 otherwise.
     int stop_all_and_find_the_next_candidate(ReplicatorId* candidate,
-                                             const Configuration& current_conf);
+                                             const ConfigurationEntry& conf);
     
     // Find the follower with the most log entries in this group, which is
     // likely becomes the leader according to the election algorithm of raft.
     // Returns 0 on success and |peer_id| is assigned with the very peer.
     // -1 otherwise.
     int find_the_next_candidate(PeerId* peer_id,
-                                const Configuration& current_conf);
+                                const ConfigurationEntry& conf);
 
     // List all the existing replicators
     void list_replicators(std::vector<ReplicatorId>* out) const;

@@ -9,7 +9,7 @@
 #include <butil/string_printf.h>
 #include <butil/macros.h>
 
-#include <bthread/butex.h>
+#include <bthread/countdown_event.h>
 #include "braft/log_manager.h"
 #include "braft/configuration.h"
 #include "braft/log.h"
@@ -45,31 +45,21 @@ private:
 
 class SyncClosure : public braft::LogManager::StableClosure {
 public:
-    SyncClosure() {
-        _butex = bthread::butex_create_checked<butil::atomic<int> >();
-        *_butex = 0;
-    }
+    SyncClosure() : _event(1) {}
     ~SyncClosure() {
-        bthread::butex_destroy(_butex);
     }
     void Run() {
-        _butex->store(1);
-        bthread::butex_wake(_butex);
+        _event.signal();
     }
     void reset() {
         status().reset();
-        *_butex = 0;
+        _event.reset();
     }
     void join() {
-        while (*_butex != 1) {
-            bthread::butex_wait(_butex, 0, NULL);
-        }
-    }
-    bool has_run() {
-        return *_butex == 1;
+        _event.wait();
     }
 private:
-    butil::atomic<int> *_butex;
+    bthread::CountdownEvent _event;
 };
 
 TEST_F(LogManagerTest, get_should_be_ok_when_disk_thread_stucks) {
@@ -139,7 +129,7 @@ TEST_F(LogManagerTest, configuration_changes) {
     ASSERT_EQ(0, lm->init(opt));
     const size_t N = 5;
     DEFINE_SMALL_ARRAY(braft::LogEntry*, saved_entries, N, 256);
-    braft::ConfigurationPair conf;
+    braft::ConfigurationEntry conf;
     SyncClosure sc;
     for (size_t i = 0; i < N; ++i) {
         std::vector<braft::PeerId> peers;
@@ -151,6 +141,10 @@ TEST_F(LogManagerTest, configuration_changes) {
         entry->AddRef();
         entry->type = braft::ENTRY_TYPE_CONFIGURATION;
         entry->peers = new std::vector<braft::PeerId>(peers);
+        if (peers.size() > 1u) {
+            entry->old_peers = new std::vector<braft::PeerId>(
+                    peers.begin() + 1, peers.end());
+        }
         entry->AddRef();
         entry->id = braft::LogId(i + 1, 1);
         saved_entries[i] = entry;
@@ -158,13 +152,15 @@ TEST_F(LogManagerTest, configuration_changes) {
         sc.reset();
         lm->append_entries(&entries, &sc);
         ASSERT_TRUE(lm->check_and_set_configuration(&conf));
-        ASSERT_EQ(i + 1, conf.second._peers.size());
+        ASSERT_EQ(i + 1, conf.conf.size());
+        ASSERT_EQ(i, conf.old_conf.size());
         sc.join();
         ASSERT_TRUE(sc.status().ok()) << sc.status();
     }
-    braft::ConfigurationPair new_conf;
+    braft::ConfigurationEntry new_conf;
     ASSERT_TRUE(lm->check_and_set_configuration(&new_conf));
-    ASSERT_EQ(N, new_conf.second._peers.size());
+    ASSERT_EQ(N, new_conf.conf.size());
+    ASSERT_EQ(N - 1, new_conf.old_conf.size());
 
     lm->clear_memory_logs(braft::LogId(N, 1));
     // After clear all the memory logs, all the saved entries should have no
@@ -188,7 +184,7 @@ TEST_F(LogManagerTest, truncate_suffix_also_revert_configuration) {
     ASSERT_EQ(0, lm->init(opt));
     const size_t N = 5;
     DEFINE_SMALL_ARRAY(braft::LogEntry*, saved_entries, N, 256);
-    braft::ConfigurationPair conf;
+    braft::ConfigurationEntry conf;
     SyncClosure sc;
     for (size_t i = 0; i < N; ++i) {
         std::vector<braft::PeerId> peers;
@@ -207,17 +203,17 @@ TEST_F(LogManagerTest, truncate_suffix_also_revert_configuration) {
         sc.reset();
         lm->append_entries(&entries, &sc);
         ASSERT_TRUE(lm->check_and_set_configuration(&conf));
-        ASSERT_EQ(i + 1, conf.second._peers.size());
+        ASSERT_EQ(i + 1, conf.conf.size());
         sc.join();
         ASSERT_TRUE(sc.status().ok()) << sc.status();
     }
-    braft::ConfigurationPair new_conf;
+    braft::ConfigurationEntry new_conf;
     ASSERT_TRUE(lm->check_and_set_configuration(&new_conf));
-    ASSERT_EQ(N, new_conf.second._peers.size());
+    ASSERT_EQ(N, new_conf.conf.size());
 
     lm->unsafe_truncate_suffix(2);
     ASSERT_TRUE(lm->check_and_set_configuration(&new_conf));
-    ASSERT_EQ(2u, new_conf.second._peers.size());
+    ASSERT_EQ(2u, new_conf.conf.size());
     
 
     lm->clear_memory_logs(braft::LogId(N, 1));
@@ -357,7 +353,7 @@ TEST_F(LogManagerTest, pipelined_append) {
     opt.configuration_manager = cm.get();
     ASSERT_EQ(0, lm->init(opt));
     const size_t N = 1000;
-    braft::ConfigurationPair conf;
+    braft::ConfigurationEntry conf;
     std::vector<braft::LogEntry*> entries0;
     for (size_t i = 0; i < N - 1; ++i) {
         braft::LogEntry* entry = new braft::LogEntry;
@@ -383,8 +379,8 @@ TEST_F(LogManagerTest, pipelined_append) {
     SyncClosure sc0;
     lm->append_entries(&entries0, &sc0);
     ASSERT_TRUE(lm->check_and_set_configuration(&conf));
-    ASSERT_EQ(braft::LogId(N, 1), conf.first);
-    ASSERT_EQ(1u, conf.second.size());
+    ASSERT_EQ(braft::LogId(N, 1), conf.id);
+    ASSERT_EQ(1u, conf.conf.size());
     ASSERT_EQ(N, lm->last_log_index());
 
     // entries1 overwrites entries0
@@ -414,8 +410,8 @@ TEST_F(LogManagerTest, pipelined_append) {
     SyncClosure sc1;
     lm->append_entries(&entries1, &sc1);
     ASSERT_TRUE(lm->check_and_set_configuration(&conf));
-    ASSERT_EQ(braft::LogId(N, 2), conf.first);
-    ASSERT_EQ(2u, conf.second.size());
+    ASSERT_EQ(braft::LogId(N, 2), conf.id);
+    ASSERT_EQ(2u, conf.conf.size());
     ASSERT_EQ(N, lm->last_log_index());
 
     // entries2 is next to entries1
@@ -436,10 +432,10 @@ TEST_F(LogManagerTest, pipelined_append) {
     SyncClosure sc2;
     lm->append_entries(&entries2, &sc2);
     ASSERT_FALSE(lm->check_and_set_configuration(&conf));
-    ASSERT_EQ(braft::LogId(N, 2), conf.first);
-    ASSERT_EQ(2u, conf.second.size());
+    ASSERT_EQ(braft::LogId(N, 2), conf.id);
+    ASSERT_EQ(2u, conf.conf.size());
     ASSERT_EQ(2 * N, lm->last_log_index());
-    LOG(INFO) << conf.second;
+    LOG(INFO) << conf.conf;
 
     // It's safe to get entry when disk thread is still running
     for (size_t i = 0; i < 2 * N; ++i) {
@@ -461,12 +457,13 @@ TEST_F(LogManagerTest, pipelined_append) {
     sc2.join();
     ASSERT_TRUE(sc2.status().ok()) << sc2.status();
 
-    // Wrong applied id doen't change _logs_in_memory
+    // Wrong applied id doesn't change _logs_in_memory
     lm->set_applied_id(braft::LogId(N * 2, 1));
     ASSERT_EQ(N * 2, lm->_logs_in_memory.size());
 
     lm->set_applied_id(braft::LogId(N * 2, 2));
-    ASSERT_TRUE(lm->_logs_in_memory.empty());
+    ASSERT_EQ(0u, lm->_logs_in_memory.size())
+         << "last_log_id=" << lm->last_log_id(true);
 
     // We can still get the right data from storage
     for (size_t i = 0; i < 2 * N; ++i) {
@@ -536,7 +533,6 @@ TEST_F(LogManagerTest, wait) {
             lm->wait(lm->last_log_index(), on_new_log, &sc);
     ASSERT_NE(0, wait_id);
     ASSERT_EQ(0, lm->remove_waiter(wait_id));
-    ASSERT_FALSE(sc.has_run());
     ASSERT_EQ(0, append_entry(lm.get(), "hello", 1));
     wait_id = lm->wait(0, on_new_log, &sc);
     ASSERT_EQ(0, wait_id);
@@ -682,4 +678,3 @@ TEST_F(LogManagerTest, set_snapshot_and_get_log_term) {
     ASSERT_EQ(1L, lm->get_term(N - 1));
     LOG(INFO) << "Last_index=" << lm->last_log_index();
 }
-

@@ -23,6 +23,7 @@
 #include <butil/atomicops.h>                     // butil::atomic
 #include "braft/raft.h"
 #include "braft/util.h"
+#include "braft/ballot.h"
 
 namespace braft {
 
@@ -65,7 +66,9 @@ public:
 
     // Called by leader, otherwise the behavior is undefined
     // Store application context before replication.
-    int append_pending_task(const Configuration& conf, Closure* closure);
+    int append_pending_task(const Configuration& conf, 
+                            const Configuration* old_conf,
+                            Closure* closure);
 
     // Called by follower, otherwise the behavior is undefined.
     // Set commited index received from leader
@@ -78,31 +81,12 @@ public:
 
 private:
 
-    struct UnfoundPeerId {
-        PeerId peer_id;
-        bool found;
-        bool operator==(const PeerId& id) const {
-            return peer_id == id;
-        }
-    };
-
-    struct PendingMeta {
-        // TODO(chenzhangyi01): Use SSO if the performance of vector matter
-        // (which is likely as the overhead of malloc/free is noticable)
-        std::vector<UnfoundPeerId> peers;
-        int quorum;
-        void swap(PendingMeta& pm) {
-            peers.swap(pm.peers);
-            std::swap(quorum, pm.quorum);
-        }
-    };
-
     FSMCaller*                                      _waiter;
     ClosureQueue*                                   _closure_queue;                            
     raft_mutex_t                                    _mutex;
     butil::atomic<int64_t>                          _last_committed_index;
     int64_t                                         _pending_index;
-    std::deque<PendingMeta>                         _pending_meta_queue;
+    std::deque<Ballot>                              _pending_meta_queue;
 
 };
 

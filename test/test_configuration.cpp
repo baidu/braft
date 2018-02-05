@@ -91,40 +91,42 @@ TEST_F(TestUsageSuits, Configuration) {
 }
 
 TEST_F(TestUsageSuits, ConfigurationManager) {
-    braft::ConfigurationManager* conf_manager = new braft::ConfigurationManager();
+    braft::ConfigurationManager conf_manager;
 
-    braft::ConfigurationPair it1;
-    conf_manager->get_configuration(10, &it1);
-    ASSERT_EQ(it1.first, braft::LogId(0, 0));
-    ASSERT_TRUE(it1.second.empty());
-    ASSERT_EQ(braft::LogId(0, 0), conf_manager->last_configuration().first);
-
+    braft::ConfigurationEntry it1;
+    conf_manager.get(10, &it1);
+    ASSERT_EQ(it1.id, braft::LogId(0, 0));
+    ASSERT_TRUE(it1.conf.empty());
+    ASSERT_EQ(braft::LogId(0, 0), conf_manager.last_configuration().id);
+    braft::ConfigurationEntry entry;
     std::vector<braft::PeerId> peers;
     peers.push_back(braft::PeerId("1.1.1.1:1000:0"));
     peers.push_back(braft::PeerId("1.1.1.1:1000:1"));
     peers.push_back(braft::PeerId("1.1.1.1:1000:2"));
-    conf_manager->add(braft::LogId(8, 1), braft::Configuration(peers));
-    ASSERT_EQ(braft::LogId(8, 1), conf_manager->last_configuration().first);
+    entry.conf = peers;
+    entry.id = braft::LogId(8, 1);
+    conf_manager.add(entry);
+    ASSERT_EQ(braft::LogId(8, 1), conf_manager.last_configuration().id);
 
-    conf_manager->get_configuration(10, &it1);
-    ASSERT_EQ(it1.first, braft::LogId(8, 1));
+    conf_manager.get(10, &it1);
+    ASSERT_EQ(it1.id, entry.id);
 
-    conf_manager->truncate_suffix(7);
-    ASSERT_EQ(braft::LogId(0, 0), conf_manager->last_configuration().first);
+    conf_manager.truncate_suffix(7);
+    ASSERT_EQ(braft::LogId(0, 0), conf_manager.last_configuration().id);
 
-    conf_manager->add(braft::LogId(10, 1), braft::Configuration(peers));
+    entry.id = braft::LogId(10, 1);
+    entry.conf = peers;
+    conf_manager.add(entry);
     peers.push_back(braft::PeerId("1.1.1.1:1000:3"));
-    conf_manager->add(braft::LogId(20, 1), braft::Configuration(peers));
-    ASSERT_EQ(braft::LogId(20, 1), conf_manager->last_configuration().first);
+    entry.id = braft::LogId(20, 1);
+    entry.conf = peers;
+    conf_manager.add(entry);
+    ASSERT_EQ(braft::LogId(20, 1), conf_manager.last_configuration().id);
 
-    conf_manager->truncate_prefix(15);
-    ASSERT_EQ(braft::LogId(20, 1), conf_manager->last_configuration().first);
+    conf_manager.truncate_prefix(15);
+    ASSERT_EQ(braft::LogId(20, 1), conf_manager.last_configuration().id);
 
-    conf_manager->truncate_prefix(25);
-    ASSERT_EQ(braft::LogId(0, 0), conf_manager->last_configuration().first);
+    conf_manager.truncate_prefix(25);
+    ASSERT_EQ(braft::LogId(0, 0), conf_manager.last_configuration().id);
 
-    braft::ConfigurationPair pair = conf_manager->last_configuration();
-    ASSERT_EQ(pair.first, braft::LogId(0, 0));
-
-    delete conf_manager;
 }

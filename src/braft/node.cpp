@@ -47,37 +47,30 @@ class ConfigurationChangeDone : public Closure {
 public:
     void Run() {
         if (status().ok()) {
-            if (_node != NULL) {
-                _node->on_configuration_change_done(_term);
+            _node->on_configuration_change_done(_term);
+            if (_leader_start) {
+                _node->_options.fsm->on_leader_start(_term);
             }
-        }
-        if (_user_done) {
-            _user_done->status() = status();
-            _user_done->Run();
-            _user_done = NULL;
         }
         delete this;
     }
 private:
     ConfigurationChangeDone(
-            NodeImpl* node, int64_t term, Closure* user_done)
+            NodeImpl* node, int64_t term, bool leader_start)
         : _node(node)
         , _term(term)
-        , _user_done(user_done)
+        , _leader_start(leader_start)
     {
         _node->AddRef();
     }
     ~ConfigurationChangeDone() {
-        CHECK(_user_done == NULL);
-        if (_node != NULL) {
-            _node->Release();
-            _node = NULL;
-        }
+        _node->Release();
+        _node = NULL;
     }
 friend class NodeImpl;
     NodeImpl* _node;
     int64_t _term;
-    Closure* _user_done;
+    bool _leader_start;
 };
 
 inline int random_timeout(int timeout_ms) {
@@ -94,6 +87,7 @@ NodeImpl::NodeImpl(const GroupId& group_id, const PeerId& peer_id)
     , _current_term(0)
     , _last_leader_timestamp(butil::monotonic_time_ms())
     , _group_id(group_id)
+    , _conf_ctx(this)
     , _log_storage(NULL)
     , _stable_storage(NULL)
     , _closure_queue(NULL)
@@ -115,6 +109,7 @@ NodeImpl::NodeImpl()
     , _current_term(0)
     , _last_leader_timestamp(butil::monotonic_time_ms())
     , _group_id()
+    , _conf_ctx(this)
     , _log_storage(NULL)
     , _stable_storage(NULL)
     , _closure_queue(NULL)
@@ -475,12 +470,12 @@ int NodeImpl::init(const NodeOptions& options) {
         return -1;
     }
 
-    _conf.first = LogId();
+    _conf.id = LogId();
     // if have log using conf in log, else using conf in options
     if (_log_manager->last_log_index() > 0) {
         _log_manager->check_and_set_configuration(&_conf);
     } else {
-        _conf.second = _options.initial_conf;
+        _conf.conf = _options.initial_conf;
     }
 
     // init replicator
@@ -501,7 +496,8 @@ int NodeImpl::init(const NodeOptions& options) {
     LOG(INFO) << "node " << _group_id << ":" << _server_id << " init,"
         << " term: " << _current_term
         << " last_log_id: " << _log_manager->last_log_id()
-        << " conf: " << _conf.second;
+        << " conf: " << _conf.conf
+        << " old_conf: " << _conf.old_conf;
 
     // start snapshot timer
     if (_snapshot_executor && _options.snapshot_interval_s > 0) {
@@ -510,7 +506,7 @@ int NodeImpl::init(const NodeOptions& options) {
         _snapshot_timer.start();
     }
 
-    if (!_conf.second.empty()) {
+    if (!_conf.empty()) {
         step_down(_current_term, false, butil::Status::OK());
     }
 
@@ -524,7 +520,8 @@ int NodeImpl::init(const NodeOptions& options) {
     // Now the raft node is started , have to acquire the lock to avoid race
     // conditions
     std::unique_lock<raft_mutex_t> lck(_mutex);
-    if (_conf.second.size() == 1u && _conf.second.contains(_server_id)) {
+    if (_conf.stable() && _conf.conf.size() == 1u
+            && _conf.conf.contains(_server_id)) {
         // The group contains only this server which must be the LEADER, trigger
         // the timer immediately.
         elect_self(&lck);
@@ -577,46 +574,26 @@ void NodeImpl::apply(const Task& task) {
 }
 
 void NodeImpl::on_configuration_change_done(int64_t term) {
-    Configuration removed;
-    Configuration added;
     BAIDU_SCOPED_LOCK(_mutex);
     if (_state > STATE_TRANSFERING || term != _current_term) {
+        LOG(WARNING) << "node " << node_id()
+                     << " process on_configuration_change_done "
+                     << " at term=" << term
+                     << " while state=" << state2str(_state)
+                     << " and current_term=" << _current_term;
         // Callback from older version
         return;
     }
-    Configuration old_conf(_conf_ctx.peers);
-    old_conf.diffs(_conf.second, &removed, &added);
-    CHECK_GE(1u, removed.size() + added.size());
-
-    for (Configuration::const_iterator
-            iter = added.begin(); iter != added.end(); ++iter) {
-        if (!_replicator_group.contains(*iter)) {
-            CHECK(false)
-                    << "Impossible! no replicator attached to added peer=" << *iter;
-            _replicator_group.add_replicator(*iter);
-        }
-    }
-
-    for (Configuration::const_iterator
-            iter = removed.begin(); iter != removed.end(); ++iter) {
-        _replicator_group.stop_replicator(*iter);
-    }
-   
-    if (removed.contains(_server_id)) {
-        butil::Status status;
-        status.set_error(ELEADERREMOVED, "Raft leader removed, step down to wake up a new one.");
-        step_down(_current_term, true, status);
-    }
-    _conf_ctx.reset();
+    _conf_ctx.next_stage();
 }
 
 class OnCaughtUp : public CatchupClosure {
 public:
-    OnCaughtUp(NodeImpl* node, int64_t term, const PeerId& peer, Closure* done)
+    OnCaughtUp(NodeImpl* node, int64_t term, const PeerId& peer, int64_t version)
         : _node(node)
         , _term(term)
         , _peer(peer)
-        , _done(done)
+        , _version(version)
     {
         _node->AddRef();
     }
@@ -627,107 +604,86 @@ public:
         }
     }
     virtual void Run() {
-        _node->on_caughtup(_peer, _term, status(), _done);
+        _node->on_caughtup(_peer, _term, _version, status());
         delete this;
     };
 private:
     NodeImpl* _node;
     int64_t _term;
     PeerId _peer;
-    Closure* _done;
+    int64_t _version;
 };
 
 void NodeImpl::on_caughtup(const PeerId& peer, int64_t term,
-                           const butil::Status& st, Closure* done) {
-    int error_code = st.error_code();
-    const char* error_text = st.error_cstr();
+                           int64_t version, const butil::Status& st) {
+    BAIDU_SCOPED_LOCK(_mutex);
+    // CHECK _current_term and _state to avoid ABA problem
+    if (term != _current_term && _state != STATE_LEADER) {
+        // term has changed and nothing should be done, otherwise there will be
+        // an ABA problem.
+        return;
+    }
 
-    do {
-        BAIDU_SCOPED_LOCK(_mutex);
-        // CHECK _current_term and _state to avoid ABA problem
-        if (term != _current_term) {
-            // term has changed, we have to mark this configuration changing
-            // operation as failure, otherwise there is likely an ABA problem
-            if (error_code == 0) {
-                error_code = EINVAL;
-                error_text = "leader stepped down";
-            }
-            // DON'T stop replicator here.
-            // Caution: Be careful if you want to add some stuff here
-            break;
-        }
-        if (_state != STATE_LEADER) {
-            if (_state == STATE_TRANSFERING) {
-                // Print error to notice the users there must be something wrong
-                // since configuration changing is refused during traslanting
-                // leadership.
-                // Note: Don't use FATAL in case the users turn
-                //       `crash_on_fatal_log' on and the process is going to
-                //       abort ever after.
-                LOG(ERROR) << "node " << _group_id << ":" << _server_id
-                           << " received on_caughtup while the state is "
-                           << state2str(STATE_TRANSFERING)
-                           << " which is not supposed to happend according to"
-                              " the implemention(until Thu Nov 24 17:28:42 CST 2016)."
-                              " There must be something wrong, please contact the raft"
-                              " maintainers to checkout this issue and fix it";
-                // Stop this replicator to release the resource
-                _replicator_group.stop_replicator(peer);
-                // Reset _conf_ctx to make configuration changing acceptable
-                // after this point.
-                _conf_ctx.reset();
-                error_code = EINVAL;
-                error_text = "Impossible condition";
-            } else {
-                error_code = EPERM;
-                error_text = "leader stepped down";
-            }
-            break;
-        }
+    if (st.ok()) {  // Caught up succesfully
+        _conf_ctx.on_caughtup(version, peer, true);
+        return;
+    }
 
-        if (error_code == 0) {  // Caught up succesfully
-            LOG(INFO) << "node " << _group_id << ":" << _server_id << " add_peer " << peer
-                << " to " << _conf.second << ", caughtup "
-                << "success, then append add_peer entry.";
-            // add peer to _conf after new peer catchup
-            Configuration new_conf(_conf.second);
-            new_conf.add_peer(peer);
-            unsafe_apply_configuration(new_conf, done);
+    // Retry if this peer is still alive
+    if (st.error_code() == ETIMEDOUT 
+            && (butil::monotonic_time_ms()
+                -  _replicator_group.last_rpc_send_timestamp(peer))
+                    <= _options.election_timeout_ms) {
+
+        BRAFT_VLOG << "node " << _group_id << ":" << _server_id
+                   << " waits peer " << peer << " to catch up";
+
+        OnCaughtUp* caught_up = new OnCaughtUp(this, _current_term, peer, version);
+        timespec due_time = butil::milliseconds_from_now(
+                _options.election_timeout_ms);
+
+        if (0 == _replicator_group.wait_caughtup(
+                    peer, _options.catchup_margin, &due_time, caught_up)) {
             return;
+        } else {
+            LOG(WARNING) << "node " << _group_id << ":" << _server_id
+                << " wait_caughtup failed, peer " << peer;
+            delete caught_up;
+        }
+    }
+
+    _conf_ctx.on_caughtup(version, peer, false);
+}
+
+void NodeImpl::check_dead_nodes(const Configuration& conf, int64_t now_ms) {
+    std::vector<PeerId> peers;
+    conf.list_peers(&peers);
+    size_t alive_count = 0;
+    Configuration dead_nodes;  // for easily print
+    for (size_t i = 0; i < peers.size(); i++) {
+        if (peers[i] == _server_id) {
+            ++alive_count;
+            continue;
         }
 
-        // Retry if the node doesn't step down
-        if (error_code == ETIMEDOUT &&
-            (butil::monotonic_time_ms() -  _replicator_group.last_rpc_send_timestamp(peer)) <=
-            _options.election_timeout_ms) {
-
-            LOG(INFO) << "node " << _group_id << ":" << _server_id << " catching up " << peer;
-
-            OnCaughtUp* caught_up = new OnCaughtUp(this, _current_term, peer, done);
-            timespec due_time = butil::milliseconds_from_now(_options.election_timeout_ms);
-
-            if (0 == _replicator_group.wait_caughtup(
-                        peer, _options.catchup_margin, &due_time, caught_up)) {
-                return;
-            } else {
-                LOG(ERROR) << "node " << _group_id << ":" << _server_id
-                    << " wait_caughtup failed, peer " << peer;
-                delete caught_up;
-            }
+        if (now_ms - _replicator_group.last_rpc_send_timestamp(peers[i])
+                <= _options.election_timeout_ms) {
+            ++alive_count;
+            continue;
         }
-
-        LOG(WARNING) << "node " << _group_id << ":" << _server_id << " add_peer " << peer
-            << " to " << _conf.second << ", caughtup "
-            << "failed: " << error_text << " (" << error_code << ')';
-
-        _replicator_group.stop_replicator(peer);
-        _conf_ctx.reset();
-        error_code = ECATCHUP;
-    } while (0);
-
-    // call add_peer done when fail
-    done->status().set_error(error_code, "caughtup failed: %s", error_text);
-    done->Run();
+        dead_nodes.add_peer(peers[i]);
+    }
+    if (alive_count >= peers.size() / 2 + 1) {
+        return;
+    }
+    LOG(WARNING) << "node " << node_id()
+                 << " term " << _current_term
+                 << " steps down  when alive nodes don't satisfy quorum"
+                    " dead_nodes: " << dead_nodes
+                 << " conf: " << conf;
+    butil::Status status;
+    status.set_error(ERAFTTIMEDOUT, "Majority of the group dies");
+    step_down(_current_term, false, status);
 }
 
 void NodeImpl::handle_stepdown_timeout() {
@@ -741,38 +697,15 @@ void NodeImpl::handle_stepdown_timeout() {
         return;
     }
 
-    std::vector<PeerId> peers;
-    _conf.second.list_peers(&peers);
-    int64_t now_timestamp = butil::monotonic_time_ms();
-    size_t alive_count = 0;
-    Configuration dead_nodes;  // for easily print
-    for (size_t i = 0; i < peers.size(); i++) {
-        if (peers[i] == _server_id) {
-            ++alive_count;
-            continue;
-        }
-
-        if (now_timestamp - _replicator_group.last_rpc_send_timestamp(peers[i]) <=
-            _options.election_timeout_ms) {
-            ++alive_count;
-            continue;
-        }
-        dead_nodes.add_peer(peers[i]);
+    int64_t now = butil::monotonic_time_ms();
+    check_dead_nodes(_conf.conf, now);
+    if (!_conf.old_conf.empty()) {
+        check_dead_nodes(_conf.old_conf, now);
     }
-    if (alive_count >= peers.size() / 2 + 1) {
-        return;
-    }
-    LOG(INFO) << "node " << _group_id << ":" << _server_id
-        << " term " << _current_term << " stepdown when alive nodes don't satisfy quorum"
-        << " dead_nodes: " << dead_nodes;
-    
-    butil::Status status;
-    status.set_error(ERAFTTIMEDOUT, "Raft leader reaches step_down timeout.");
-    step_down(_current_term, false, status);
 }
 
-bool NodeImpl::unsafe_register_conf_change(const std::vector<PeerId>& old_peers,
-                                           const std::vector<PeerId>& new_peers,
+void NodeImpl::unsafe_register_conf_change(const Configuration& old_conf,
+                                           const Configuration& new_conf,
                                            Closure* done) {
     if (_state != STATE_LEADER) {
         LOG(WARNING) << "[" << node_id()
@@ -786,37 +719,27 @@ bool NodeImpl::unsafe_register_conf_change(const std::vector<PeerId>& old_peers,
             }
             run_closure_in_bthread(done);
         }
-        return false;
+        return;
     }
 
     // check concurrent conf change
-    if (!_conf_ctx.empty()) {
+    if (_conf_ctx.is_busy()) {
         LOG(WARNING) << "[" << node_id()
                      << " ] Refusing concurrent configuration changing";
         if (done) {
             done->status().set_error(EBUSY, "Doing another configuration change");
             run_closure_in_bthread(done);
         }
-        return false;
+        return;
     }
+
     // Return immediately when the new peers equals to current configuration
-    if (_conf.second.equals(new_peers)) {
+    if (_conf.conf.equals(new_conf)) {
         run_closure_in_bthread(done);
-        return false;
+        return;
     }
-    // check not equal
-    if (!_conf.second.equals(old_peers)) {
-        LOG(WARNING) << "[" << node_id()
-                     << "] Refusing configuration changing based on wrong configuration ,"
-                     << " expect: " << _conf.second << " recv: " << Configuration(old_peers);
-        if (done) {
-            done->status().set_error(EINVAL, "old_peers dismatch");
-            run_closure_in_bthread(done);
-        }
-        return false;
-    }
-    _conf_ctx.peers = old_peers;
-    return true;
+
+    return _conf_ctx.start(old_conf, new_conf, done);
 }
 
 butil::Status NodeImpl::list_peers(std::vector<PeerId>* peers) {
@@ -824,88 +747,30 @@ butil::Status NodeImpl::list_peers(std::vector<PeerId>* peers) {
     if (_state != STATE_LEADER) {
         return butil::Status(EPERM, "Not leader");
     }
-    _conf.second.list_peers(peers);
+    _conf.conf.list_peers(peers);
     return butil::Status::OK();
 }
 
-void NodeImpl::add_peer(const std::vector<PeerId>& old_peers, const PeerId& peer,
-                        Closure* done) {
+void NodeImpl::add_peer(const PeerId& peer, Closure* done) {
     BAIDU_SCOPED_LOCK(_mutex);
-    Configuration new_conf(old_peers);
-    if (old_peers.empty()) {
-        new_conf = _conf.second;
-    }
+    Configuration new_conf = _conf.conf;
     new_conf.add_peer(peer);
-    std::vector<PeerId> new_peers;
-    new_conf.list_peers(&new_peers);
-
-    if (!unsafe_register_conf_change(old_peers, new_peers, done)) {
-        return;
-    }
-    LOG(INFO) << "node " << _group_id << ":" << _server_id << " add_peer " << peer
-        << " to " << _conf.second << ", begin caughtup.";
-    if (0 != _replicator_group.add_replicator(peer)) {
-        LOG(ERROR) << "node " << _group_id << ":" << _server_id
-            << " start replicator failed, peer " << peer;
-        if (done) {
-            _conf_ctx.reset();
-            done->status().set_error(EINVAL, "Fail to start replicator");
-            run_closure_in_bthread(done);
-        }
-        return;
-    }
-
-    // catch up new peer
-    OnCaughtUp* caught_up = new OnCaughtUp(this, _current_term, peer, done);
-    timespec due_time = butil::milliseconds_from_now(_options.election_timeout_ms);
-
-    if (0 != _replicator_group.wait_caughtup(
-                peer, _options.catchup_margin, &due_time, caught_up)) {
-        LOG(ERROR) << "node " << _group_id << ":" << _server_id
-            << " wait_caughtup failed, peer " << peer;
-        _conf_ctx.reset();
-        delete caught_up;
-        if (done) {
-            done->status().set_error(EINVAL, "Fail to wait for caughtup");
-            run_closure_in_bthread(done);
-        }
-        return;
-    }
+    return unsafe_register_conf_change(_conf.conf, new_conf, done);
 }
 
-void NodeImpl::remove_peer(const std::vector<PeerId>& old_peers, const PeerId& peer,
-                           Closure* done) {
+void NodeImpl::remove_peer(const PeerId& peer, Closure* done) {
     BAIDU_SCOPED_LOCK(_mutex);
-    Configuration new_conf(old_peers);
-    if (old_peers.empty()) {
-        new_conf = _conf.second;
-    }
+    Configuration new_conf = _conf.conf;
     new_conf.remove_peer(peer);
-    std::vector<PeerId> new_peers;
-    new_conf.list_peers(&new_peers);
-
-    // Register _conf_ctx to reject configuration changing request before this
-    // log was committed
-    if (!unsafe_register_conf_change(old_peers, new_peers, done)) {
-        // done->Run() was called in unsafe_register_conf_change on failure
-        return;
-    }
-
-    LOG(INFO) << "node " << _group_id << ":" << _server_id << " remove_peer " << peer
-        << " from " << _conf.second;
-
-    // Remove peer from _conf immediately, the corresponding replicator will be
-    // stopped after the log is committed
-    return unsafe_apply_configuration(new_conf, done);
+    return unsafe_register_conf_change(_conf.conf, new_conf, done);
 }
 
-int NodeImpl::set_peer(const std::vector<PeerId>& old_peers,
-                       const std::vector<PeerId>& new_peers) {
-    return set_peer2(old_peers, new_peers).error_code();
+void NodeImpl::change_peers(const Configuration& new_peers, Closure* done) {
+    BAIDU_SCOPED_LOCK(_mutex);
+    return unsafe_register_conf_change(_conf.conf, new_peers, done);
 }
 
-butil::Status NodeImpl::set_peer2(const std::vector<PeerId>& old_peers,
-                                 const std::vector<PeerId>& new_peers) {
+butil::Status NodeImpl::reset_peers(const Configuration& new_peers) {
     BAIDU_SCOPED_LOCK(_mutex);
 
     if (new_peers.empty()) {
@@ -919,68 +784,37 @@ butil::Status NodeImpl::set_peer2(const std::vector<PeerId>& old_peers,
         return butil::Status(EPERM, "Bad state %s", state2str(_state));
     }
     // check bootstrap
-    if (_conf.second.empty()) {
-        if (old_peers.size() == 0 && new_peers.size() > 0) {
-            Configuration new_conf(new_peers);
-            LOG(INFO) << "node " << _group_id << ":" << _server_id 
-                << " set_peer boot from "
-                << new_conf;
-            _conf.second = new_conf;
-            // set_peer boot and step_down
-            butil::Status status;
-            status.set_error(ESETPEER, "Set peer from empty configuration");
-            step_down(_current_term + 1, false, status);
-            return butil::Status::OK();
-        } else {
-            LOG(WARNING) << "node " << _group_id << ":" << _server_id
-                << " set_peer boot need old_peers empty and new_peers no_empty";
-            return butil::Status(EINVAL, "old_peers must be empty "
-                                        "when boostrap an empty node");
-        }
+    if (_conf.conf.empty()) {
+        LOG(INFO) << "node " << _group_id << ":" << _server_id 
+            << " reset_peers to " << new_peers << " from empty";
+        _conf.conf = new_peers;
+        butil::Status status;
+        status.set_error(ESETPEER, "Set peer from empty configuration");
+        step_down(_current_term + 1, false, status);
+        return butil::Status::OK();
     }
+
     // check concurrent conf change
-    if (_state == STATE_LEADER && !_conf_ctx.empty()) {
+    if (_state == STATE_LEADER && _conf_ctx.is_busy()) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
                      << " set_peer need wait current conf change";
         return butil::Status(EBUSY, "Changing to another configuration");
     }
 
     // check equal, maybe retry direct return
-    if (_conf.second.equals(new_peers)) {
+    if (_conf.conf.equals(new_peers)) {
         return butil::Status::OK();
     }
 
-    if (!old_peers.empty()) {
-        // check not equal
-        if (!_conf.second.equals(std::vector<PeerId>(old_peers))) {
-            LOG(WARNING) << "node " << _group_id << ":" << _server_id 
-                << " set_peer dismatch old_peers";
-            return butil::Status(EINVAL, "Dons't match old_peers");
-        }
-
-        // check quorum
-        if (new_peers.size() >= (old_peers.size() / 2 + 1)) {
-            LOG(WARNING) << "node " << _group_id << ":" << _server_id 
-                << " set_peer new_peers greater than old_peers'quorum";
-            return butil::Status(EINVAL, "#new_peers is greater "
-                                        "than quorum of old_peers");
-        }
-
-        // check contain
-        if (!_conf.second.contains(new_peers)) {
-            LOG(WARNING) << "node " << _group_id << ":" << _server_id 
-                << " set_peer old_peers not contains all new_peers";
-            return butil::Status(EINVAL, "old_peers not contains all new_peers");
-        }
-    }
-
     Configuration new_conf(new_peers);
-    LOG(WARNING) << "node " << _group_id << ":" << _server_id << " set_peer from "
-                 << _conf.second << " to " << new_conf;
+    LOG(WARNING) << "node " << _group_id << ":" << _server_id 
+                 << " set_peer from "
+                 << _conf.conf << " to " << new_conf;
     // change conf and step_down
-    _conf.second = new_conf;
+    _conf.conf = new_conf;
+    _conf.old_conf.reset();
     butil::Status status;
-    status.set_error(ESETPEER, "Raft node set peer normally.");
+    status.set_error(ESETPEER, "Raft node set peer normally");
     step_down(_current_term + 1, false, status);
     return butil::Status::OK();
 }
@@ -1201,19 +1035,19 @@ int NodeImpl::transfer_leadership_to(const PeerId& peer) {
                      << " is in state " << state2str(_state);
         return _state == STATE_TRANSFERING ? EBUSY : EPERM;
     }
-    if (!_conf_ctx.empty() /*FIXME: make this expression more readable*/) {
+    if (_conf_ctx.is_busy() /*FIXME: make this expression more readable*/) {
         // It's very messy to deal with the case when the |peer| received
         // TimeoutNowRequest and increase the term while somehow another leader
         // which was not replicated with the newest configuration has been
         // elected. If no add_peer with this very |peer| is to be invoked ever
         // after nor this peer is to be killed, this peer will spin in the voting
         // procedure and make the each new leader stepped down when the peer
-        // reached vote timedoutit starts to vote (because it will increase the
-        // term of the group)
-        // To make things simple so just refuse the operation and force users to
+        // reached vote timedout and it starts to vote (because it will increase
+        // the term of the group)
+        // To make things simple, refuse the operation and force users to
         // invoke transfer_leadership_to after configuration changing is
-        // completed so the peer's configuration is up-to-date when it receives
-        // the TimeOutNowRequest.
+        // completed so that the peer's configuration is up-to-date when it 
+        // receives the TimeOutNowRequest.
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
                      << " refused to transfer leadership to peer " << peer
                      << " when the leader is changing the configuration";
@@ -1227,8 +1061,7 @@ int NodeImpl::transfer_leadership_to(const PeerId& peer) {
         LOG(INFO) << "node " << _group_id << ":" << _server_id
               << " starts to transfer leadership to any peer.";
         // find the next candidate which is the most possible to become new leader
-        if (_replicator_group.find_the_next_candidate(
-                        &peer_id, _conf.second) != 0) {
+        if (_replicator_group.find_the_next_candidate(&peer_id, _conf) != 0) {
             return -1;    
         }
     }
@@ -1236,10 +1069,10 @@ int NodeImpl::transfer_leadership_to(const PeerId& peer) {
         LOG(INFO) << "Transfering leadership to self";
         return 0;
     }
-    if (!_conf.second.contains(peer_id)) {
+    if (!_conf.contains(peer_id)) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
                      << " refused to transfer leadership to peer " << peer_id
-                     << " which doesn't belong to " << _conf.second;
+                     << " which doesn't belong to " << _conf.conf;
         return EINVAL;
     }
     const int64_t last_log_index = _log_manager->last_log_index();
@@ -1366,7 +1199,7 @@ void NodeImpl::handle_request_vote_response(const PeerId& peer_id, const int64_t
     // check granted quorum?
     if (response.granted()) {
         _vote_ctx.grant(peer_id);
-        if (_vote_ctx.quorum()) {
+        if (_vote_ctx.granted()) {
             become_leader();
         }
     }
@@ -1436,7 +1269,7 @@ void NodeImpl::handle_pre_vote_response(const PeerId& peer_id, const int64_t ter
     // check granted quorum?
     if (response.granted()) {
         _pre_vote_ctx.grant(peer_id);
-        if (_pre_vote_ctx.quorum()) {
+        if (_pre_vote_ctx.granted()) {
             elect_self(&lck);
         }
     }
@@ -1481,9 +1314,9 @@ void NodeImpl::pre_vote(std::unique_lock<raft_mutex_t>* lck) {
                      " configuration is possibly out of date";
         return;
     }
-    if (!_conf.second.contains(_server_id)) {
+    if (!_conf.contains(_server_id)) {
         LOG(WARNING) << "node " << _group_id << ':' << _server_id
-                     << " can't do pre_vote as it is not in " << _conf.second;
+                     << " can't do pre_vote as it is not in " << _conf.conf;
         return;
     }
 
@@ -1499,39 +1332,39 @@ void NodeImpl::pre_vote(std::unique_lock<raft_mutex_t>* lck) {
         return;
     }
 
-    _pre_vote_ctx.reset();
-    std::vector<PeerId> peers;
-    _conf.second.list_peers(&peers);
-    _pre_vote_ctx.set(peers);
-    for (size_t i = 0; i < peers.size(); i++) {
-        if (peers[i] == _server_id) {
+    _pre_vote_ctx.init(_conf.conf, _conf.stable() ? NULL : &_conf.old_conf);
+    std::set<PeerId> peers;
+    _conf.list_peers(&peers);
+    for (std::set<PeerId>::const_iterator
+            iter = peers.begin(); iter != peers.end(); ++iter) {
+        if (*iter == _server_id) {
             continue;
         }
         brpc::ChannelOptions options;
         options.connection_type = brpc::CONNECTION_TYPE_SINGLE;
         options.max_retry = 0;
         brpc::Channel channel;
-        if (0 != channel.Init(peers[i].addr, &options)) {
+        if (0 != channel.Init(iter->addr, &options)) {
             LOG(WARNING) << "node " << _group_id << ":" << _server_id
-                << " channel init failed, addr " << peers[i].addr;
+                << " channel init failed, addr " << iter->addr;
             continue;
         }
 
         RequestVoteRequest request;
         request.set_group_id(_group_id);
         request.set_server_id(_server_id.to_string());
-        request.set_peer_id(peers[i].to_string());
+        request.set_peer_id(iter->to_string());
         request.set_term(_current_term + 1); // next term
         request.set_last_log_index(last_log_id.index);
         request.set_last_log_term(last_log_id.term);
 
-        OnPreVoteRPCDone* done = new OnPreVoteRPCDone(peers[i], _current_term, this);
+        OnPreVoteRPCDone* done = new OnPreVoteRPCDone(*iter, _current_term, this);
         RaftService_Stub stub(&channel);
         stub.pre_vote(&done->cntl, &request, &done->response, done);
     }
     _pre_vote_ctx.grant(_server_id);
 
-    if (_pre_vote_ctx.quorum()) {
+    if (_pre_vote_ctx.granted()) {
         elect_self(lck);
     }
 }
@@ -1541,9 +1374,9 @@ void NodeImpl::elect_self(std::unique_lock<raft_mutex_t>* lck) {
     LOG(INFO) << "node " << _group_id << ":" << _server_id
         << " term " << _current_term
         << " start vote and grant vote self";
-    if (!_conf.second.contains(_server_id)) {
+    if (!_conf.contains(_server_id)) {
         LOG(WARNING) << "node " << _group_id << ':' << _server_id
-                     << " can't do elect_self as it is not in " << _conf.second;
+                     << " can't do elect_self as it is not in " << _conf.conf;
         return;
     }
     // cancel follower election timer
@@ -1562,15 +1395,12 @@ void NodeImpl::elect_self(std::unique_lock<raft_mutex_t>* lck) {
     _state = STATE_CANDIDATE;
     _current_term++;
     _voted_id = _server_id;
-    _vote_ctx.reset();
 
     BRAFT_VLOG << "node " << _group_id << ":" << _server_id
         << " term " << _current_term << " start vote_timer";
     _vote_timer.start();
 
-    std::vector<PeerId> peers;
-    _conf.second.list_peers(&peers);
-    _vote_ctx.set(peers);
+    _vote_ctx.init(_conf.conf, _conf.stable() ? NULL : &_conf.old_conf);
 
     int64_t old_term = _current_term;
     // get last_log_id outof node mutex
@@ -1584,38 +1414,41 @@ void NodeImpl::elect_self(std::unique_lock<raft_mutex_t>* lck) {
             << " raise term " << _current_term << " when get last_log_id";
         return;
     }
+    std::set<PeerId> peers;
+    _conf.list_peers(&peers);
 
-    for (size_t i = 0; i < peers.size(); i++) {
-        if (peers[i] == _server_id) {
+    for (std::set<PeerId>::const_iterator
+        iter = peers.begin(); iter != peers.end(); ++iter) {
+        if (*iter == _server_id) {
             continue;
         }
         brpc::ChannelOptions options;
         options.connection_type = brpc::CONNECTION_TYPE_SINGLE;
         options.max_retry = 0;
         brpc::Channel channel;
-        if (0 != channel.Init(peers[i].addr, &options)) {
+        if (0 != channel.Init(iter->addr, &options)) {
             LOG(WARNING) << "node " << _group_id << ":" << _server_id
-                << " channel init failed, addr " << peers[i].addr;
+                << " channel init failed, addr " << iter->addr;
             continue;
         }
 
         RequestVoteRequest request;
         request.set_group_id(_group_id);
         request.set_server_id(_server_id.to_string());
-        request.set_peer_id(peers[i].to_string());
+        request.set_peer_id(iter->to_string());
         request.set_term(_current_term);
         request.set_last_log_index(last_log_id.index);
         request.set_last_log_term(last_log_id.term);
 
-        OnRequestVoteRPCDone* done = new OnRequestVoteRPCDone(peers[i], _current_term, this);
+        OnRequestVoteRPCDone* done = new OnRequestVoteRPCDone(*iter, _current_term, this);
         RaftService_Stub stub(&channel);
         stub.request_vote(&done->cntl, &request, &done->response, done);
     }
 
-    _vote_ctx.grant(_server_id);
     //TODO: outof lock
     _stable_storage->set_term_and_votedfor(_current_term, _server_id);
-    if (_vote_ctx.quorum()) {
+    _vote_ctx.grant(_server_id);
+    if (_vote_ctx.granted()) {
         become_leader();
     }
 }
@@ -1652,8 +1485,6 @@ void NodeImpl::step_down(const int64_t term, bool wakeup_a_candidate,
 
     // soft state in memory
     _state = STATE_FOLLOWER;
-    _pre_vote_ctx.reset();
-    _vote_ctx.reset();
     _conf_ctx.reset();
     _last_leader_timestamp = butil::monotonic_time_ms();
 
@@ -1672,7 +1503,7 @@ void NodeImpl::step_down(const int64_t term, bool wakeup_a_candidate,
     // stop stagging new node
     if (wakeup_a_candidate) {
         _replicator_group.stop_all_and_find_the_next_candidate(
-                                            &_waking_candidate, _conf.second);
+                                            &_waking_candidate, _conf);
         // FIXME: We issue the RPC in the critical section, which is fine now
         // since the Node is going to quit when reaching the branch
         Replicator::send_timeout_now_and_stop(
@@ -1735,26 +1566,15 @@ void NodeImpl::check_step_down(const int64_t request_term, const PeerId& server_
     }
 }
 
-class LeaderStartClosure : public Closure {
-public:
-    LeaderStartClosure(StateMachine* fsm, int64_t term) : _fsm(fsm), _term(term) {}
-    ~LeaderStartClosure() {}
-    void Run() {
-        if (status().ok()) {
-            _fsm->on_leader_start(_term);
-        }
-        delete this;
-    }
-private:
-    StateMachine* _fsm;
-    int64_t _term;
-};
-
 // in lock
 void NodeImpl::become_leader() {
     CHECK(_state == STATE_CANDIDATE);
     LOG(INFO) << "node " << _group_id << ":" << _server_id
-        << " term " << _current_term << " become leader, and stop vote_timer";
+              << " term " << _current_term
+              << " become leader of group "
+              << _conf.conf
+              << " "
+              << _conf.old_conf;
     // cancel candidate vote timer
     _vote_timer.stop();
 
@@ -1763,18 +1583,19 @@ void NodeImpl::become_leader() {
 
     _replicator_group.reset_term(_current_term);
 
-    std::vector<PeerId> peers;
-    _conf.second.list_peers(&peers);
-    for (size_t i = 0; i < peers.size(); i++) {
-        if (peers[i] == _server_id) {
+    std::set<PeerId> peers;
+    _conf.list_peers(&peers);
+    for (std::set<PeerId>::const_iterator
+            iter = peers.begin(); iter != peers.end(); ++iter) {
+        if (*iter == _server_id) {
             continue;
         }
 
         BRAFT_VLOG << "node " << _group_id << ":" << _server_id
             << " term " << _current_term
-            << " add replicator " << peers[i];
+            << " add replicator " << *iter;
         //TODO: check return code
-        _replicator_group.add_replicator(peers[i]);
+        _replicator_group.add_replicator(*iter);
     }
 
     // init commit manager
@@ -1782,10 +1603,8 @@ void NodeImpl::become_leader() {
 
     // Register _conf_ctx to reject configuration changing before the first log
     // is committed.
-    CHECK(_conf_ctx.empty());
-    _conf.second.list_peers(&_conf_ctx.peers);
-    unsafe_apply_configuration(_conf.second,
-                               new LeaderStartClosure(_options.fsm, _current_term));
+    CHECK(!_conf_ctx.is_busy());
+    _conf_ctx.flush(_conf.conf, _conf.old_conf);
     _stepdown_timer.start();
 }
 
@@ -1863,7 +1682,9 @@ void NodeImpl::apply(LogEntryAndClosure tasks[], size_t size) {
         entries.push_back(tasks[i].entry);
         entries.back()->id.term = _current_term;
         entries.back()->type = ENTRY_TYPE_DATA;
-        _ballot_box->append_pending_task(_conf.second, tasks[i].done);
+        _ballot_box->append_pending_task(_conf.conf,
+                                         _conf.stable() ? NULL : &_conf.old_conf,
+                                         tasks[i].done);
     }
     _log_manager->append_entries(&entries,
                                new LeaderStableClosure(
@@ -1875,29 +1696,30 @@ void NodeImpl::apply(LogEntryAndClosure tasks[], size_t size) {
 }
 
 void NodeImpl::unsafe_apply_configuration(const Configuration& new_conf,
-                                          Closure* done) {
-    CHECK(!_conf_ctx.empty());
+                                          const Configuration* old_conf,
+                                          bool leader_start) {
+    CHECK(_conf_ctx.is_busy());
     LogEntry* entry = new LogEntry();
     entry->AddRef();
     entry->id.term = _current_term;
     entry->type = ENTRY_TYPE_CONFIGURATION;
     entry->peers = new std::vector<PeerId>;
     new_conf.list_peers(entry->peers);
+    if (old_conf) {
+        entry->old_peers = new std::vector<PeerId>;
+        old_conf->list_peers(entry->old_peers);
+    }
     ConfigurationChangeDone* configuration_change_done =
-            new ConfigurationChangeDone(this, _current_term, done);
+            new ConfigurationChangeDone(this, _current_term, leader_start);
     // Use the new_conf to deal the quorum of this very log
-    std::vector<PeerId> old_peers;
-    _conf.second.list_peers(&old_peers);
-    _ballot_box->append_pending_task(new_conf, configuration_change_done);
+    _ballot_box->append_pending_task(new_conf, old_conf, configuration_change_done);
 
     std::vector<LogEntry*> entries;
     entries.push_back(entry);
     _log_manager->append_entries(&entries,
                                  new LeaderStableClosure(
                                         NodeId(_group_id, _server_id),
-                                        1u,
-                                        _ballot_box));
-    // update _conf.first
+                                        1u, _ballot_box));
     _log_manager->check_and_set_configuration(&_conf);
 }
 
@@ -2244,6 +2066,12 @@ void NodeImpl::handle_append_entries_request(brpc::Controller* cntl,
                     log_entry->peers->push_back(entry.peers(i));
                 }
                 CHECK_EQ(log_entry->type, ENTRY_TYPE_CONFIGURATION);
+                if (entry.old_peers_size() > 0) {
+                    log_entry->old_peers = new std::vector<PeerId>;
+                    for (int i = 0; i < entry.old_peers_size(); i++) {
+                        log_entry->old_peers->push_back(entry.old_peers(i));
+                    }
+                }
             } else {
                 CHECK_NE(entry.type(), ENTRY_TYPE_CONFIGURATION);
             }
@@ -2413,10 +2241,10 @@ void NodeImpl::describe(std::ostream& os, bool use_html) {
         leader = _leader_id;
     }
     const int64_t term = _current_term;
-    const int64_t conf_index = _conf.first.index;
+    const int64_t conf_index = _conf.id.index;
     //const int ref_count = ref_count_;
     std::vector<PeerId> peers;
-    _conf.second.list_peers(&peers);
+    _conf.conf.list_peers(&peers);
     // No replicator attached to nodes that are not leader;
     _replicator_group.list_replicators(&replicators);
     const int64_t leader_timestamp = _last_leader_timestamp;
@@ -2475,6 +2303,151 @@ void NodeImpl::describe(std::ostream& os, bool use_html) {
     }
     for (size_t i = 0; i < replicators.size(); ++i) {
         Replicator::describe(replicators[i], os, use_html);
+    }
+}
+void NodeImpl::stop_replicator(const std::set<PeerId>& keep,
+                               const std::set<PeerId>& drop) {
+    for (std::set<PeerId>::const_iterator
+            iter = drop.begin(); iter != drop.end(); ++iter) {
+        if (keep.find(*iter) == keep.end() && *iter != _server_id) {
+            _replicator_group.stop_replicator(*iter);
+        }
+    }
+}
+
+void NodeImpl::ConfigurationCtx::start(const Configuration& old_conf,
+                                       const Configuration& new_conf,
+                                       Closure* done) {
+    CHECK(!is_busy());
+    CHECK(!_done);
+    _done = done;
+    _stage = STAGE_CATCHING_UP;
+    old_conf.list_peers(&_old_peers);
+    new_conf.list_peers(&_new_peers);
+    Configuration adding;
+    Configuration removing;
+    new_conf.diffs(old_conf, &adding, &removing);
+    _nchanges = adding.size() + removing.size();
+    if (adding.empty()) {
+        return next_stage();
+    }
+    adding.list_peers(&_adding_peers);
+    for (std::set<PeerId>::const_iterator iter
+            = _adding_peers.begin(); iter != _adding_peers.end(); ++iter) {
+        if (_node->_replicator_group.add_replicator(*iter) != 0) {
+            LOG(ERROR) << "node " << _node->node_id()
+                       << " start replicator failed, peer " << *iter;
+            return on_caughtup(_version, *iter, false);
+        }
+        OnCaughtUp* caught_up = new OnCaughtUp(
+                _node, _node->_current_term, *iter, _version);
+        timespec due_time = butil::milliseconds_from_now(
+                _node->_options.election_timeout_ms);
+        if (_node->_replicator_group.wait_caughtup(
+            *iter, _node->_options.catchup_margin, &due_time, caught_up) != 0) {
+            LOG(WARNING) << "node " << _node->node_id()
+                         << " wait_caughtup failed, peer " << *iter;
+            delete caught_up;
+            return on_caughtup(_version, *iter, false);
+        }
+    }
+}
+
+void NodeImpl::ConfigurationCtx::flush(const Configuration& conf,
+                                       const Configuration& old_conf) {
+    CHECK(!is_busy());
+    conf.list_peers(&_new_peers);
+    if (old_conf.empty()) {
+        _stage = STAGE_STABLE;
+        _old_peers = _new_peers;
+    } else {
+        _stage = STAGE_JOINT;
+        old_conf.list_peers(&_old_peers);
+    }
+    _node->unsafe_apply_configuration(conf, old_conf.empty() ? NULL : &old_conf,
+                                      true);
+                                      
+}
+
+void NodeImpl::ConfigurationCtx::on_caughtup(
+        int64_t version, const PeerId& peer_id, bool succ) {
+    if (version != _version) {
+        return;
+    }
+    CHECK_EQ(STAGE_CATCHING_UP, _stage);
+    if (succ) {
+        _adding_peers.erase(peer_id);
+        if (_adding_peers.empty()) {
+            return next_stage();
+        }
+        return;
+    }
+    // Fail
+    LOG(WARNING) << "Node " << _node->node_id()
+                 << " fail to catch up peer " << peer_id
+                 << " when trying to change peers from " 
+                 << Configuration(_old_peers) << " to " 
+                 << Configuration(_new_peers);
+    butil::Status err(ECATCHUP, "Peer %s failed to catch up",
+                      peer_id.to_string().c_str());
+    reset(&err);
+}
+
+void NodeImpl::ConfigurationCtx::next_stage() {
+    CHECK(is_busy());
+    switch (_stage) {
+    case STAGE_CATCHING_UP:
+        if (_nchanges > 1) {
+            _stage = STAGE_JOINT;
+            Configuration old_conf(_old_peers);
+            return _node->unsafe_apply_configuration(
+                    Configuration(_new_peers), &old_conf, false);
+        }
+        // Skip joint consensus since only one peers has been changed here. Make
+        // it a one-stage change to be compitible with the legacy
+        // implementation.
+    case STAGE_JOINT:
+        _stage = STAGE_STABLE;
+        return _node->unsafe_apply_configuration(
+                    Configuration(_new_peers), NULL, false);
+    case STAGE_STABLE:
+        {
+            bool should_step_down = 
+                _new_peers.find(_node->_server_id) == _new_peers.end();
+            butil::Status st = butil::Status::OK();
+            reset(&st);
+            if (should_step_down) {
+                _node->step_down(_node->_current_term, true,
+                        butil::Status(ELEADERREMOVED, "This node was removed"));
+            }
+            return;
+        }
+    case STAGE_NONE:
+        CHECK(false) << "Can't reach here";
+        return;
+    }
+}
+
+void NodeImpl::ConfigurationCtx::reset(butil::Status* st) {
+    if (st && st->ok()) {
+        _node->stop_replicator(_new_peers, _old_peers);
+    } else {
+        _node->stop_replicator(_old_peers, _new_peers);
+    }
+    _new_peers.clear();
+    _old_peers.clear();
+    _adding_peers.clear();
+    ++_version;
+    _stage = STAGE_NONE;
+    _nchanges = 0;
+    if (_done) {
+        if (!st) {
+            _done->status().set_error(EPERM, "leader stepped down");
+        } else {
+            _done->status() = *st;
+        }
+        run_closure_in_bthread(_done);
+        _done = NULL;
     }
 }
 

@@ -85,6 +85,7 @@ class BAIDU_CACHELINE_ALIGNMENT NodeImpl
 friend class RaftServiceImpl;
 friend class RaftStatImpl;
 friend class FollowerStableClosure;
+friend class ConfigurationChangeDone;
 public:
     NodeImpl(const GroupId& group_id, const PeerId& peer_id);
     NodeImpl();
@@ -129,23 +130,11 @@ public:
 
     butil::Status list_peers(std::vector<PeerId>* peers);
 
-    // add peer to replicated-state-machine
-    // done is user defined function, maybe response to client
-    void add_peer(const std::vector<PeerId>& old_peers, const PeerId& peer,
-                  Closure* done);
-
-    // remove peer from replicated-state-machine
-    // done is user defined function, maybe response to client
-    void remove_peer(const std::vector<PeerId>& old_peers, const PeerId& peer,
-                     Closure* done);
-
-    // set peer to local replica
-    // done is user defined function, maybe response to client
-    // only used in major node is down, reduce peerset to make group available
-    int set_peer(const std::vector<PeerId>& old_peers,
-                 const std::vector<PeerId>& new_peers);
-    butil::Status set_peer2(const std::vector<PeerId>& old_peers,
-                           const std::vector<PeerId>& new_peers);
+    // @Node configuration change
+    void add_peer(const PeerId& peer, Closure* done);
+    void remove_peer(const PeerId& peer, Closure* done);
+    void change_peers(const Configuration& new_peers, Closure* done);
+    butil::Status reset_peers(const Configuration& new_peers);
 
     // trigger snapshot
     void snapshot(Closure* done);
@@ -195,7 +184,7 @@ public:
     void handle_request_vote_response(const PeerId& peer_id, const int64_t term,
                                       const RequestVoteResponse& response);
     void on_caughtup(const PeerId& peer, int64_t term, 
-                     const butil::Status& st, Closure* done);
+                     int64_t version, const butil::Status& st);
     // other func
     //
     // called when leader change configuration done, ref with FSMCaller
@@ -233,15 +222,18 @@ friend class butil::RefCountedThreadSafe<NodeImpl>;
     int init_log_storage();
     int init_stable_storage();
     int init_fsm_caller(const LogId& bootstrap_index);
-    bool unsafe_register_conf_change(const std::vector<PeerId>& old_peers,
-                                     const std::vector<PeerId>& new_peers,
+    void unsafe_register_conf_change(const Configuration& old_conf,
+                                     const Configuration& new_conf,
                                      Closure* done);
+    void stop_replicator(const std::set<PeerId>& keep,
+                         const std::set<PeerId>& drop);
 
     // become leader
     void become_leader();
 
     // step down to follower, status give the reason
-    void step_down(const int64_t term, bool wakeup_a_candidate, const butil::Status& status);
+    void step_down(const int64_t term, bool wakeup_a_candidate,
+                   const butil::Status& status);
 
     // reset leader_id. 
     // When new_leader_id is NULL, it means this node just stop following a leader; 
@@ -260,8 +252,9 @@ friend class butil::RefCountedThreadSafe<NodeImpl>;
     void elect_self(std::unique_lock<raft_mutex_t>* lck);
 
     // leader async apply configuration
-    void unsafe_apply_configuration(const Configuration& new_conf, 
-                                    Closure* done);
+    void unsafe_apply_configuration(const Configuration& new_conf,
+                                    const Configuration* old_conf,
+                                    bool leader_start);
 
     void do_snapshot(Closure* done);
 
@@ -274,45 +267,42 @@ friend class butil::RefCountedThreadSafe<NodeImpl>;
     static int execute_applying_tasks(
                 void* meta, bthread::TaskIterator<LogEntryAndClosure>& iter);
     void apply(LogEntryAndClosure tasks[], size_t size);
+    void check_dead_nodes(const Configuration& conf, int64_t now_ms);
 
 private:
-    struct VoteCtx {
-        size_t peers;
-        std::set<PeerId> ungranted;
 
-        VoteCtx() {
-            reset();
-        }
-
-        void set(const std::vector<PeerId>& peer_vec) {
-            peers = peer_vec.size();
-            for (size_t i = 0; i < peer_vec.size(); i++) {
-                ungranted.insert(peer_vec[i]);
-            }
-        }
-
-        void grant(PeerId peer) {
-            ungranted.erase(peer);
-        }
-        bool quorum() {
-            return (peers - ungranted.size()) >= (peers / 2 + 1);
-        }
-        void reset() {
-            peers = 0;
-            ungranted.clear();
-        }
-    };
-    struct ConfigurationCtx {
-        std::vector<PeerId> peers;
-        void set(std::vector<PeerId>& peers_) {
-            peers.swap(peers_);
-        }
-        void reset() {
-            peers.clear();
-        }
-        bool empty() {
-            return peers.empty();
-        }
+    class ConfigurationCtx {
+    DISALLOW_COPY_AND_ASSIGN(ConfigurationCtx);
+    public:
+        enum Stage {
+            STAGE_NONE,
+            STAGE_CATCHING_UP,
+            STAGE_JOINT,
+            STAGE_STABLE,
+        };
+        ConfigurationCtx(NodeImpl* node) :
+            _node(node), _stage(STAGE_NONE), _version(0), _done(NULL) {}
+        void reset(butil::Status* st = NULL);
+        bool is_busy() const { return _stage != STAGE_NONE; }
+        // Start change configuration.
+        void start(const Configuration& old_conf, 
+                   const Configuration& new_conf,
+                   Closure * done);
+        // Invoked when this node becomes the leader, write a configuration
+        // change log as the first log
+        void flush(const Configuration& conf,
+                   const Configuration& old_conf);
+        void next_stage();
+        void on_caughtup(int64_t version, const PeerId& peer_id, bool succ);
+    private:
+        NodeImpl* _node;
+        Stage _stage;
+        int _nchanges;
+        int64_t _version;
+        std::set<PeerId> _new_peers;
+        std::set<PeerId> _old_peers;
+        std::set<PeerId> _adding_peers;
+        Closure* _done;
     };
 
     struct LogEntryAndClosure {
@@ -326,9 +316,9 @@ private:
     int64_t _last_leader_timestamp;
     PeerId _leader_id;
     PeerId _voted_id;
-    VoteCtx _vote_ctx; // candidate vote ctx
-    VoteCtx _pre_vote_ctx; // prevote ctx
-    ConfigurationPair _conf;
+    Ballot _vote_ctx;
+    Ballot _pre_vote_ctx;
+    ConfigurationEntry _conf;
 
     GroupId _group_id;
     PeerId _server_id;

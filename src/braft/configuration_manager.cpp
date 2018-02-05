@@ -18,59 +18,50 @@
 
 namespace braft {
 
-int ConfigurationManager::add(const LogId& id, const Configuration& config) {
+int ConfigurationManager::add(const ConfigurationEntry& entry) {
     if (!_configurations.empty()) {
-        if (_configurations.back().first.index >= id.index) {
+        if (_configurations.back().id.index >= entry.id.index) {
             CHECK(false) << "Did you forget to call truncate_suffix before "
                             " the last log index goes back";
             return -1;
         }
     }
-    _configurations.push_back(ConfigurationPair(id, config));
+    _configurations.push_back(entry);
     return 0;
 }
 
 void ConfigurationManager::truncate_prefix(const int64_t first_index_kept) {
-    while (!_configurations.empty()) {
-        if (_configurations.front().first.index < first_index_kept) {
-            _configurations.pop_front();
-        } else {
-            break;
-        }
+    while (!_configurations.empty()
+            && _configurations.front().id.index < first_index_kept) {
+        _configurations.pop_front();
     }
 }
 
 void ConfigurationManager::truncate_suffix(const int64_t last_index_kept) {
-    while (!_configurations.empty()) {
-        if (_configurations.back().first.index > last_index_kept) {
-            _configurations.pop_back();
-        } else {
-            break;
-        }
+    while (!_configurations.empty()
+        && _configurations.back().id.index > last_index_kept) {
+        _configurations.pop_back();
     }
 }
 
-void ConfigurationManager::set_snapshot(const LogId& id,
-                                        const Configuration& config) {
-    CHECK_GE(id, _snapshot.first);
-    _snapshot.first = id;
-    _snapshot.second = config;
+void ConfigurationManager::set_snapshot(const ConfigurationEntry& entry) {
+    CHECK_GE(entry.id, _snapshot.id);
+    _snapshot = entry;
 }
 
-void ConfigurationManager::get_configuration(
-        int64_t last_included_index, ConfigurationPair* conf) {
+void ConfigurationManager::get(int64_t last_included_index,
+                               ConfigurationEntry* conf) {
     if (_configurations.empty()) {
-        CHECK_GE(last_included_index, _snapshot.first.index);
+        CHECK_GE(last_included_index, _snapshot.id.index);
         *conf = _snapshot;
         return;
     }
-    std::deque<ConfigurationPair>::iterator it;
+    std::deque<ConfigurationEntry>::iterator it;
     for (it = _configurations.begin(); it != _configurations.end(); ++it) {
-        if (it->first.index > last_included_index) {
+        if (it->id.index > last_included_index) {
             break;
         }
     }
-
     if (it == _configurations.begin()) {
         *conf = _snapshot;
         return;
@@ -79,7 +70,7 @@ void ConfigurationManager::get_configuration(
     *conf = *it;
 }
 
-const ConfigurationPair& ConfigurationManager::last_configuration() const {
+const ConfigurationEntry& ConfigurationManager::last_configuration() const {
     if (!_configurations.empty()) {
         return _configurations.back();
     }

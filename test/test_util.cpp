@@ -19,6 +19,8 @@ protected:
     void TearDown() {}
 };
 
+using braft::raft_mutex_t;
+
 struct LockMeta {
     raft_mutex_t* mutex;
     int64_t value;
