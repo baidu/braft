@@ -443,7 +443,63 @@ libraft内提供了基于文件列表的LocalSnapshotWriter和LocalSnapshotReade
 
 braft::Node可以通过调用api控制也可以通过[braft_cli](./cli.md)来控制, 本章主要说明如何使用api.
 
-## 增加节点
+## 节点配置变更
+
+在分布式系统中，机器故障，扩容，副本均衡是管理平面需要解决的基本问题，braft提供了几种方式:
+
+* 增加一个节点
+* 删除一个节点
+* 全量替换现有节点列表
+
+```cpp
+// Add a new peer to the raft group. done->Run() would be invoked after this
+// operation finishes, describing the detailed result.
+void add_peer(const PeerId& peer, Closure* done);
+
+// Remove the peer from the raft group. done->Run() would be invoked after
+// this operation finishes, describing the detailed result.
+void remove_peer(const PeerId& peer, Closure* done);
+
+// Gracefully change the configuration of the raft group to |new_peers| , done->Run()
+// would be invoked after this operation finishes, describing the detailed
+// result.
+void change_peers(const Configuration& new_peers, Closure* done);
+```
+
+节点变更分为几个阶段:
+
+- **追赶阶段: ** 如果新的节点配置相对于当前有新增的一个或者多个节点，leader对应的Replicator, 向把最新的snapshot再这个这些中安装，然后开始同步之后的日志。等到所有的新节点数据都追的差不多，就开始进入一下一阶段。
+  - 追赶是为了避免新加入的节点数据和集群相差过远而影响集群的可用性. 并不会影响数据安全性.
+  - 在追赶阶段完成前， **只有**leader知道这些新节点的存在，这个节点都不会被记入到集群的决策集合中，包括选主和日志提交的判定。追赶阶段任意节点失败，则这次节点变更就会被标记为失败。
+- **联合选举阶段**: leader会将旧节点配置和新节点配置写入Log, 在这个阶段之后直道下一个阶段之前，所有的选举和日志同步都需要在**新老节点之间达到多数**。 这里和标准算法有一点不同， 考虑到和之前实现的兼容性，如果这次只变更了一个节点,  则直接进入下一阶段。
+- **新配置同步阶段:**  当联合选举日志正式被新旧集群接受之后，leader将新节点配置写入log，之后所有的log和选举只需要在新集群中达成一致。 等待日志提交到**新集群**中的多数节点中之后， 正式完全节点变更。
+- **清理阶段**: leader会将多余的Replicator(如果有)关闭，特别如果当leader本身已经从节点配置中被移除，这时候leader会执行stepdown并且唤醒一个合适的节点触发选举。
+
+> 当考虑节点删除的时候， 情况会变得有些复杂, 由于判断成功提交的节点数量变少， 可能会出现在前面的日志没有成功提交的情况下， 后面的日志已经被判断已经提交。 这时候为了状态机的操作有序性， 即使之前的日志还未提交， 我们也会强制判断为成功.
+>
+> 举个例子:
+>
+> - 当前集群为 (A, B, **C, D**), 其中**C D**属于故障， 由于多数节点处于故障阶段, 存在10条还未被提交的日志(A B 已经写入， **C D** 未写入), 这时候发起操作，将D从集群中删除， 这条日志的成功判定条件变为在(A, B, **C**)， 这时候只需要A, B都成功写入这条日志即可认为这个日志已经成功提交， 但是之前还存在10条未写入日志. 这时候我们会强制认为之前的10条已经成功提交.
+> - 这个case比较极端， 通常这个情况下leader都会step down， 集群会进入无主状态， 需要至少修复CD中的一个节点之后集群才能正常提供服务。
+
+## 重置节点列表
+
+当多数节点故障的时候，是不能通过add_peer/remove_peer/change_peers进行节点变更的，这个时候安全的做法是等待多数节点恢复，能够保证数据安全。如果业务追求服务的可用性，放弃数据安全性的话，可以使用reset_peers飞线设置复制组Configuration。
+
+```cpp
+// Reset the configuration of this node individually, without any repliation
+// to other peers before this node beomes the leader. This function is
+// supposed to be inovoked when the majority of the replication group are
+// dead and you'd like to revive the service in the consideration of
+// availability.
+// Notice that neither consistency nor consensus are guaranteed in this
+// case, BE CAREFULE when dealing with this method.
+butil::Status reset_peers(const Configuration& new_peers);
+```
+
+reset_peer之后，新的Configuration的节点会开始重新选主，当新的leader选主成功之后，会写一条新Configuration的Log，这条Log写成功之后，reset_peer才算成功。如果中间又发生了失败的话，外部需要重新选取peers并发起reset_peers。
+
+**不建议使用reset_peers**，reset_peers会破坏raft对数据一致性的保证，而且可能会造成脑裂。例如，{A B C D E}组成的复制组G，其中{C D E}故障，将{A B} set_peer成功恢复复制组G'，{C D E}又重新启动它们也会形成一个复制组G''，这样复制组G中会存在两个Leader，且{A B}这两个复制组中都存在，其中的follower会接收两个leader的AppendEntries，当前只检测term和index，可能会导致其上数据错乱。
 
 ```cpp
 // Add a new peer to the raft group when the current configuration matches
@@ -451,39 +507,6 @@ braft::Node可以通过调用api控制也可以通过[braft_cli](./cli.md)来控
 // describing the detailed result.
 void add_peer(const std::vector<PeerId>& old_peers, const PeerId& peer, Closure* done);
 ```
-
-braft的实现中一次只允许变更一个节点, 在上一次集群变更操作完成或者失败之前，其余的节点变更操作都会失败.
-
-添加节点分为两个阶段:
-
-* **追赶阶段: ** leader启动一个Replicator, 向把最新的snapshot再这个新节点中安装，然后开始同步之后的日志。 然后等待新节点上的日志和集群最新的状态相差一定范围之内. 
-  * 追赶是为了避免新加入的节点数据和集群相差过远而影响集群的可用性. 并不会影响数据安全性.
-  * 在追赶阶段完成前， **只有**leader知道新加节点的存在，这个节点都不会被记入到集群的决策集合中，包括选主和日志提交的判定
-* **同步阶段:**  leader把这个阶段加入之后的集群信息写入日志， 等待日志提交到**新集群**中的多数节点中之后， 这个节点被正式加入集群.
-
-##删除节点
-
-```cpp
-// Remove the peer from the raft group when the current configuration matches
-// |old_peers|. done->Run() would be invoked after this operation finishes,
-// describing the detailed result.
-void remove_peer(const std::vector<PeerId>& old_peers, const PeerId& peer, Closure* done);
-```
-删除节点只有一个阶段:
-
-- **同步阶段:**  leader把这个节点删除之后的集群信息写入日志， 等待日志提交到**新集群**中的多数节点中之后， 这个节点被正式从集群中移除.
-
-节点信息变更日志同样会影响之后日志的提交判断标准， 在这个日志之前的日志， 会按照老的集群来判断日志时候判断是否提交， 这条日志以及之后的日志都是按照新的节点信息来判断日志是否提交。 举个例子:
-
-- 如果集群数量从3增加为4，那之前的日志写入2个节点就被认为成功提交， 之后的日志需要写入3个节点才被认为成功提交
-- 如果集群数量从4减少位3，那之前的日志写入3个节点才会认为成功提交， 之后的日志只需要2个节点就会被认为成功提交
-
-当考虑节点删除的时候， 情况会变得有些复杂, 由于判断成功提交的节点数量变少， 可能会出现在前面的日志没有成功提交的情况下， 后面的日志已经被判断已经提交。 这时候为了状态机的操作有序性， 即使之前的日志还未提交， 我们也会强制判断为成功.
-
-举个例子:
-
-* 当前集群为 (A, B, **C, D**), 其中**C D**属于故障， 由于多数节点处于故障阶段, 存在10条还未被提交的日志(A B 已经写入， **C D** 未写入), 这时候发起操作，将D从集群中删除， 这条日志的成功判定条件变为在(A, B, **C**)， 这时候只需要A, B都成功写入这条日志即可认为这个日志已经成功提交， 但是之前还存在10条未写入日志. 这时候我们会强制认为之前的10条已经成功提交.
-* 这个case比较极端， 通常这个情况下leader都会step down， 集群会进入无主状态， 需要至少修复CD中的一个节点之后集群才能正常提供服务。
 
 ## 转移Leader
 
@@ -508,19 +531,6 @@ braft实现了主迁移算法， 这个算法包含如下步骤:
 3. 节点收到TimeoutNowRequest之后，  直接变为Candidate, 增加term，并开始进入选主
 4. 主收到TimeoutNowResponse之后， 开始step down.
 5. 如果在election_timeout_ms时间内主没有step down， 会取消主迁移操作， 开始重新接受写入请求.
-
-##重置节点列表
-
-当多数节点故障的时候，是不能通过add_peer/remove_peer进行节点变更的，这个时候安全的做法是等待多数节点恢复，能够保证数据安全。如果业务追求服务的可用性，放弃数据安全性的话，可以使用set_peer飞线设置复制组Configuration。
-
-```
-void set_peer(const std::vector<PeerId>& old_peers, const std::vector<PeerId>& peer);
-
-```
-
-set_peer之后，新的Configuration的节点会开始重新选主，当新的leader选主成功之后，会写一条新Configuration的Log，这条Log写成功之后，set_peer才算成功。如果中间又发生了失败的话，外部需要重新选取peers并发起set_peer。
-
-**不建议使用set_peer**，set_peer会破坏raft对数据一致性的保证，而且可能会造成脑裂。例如，{A B C D E}组成的复制组G，其中{C D E}故障，将{A B} set_peer成功恢复复制组G'，{C D E}又重新启动它们也会形成一个复制组G''，这样复制组G中会存在两个Leader，且{A B}这两个复制组中都存在，其中的follower会接收两个leader的AppendEntries，当前只检测term和index，可能会导致其上数据错乱。
 
 # 查看节点状态
 
