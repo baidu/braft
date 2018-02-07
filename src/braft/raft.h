@@ -228,14 +228,12 @@ public:
 
     // Invoked when the belonging node becomes the leader of the group at |term|
     // Default: Do nothing
-    virtual void on_leader_start();
     virtual void on_leader_start(int64_t term);
 
     // user defined leader start function
     // [NOTE] this method called immediately when leader stepdown,
     //        maybe before some method: apply success on_apply or fail done.
     //        user sure resource available.
-    virtual void on_leader_stop();
     virtual void on_leader_stop(const butil::Status& status);
 
     // on_error is called when  
@@ -375,13 +373,6 @@ struct NodeOptions {
     // Default: 1000
     int catchup_margin;
 
-    // If |pipelined_replication| is true, leader will replicate following log
-    // entries through network to followers before receiving the ack of previous 
-    // ones. 
-    //
-    // Default: false
-    bool pipelined_replication;
-
     // If node is starting from a empty environment (both LogStorage and
     // SnapshotStorage are empty), it would use |initial_conf| as the
     // configuration of the group, otherwise it would load configuration from
@@ -440,7 +431,6 @@ inline NodeOptions::NodeOptions()
     : election_timeout_ms(1000)
     , snapshot_interval_s(3600)
     , catchup_margin(1000)
-    , pipelined_replication(false)
     , fsm(NULL)
     , node_owns_fsm(false)
     , usercode_in_pthread(false)

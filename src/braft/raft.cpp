@@ -213,12 +213,10 @@ int StateMachine::on_snapshot_load(SnapshotReader* reader) {
     return -1;
 }
 
-void StateMachine::on_leader_start() {}
-void StateMachine::on_leader_start(int64_t) { return on_leader_start(); }
-void StateMachine::on_leader_stop() {}
-void StateMachine::on_leader_stop(const butil::Status&) { return on_leader_stop(); }
+void StateMachine::on_leader_start(int64_t) {}
+void StateMachine::on_leader_stop(const butil::Status&) {}
 void StateMachine::on_error(const Error& e) {
-    LOG(ERROR) << "An error=" << e << " raised on StateMachine "
+    LOG(ERROR) << "Encountered an error=" << e << " on StateMachine "
                << butil::class_name_str(*this)
                << ", it's highly recommended to implement this interface"
                   " as raft stops working since some error ocurrs,"
