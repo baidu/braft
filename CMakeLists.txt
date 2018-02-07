@@ -84,8 +84,15 @@ foreach(PROTO ${BRAFT_PROTOS})
         --proto_path=${CMAKE_SOURCE_DIR}/src
         --proto_path=${CMAKE_SOURCE_DIR}/src/braft/ ${PROTO}
         WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+        ERROR_VARIABLE PROTO_ERROR
+        RESULT_VARIABLE PROTO_RESULT
     )
+    if (${PROTO_RESULT} EQUAL 0) 
+    else ()
+        message (FATAL_ERROR "Fail to generate cpp of ${PROTO} : ${PROTO_ERROR}")
+    endif()
 endforeach()
+
 file(GLOB_RECURSE BRAFT_SOURCES "${CMAKE_SOURCE_DIR}/src/braft/*.cpp")
 set(SOURCES
     ${BRAFT_SOURCES}

@@ -162,8 +162,8 @@ TEST_F(SnapshotTest, copy) {
     }
 
     brpc::Server server;
-    ASSERT_EQ(0, braft::add_service(&server, "0.0.0.0:60006"));
-    ASSERT_EQ(0, server.Start(60006, NULL));
+    ASSERT_EQ(0, braft::add_service(&server, "0.0.0.0:6006"));
+    ASSERT_EQ(0, server.Start(6006, NULL));
 
     std::vector<braft::PeerId> peers;
     peers.push_back(braft::PeerId("1.2.3.4:1000"));
@@ -184,7 +184,7 @@ TEST_F(SnapshotTest, copy) {
         ASSERT_EQ(storage1->set_file_system_adaptor(fs), 0);
     }
     ASSERT_EQ(0, storage1->init());
-    storage1->set_server_addr(butil::EndPoint(butil::my_ip(), 60006));
+    storage1->set_server_addr(butil::EndPoint(butil::my_ip(), 6006));
     // normal create writer
     braft::SnapshotWriter* writer1 = storage1->create();
     ASSERT_TRUE(writer1 != NULL);
@@ -227,8 +227,8 @@ TEST_F(SnapshotTest, file_escapes_directory) {
     }
 
     brpc::Server server;
-    ASSERT_EQ(0, braft::add_service(&server, "0.0.0.0:60006"));
-    ASSERT_EQ(0, server.Start(60006, NULL));
+    ASSERT_EQ(0, braft::add_service(&server, "0.0.0.0:6006"));
+    ASSERT_EQ(0, server.Start(6006, NULL));
 
     std::vector<braft::PeerId> peers;
     peers.push_back(braft::PeerId("1.2.3.4:1000"));
@@ -259,7 +259,7 @@ TEST_F(SnapshotTest, file_escapes_directory) {
         CHECK(file != NULL);
         delete file;
     }
-    storage1->set_server_addr(butil::EndPoint(butil::my_ip(), 60006));
+    storage1->set_server_addr(butil::EndPoint(butil::my_ip(), 6006));
     // normal create writer
     braft::SnapshotWriter* writer1 = storage1->create();
     ASSERT_TRUE(writer1 != NULL);
@@ -433,8 +433,8 @@ TEST_F(SnapshotTest, filter_before_copy) {
     }
 
     brpc::Server server;
-    ASSERT_EQ(0, braft::add_service(&server, "0.0.0.0:60006"));
-    ASSERT_EQ(0, server.Start(60006, NULL));
+    ASSERT_EQ(0, braft::add_service(&server, "0.0.0.0:6006"));
+    ASSERT_EQ(0, server.Start(6006, NULL));
 
     std::vector<braft::PeerId> peers;
     peers.push_back(braft::PeerId("1.2.3.4:1000"));
@@ -455,7 +455,7 @@ TEST_F(SnapshotTest, filter_before_copy) {
         ASSERT_EQ(storage1->set_file_system_adaptor(fs), 0);
     }
     ASSERT_EQ(0, storage1->init());
-    storage1->set_server_addr(butil::EndPoint(butil::my_ip(), 60006));
+    storage1->set_server_addr(butil::EndPoint(butil::my_ip(), 6006));
     // normal create writer
     braft::SnapshotWriter* writer1 = storage1->create();
     ASSERT_TRUE(writer1 != NULL);
@@ -586,8 +586,8 @@ TEST_F(SnapshotTest, snapshot_throttle_for_reading) {
     }
 
     brpc::Server server;
-    ASSERT_EQ(0, braft::add_service(&server, "0.0.0.0:60006"));
-    ASSERT_EQ(0, server.Start(60006, NULL));
+    ASSERT_EQ(0, braft::add_service(&server, "0.0.0.0:6006"));
+    ASSERT_EQ(0, server.Start(6006, NULL));
 
     std::vector<braft::PeerId> peers;
     peers.push_back(braft::PeerId("1.2.3.4:1000"));
@@ -613,7 +613,7 @@ TEST_F(SnapshotTest, snapshot_throttle_for_reading) {
     ASSERT_TRUE(throttle);
     ASSERT_EQ(storage1->set_snapshot_throttle(throttle), 0);
     ASSERT_EQ(0, storage1->init());
-    storage1->set_server_addr(butil::EndPoint(butil::my_ip(), 60006));
+    storage1->set_server_addr(butil::EndPoint(butil::my_ip(), 6006));
     // normal create writer
     braft::SnapshotWriter* writer1 = storage1->create();
     ASSERT_TRUE(writer1 != NULL);
@@ -663,8 +663,8 @@ TEST_F(SnapshotTest, snapshot_throttle_for_writing) {
     }
 
     brpc::Server server;
-    ASSERT_EQ(0, braft::add_service(&server, "0.0.0.0:60006"));
-    ASSERT_EQ(0, server.Start(60006, NULL));
+    ASSERT_EQ(0, braft::add_service(&server, "0.0.0.0:6006"));
+    ASSERT_EQ(0, server.Start(6006, NULL));
 
     std::vector<braft::PeerId> peers;
     peers.push_back(braft::PeerId("1.2.3.4:1000"));
@@ -685,7 +685,7 @@ TEST_F(SnapshotTest, snapshot_throttle_for_writing) {
         ASSERT_EQ(storage1->set_file_system_adaptor(fs), 0);
     }
     ASSERT_EQ(0, storage1->init());
-    storage1->set_server_addr(butil::EndPoint(butil::my_ip(), 60006));
+    storage1->set_server_addr(butil::EndPoint(butil::my_ip(), 6006));
     // create writer1
     braft::SnapshotWriter* writer1 = storage1->create();
     ASSERT_TRUE(writer1 != NULL);

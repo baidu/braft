@@ -60,22 +60,10 @@ void CliServiceImpl::add_peer(::google::protobuf::RpcController* controller,
         return;
     }
     std::vector<PeerId> peers;
-    if (request->old_peers_size() > 0) {
-        for (int i = 0; i < request->old_peers_size(); ++i) {
-            PeerId peer_id;
-            if (peer_id.parse(request->old_peers(i)) != 0) {
-                cntl->SetFailed(EINVAL, "Fail to parse peer_id %s",
-                                        request->old_peers(i).c_str());
-                return;
-            }
-            peers.push_back(peer_id);
-        }
-    } else {
-        st = node->list_peers(&peers);
-        if (!st.ok()) {
-            cntl->SetFailed(st.error_code(), "%s", st.error_cstr());
-            return;
-        }
+    st = node->list_peers(&peers);
+    if (!st.ok()) {
+        cntl->SetFailed(st.error_code(), "%s", st.error_cstr());
+        return;
     }
     PeerId adding_peer;
     if (adding_peer.parse(request->peer_id()) != 0) {
@@ -111,6 +99,7 @@ static void remove_peer_returned(brpc::Controller* cntl,
         }
     }
 }
+
 void CliServiceImpl::remove_peer(::google::protobuf::RpcController* controller,
                                  const ::braft::RemovePeerRequest* request,
                                  ::braft::RemovePeerResponse* response,
@@ -124,22 +113,10 @@ void CliServiceImpl::remove_peer(::google::protobuf::RpcController* controller,
         return;
     }
     std::vector<PeerId> peers;
-    if (request->old_peers_size() > 0) {
-        for (int i = 0; i < request->old_peers_size(); ++i) {
-            PeerId peer_id;
-            if (peer_id.parse(request->old_peers(i)) != 0) {
-                cntl->SetFailed(EINVAL, "Fail to parse peer_id %s",
-                                        request->old_peers(i).c_str());
-                return;
-            }
-            peers.push_back(peer_id);
-        }
-    } else {
-        st = node->list_peers(&peers);
-        if (!st.ok()) {
-            cntl->SetFailed(st.error_code(), "%s", st.error_cstr());
-            return;
-        }
+    st = node->list_peers(&peers);
+    if (!st.ok()) {
+        cntl->SetFailed(st.error_code(), "%s", st.error_cstr());
+        return;
     }
     PeerId removing_peer;
     if (removing_peer.parse(request->peer_id()) != 0) {
@@ -156,10 +133,10 @@ void CliServiceImpl::remove_peer(::google::protobuf::RpcController* controller,
     return node->remove_peer(removing_peer, remove_peer_done);
 }
 
-void CliServiceImpl::set_peer(::google::protobuf::RpcController* controller,
-                              const ::braft::SetPeerRequest* request,
-                              ::braft::SetPeerResponse* response,
-                              ::google::protobuf::Closure* done) {
+void CliServiceImpl::reset_peer(::google::protobuf::RpcController* controller,
+                                const ::braft::ResetPeerRequest* request,
+                                ::braft::ResetPeerResponse* response,
+                                ::google::protobuf::Closure* done) {
     brpc::Controller* cntl = (brpc::Controller*)controller;
     brpc::ClosureGuard done_guard(done);
     scoped_refptr<NodeImpl> node;
@@ -222,7 +199,20 @@ void CliServiceImpl::get_leader(::google::protobuf::RpcController* controller,
     brpc::ClosureGuard done_guard(done);
     std::vector<scoped_refptr<NodeImpl> > nodes;
     NodeManager* const nm = NodeManager::GetInstance();
-    nm->get_nodes_by_group_id(request->group_id(), &nodes);
+    if (request->has_peer_id()) {
+        PeerId peer;
+        if (peer.parse(request->peer_id()) != 0) {
+            cntl->SetFailed(EINVAL, "Fail to parse %s",
+                                    request->peer_id().c_str());
+            return;
+        }
+        scoped_refptr<NodeImpl> node = nm->get(request->group_id(), peer);
+        if (node) {
+            nodes.push_back(node);
+        }
+    } else {
+        nm->get_nodes_by_group_id(request->group_id(), &nodes);
+    }
     if (nodes.empty()) {
         cntl->SetFailed(ENOENT, "No nodes in group %s",
                                 request->group_id().c_str());
@@ -271,6 +261,89 @@ butil::Status CliServiceImpl::get_node(scoped_refptr<NodeImpl>* node,
     }
 
     return butil::Status::OK();
+}
+
+static void change_peers_returned(brpc::Controller* cntl,
+                          const ChangePeersRequest* request,
+                          ChangePeersResponse* response,
+                          std::vector<PeerId> old_peers,
+                          Configuration new_peers,
+                          scoped_refptr<NodeImpl> /*node*/,
+                          ::google::protobuf::Closure* done,
+                          const butil::Status& st) {
+    brpc::ClosureGuard done_guard(done);
+    if (!st.ok()) {
+        cntl->SetFailed(st.error_code(), "%s", st.error_cstr());
+        return;
+    }
+    for (size_t i = 0; i < old_peers.size(); ++i) {
+        response->add_old_peers(old_peers[i].to_string());
+    }
+    for (Configuration::const_iterator
+            iter = new_peers.begin(); iter != new_peers.end(); ++iter) {
+        response->add_new_peers(iter->to_string());
+    }
+}
+
+void CliServiceImpl::change_peers(::google::protobuf::RpcController* controller,
+                                  const ::braft::ChangePeersRequest* request,
+                                  ::braft::ChangePeersResponse* response,
+                                  ::google::protobuf::Closure* done) {
+    brpc::Controller* cntl = (brpc::Controller*)controller;
+    brpc::ClosureGuard done_guard(done);
+    scoped_refptr<NodeImpl> node;
+    butil::Status st = get_node(&node, request->group_id(), request->leader_id());
+    if (!st.ok()) {
+        cntl->SetFailed(st.error_code(), "%s", st.error_cstr());
+        return;
+    }
+    std::vector<PeerId> old_peers;
+    st = node->list_peers(&old_peers);
+    if (!st.ok()) {
+        cntl->SetFailed(st.error_code(), "%s", st.error_cstr());
+        return;
+    }
+    Configuration conf;
+    for (int i = 0; i < request->new_peers_size(); ++i) {
+        PeerId peer;
+        if (peer.parse(request->new_peers(i)) != 0) {
+            cntl->SetFailed(EINVAL, "Fail to parse %s",
+                                    request->new_peers(i).c_str());
+            return;
+        }
+        conf.add_peer(peer);
+    }
+    Closure* change_peers_done = NewCallback(
+            change_peers_returned, 
+            cntl, request, response, old_peers, conf, node,
+            done_guard.release());
+    return node->change_peers(conf, change_peers_done);
+}
+
+void CliServiceImpl::transfer_leader(
+                    ::google::protobuf::RpcController* controller,
+                    const ::braft::TransferLeaderRequest* request,
+                    ::braft::TransferLeaderResponse* response,
+                    ::google::protobuf::Closure* done) {
+    brpc::Controller* cntl = (brpc::Controller*)controller;
+    brpc::ClosureGuard done_guard(done);
+    scoped_refptr<NodeImpl> node;
+    butil::Status st = get_node(&node, request->group_id(), request->leader_id());
+    if (!st.ok()) {
+        cntl->SetFailed(st.error_code(), "%s", st.error_cstr());
+        return;
+    }
+    PeerId peer = ANY_PEER;
+    if (request->has_peer_id() && peer.parse(request->peer_id()) != 0) {
+        cntl->SetFailed(EINVAL, "Fail to parse %s", request->peer_id().c_str());
+        return;
+    }
+    const int rc = node->transfer_leadership_to(peer);
+    if (rc != 0) {
+        cntl->SetFailed(rc, "Fail to invoke transfer_leadership_to : %s",
+                            berror(rc));
+        return;
+    }
 }
 
 }  //  namespace braft

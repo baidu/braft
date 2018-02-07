@@ -5,9 +5,8 @@ option cc_generic_services = true;
 
 message AddPeerRequest {
     required string group_id = 1;
-    optional string leader_id = 2;
+    required string leader_id = 2;
     required string peer_id = 3;
-    repeated string old_peers = 4;
 }
 
 message AddPeerResponse {
@@ -17,12 +16,22 @@ message AddPeerResponse {
 
 message RemovePeerRequest {
     required string group_id = 1;
-    optional string leader_id = 2;
+    required string leader_id = 2;
     required string peer_id = 3;
-    repeated string old_peers = 4;
 }
 
 message RemovePeerResponse {
+    repeated string old_peers = 1;
+    repeated string new_peers = 2;
+}
+
+message ChangePeersRequest {
+    required string group_id = 1;
+    required string leader_id = 2;
+    repeated string new_peers = 3;
+}
+
+message ChangePeersResponse {
     repeated string old_peers = 1;
     repeated string new_peers = 2;
 }
@@ -32,14 +41,22 @@ message SnapshotRequest {
     optional string peer_id = 2;
 };
 
-message SetPeerRequest {
+message ResetPeerRequest {
     required string group_id = 1;
-    optional string peer_id = 2;
+    required string peer_id = 2;
     repeated string old_peers = 3;
     repeated string new_peers = 4;
 }
 
-message SetPeerResponse {
+message TransferLeaderRequest {
+    required string group_id = 1;
+    required string leader_id = 2;
+    optional string peer_id = 3;
+}
+
+message TransferLeaderResponse {}
+
+message ResetPeerResponse {
 }
 
 message SnapshotResponse {
@@ -58,7 +75,9 @@ message GetLeaderResponse {
 service CliService {
     rpc add_peer(AddPeerRequest) returns (AddPeerResponse);
     rpc remove_peer(RemovePeerRequest) returns (RemovePeerResponse);
-    rpc set_peer(SetPeerRequest) returns (SetPeerResponse);
+    rpc change_peers(ChangePeersRequest) returns (ChangePeersResponse);
+    rpc reset_peer(ResetPeerRequest) returns (ResetPeerResponse);
     rpc snapshot(SnapshotRequest) returns (SnapshotResponse);
     rpc get_leader(GetLeaderRequest) returns (GetLeaderResponse);
+    rpc transfer_leader(TransferLeaderRequest) returns (TransferLeaderResponse);
 };

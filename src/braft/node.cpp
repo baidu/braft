@@ -97,7 +97,6 @@ NodeImpl::NodeImpl(const GroupId& group_id, const PeerId& peer_id)
     , _ballot_box(NULL)
     , _snapshot_executor(NULL)
     , _stop_transfer_arg(NULL)
-    , _vote_triggered(false)
     , _waking_candidate(0) {
         _server_id = peer_id;
         AddRef();
@@ -119,7 +118,6 @@ NodeImpl::NodeImpl()
     , _ballot_box(NULL)
     , _snapshot_executor(NULL)
     , _stop_transfer_arg(NULL)
-    , _vote_triggered(false)
     , _waking_candidate(0) {
         AddRef();
     g_num_nodes << 1;
@@ -919,18 +917,17 @@ void NodeImpl::handle_election_timeout() {
     if (_state != STATE_FOLLOWER) {
         return;
     }
-    // check timestamp, skip one cycle check when trigger vote
-    if (!_vote_triggered &&
-            (butil::monotonic_time_ms() - _last_leader_timestamp
-                    < _options.election_timeout_ms)) {
+
+    if ((butil::monotonic_time_ms() - _last_leader_timestamp) 
+            < _options.election_timeout_ms) {
         return;
     }
-    _vote_triggered = false;
 
     // Reset leader as the leader is uncerntain on election timeout.
     PeerId empty_id;
     butil::Status status;
-    status.set_error(ERAFTTIMEDOUT, "No message from leader for %d milliseconds.", _options.election_timeout_ms);
+    status.set_error(ERAFTTIMEDOUT, "Lost connection from leader %s",
+                                    _leader_id.to_string().c_str());
     reset_leader_id(empty_id, status);
 
     return pre_vote(&lck);
@@ -1098,23 +1095,6 @@ int NodeImpl::transfer_leadership_to(const PeerId& peer) {
         return -1;
     }
     return 0;
-}
-
-void NodeImpl::vote(int election_timeout) {
-    std::unique_lock<raft_mutex_t> lck(_mutex);
-    _options.election_timeout_ms = election_timeout;
-    _replicator_group.reset_heartbeat_interval(
-            heartbeat_timeout(_options.election_timeout_ms));
-    _replicator_group.reset_election_timeout_interval(_options.election_timeout_ms);
-    if (_state != STATE_FOLLOWER) {
-        return;
-    }
-    _vote_triggered = true;
-    LOG(INFO) << "node " << _group_id << ":" << _server_id << " trigger-vote,"
-        " current_term " << _current_term << " state " << state2str(_state) <<
-        " election_timeout " << election_timeout;
-
-    _election_timer.reset(election_timeout);
 }
 
 void NodeImpl::reset_election_timeout_ms(int election_timeout_ms) {
@@ -1388,7 +1368,8 @@ void NodeImpl::elect_self(std::unique_lock<raft_mutex_t>* lck) {
     // reset leader_id before vote
     PeerId empty_id;
     butil::Status status;
-    status.set_error(ERAFTTIMEDOUT, "A follower's leader_id is reset to NULL "
+    status.set_error(ERAFTTIMEDOUT,
+            "A follower's leader_id is reset to NULL "
             "as it begins to request_vote.");
     reset_leader_id(empty_id, status);
 
@@ -1455,7 +1436,7 @@ void NodeImpl::elect_self(std::unique_lock<raft_mutex_t>* lck) {
 
 // in lock
 void NodeImpl::step_down(const int64_t term, bool wakeup_a_candidate, 
-        const butil::Status& status) {
+                         const butil::Status& status) {
     BRAFT_VLOG << "node " << _group_id << ":" << _server_id
               << " term " << _current_term 
               << " stepdown from " << state2str(_state)

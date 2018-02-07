@@ -139,9 +139,6 @@ public:
     // trigger snapshot
     void snapshot(Closure* done);
 
-    // trigger vote
-    void vote(int election_timeout);
-
     // reset the election_timeout for the very node
     void reset_election_timeout_ms(int election_timeout_ms);
 
@@ -342,7 +339,6 @@ private:
     SnapshotTimer _snapshot_timer;
     bthread_timer_t _transfer_timer;
     StopTransferArg* _stop_transfer_arg;
-    bool _vote_triggered;
     ReplicatorId _waking_candidate;
     bthread::ExecutionQueueId<LogEntryAndClosure> _apply_queue_id;
     bthread::ExecutionQueue<LogEntryAndClosure>::scoped_ptr_t _apply_queue;

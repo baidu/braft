@@ -520,11 +520,6 @@ public:
     // when the snapshot finishes, describing the detailed result.
     void snapshot(Closure* done);
 
-    // user trigger vote
-    // reset election_timeout, suggest some peer to become the leader in a
-    // higher probability
-    void vote(int election_timeout);
-     
     // reset the election_timeout for the very node
     void reset_election_timeout_ms(int election_timeout_ms);
 

@@ -5,6 +5,7 @@
 
 #include <gtest/gtest.h>
 #include <gflags/gflags.h>
+#include <butil/unique_ptr.h>
 #include <brpc/server.h>
 #include "braft/raft.h"
 #include "braft/cli.h"
@@ -125,14 +126,72 @@ TEST_F(CliTest, set_peer) {
         conf1.add_peer(peer_id);
     }
     butil::Status st;
-    st = braft::cli::set_peer("test", node1.peer_id(), conf1,
-                             braft::cli::CliOptions());
+    st = braft::cli::reset_peer("test", node1.peer_id(), conf1,
+                                braft::cli::CliOptions());
     ASSERT_TRUE(st.ok());
     braft::Configuration conf2;
     conf2.add_peer(node1.peer_id());
-    st = braft::cli::set_peer("test", node1.peer_id(), conf2,
+    st = braft::cli::reset_peer("test", node1.peer_id(), conf2,
                              braft::cli::CliOptions());
     ASSERT_TRUE(st.ok());
     usleep(2 * 1000 * 1000);
     ASSERT_TRUE(node1._node->is_leader());
 }
+
+TEST_F(CliTest, change_peers) {
+    RaftNode node1;
+    ASSERT_EQ(0, node1.start(9500, false));
+    braft::Configuration conf1;
+    for (int i = 0; i < 3; ++i) {
+        braft::PeerId peer_id = node1.peer_id();
+        peer_id.addr.port += i;
+        conf1.add_peer(peer_id);
+    }
+    butil::Status st;
+    st = braft::cli::reset_peer("test", node1.peer_id(), conf1,
+                                braft::cli::CliOptions());
+    ASSERT_TRUE(st.ok());
+    braft::Configuration conf2;
+    conf2.add_peer(node1.peer_id());
+    st = braft::cli::reset_peer("test", node1.peer_id(), conf2,
+                             braft::cli::CliOptions());
+    ASSERT_TRUE(st.ok());
+    usleep(2 * 1000 * 1000);
+    ASSERT_TRUE(node1._node->is_leader());
+}
+
+TEST_F(CliTest, change_peer) {
+    size_t N = 10;
+    std::unique_ptr<RaftNode[]> nodes(new RaftNode[N]);
+    nodes[0].start(9500, true);
+    for (size_t i = 1; i < N; ++i) {
+        ASSERT_EQ(0, nodes[i].start(9500 + i, false));
+    }
+    braft::Configuration conf;
+    for (size_t i = 0; i < N; ++i) {
+        conf.add_peer("127.0.0.1:" + std::to_string(9500 + i));
+    }
+    butil::Status st;
+    for (size_t i = 0; i < N; ++i) {
+        usleep(1000);
+        braft::Configuration new_conf;
+        new_conf.add_peer("127.0.0.1:" + std::to_string(9500 + i));
+        st = braft::cli::change_peers("test", conf, new_conf, braft::cli::CliOptions());
+        ASSERT_TRUE(st.ok()) << st;
+    }
+    st = braft::cli::change_peers("test", conf, conf, braft::cli::CliOptions());
+    ASSERT_TRUE(st.ok()) << st;
+    for (size_t i = 0; i < N; ++i) {
+        usleep(10 * 1000);
+        braft::Configuration new_conf;
+        new_conf.add_peer("127.0.0.1:" + std::to_string(9500 + i));
+        LOG(WARNING) << "change " << conf << " to " << new_conf;
+        st = braft::cli::change_peers("test", conf, new_conf, braft::cli::CliOptions());
+        ASSERT_TRUE(st.ok()) << st;
+        usleep(10 * 1000);
+        LOG(WARNING) << "change " << new_conf << " to " << conf;
+        st = braft::cli::change_peers("test", new_conf, conf, braft::cli::CliOptions());
+        ASSERT_TRUE(st.ok()) << st << " i=" << i;
+    }
+}
+

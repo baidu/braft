@@ -24,8 +24,9 @@ namespace cli {
 
 DEFINE_int32(timeout_ms, -1, "Timeout (in milliseconds) of the operation");
 DEFINE_int32(max_retry, 3, "Max retry times of each operation");
-DEFINE_string(conf, "", "Configuration of the raft group");
+DEFINE_string(conf, "", "Current configuration of the raft group");
 DEFINE_string(peer, "", "Id of the operating peer");
+DEFINE_string(new_peers, "", "Peers that the group is going to consists of");
 DEFINE_string(group, "", "Id of the raft group");
 
 #define CHECK_FLAG(flagname)                                            \
@@ -86,13 +87,38 @@ int remove_peer() {
     return 0;
 }
 
-int set_peer() {
+int change_peers() {
+    CHECK_FLAG(new_peers);
     CHECK_FLAG(conf);
-    CHECK_FLAG(peer);
     CHECK_FLAG(group);
+    Configuration new_peers;
+    if (new_peers.parse_from(FLAGS_new_peers) != 0) {
+        LOG(ERROR) << "Fail to parse --new_peers=`" << FLAGS_new_peers << '\'';
+        return -1;
+    }
     Configuration conf;
     if (conf.parse_from(FLAGS_conf) != 0) {
-        LOG(ERROR) << "Fail to parse --conf=`" << FLAGS_conf << '\'';
+        LOG(ERROR) << "Fail to parse --conf=`" << FLAGS_conf<< '\'';
+        return -1;
+    }
+    CliOptions opt;
+    opt.timeout_ms = FLAGS_timeout_ms;
+    opt.max_retry = FLAGS_max_retry;
+    butil::Status st = change_peers(FLAGS_group, conf, new_peers, opt);
+    if (!st.ok()) {
+        LOG(ERROR) << "Fail to change_peers : " << st;
+        return -1;
+    }
+    return 0;
+}
+
+int reset_peer() {
+    CHECK_FLAG(new_peers);
+    CHECK_FLAG(peer);
+    CHECK_FLAG(group);
+    Configuration new_peers;
+    if (new_peers.parse_from(FLAGS_new_peers) != 0) {
+        LOG(ERROR) << "Fail to parse --new_peers=`" << FLAGS_new_peers << '\'';
         return -1;
     }
     PeerId target_peer;
@@ -103,9 +129,9 @@ int set_peer() {
     CliOptions opt;
     opt.timeout_ms = FLAGS_timeout_ms;
     opt.max_retry = FLAGS_max_retry;
-    butil::Status st = set_peer(FLAGS_group, target_peer, conf, opt);
+    butil::Status st = reset_peer(FLAGS_group, target_peer, new_peers, opt);
     if (!st.ok()) {
-        LOG(ERROR) << "Fail to set_peer : " << st;
+        LOG(ERROR) << "Fail to reset_peer : " << st;
         return -1;
     }
     return 0;
@@ -137,8 +163,11 @@ int run_command(const std::string& cmd) {
     if (cmd == "remove_peer") {
         return remove_peer();
     }
-    if (cmd == "set_peer") {
-        return set_peer();
+    if (cmd == "change_peers") {
+        return change_peers();
+    }
+    if (cmd == "reset_peer") {
+        return reset_peer();
     }
     if (cmd == "snapshot") {
         return snapshot();
@@ -165,8 +194,10 @@ int main(int argc , char* argv[]) {
                                     "--peer=$adding_peer --conf=$current_conf\n"
                         "  remove_peer --group=$group_id "
                                       "--peer=$removing_peer --conf=$current_conf\n"
-                        "  set_peer --group=$group_id "
-                                   "--peer==$target_peer --conf=$target_conf\n"
+                        "  change_peers --group=$group_id "
+                                       "--conf=$current_conf --new_peers=$new_peers\n"
+                        "  reset_peer --group=$group_id "
+                                     "--peer==$target_peer --conf=$target_conf\n"
                         "  snapshot --group=$group_id --peer=$target_peer\n",
                         proc_name);
     GFLAGS_NS::SetUsageMessage(help_str);
