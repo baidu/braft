@@ -8,8 +8,6 @@
 
 braft需要运行在具体的brpc server里面你可以让braft和你的业务共享同样的端口， 也可以将braft启动到不同的端口中.
 
-## brpc users
-
 brpc允许一个端口上注册多个逻辑Service,  如果你的Service同样运行在brpc Server里面，你可以管理brpc Server并且调用以下任意一个接口将braft相关的Service加入到你的Server中。这样能让braft和你的业务跑在同样的端口里面， 降低运维的复杂度。如果对brpc Server的使用不是非常了解， 可以先查看[wiki](https://github.com/brpc/brpc/blob/master/docs/cn/server.md)页面. **注意: 如果你提供的是对外网用户暴露的服务，不要让braft跑在相同的端口上。**
 
 ```cpp
@@ -27,20 +25,6 @@ int add_service(brpc::Server* server, const char* const butil::EndPoint& listen_
 
 - **调用这些接口之前不要启动server， 否则相关的Service将无法加入到这个server中. 导致调用失败.**
 - **启动这个server的端口需要和add_service传入的端口一致， 不然会导致这个节点无法正常收发RPC请求.**
-
-## Non brpc users
-
-如果你不是brpc用户并且也不熟悉brpc， 可以调用以下代码来让raft自己启动并且管理server
-
-```cpp
-// Start raft server at the given address
-// Returns 0 on success, -1 otherwise
-int start_server_at(int port, brpc::ServerOptions* options = NULL);
-int start_server_at(const butil::EndPoint& listen_addr,
-                    brpc::ServerOptions* options = NULL);
-int start_server_at(const char* const butil::EndPoint& listen_addr,
-                    brpc::ServerOptions* options = NULL);
-```
 
 #实现业务状态机
 
@@ -167,13 +151,6 @@ struct NodeOptions {
     // Default: 1000
     int catchup_margin;
 
-    // If |pipelined_replication| is true, leader will replicate following log
-    // entries through network to followers before receiving the ack of previous 
-    // ones. 
-    //
-    // Default: false
-    bool pipelined_replication;
-
     // If node is starting from a empty environment (both LogStorage and
     // SnapshotStorage are empty), it would use |initial_conf| as the
     // configuration of the group, otherwise it would load configuration from
@@ -196,7 +173,7 @@ struct NodeOptions {
     std::string log_uri;
 
     // Describe a specific StableStorage in format ${type}://${parameters}
-    std::string stable_uri;
+    std::string raft_meta_uri;
 
     // Describe a specific SnapshotStorage in format ${type}://${parameters}
     std::string snapshot_uri;
@@ -220,7 +197,7 @@ class Node {
 
 * RAFT需要三种不同的持久存储, 分别是:
 
-  * StableStorage, 用来存放一些RAFT算法自身的状态数据， 比如term, vote_for等信息.
+  * RaftMetaStorage, 用来存放一些RAFT算法自身的状态数据， 比如term, vote_for等信息.
   * LogStorage, 用来存放用户提交的WAL
   * SnapshotStorage, 用来存放用户的Snapshot以及元信息.
 
