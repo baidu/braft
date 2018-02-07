@@ -47,7 +47,7 @@ public:
         std::string prefix;
         butil::string_printf(&prefix, "local://./data/%d", port);
         options.log_uri = prefix + "/log";
-        options.stable_uri = prefix + "/stable";
+        options.raft_meta_uri = prefix + "/raft_meta";
         options.snapshot_uri = prefix + "/snapshot";
         options.fsm = &_fsm;
         options.node_owns_fsm = false;

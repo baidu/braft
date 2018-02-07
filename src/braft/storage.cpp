@@ -24,7 +24,7 @@
 
 #include "braft/storage.h"
 #include "braft/log.h"
-#include "braft/stable.h"
+#include "braft/raft_meta.h"
 #include "braft/snapshot.h"
 
 namespace braft {
@@ -34,7 +34,7 @@ DEFINE_bool(raft_create_parent_directories, true,
             "Create parent directories of the path in local storage if true");
 BRPC_VALIDATE_GFLAG(raft_sync, ::brpc::PassValidate);
 
-DEFINE_bool(raft_sync_meta, false, "sync log meta, snapshot meta and stable meta");
+DEFINE_bool(raft_sync_meta, false, "sync log meta, snapshot meta and raft meta");
 BRPC_VALIDATE_GFLAG(raft_sync_meta, ::brpc::PassValidate);
 
 inline butil::StringPiece parse_uri(butil::StringPiece* uri, std::string* parameter) {
@@ -96,18 +96,18 @@ SnapshotStorage* SnapshotStorage::create(const std::string& uri) {
     return type->new_instance(parameter);
 }
 
-StableStorage* StableStorage::create(const std::string& uri) {
+RaftMetaStorage* RaftMetaStorage::create(const std::string& uri) {
     butil::StringPiece copied_uri(uri);
     std::string parameter;
     butil::StringPiece protocol = parse_uri(&copied_uri, &parameter);
     if (protocol.empty()) {
-        LOG(ERROR) << "Invalid stable storage uri=`" << uri << '\'';
+        LOG(ERROR) << "Invalid meta storage uri=`" << uri << '\'';
         return NULL;
     }
-    const StableStorage* type = stable_storage_extension()->Find(
+    const RaftMetaStorage* type = meta_storage_extension()->Find(
                 protocol.as_string().c_str());
     if (type == NULL) {
-        LOG(ERROR) << "Fail to find stable storage type " << protocol;
+        LOG(ERROR) << "Fail to find meta storage type " << protocol;
         return NULL;
     }
     return type->new_instance(parameter);

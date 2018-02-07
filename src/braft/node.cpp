@@ -26,7 +26,7 @@
 #include "braft/raft.h"
 #include "braft/node.h"
 #include "braft/log.h"
-#include "braft/stable.h"
+#include "braft/raft_meta.h"
 #include "braft/snapshot.h"
 #include "braft/file_service.h"
 #include "braft/builtin_service_impl.h"
@@ -89,7 +89,7 @@ NodeImpl::NodeImpl(const GroupId& group_id, const PeerId& peer_id)
     , _group_id(group_id)
     , _conf_ctx(this)
     , _log_storage(NULL)
-    , _stable_storage(NULL)
+    , _meta_storage(NULL)
     , _closure_queue(NULL)
     , _config_manager(NULL)
     , _log_manager(NULL)
@@ -110,7 +110,7 @@ NodeImpl::NodeImpl()
     , _group_id()
     , _conf_ctx(this)
     , _log_storage(NULL)
-    , _stable_storage(NULL)
+    , _meta_storage(NULL)
     , _closure_queue(NULL)
     , _config_manager(NULL)
     , _log_manager(NULL)
@@ -156,9 +156,9 @@ NodeImpl::~NodeImpl() {
         delete _closure_queue;
         _closure_queue = NULL;
     }
-    if (_stable_storage) {
-        delete _stable_storage;
-        _stable_storage = NULL;
+    if (_meta_storage) {
+        delete _meta_storage;
+        _meta_storage = NULL;
     }
     if (_snapshot_executor) {
         delete _snapshot_executor;
@@ -213,31 +213,31 @@ int NodeImpl::init_log_storage() {
     return _log_manager->init(log_manager_options);
 }
 
-int NodeImpl::init_stable_storage() {
+int NodeImpl::init_meta_storage() {
     int ret = 0;
 
     do {
-        _stable_storage = StableStorage::create(_options.stable_uri);
-        if (!_stable_storage) {
+        _meta_storage = RaftMetaStorage::create(_options.raft_meta_uri);
+        if (!_meta_storage) {
             LOG(WARNING) << "node " << _group_id << ":" << _server_id
-                << " find stable storage failed, uri " << _options.stable_uri;
+                << " find meta storage failed, uri " << _options.raft_meta_uri;
             ret = ENOENT;
             break;
         }
 
-        ret = _stable_storage->init();
+        ret = _meta_storage->init();
         if (ret != 0) {
             LOG(WARNING) << "node " << _group_id << ":" << _server_id
-                << " int stable storage failed, uri " << _options.stable_uri
+                << " init mett storage failed, uri " << _options.raft_meta_uri
                 << " ret " << ret;
             break;
         }
 
-        _current_term = _stable_storage->get_term();
-        ret = _stable_storage->get_votedfor(&_voted_id);
+        _current_term = _meta_storage->get_term();
+        ret = _meta_storage->get_votedfor(&_voted_id);
         if (ret != 0) {
             LOG(WARNING) << "node " << _group_id << ":" << _server_id
-                << " stable storage get_votedfor failed, uri " << _options.stable_uri
+                << " meta storage get_votedfor failed, uri " << _options.raft_meta_uri
                 << " ret " << ret;
             break;
         }
@@ -316,7 +316,7 @@ int NodeImpl::bootstrap(const BootstrapOptions& options) {
     _options.node_owns_fsm = options.node_owns_fsm;
     _options.usercode_in_pthread = options.usercode_in_pthread;
     _options.log_uri = options.log_uri;
-    _options.stable_uri = options.stable_uri;
+    _options.raft_meta_uri = options.raft_meta_uri;
     _options.snapshot_uri = options.snapshot_uri;
     _options.snapshot_file_system_adaptor = _options.snapshot_file_system_adaptor;
     _config_manager = new ConfigurationManager();
@@ -329,13 +329,13 @@ int NodeImpl::bootstrap(const BootstrapOptions& options) {
         return -1;
     }
 
-    if (init_stable_storage() != 0) {
-        LOG(ERROR) << "Fail to init stable_storage";
+    if (init_meta_storage() != 0) {
+        LOG(ERROR) << "Fail to init meta_storage";
         return -1;
     }
     if (_current_term == 0) {
         _current_term = 1;
-        if (_stable_storage->set_term_and_votedfor(1, PeerId()) != 0) {
+        if (_meta_storage->set_term_and_votedfor(1, PeerId()) != 0) {
             LOG(ERROR) << "Fail to set term";
             return -1;
         }
@@ -427,10 +427,10 @@ int NodeImpl::init(const NodeOptions& options) {
         return -1;
     }
 
-    // stable init
-    if (init_stable_storage() != 0) {
+    // meta init
+    if (init_meta_storage() != 0) {
         LOG(ERROR) << "node " << _group_id << ":" << _server_id
-            << " init_stable_storage failed";
+            << " init_meta_storage failed";
         return -1;
     }
 
@@ -1427,7 +1427,7 @@ void NodeImpl::elect_self(std::unique_lock<raft_mutex_t>* lck) {
     }
 
     //TODO: outof lock
-    _stable_storage->set_term_and_votedfor(_current_term, _server_id);
+    _meta_storage->set_term_and_votedfor(_current_term, _server_id);
     _vote_ctx.grant(_server_id);
     if (_vote_ctx.granted()) {
         become_leader();
@@ -1473,12 +1473,12 @@ void NodeImpl::step_down(const int64_t term, bool wakeup_a_candidate,
         _snapshot_executor->interrupt_downloading_snapshot(term);
     }
 
-    // stable state
+    // meta state
     if (term > _current_term) {
         _current_term = term;
         _voted_id.reset();
         //TODO: outof lock
-        _stable_storage->set_term_and_votedfor(term, _voted_id);
+        _meta_storage->set_term_and_votedfor(term, _voted_id);
     }
 
     // stop stagging new node
@@ -1825,7 +1825,7 @@ int NodeImpl::handle_request_vote_request(const RequestVoteRequest* request,
             step_down(request->term(), false, status);
             _voted_id = candidate_id;
             //TODO: outof lock
-            _stable_storage->set_votedfor(candidate_id);
+            _meta_storage->set_votedfor(candidate_id);
         }
     } while (0);
 

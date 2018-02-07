@@ -25,7 +25,7 @@
 #include "braft/node_manager.h"
 #include "braft/log.h"
 #include "braft/memory_log.h"
-#include "braft/stable.h"
+#include "braft/raft_meta.h"
 #include "braft/snapshot.h"
 #include "braft/fsm_caller.h"            // IteratorImpl
 
@@ -48,7 +48,7 @@ static pthread_once_t global_init_once = PTHREAD_ONCE_INIT;
 struct GlobalExtension {
     SegmentLogStorage local_log;
     MemoryLogStorage memory_log;
-    LocalStableStorage local_stable;
+    LocalRaftMetaStorage local_meta;
     LocalSnapshotStorage local_snapshot;
 };
 
@@ -57,7 +57,7 @@ static void global_init_or_die_impl() {
 
     log_storage_extension()->RegisterOrDie("local", &s_ext.local_log);
     log_storage_extension()->RegisterOrDie("memory", &s_ext.memory_log);
-    stable_storage_extension()->RegisterOrDie("local", &s_ext.local_stable);
+    meta_storage_extension()->RegisterOrDie("local", &s_ext.local_meta);
     snapshot_storage_extension()->RegisterOrDie("local", &s_ext.local_snapshot);
 }
 

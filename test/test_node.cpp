@@ -230,7 +230,7 @@ public:
         options.node_owns_fsm = true;
         butil::string_printf(&options.log_uri, "local://./data/%s/log",
                             butil::endpoint2str(listen_addr).c_str());
-        butil::string_printf(&options.stable_uri, "local://./data/%s/stable",
+        butil::string_printf(&options.raft_meta_uri, "local://./data/%s/raft_meta",
                             butil::endpoint2str(listen_addr).c_str());
         butil::string_printf(&options.snapshot_uri, "local://./data/%s/snapshot",
                             butil::endpoint2str(listen_addr).c_str());
@@ -457,7 +457,7 @@ TEST_F(NodeTest, InitShutdown) {
     braft::NodeOptions options;
     options.fsm = new MockFSM(butil::EndPoint());
     options.log_uri = "local://./data/log";
-    options.stable_uri = "local://./data/stable";
+    options.raft_meta_uri = "local://./data/raft_meta";
     options.snapshot_uri = "local://./data/snapshot";
 
     braft::Node node("unittest", braft::PeerId(butil::EndPoint(butil::my_ip(), 5006), 0));
@@ -505,7 +505,7 @@ TEST_F(NodeTest, SingleNode) {
     options.initial_conf = braft::Configuration(peers);
     options.fsm = new MockFSM(butil::EndPoint());
     options.log_uri = "local://./data/log";
-    options.stable_uri = "local://./data/stable";
+    options.raft_meta_uri = "local://./data/raft_meta";
     options.snapshot_uri = "local://./data/snapshot";
 
     braft::Node node("unittest", peer);
@@ -1498,7 +1498,7 @@ TEST_F(NodeTest, NoSnapshot) {
     options.initial_conf = braft::Configuration(peers);
     options.fsm = new MockFSM(butil::EndPoint());
     options.log_uri = "local://./data/log";
-    options.stable_uri = "local://./data/stable";
+    options.raft_meta_uri = "local://./data/raft_meta";
 
     braft::Node node("unittest", peer);
     ASSERT_EQ(0, node.init(options));
@@ -1555,7 +1555,7 @@ TEST_F(NodeTest, AutoSnapshot) {
     options.initial_conf = braft::Configuration(peers);
     options.fsm = new MockFSM(butil::EndPoint());
     options.log_uri = "local://./data/log";
-    options.stable_uri = "local://./data/stable";
+    options.raft_meta_uri = "local://./data/raft_meta";
     options.snapshot_uri = "local://./data/snapshot";
     options.snapshot_interval_s = 10;
 
@@ -1876,7 +1876,7 @@ TEST_F(NodeTest, shutdown_and_join_work_after_init_fails) {
         options.initial_conf = braft::Configuration(peers);
         options.fsm = new MockFSM1();
         options.log_uri = "local://./data/log";
-        options.stable_uri = "local://./data/stable";
+        options.raft_meta_uri = "local://./data/raft_meta";
         options.snapshot_uri = "local://./data/snapshot";
         braft::Node node("unittest", peer);
         ASSERT_EQ(0, node.init(options));
@@ -1906,7 +1906,7 @@ TEST_F(NodeTest, shutdown_and_join_work_after_init_fails) {
         options.initial_conf = braft::Configuration(peers);
         options.fsm = new MockFSM1();
         options.log_uri = "local://./data/log";
-        options.stable_uri = "local://./data/stable";
+        options.raft_meta_uri = "local://./data/raft_meta";
         options.snapshot_uri = "local://./data/snapshot";
         braft::Node node("unittest", peer);
         LOG(INFO) << "node init again";
@@ -2440,7 +2440,7 @@ TEST_F(NodeTest, boostrap_with_snapshot) {
     braft::BootstrapOptions boptions;
     boptions.last_log_index = fsm.logs.size();
     boptions.log_uri = "local://./data/log";
-    boptions.stable_uri = "local://./data/stable";
+    boptions.raft_meta_uri = "local://./data/raft_meta";
     boptions.snapshot_uri = "local://./data/snapshot";
     boptions.group_conf.add_peer(braft::PeerId(addr));
     boptions.node_owns_fsm = false;
@@ -2452,7 +2452,7 @@ TEST_F(NodeTest, boostrap_with_snapshot) {
     braft::Node node("test", braft::PeerId(addr));
     braft::NodeOptions options;
     options.log_uri = "local://./data/log";
-    options.stable_uri = "local://./data/stable";
+    options.raft_meta_uri = "local://./data/raft_meta";
     options.snapshot_uri = "local://./data/snapshot";
     options.node_owns_fsm = false;
     options.fsm = &fsm;
@@ -2476,7 +2476,7 @@ TEST_F(NodeTest, boostrap_without_snapshot) {
     braft::BootstrapOptions boptions;
     boptions.last_log_index = 0;
     boptions.log_uri = "local://./data/log";
-    boptions.stable_uri = "local://./data/stable";
+    boptions.raft_meta_uri = "local://./data/raft_meta";
     boptions.snapshot_uri = "local://./data/snapshot";
     boptions.group_conf.add_peer(braft::PeerId(addr));
     ASSERT_EQ(0, braft::bootstrap(boptions));
@@ -2486,7 +2486,7 @@ TEST_F(NodeTest, boostrap_without_snapshot) {
     braft::Node node("test", braft::PeerId(addr));
     braft::NodeOptions options;
     options.log_uri = "local://./data/log";
-    options.stable_uri = "local://./data/stable";
+    options.raft_meta_uri = "local://./data/raft_meta";
     options.snapshot_uri = "local://./data/snapshot";
     options.node_owns_fsm = false;
     MockFSM fsm(addr);

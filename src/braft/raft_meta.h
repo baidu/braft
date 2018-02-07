@@ -21,12 +21,12 @@
 
 namespace braft {
 
-class LocalStableStorage : public StableStorage {
+class LocalRaftMetaStorage : public RaftMetaStorage {
 public:
-    explicit LocalStableStorage(const std::string& path)
+    explicit LocalRaftMetaStorage(const std::string& path)
         : _is_inited(false), _path(path), _term(1) {}
-    LocalStableStorage() {}
-    virtual ~LocalStableStorage() {}
+    LocalRaftMetaStorage() {}
+    virtual ~LocalRaftMetaStorage() {}
 
     // init stable storage, check consistency and integrity
     virtual int init();
@@ -46,9 +46,9 @@ public:
     // set term and peer_id
     virtual int set_term_and_votedfor(const int64_t term, const PeerId& peer_id);
 
-    StableStorage* new_instance(const std::string& uri) const;
+    RaftMetaStorage* new_instance(const std::string& uri) const;
 private:
-    static const char* _s_stable_meta;
+    static const char* _s_raft_meta;
     int load();
     int save();
 

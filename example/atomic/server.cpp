@@ -103,7 +103,7 @@ public:
         node_options.snapshot_interval_s = FLAGS_snapshot_interval;
         std::string prefix = "local://" + FLAGS_data_path;
         node_options.log_uri = prefix + "/log";
-        node_options.stable_uri = prefix + "/stable";
+        node_options.raft_meta_uri = prefix + "/raft_meta";
         node_options.snapshot_uri = prefix + "/snapshot";
         node_options.disable_cli = FLAGS_disable_cli;
         braft::Node* node = new braft::Node(FLAGS_group, braft::PeerId(addr));

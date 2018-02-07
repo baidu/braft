@@ -21,13 +21,13 @@
 #include "braft/util.h"
 #include "braft/protobuf_file.h"
 #include "braft/local_storage.pb.h"
-#include "braft/stable.h"
+#include "braft/raft_meta.h"
 
 namespace braft {
 
-const char* LocalStableStorage::_s_stable_meta = "stable_meta";
+const char* LocalRaftMetaStorage::_s_raft_meta = "raft_meta";
 
-int LocalStableStorage::init() {
+int LocalRaftMetaStorage::init() {
     if (_is_inited) {
         return 0;
     }
@@ -46,51 +46,51 @@ int LocalStableStorage::init() {
     return ret;
 }
 
-int LocalStableStorage::set_term(const int64_t term) {
+int LocalRaftMetaStorage::set_term(const int64_t term) {
     if (_is_inited) {
         _term = term;
         return save();
     } else {
-        LOG(WARNING) << "LocalStableStorage not init(), path: " << _path;
+        LOG(WARNING) << "LocalRaftMetaStorage not init(), path: " << _path;
         return -1;
     }
 }
 
-int64_t LocalStableStorage::get_term() {
+int64_t LocalRaftMetaStorage::get_term() {
     if (_is_inited) {
         return _term;
     } else {
-        LOG(WARNING) << "LocalStableStorage not init(), path: " << _path;
+        LOG(WARNING) << "LocalRaftMetaStorage not init(), path: " << _path;
         return -1;
     }
 }
 
-int LocalStableStorage::set_votedfor(const PeerId& peer_id) {
+int LocalRaftMetaStorage::set_votedfor(const PeerId& peer_id) {
     if (_is_inited) {
         _votedfor = peer_id;
         return save();
     } else {
-        LOG(WARNING) << "LocalStableStorage not init(), path: " << _path;
+        LOG(WARNING) << "LocalRaftMetaStorage not init(), path: " << _path;
         return -1;
     }
 }
 
-int LocalStableStorage::set_term_and_votedfor(const int64_t term, const PeerId& peer_id) {
+int LocalRaftMetaStorage::set_term_and_votedfor(const int64_t term, const PeerId& peer_id) {
     if (_is_inited) {
         _term = term;
         _votedfor = peer_id;
         return save();
     } else {
-        LOG(WARNING) << "LocalStableStorage not init(), path: " << _path;
+        LOG(WARNING) << "LocalRaftMetaStorage not init(), path: " << _path;
         return -1;
     }
 }
 
-int LocalStableStorage::load() {
+int LocalRaftMetaStorage::load() {
 
     std::string path(_path);
     path.append("/");
-    path.append(_s_stable_meta);
+    path.append(_s_raft_meta);
 
     ProtoBufFile pb_file(path);
 
@@ -108,7 +108,7 @@ int LocalStableStorage::load() {
     return ret;
 }
 
-int LocalStableStorage::save() {
+int LocalRaftMetaStorage::save() {
     butil::Timer timer;
     timer.start();
 
@@ -118,30 +118,30 @@ int LocalStableStorage::save() {
 
     std::string path(_path);
     path.append("/");
-    path.append(_s_stable_meta);
+    path.append(_s_raft_meta);
 
     ProtoBufFile pb_file(path);
     int ret = pb_file.save(&meta, raft_sync_meta());
     PLOG_IF(ERROR, ret != 0) << "Fail to save meta to " << path;
 
     timer.stop();
-    LOG(INFO) << "save stable meta, path " << _path
+    LOG(INFO) << "save raft meta, path " << _path
         << " term " << _term << " votedfor " << _votedfor.to_string() << " time: " << timer.u_elapsed();
     return ret;
 }
 
-int LocalStableStorage::get_votedfor(PeerId* peer_id) {
+int LocalRaftMetaStorage::get_votedfor(PeerId* peer_id) {
     if (_is_inited) {
         *peer_id = _votedfor;
         return 0;
     } else {
-        LOG(WARNING) << "LocalStableStorage not init(), path: " << _path;
+        LOG(WARNING) << "LocalRaftMetaStorage not init(), path: " << _path;
         return -1;
     }
 }
 
-StableStorage* LocalStableStorage::new_instance(const std::string& uri) const {
-    return new LocalStableStorage(uri);
+RaftMetaStorage* LocalRaftMetaStorage::new_instance(const std::string& uri) const {
+    return new LocalRaftMetaStorage(uri);
 }
 
 }

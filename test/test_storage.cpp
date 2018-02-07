@@ -30,15 +30,15 @@ TEST_F(StorageTest, sanity) {
     ASSERT_FALSE(braft::LogStorage::create("data/log"));
     ASSERT_FALSE(braft::LogStorage::create("  ://data/log"));
 
-    // StableStorage
-    braft::StableStorage* stable_storage 
-            = braft::StableStorage::create("local://data/stable");
-    ASSERT_TRUE(stable_storage);
-    ASSERT_EQ(0, stable_storage->init());
-    ASSERT_FALSE(braft::StableStorage::create("hdfs://data/stable"));
-    ASSERT_FALSE(braft::StableStorage::create("://data/stable"));
-    ASSERT_FALSE(braft::StableStorage::create("data/stable"));
-    ASSERT_FALSE(braft::StableStorage::create("  ://data/stable"));
+    // RaftMetaStorage
+    braft::RaftMetaStorage* meta_storage 
+            = braft::RaftMetaStorage::create("local://data/raft_meta");
+    ASSERT_TRUE(meta_storage);
+    ASSERT_EQ(0, meta_storage->init());
+    ASSERT_FALSE(braft::RaftMetaStorage::create("hdfs://data/raft_meta"));
+    ASSERT_FALSE(braft::RaftMetaStorage::create("://data/raft_meta"));
+    ASSERT_FALSE(braft::RaftMetaStorage::create("data/raft_meta"));
+    ASSERT_FALSE(braft::RaftMetaStorage::create("  ://data/raft_meta"));
 
     // SnapshotStorage
     braft::SnapshotStorage* snapshot_storage 

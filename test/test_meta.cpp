@@ -1,23 +1,5 @@
-/*
- * =====================================================================================
- *
- *       Filename:  test_stable.cpp
- *
- *    Description:  
- *
- *        Version:  1.0
- *        Created:  2015年09月24日 20时58分35秒
- *       Revision:  none
- *       Compiler:  gcc
- *
- *         Author:  WangYao (fisherman), wangyao02@baidu.com
- *        Company:  Baidu, Inc
- *
- * =====================================================================================
- */
-
 #include <gtest/gtest.h>
-#include "braft/stable.h"
+#include "braft/raft_meta.h"
 
 class TestUsageSuits : public testing::Test {
 protected:
@@ -25,8 +7,8 @@ protected:
     void TearDown() {}
 };
 
-TEST_F(TestUsageSuits, stable) {
-    braft::LocalStableStorage* storage = new braft::LocalStableStorage("./data");
+TEST_F(TestUsageSuits, sanity) {
+    braft::LocalRaftMetaStorage* storage = new braft::LocalRaftMetaStorage("./data");
 
     // no init
     {
@@ -63,7 +45,7 @@ TEST_F(TestUsageSuits, stable) {
 
     delete storage;
 
-    storage = new braft::LocalStableStorage("./data");
+    storage = new braft::LocalRaftMetaStorage("./data");
     ASSERT_EQ(0, storage->init());
     {
         int64_t term = storage->get_term();

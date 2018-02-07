@@ -41,7 +41,7 @@
 namespace braft {
 
 class LogStorage;
-class StableStorage;
+class RaftMetaStorage;
 class SnapshotStorage;
 class SnapshotExecutor;
 class StopTransferArg;
@@ -217,7 +217,7 @@ friend class butil::RefCountedThreadSafe<NodeImpl>;
     // internal init func
     int init_snapshot_storage();
     int init_log_storage();
-    int init_stable_storage();
+    int init_meta_storage();
     int init_fsm_caller(const LogId& bootstrap_index);
     void unsafe_register_conf_change(const Configuration& old_conf,
                                      const Configuration& new_conf,
@@ -324,7 +324,7 @@ private:
     raft_mutex_t _mutex;
     ConfigurationCtx _conf_ctx;
     LogStorage* _log_storage;
-    StableStorage* _stable_storage;
+    RaftMetaStorage* _meta_storage;
     ClosureQueue* _closure_queue;
     ConfigurationManager* _config_manager;
     LogManager* _log_manager;

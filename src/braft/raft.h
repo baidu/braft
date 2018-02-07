@@ -408,8 +408,8 @@ struct NodeOptions {
     // Describe a specific LogStorage in format ${type}://${parameters}
     std::string log_uri;
 
-    // Describe a specific StableStorage in format ${type}://${parameters}
-    std::string stable_uri;
+    // Describe a specific RaftMetaStorage in format ${type}://${parameters}
+    std::string raft_meta_uri;
 
     // Describe a specific SnapshotStorage in format ${type}://${parameters}
     std::string snapshot_uri;
@@ -573,8 +573,8 @@ struct BootstrapOptions {
     // Describe a specific LogStorage in format ${type}://${parameters}
     std::string log_uri;
 
-    // Describe a specific StableStorage in format ${type}://${parameters}
-    std::string stable_uri;
+    // Describe a specific RaftMetaStorage in format ${type}://${parameters}
+    std::string raft_meta_uri;
 
     // Describe a specific SnapshotStorage in format ${type}://${parameters}
     std::string snapshot_uri;

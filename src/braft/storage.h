@@ -85,9 +85,9 @@ public:
     static LogStorage* create(const std::string& uri);
 };
 
-class StableStorage {
+class RaftMetaStorage {
 public:
-    virtual ~StableStorage() {}
+    virtual ~RaftMetaStorage() {}
 
     // init stable storage, check consistency and integrity
     virtual int init() = 0;
@@ -110,9 +110,9 @@ public:
     // Create an instance of this kind of LogStorage with the parameters encoded 
     // in |uri|
     // Return the address referenced to the instance on success, NULL otherwise.
-    virtual StableStorage* new_instance(const std::string& uri) const = 0;
+    virtual RaftMetaStorage* new_instance(const std::string& uri) const = 0;
 
-    static StableStorage* create(const std::string& uri);
+    static RaftMetaStorage* create(const std::string& uri);
 };
 
 // Snapshot 
@@ -242,8 +242,8 @@ inline brpc::Extension<const LogStorage>* log_storage_extension() {
     return brpc::Extension<const LogStorage>::instance();
 }
 
-inline brpc::Extension<const StableStorage>* stable_storage_extension() {
-    return brpc::Extension<const StableStorage>::instance();
+inline brpc::Extension<const RaftMetaStorage>* meta_storage_extension() {
+    return brpc::Extension<const RaftMetaStorage>::instance();
 }
 
 inline brpc::Extension<const SnapshotStorage>* snapshot_storage_extension() {
