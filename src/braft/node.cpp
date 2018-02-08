@@ -36,6 +36,10 @@
 
 namespace braft {
 
+DEFINE_int32(raft_max_election_delay_ms, 1000, 
+                     "Max election delay time allowed by user");
+BRPC_VALIDATE_GFLAG(raft_max_election_delay_ms, brpc::PositiveInteger);
+
 #ifndef UNIT_TEST
 static bvar::Adder<int64_t> g_num_nodes("raft_node_count");
 #else
@@ -74,7 +78,8 @@ friend class NodeImpl;
 };
 
 inline int random_timeout(int timeout_ms) {
-    return butil::fast_rand_in(timeout_ms, timeout_ms << 1);
+    int32_t delta = std::min(timeout_ms, FLAGS_raft_max_election_delay_ms);
+    return butil::fast_rand_in(timeout_ms, timeout_ms + delta);
 }
 
 DEFINE_int32(raft_election_heartbeat_factor, 10, "raft election:heartbeat timeout factor");
@@ -1208,6 +1213,7 @@ struct OnRequestVoteRPCDone : public google::protobuf::Closure {
 
     PeerId peer;
     int64_t term;
+    RequestVoteRequest request;
     RequestVoteResponse response;
     brpc::Controller cntl;
     NodeImpl* node;
@@ -1278,6 +1284,7 @@ struct OnPreVoteRPCDone : public google::protobuf::Closure {
 
     PeerId peer;
     int64_t term;
+    RequestVoteRequest request;
     RequestVoteResponse response;
     brpc::Controller cntl;
     NodeImpl* node;
@@ -1330,17 +1337,17 @@ void NodeImpl::pre_vote(std::unique_lock<raft_mutex_t>* lck) {
             continue;
         }
 
-        RequestVoteRequest request;
-        request.set_group_id(_group_id);
-        request.set_server_id(_server_id.to_string());
-        request.set_peer_id(iter->to_string());
-        request.set_term(_current_term + 1); // next term
-        request.set_last_log_index(last_log_id.index);
-        request.set_last_log_term(last_log_id.term);
-
         OnPreVoteRPCDone* done = new OnPreVoteRPCDone(*iter, _current_term, this);
+        done->cntl.set_timeout_ms(_options.election_timeout_ms);
+        done->request.set_group_id(_group_id);
+        done->request.set_server_id(_server_id.to_string());
+        done->request.set_peer_id(iter->to_string());
+        done->request.set_term(_current_term + 1); // next term
+        done->request.set_last_log_index(last_log_id.index);
+        done->request.set_last_log_term(last_log_id.term);
+
         RaftService_Stub stub(&channel);
-        stub.pre_vote(&done->cntl, &request, &done->response, done);
+        stub.pre_vote(&done->cntl, &done->request, &done->response, done);
     }
     _pre_vote_ctx.grant(_server_id);
 
@@ -1413,17 +1420,17 @@ void NodeImpl::elect_self(std::unique_lock<raft_mutex_t>* lck) {
             continue;
         }
 
-        RequestVoteRequest request;
-        request.set_group_id(_group_id);
-        request.set_server_id(_server_id.to_string());
-        request.set_peer_id(iter->to_string());
-        request.set_term(_current_term);
-        request.set_last_log_index(last_log_id.index);
-        request.set_last_log_term(last_log_id.term);
-
         OnRequestVoteRPCDone* done = new OnRequestVoteRPCDone(*iter, _current_term, this);
+        done->cntl.set_timeout_ms(_options.election_timeout_ms);
+        done->request.set_group_id(_group_id);
+        done->request.set_server_id(_server_id.to_string());
+        done->request.set_peer_id(iter->to_string());
+        done->request.set_term(_current_term);
+        done->request.set_last_log_index(last_log_id.index);
+        done->request.set_last_log_term(last_log_id.term);
+
         RaftService_Stub stub(&channel);
-        stub.request_vote(&done->cntl, &request, &done->response, done);
+        stub.request_vote(&done->cntl, &done->request, &done->response, done);
     }
 
     //TODO: outof lock
