@@ -1,3 +1,7 @@
+[![Build Status](https://travis-ci.org/brpc/braft.svg?branch=master)](https://travis-ci.org/brpc/braft)
+
+---
+
 An industrial-grade C++ implementation of [RAFT consensus algorithm](https://raft.github.io/) and [replicated state machine](https://en.wikipedia.org/wiki/State_machine_replication) based on [brpc](https://github.com/brpc/brpc). braft is designed and implemented for scenarios demanding for high workload and low overhead of latency, with the consideration for easy-to-understand concepts so that engineers inside Baidu can build their own distributed systems individually and correctly.
 
 It's widely used inside Baidu to build highly-available systems, such as:
