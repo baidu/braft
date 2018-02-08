@@ -2748,6 +2748,7 @@ TEST_F(NodeTest, change_peers_chaos_with_snapshot) {
 
 TEST_F(NodeTest, change_peers_chaos_without_snapshot) {
     g_dont_print_apply_log = true;
+    GFLAGS_NS::SetCommandLineOption("minloglevel", "1");
     GFLAGS_NS::SetCommandLineOption("raft_sync", "false");
     ASSERT_FALSE(GFLAGS_NS::SetCommandLineOption("crash_on_fatal_log", "true").empty());
     std::vector<braft::PeerId> peers;
@@ -2798,4 +2799,5 @@ TEST_F(NodeTest, change_peers_chaos_without_snapshot) {
     ASSERT_TRUE(done.status().ok()) << done.status();
     cluster.ensure_same();
     GFLAGS_NS::SetCommandLineOption("raft_sync", "true");
+    GFLAGS_NS::SetCommandLineOption("minloglevel", "0");
 }
