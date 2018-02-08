@@ -2703,6 +2703,7 @@ TEST_F(NodeTest, change_peers_chaos_with_snapshot) {
     g_dont_print_apply_log = true;
     GFLAGS_NS::SetCommandLineOption("raft_sync", "false");
     ASSERT_FALSE(GFLAGS_NS::SetCommandLineOption("crash_on_fatal_log", "true").empty());
+    GFLAGS_NS::SetCommandLineOption("minloglevel", "3");
     std::vector<braft::PeerId> peers;
     // start cluster
     peers.push_back(braft::PeerId("127.0.0.1:5006"));
@@ -2744,11 +2745,12 @@ TEST_F(NodeTest, change_peers_chaos_with_snapshot) {
     arg.stop = true;
     pthread_join(tid, NULL);
     GFLAGS_NS::SetCommandLineOption("raft_sync", "true");
+    GFLAGS_NS::SetCommandLineOption("minloglevel", "3");
 }
 
 TEST_F(NodeTest, change_peers_chaos_without_snapshot) {
     g_dont_print_apply_log = true;
-    GFLAGS_NS::SetCommandLineOption("minloglevel", "1");
+    GFLAGS_NS::SetCommandLineOption("minloglevel", "3");
     GFLAGS_NS::SetCommandLineOption("raft_sync", "false");
     ASSERT_FALSE(GFLAGS_NS::SetCommandLineOption("crash_on_fatal_log", "true").empty());
     std::vector<braft::PeerId> peers;
