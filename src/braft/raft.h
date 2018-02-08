@@ -230,13 +230,13 @@ public:
     // Default: Do nothing
     virtual void on_leader_start(int64_t term);
 
-    // user defined leader start function
-    // [NOTE] this method called immediately when leader stepdown,
-    //        maybe before some method: apply success on_apply or fail done.
-    //        user sure resource available.
+    // Invoked when this node steps down from the leader of the replication
+    // group and |status| describes detailed information
     virtual void on_leader_stop(const butil::Status& status);
 
-    // on_error is called when  
+    // on_error is called when a critical error was encountered, after this
+    // point, no any further modification is allowed to applied to this node
+    // until the error is fixed and this node restarts.
     virtual void on_error(const ::braft::Error& e);
 
     // Invoked when a configuration has been committed to the group
@@ -262,7 +262,6 @@ public:
     // the very leader whom the follower starts to follow.
     // User can reset the node's information as it starts to follow some leader.
     virtual void on_start_following(const ::braft::LeaderChangeContext& ctx);
-
 };
 
 enum State {

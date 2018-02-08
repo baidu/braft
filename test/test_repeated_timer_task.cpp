@@ -18,6 +18,7 @@ protected:
         , _on_destroy_times(0)
         , _adjust_timeout_times(0)
     {}
+    ~MockTimer() { destroy(); }
 
     void run() {
         ++_run_times;
@@ -43,9 +44,9 @@ protected:
 
 TEST_F(RepeatedTimerTaskTest, sanity) {
     MockTimer timer;
-    ASSERT_EQ(0, timer.init(1));
+    ASSERT_EQ(0, timer.init(10));
     timer.start();
-    usleep(10500);
+    usleep(100500);
     const int run_times = timer._run_times;
     LOG(INFO) << "run_times=" << run_times;
     ASSERT_TRUE(run_times >= 8 && run_times <= 11) << run_times;
@@ -59,10 +60,10 @@ TEST_F(RepeatedTimerTaskTest, sanity) {
 
 TEST_F(RepeatedTimerTaskTest, stop_while_running) {
     MockTimer timer;
-    ASSERT_EQ(0, timer.init(1));
+    ASSERT_EQ(0, timer.init(10));
     timer._blocking = true;
     timer.start();
-    usleep(10000);
+    usleep(100000);
     ASSERT_EQ(1, timer._run_times);
     timer.stop();
     timer._blocking = false;
@@ -75,15 +76,15 @@ TEST_F(RepeatedTimerTaskTest, stop_while_running) {
 
 TEST_F(RepeatedTimerTaskTest, destroy_while_running) {
     MockTimer timer;
-    ASSERT_EQ(0, timer.init(1));
+    ASSERT_EQ(0, timer.init(10));
     timer._blocking = true;
     timer.start();
-    usleep(10000);
+    usleep(100000);
     ASSERT_EQ(1, timer._run_times);
     timer.destroy();
     ASSERT_EQ(0, timer._on_destroy_times);
     timer._blocking = false;
-    usleep(10000);
+    usleep(100000);
     ASSERT_EQ(1, timer._on_destroy_times);
     ASSERT_EQ(1, timer._run_times);
     timer.destroy();
@@ -94,20 +95,20 @@ TEST_F(RepeatedTimerTaskTest, destroy_while_running) {
 
 TEST_F(RepeatedTimerTaskTest, restart_while_running) {
     MockTimer timer;
-    ASSERT_EQ(0, timer.init(1));
+    ASSERT_EQ(0, timer.init(10));
     timer._blocking = true;
     timer.start();
-    usleep(10000);
+    usleep(100000);
     ASSERT_EQ(1, timer._run_times);
     timer.stop();
-    usleep(5000);
+    usleep(50000);
     timer.start();
-    usleep(5000);
+    usleep(50000);
     ASSERT_EQ(1, timer._run_times);
     timer.destroy();
     ASSERT_EQ(0, timer._on_destroy_times);
     timer._blocking = false;
-    usleep(5000);
+    usleep(50000);
     timer.destroy();
     ASSERT_EQ(1, timer._on_destroy_times);
     ASSERT_EQ(1, timer._run_times);

@@ -50,10 +50,10 @@ public:
         ++_on_snapshot_load_times;
         return 0;
     }
-    void on_leader_start() {
+    void on_leader_start(int64_t term) {
         _on_leader_start_times++;
     }
-    void on_leader_stop() {
+    virtual void on_leader_stop(const butil::Status& status) {
         _on_leader_stop_times++;
     }
     void join() {
