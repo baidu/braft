@@ -272,14 +272,16 @@ public:
         std::vector<butil::EndPoint> addrs;
         std::vector<braft::Node*> nodes;
         all_nodes(&addrs);
-        for (auto arrd : arrds) {
-            braft::Node* node = remove_node(listen_addr);
-            delete _server_map[listen_addr];
-            _server_map.erase(listen_addr);
+        for (auto addr : addrs) {
+            braft::Node* node = remove_node(addr);
+            node->shutdown(NULL);
             nodes.push_back(node);
-            nodes->shutdown(NULL);
+            std::cout << "Stopping server " << addr << std::endl;
+            delete _server_map[addr];
+            _server_map.erase(addr);
         }
         for (auto node : nodes) {
+            std::cout << "join node " << node->node_id() << std::endl;
             node->join();
             delete node;
         }
@@ -2659,7 +2661,7 @@ TEST_F(NodeTest, change_peers_steps_down_in_joint_consensus) {
     leader = cluster.leader();
     ASSERT_TRUE(leader == NULL);
     cluster.start(peer3.addr, false);
-    uslepp(1000 * 1000);  // Temporarily solution
+    usleep(1000 * 1000);  // Temporarily solution
     cluster.wait_leader();
     leader = cluster.leader();
     ASSERT_TRUE(leader->list_peers(&peers).ok());
@@ -2807,7 +2809,7 @@ TEST_F(NodeTest, change_peers_chaos_without_snapshot) {
     done.wait();
     ASSERT_TRUE(done.status().ok()) << done.status();
     cluster.ensure_same();
-    std::cout << "Stopping cluster";
+    std::cout << "Stopping cluster" << std::endl;
     cluster.stop_all();
     GFLAGS_NS::SetCommandLineOption("raft_sync", "true");
     GFLAGS_NS::SetCommandLineOption("minloglevel", "0");
