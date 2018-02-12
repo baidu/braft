@@ -691,7 +691,7 @@ void Replicator::_on_install_snapshot_returned(
     return r->_send_entries();
 }
 
-void Replicator::_notify_on_caught_up(int error_code, bool before_destory) {
+void Replicator::_notify_on_caught_up(int error_code, bool before_destroy) {
     if (_catchup_closure == NULL) {
         return;
     }
@@ -708,7 +708,7 @@ void Replicator::_notify_on_caught_up(int error_code, bool before_destory) {
             _catchup_closure->status().set_error(error_code, "%s", berror(error_code));
         }
         if (_catchup_closure->_has_timer) {
-            if (!before_destory && bthread_timer_del(_catchup_closure->_timer) == 1) {
+            if (!before_destroy && bthread_timer_del(_catchup_closure->_timer) == 1) {
                 // There's running timer task, let timer task trigger
                 // on_caught_up to void ABA problem
                 return;
