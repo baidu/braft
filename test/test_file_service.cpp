@@ -82,8 +82,8 @@ TEST_F(FileServiceTest, hole_file) {
     for (int i = 0; i < 1000; i++) {
         char buf[16*1024] = {0};
         snprintf(buf, sizeof(buf), "hello %d", i);
-        ssize_t nwriten = pwrite(fd, buf, strlen(buf), 128 * 1024 * i);
-        ASSERT_EQ(static_cast<size_t>(nwriten), strlen(buf));
+        ssize_t nwritten = pwrite(fd, buf, strlen(buf), 128 * 1024 * i);
+        ASSERT_EQ(static_cast<size_t>(nwritten), strlen(buf));
     }
     ::close(fd);
     braft::FileSystemAdaptor* fs = braft::default_file_system();
