@@ -262,7 +262,7 @@ friend class BlockClosure;
             off_t offset = 0;
             if (iter.done()) {
                 // This task is applied by this node, get value from this
-                // closure to avoid addtional parsing.
+                // closure to avoid additional parsing.
                 BlockClosure* c = dynamic_cast<BlockClosure*>(iter.done());
                 offset = c->request()->offset();
                 data.swap(*(c->data()));

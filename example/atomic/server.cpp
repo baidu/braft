@@ -320,7 +320,7 @@ friend class AtomicClosure;
         int64_t id = 0;
         if (request) {
             // This task is applied by this node, get value from this
-            // closure to avoid addtional parsing.
+            // closure to avoid additional parsing.
             id = dynamic_cast<const GetRequest*>(request)->id();
         } else {
             butil::IOBufAsZeroCopyInputStream wrapper(data);
@@ -342,7 +342,7 @@ friend class AtomicClosure;
         int64_t value = 0;
         if (request) {
             // This task is applied by this node, get value from this
-            // closure to avoid addtional parsing.
+            // closure to avoid additional parsing.
             const ExchangeRequest* req
                     = dynamic_cast<const ExchangeRequest*>(request);
             id = req->id();
@@ -370,7 +370,7 @@ friend class AtomicClosure;
         int64_t expected = 0;
         if (request) {
             // This task is applied by this node, get value from this
-            // closure to avoid addtional parsing.
+            // closure to avoid additional parsing.
             const CompareExchangeRequest* req =
                     dynamic_cast<const CompareExchangeRequest*>(request);
             id = req->id();
