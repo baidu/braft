@@ -512,7 +512,7 @@ public:
     // reset the election_timeout for the very node
     void reset_election_timeout_ms(int election_timeout_ms);
 
-    // Try transfering leadership to |peer|.
+    // Try transferring leadership to |peer|.
     // If peer is ANY_PEER, a proper follower will be chosen as the leader for
     // the next term.
     // Returns 0 on success, -1 otherwise.

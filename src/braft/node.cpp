@@ -716,7 +716,7 @@ void NodeImpl::unsafe_register_conf_change(const Configuration& old_conf,
                      << state2str(_state) ;
         if (done) {
             if (_state == STATE_TRANSFERING) {
-                done->status().set_error(EBUSY, "Is transfering leadership");
+                done->status().set_error(EBUSY, "Is transferring leadership");
             } else {
                 done->status().set_error(EPERM, "Not leader");
             }
@@ -1068,7 +1068,7 @@ int NodeImpl::transfer_leadership_to(const PeerId& peer) {
         }
     }
     if (peer_id == _server_id) {
-        LOG(INFO) << "Transfering leadership to self";
+        LOG(INFO) << "Transferring leadership to self";
         return 0;
     }
     if (!_conf.contains(peer_id)) {
@@ -1085,7 +1085,7 @@ int NodeImpl::transfer_leadership_to(const PeerId& peer) {
     }
     _state = STATE_TRANSFERING;
     butil::Status status;
-    status.set_error(ETRANSFERLEADERSHIP, "Raft leader is transfering "
+    status.set_error(ETRANSFERLEADERSHIP, "Raft leader is transferring "
             "leadership to %s", peer_id.to_string().c_str());
     _fsm_caller->on_leader_stop(status);
     LOG(INFO) << "node " << _group_id << ":" << _server_id
@@ -1640,7 +1640,7 @@ void NodeImpl::apply(LogEntryAndClosure tasks[], size_t size) {
         if (_state != STATE_TRANSFERING) {
             st.set_error(EPERM, "is not leader");
         } else {
-            st.set_error(EBUSY, "is transfering leadership");
+            st.set_error(EBUSY, "is transferring leadership");
         }
         lck.unlock();
         BRAFT_VLOG << "node " << _group_id << ":" << _server_id << " can't apply : " << st;

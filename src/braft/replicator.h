@@ -264,7 +264,7 @@ public:
     // Transfer leadership to the given |peer|
     int transfer_leadership_to(const PeerId& peer, int64_t log_index);
 
-    // Stop transfering leadership to the given |peer|
+    // Stop transferring leadership to the given |peer|
     int stop_transfer_leadership(const PeerId& peer);
 
     // Stop all the replicators except for the one that we think can be the

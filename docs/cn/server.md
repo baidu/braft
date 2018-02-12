@@ -488,7 +488,7 @@ void add_peer(const std::vector<PeerId>& old_peers, const PeerId& peer, Closure*
 ## 转移Leader
 
 ```
-// Try transfering leadership to |peer|.
+// Try transferring leadership to |peer|.
 // If peer is ANY_PEER, a proper follower will be chosen as the leader the
 // the next term.
 // Returns 0 on success, -1 otherwise.
