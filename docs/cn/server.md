@@ -108,7 +108,7 @@ class Iterator {
     bool valid() const;
     // Invoked when some critical error occurred. And we will consider the last 
     // |ntail| tasks (starting from the last iterated one) as not applied. After
-    // this point, no futher changes on the StateMachine as well as the Node 
+    // this point, no further changes on the StateMachine as well as the Node 
     // would be allowed and you should try to repair this replica or just drop 
     // it.
     //

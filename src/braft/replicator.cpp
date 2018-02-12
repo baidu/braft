@@ -551,7 +551,7 @@ int Replicator::_continue_sending(void* arg, int error_code) {
     if (error_code == ETIMEDOUT) {
         // Send empty entries after block timeout to check the correct
         // _next_index otherwise the replictor is likely waits in
-        // _wait_more_entries and no futher logs would be replicated even if the
+        // _wait_more_entries and no further logs would be replicated even if the
         // last_index of this followers is less than |next_index - 1|
         r->_send_empty_entries(false);
     } else if (error_code != ESTOP) {
