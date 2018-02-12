@@ -178,7 +178,7 @@ public:
         const ssize_t nr = braft::file_pread(
                 &portal, fd->fd(), request->offset(), request->size());
         if (nr < 0) {
-            // Some disk error occured, shutdown this node and another leader
+            // Some disk error occurred, shutdown this node and another leader
             // will be elected
             PLOG(ERROR) << "Fail to read from fd=" << fd->fd();
             _node->shutdown(NULL);
@@ -292,7 +292,7 @@ friend class BlockClosure;
                 }
                 // Let raft run this closure.
                 closure_guard.release();
-                // Some disk error occured, notify raft and never apply any data
+                // Some disk error occurred, notify raft and never apply any data
                 // ever after
                 iter.set_error_and_rollback();
                 return;

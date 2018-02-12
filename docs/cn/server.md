@@ -104,9 +104,9 @@ class Iterator {
     Closure* done() const;
     // Return true this iterator is currently references to a valid task, false
     // otherwise, indicating that the iterator has reached the end of this
-    // batch of tasks or some error has occured
+    // batch of tasks or some error has occurred
     bool valid() const;
-    // Invoked when some critical error occured. And we will consider the last 
+    // Invoked when some critical error occurred. And we will consider the last 
     // |ntail| tasks (starting from the last iterated one) as not applied. After
     // this point, no futher changes on the StateMachine as well as the Node 
     // would be allowed and you should try to repair this replica or just drop 
@@ -298,7 +298,7 @@ class StateMachine {
     // Invoked when this node is no longer the leader of the belonging group.
     // |status| describes more details about the reason.
     virtual void on_leader_stop(const butil::Status& status);
-    // Invoked when some critical error occured and this Node stops working 
+    // Invoked when some critical error occurred and this Node stops working 
     // ever after.  
     virtual void on_error(const ::braft::Error& e);
     // Invoked when a configuration has been committed to the group
