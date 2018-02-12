@@ -278,7 +278,7 @@ enum State {
 };
 
 inline const char* state2str(State state) {
-    const char* str[] = {"LEADER", "TRANSFERING", "CANDIDATE", "FOLLOWER", 
+    const char* str[] = {"LEADER", "TRANSFERRING", "CANDIDATE", "FOLLOWER", 
                          "ERROR", "UNINITIALIZED", "SHUTTING", "SHUTDOWN", };
     if (state < STATE_END) {
         return str[(int)state - 1];
