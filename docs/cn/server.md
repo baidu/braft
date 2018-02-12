@@ -159,7 +159,7 @@ struct NodeOptions {
     // Default: A empty group
     Configuration initial_conf;
 
-    // The specific StateMachine implemented your bussiness logic, which must be
+    // The specific StateMachine implemented your business logic, which must be
     // a valid instance.
     StateMachine* fsm;
 

@@ -186,7 +186,7 @@ friend class FSMCaller;
 };
 
 // |StateMachine| is the sink of all the events of a very raft node.
-// Implement a specific StateMachine for your own bussiness logic.
+// Implement a specific StateMachine for your own business logic.
 //
 // NOTE: All the interfaces are not guaranteed to be thread safe and they are 
 // called sequentially, saying that every single operation will block all the 
@@ -380,7 +380,7 @@ struct NodeOptions {
     // Default: A empty group
     Configuration initial_conf;
 
-    // The specific StateMachine implemented your bussiness logic, which must be
+    // The specific StateMachine implemented your business logic, which must be
     // a valid instance.
     StateMachine* fsm;
 
