@@ -714,7 +714,7 @@ int SegmentLogStorage::append_entries(const std::vector<LogEntry*>& entries) {
     }
     if (_last_log_index.load(butil::memory_order_relaxed) + 1
             != entries.front()->id.index) {
-        LOG(FATAL) << "There's gap betwenn appending entries and _last_log_index";
+        LOG(FATAL) << "There's gap between appending entries and _last_log_index";
         return -1;
     }
     scoped_refptr<Segment> last_segment = NULL;
