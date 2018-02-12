@@ -848,7 +848,7 @@ void NodeImpl::shutdown(Closure* done) {
 
         if (_state < STATE_SHUTTING) {  // Got the right to shut
             // Remove node from NodeManager and |this| would not be accessed by
-            // the comming RPCs
+            // the coming RPCs
             NodeManager::GetInstance()->remove(this);
             // if it is leader, set the wakeup_a_candidate with true,
             // if it is follower, call on_stop_following in step_down
