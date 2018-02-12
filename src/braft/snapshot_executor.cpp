@@ -303,7 +303,7 @@ void SaveSnapshotDone::Run() {
     // Avoid blocking FSMCaller
     // This continuation of snapshot saving is likely running inplace where the
     // on_snapshot_save is called (in the FSMCaller thread) and blocks all the
-    // following on_apply. As blocking is not neccessary and the continuation is
+    // following on_apply. As blocking is not necessary and the continuation is
     // not important, so we start a bthread to do this.
     bthread_t tid;
     if (bthread_start_urgent(&tid, NULL, continue_run, this) != 0) {
