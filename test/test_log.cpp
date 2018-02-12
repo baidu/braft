@@ -710,7 +710,7 @@ void* write_thread_routine(void* arg) {
     // Write operation distribution: 
     //  - 10% truncate_prefix
     //  - 10% truncate_suffix,
-    //  - 30% increase last_read_index (which stands for committment in the real
+    //  - 30% increase last_read_index (which stands for commitment in the real
     // world), 
     //  - 50% append new entry
     int next_log_index = storage->last_log_index() + 1;
