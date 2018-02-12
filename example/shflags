@@ -756,7 +756,7 @@ _flags_parseGetopt()
       fi
     fi
 
-    # shift the option and non-boolean arguements out.
+    # shift the option and non-boolean arguments out.
     shift
     [ ${_flags_type_} != ${__FLAGS_TYPE_BOOLEAN} ] && shift
   done
