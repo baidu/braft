@@ -627,7 +627,7 @@ void NodeImpl::on_caughtup(const PeerId& peer, int64_t term,
         return;
     }
 
-    if (st.ok()) {  // Caught up succesfully
+    if (st.ok()) {  // Caught up successfully
         _conf_ctx.on_caughtup(version, peer, true);
         return;
     }
