@@ -937,7 +937,7 @@ int64_t Replicator::get_next_index(ReplicatorId id) {
 void Replicator::_destroy() {
     bthread_id_t saved_id = _id;
     CHECK_EQ(0, bthread_id_unlock_and_destroy(saved_id));
-    // TODO: Add more infomation
+    // TODO: Add more information
     LOG(INFO) << "Replicator=" << saved_id << " is going to quit";
     delete this;
 }
