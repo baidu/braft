@@ -267,7 +267,7 @@ public:
 enum State {
     // Don't change the order if you are not sure about the usage.
     STATE_LEADER = 1,
-    STATE_TRANSFERING = 2,
+    STATE_TRANSFERRING = 2,
     STATE_CANDIDATE = 3,
     STATE_FOLLOWER = 4,
     STATE_ERROR = 5,
