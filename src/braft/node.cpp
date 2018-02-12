@@ -1397,7 +1397,7 @@ void NodeImpl::elect_self(std::unique_lock<raft_mutex_t>* lck) {
     lck->lock();
     // vote need defense ABA after unlock&lock
     if (old_term != _current_term) {
-        // term changed casue by step_down
+        // term changed cause by step_down
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
             << " raise term " << _current_term << " when get last_log_id";
         return;
