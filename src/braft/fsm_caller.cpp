@@ -255,7 +255,7 @@ void FSMCaller::do_committed(int64_t committed_index) {
         if (iter_impl.entry()->type != ENTRY_TYPE_DATA) {
             if (iter_impl.entry()->type == ENTRY_TYPE_CONFIGURATION) {
                 if (iter_impl.entry()->old_peers != NULL) {
-                    // Joint stage is not supposed to be noticable by end users.
+                    // Joint stage is not supposed to be noticeable by end users.
                     _fsm->on_configuration_committed(
                             Configuration(*iter_impl.entry()->peers));
                 }
@@ -385,7 +385,7 @@ void FSMCaller::do_snapshot_load(LoadSnapshotClosure* done) {
     }
 
     if (meta.old_peers_size() == 0) {
-        // Joint stage is not supposed to be noticable by end users.
+        // Joint stage is not supposed to be noticeable by end users.
         Configuration conf;
         for (int i = 0; i < meta.peers_size(); ++i) {
             conf.add_peer(meta.peers(i));
