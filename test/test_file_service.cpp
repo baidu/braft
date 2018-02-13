@@ -27,8 +27,10 @@ protected:
 	for (int i = 10000; i < 60000; i++) {
             if (0 == _server.Start(i, NULL)) {
 		g_port = i;
+		break;
 	    }
 	}
+	ASSERT_NE(0, g_port);
     }
     void TearDown() {
         _server.Stop(0);
