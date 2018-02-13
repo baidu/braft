@@ -45,10 +45,21 @@ TEST_F(FileServiceTest, sanity) {
     std::string uri;
     butil::string_printf(&uri, "remote://127.0.0.1:%d/%ld", g_port, reader_id);
     braft::RemoteFileCopier copier;
-    ASSERT_NE(0, copier.init("local://127.0.0.1:%d/123456", g_port, fs, NULL));
-    ASSERT_NE(0, copier.init("remote://127.0.0.1:%d//123456", g_port, fs, NULL));
-    ASSERT_NE(0, copier.init("remote://127.0.1:%d//123456", g_port, fs, NULL));
-    ASSERT_NE(0, copier.init("remote://127.0.0.1//123456", fs, NULL));
+    {
+	std::string bad_uri;
+    	butil::string_printf(&bad_uri, "local://127.0.0.1:%d/123456", g_port);
+    	ASSERT_NE(0, copier.init(bad_uri, fs, NULL));
+
+	bad_uri.clear();
+    	butil::string_printf(&bad_uri, "remote://127.0.0.1:%d//123456", g_port);
+    	ASSERT_NE(0, copier.init(bad_uri, fs, NULL));
+
+	bad_uri.clear();
+    	butil::string_printf(&bad_uri, "remote://127.0.1:%d//123456", g_port);
+    	ASSERT_NE(0, copier.init(bad_uri, fs, NULL));
+
+    	ASSERT_NE(0, copier.init("remote://127.0.0.1//123456", fs, NULL));
+    }
     ASSERT_EQ(0, copier.init(uri, fs, NULL));
 
     // normal copy dir
