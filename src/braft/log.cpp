@@ -1042,7 +1042,7 @@ int SegmentLogStorage::load_segments(ConfigurationManager* configuration_manager
     SegmentMap::iterator it;
     for (it = _segments.begin(); it != _segments.end(); ++it) {
         Segment* segment = it->second.get();
-        LOG(TRACE) << "load closed segment, path: " << _path
+        LOG(INFO) << "load closed segment, path: " << _path
             << " first_index: " << segment->first_index()
             << " last_index: " << segment->last_index();
         ret = segment->load(configuration_manager);
@@ -1054,7 +1054,7 @@ int SegmentLogStorage::load_segments(ConfigurationManager* configuration_manager
 
     // open segment
     if (_open_segment) {
-        LOG(TRACE) << "load open segment, path: " << _path
+        LOG(INFO) << "load open segment, path: " << _path
             << " first_index: " << _open_segment->first_index();
         ret = _open_segment->load(configuration_manager);
         if (ret != 0) {

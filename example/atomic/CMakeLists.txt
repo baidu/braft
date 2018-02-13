@@ -50,6 +50,13 @@ if((NOT GFLAGS_INCLUDE_PATH) OR (NOT GFLAGS_LIBRARY))
 endif()
 include_directories(${GFLAGS_INCLUDE_PATH})
 
+find_path(GLOG_INCLUDE_PATH glog/logging.h)
+find_library(GLOG_LIBRARY NAMES glog libglog)
+if((NOT GLOG_INCLUDE_PATH) OR (NOT GLOG_LIBRARY))
+    message(FATAL_ERROR "Fail to find glog")
+endif()
+include_directories(${GLOG_INCLUDE_PATH})
+
 execute_process(
     COMMAND bash -c "grep \"namespace [_A-Za-z0-9]\\+ {\" ${GFLAGS_INCLUDE_PATH}/gflags/gflags_declare.h | head -1 | awk '{print $2}' | tr -d '\n'"
     OUTPUT_VARIABLE GFLAGS_NS
@@ -114,6 +121,7 @@ add_executable(atomic_test test.cpp ${PROTO_SRC} ${PROTO_HEADER})
 set(DYNAMIC_LIB
     ${CMAKE_THREAD_LIBS_INIT}
     ${GFLAGS_LIBRARY}
+    ${GLOG_LIBRARY}
     ${PROTOBUF_LIBRARY}
     ${GPERFTOOLS_LIBRARIES}
     ${LEVELDB_LIB}

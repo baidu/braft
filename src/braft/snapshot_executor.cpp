@@ -232,11 +232,13 @@ void SnapshotExecutor::on_snapshot_load_done(const butil::Status& st) {
         _last_snapshot_term = _loading_snapshot_meta.last_included_term();
         _log_manager->set_snapshot(&_loading_snapshot_meta);
     }
+    std::stringstream ss;
     if (_node) {
-        LOG(INFO) << "node " << _node->node_id() << ' ' << noflush;
+        ss << "node " << _node->node_id() << ' ';
     }
-    LOG(INFO) << "snapshot_load_done, "
+    ss << "snapshot_load_done, "
               << _loading_snapshot_meta.ShortDebugString();
+    LOG(INFO) << ss.str();
     lck.unlock();
     if (_node) {
         // FIXME: race with set_peer, not sure if this is fine

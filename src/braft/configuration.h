@@ -24,6 +24,7 @@
 #include <vector>
 #include <set>
 #include <map>
+#include <butil/strings/string_piece.h>
 #include <butil/endpoint.h>
 #include <butil/logging.h>
 

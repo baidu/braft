@@ -239,13 +239,14 @@ void Replicator::_on_heartbeat_returned(
         return;
     }
 
-    BRAFT_VLOG << "node " << r->_options.group_id << ":" << r->_options.server_id 
+    std::stringstream ss;
+    ss << "node " << r->_options.group_id << ":" << r->_options.server_id 
         << " received HeartbeatResponse from "
         << r->_options.peer_id << " prev_log_index " << request->prev_log_index()
-        << " prev_log_term " << request->prev_log_term()
-        << noflush;
+        << " prev_log_term " << request->prev_log_term();
     if (cntl->Failed()) {
-        BRAFT_VLOG << " fail, sleep.";
+        ss << " fail, sleep.";
+	BRAFT_VLOG << ss.str();
 
         // TODO: Should it be VLOG?
         LOG_IF(WARNING, (r->_consecutive_error_times++) % 10 == 0) 
@@ -258,8 +259,9 @@ void Replicator::_on_heartbeat_returned(
     }
     r->_consecutive_error_times = 0;
     if (response->term() > r->_options.term) {
-        BRAFT_VLOG << " fail, greater term " << response->term()
+        ss << " fail, greater term " << response->term()
             << " expect term " << r->_options.term;
+	BRAFT_VLOG << ss.str();
 
         NodeImpl *node_impl = r->_options.node;
         // Acquire a reference of Node here in case that Node is detroyed
@@ -275,7 +277,7 @@ void Replicator::_on_heartbeat_returned(
         node_impl->Release();
         return;
     }
-    BRAFT_VLOG;
+    BRAFT_VLOG << ss.str();
     if (rpc_send_time > r->_last_rpc_send_timestamp){
         r->_last_rpc_send_timestamp = rpc_send_time; 
     }
@@ -298,14 +300,15 @@ void Replicator::_on_rpc_returned(ReplicatorId id, brpc::Controller* cntl,
         return;
     }
 
-    BRAFT_VLOG << "node " << r->_options.group_id << ":" << r->_options.server_id 
+    std::stringstream ss;
+    ss << "node " << r->_options.group_id << ":" << r->_options.server_id 
         << " received AppendEntriesResponse from "
         << r->_options.peer_id << " prev_log_index " << request->prev_log_index()
-        << " prev_log_term " << request->prev_log_term() << " count " << request->entries_size()
-        << noflush;
+        << " prev_log_term " << request->prev_log_term() << " count " << request->entries_size();
 
     if (cntl->Failed()) {
-        BRAFT_VLOG << " fail, sleep.";
+        ss << " fail, sleep.";
+	BRAFT_VLOG << ss.str();
 
         // TODO: Should it be VLOG?
         LOG_IF(WARNING, (r->_consecutive_error_times++) % 10 == 0) 
@@ -321,8 +324,9 @@ void Replicator::_on_rpc_returned(ReplicatorId id, brpc::Controller* cntl,
     r->_consecutive_error_times = 0;
     if (!response->success()) {
         if (response->term() > r->_options.term) {
-            BRAFT_VLOG << " fail, greater term " << response->term()
+            ss << " fail, greater term " << response->term()
                 << " expect term " << r->_options.term;
+	    BRAFT_VLOG << ss.str();
 
             NodeImpl *node_impl = r->_options.node;
             // Acquire a reference of Node here in case that Node is detroyed
@@ -337,8 +341,9 @@ void Replicator::_on_rpc_returned(ReplicatorId id, brpc::Controller* cntl,
             node_impl->Release();
             return;
         }
-        BRAFT_VLOG << " fail, find next_index remote last_log_index " << response->last_log_index()
+        ss << " fail, find next_index remote last_log_index " << response->last_log_index()
             << " local next_index " << r->_next_index;
+	BRAFT_VLOG << ss.str();
         if (rpc_send_time > r->_last_rpc_send_timestamp) {
             r->_last_rpc_send_timestamp = rpc_send_time; 
         }
@@ -365,7 +370,8 @@ void Replicator::_on_rpc_returned(ReplicatorId id, brpc::Controller* cntl,
         return;
     }
 
-    BRAFT_VLOG << " success";
+    ss << " success";
+    BRAFT_VLOG << ss.str();
     
     if (response->term() != r->_options.term) {
         LOG(ERROR) << "Fail, response term " << response->term()
@@ -651,14 +657,16 @@ void Replicator::_on_install_snapshot_returned(
         r->_options.snapshot_storage->close(r->_reader);
         r->_reader = NULL;
     }
-    LOG(INFO) << "received InstallSnapshotResponse from "
+    std::stringstream ss;
+    ss << "received InstallSnapshotResponse from "
         << r->_options.group_id << ":" << r->_options.peer_id
         << " last_included_index " << request->meta().last_included_index()
-        << " last_included_term " << request->meta().last_included_term()
-        << noflush;
+        << " last_included_term " << request->meta().last_included_term();
     do {
         if (cntl->Failed()) {
-            LOG(INFO) << " error: " << cntl->ErrorText();
+            ss << " error: " << cntl->ErrorText();
+	    LOG(INFO) << ss.str();
+
             LOG_IF(WARNING, (r->_consecutive_error_times++) % 10 == 0) 
                             << "Fail to install snapshot at peer=" 
                             << r->_options.peer_id
@@ -668,13 +676,15 @@ void Replicator::_on_install_snapshot_returned(
         }
         if (!response->success()) {
             succ = false;
-            BRAFT_VLOG << " fail.";
+            ss << " fail.";
+	    LOG(INFO) << ss.str();
             // Let hearbeat do step down
             break;
         }
         // Success 
         r->_next_index = request->meta().last_included_index() + 1;
-        LOG(INFO) << " success.";
+        ss << " success.";
+	LOG(INFO) << ss.str();
     } while (0);
 
     // We don't retry installing the snapshot explicitly. 
@@ -871,13 +881,16 @@ void Replicator::_on_timeout_now_returned(
     if (bthread_id_lock(dummy_id, (void**)&r) != 0) {
         return;
     }
-    BRAFT_VLOG << "node " << r->_options.group_id << ":" << r->_options.server_id 
+
+    std::stringstream ss;
+    ss << "node " << r->_options.group_id << ":" << r->_options.server_id 
         << " received TimeoutNowResponse from "
-        << r->_options.peer_id
-        << noflush;
+        << r->_options.peer_id;
 
     if (cntl->Failed()) {
-        BRAFT_VLOG << " fail : " << cntl->ErrorText();
+        ss << " fail : " << cntl->ErrorText();
+	BRAFT_VLOG << ss.str();
+
         if (stop_after_finish) {
             r->_notify_on_caught_up(ESTOP, true);
             r->_destroy();
@@ -886,7 +899,9 @@ void Replicator::_on_timeout_now_returned(
         }
         return;
     }
-    BRAFT_VLOG << (response->success() ? " success " : "fail:");
+    ss << (response->success() ? " success " : "fail:");
+    BRAFT_VLOG << ss.str();
+
     if (response->term() > r->_options.term) {
         NodeImpl *node_impl = r->_options.node;
         // Acquire a reference of Node here in case that Node is detroyed

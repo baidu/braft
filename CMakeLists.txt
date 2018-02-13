@@ -2,6 +2,12 @@ cmake_minimum_required(VERSION 2.8.10)
 project(braft C CXX)
 
 #option(EXAMPLE_LINK_SO "Whether examples are linked dynamically" OFF)
+option(BRPC_WITH_GLOG "With glog" OFF)
+
+set(WITH_GLOG_VAL "0")
+if(BRPC_WITH_GLOG)
+    set(WITH_GLOG_VAL "1")
+endif()
 
 set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake)
 
@@ -37,6 +43,15 @@ if ((NOT GFLAGS_INCLUDE_PATH) OR (NOT GFLAGS_LIB))
     message(FATAL_ERROR "Fail to find gflags")
 endif()
 
+if(BRPC_WITH_GLOG)
+    find_path(GLOG_INCLUDE_PATH NAMES glog/logging.h)
+    find_library(GLOG_LIB NAMES glog)
+    if((NOT GLOG_INCLUDE_PATH) OR (NOT GLOG_LIB))
+        message(FATAL_ERROR "Fail to find glog")
+    endif()
+    include_directories(${GLOG_INCLUDE_PATH})
+endif()
+
 find_path(BRPC_INCLUDE_PATH NAMES brpc/server.h)
 find_library(BRPC_LIB NAMES libbrpc.a brpc)
 if ((NOT BRPC_INCLUDE_PATH) OR (NOT BRPC_LIB))
@@ -55,18 +70,34 @@ include_directories(
         ${BRPC_INCLUDE_PATH}
         )
 
-set(DYNAMIC_LIB
-    ${BRPC_LIB}
-    ${GFLAGS_LIB}
-    ${PROTOBUF_LIBRARY}
-    ${LEVELDB_LIB}
-    ${CMAKE_THREAD_LIBS_INIT}
-    rt
-    ssl
-    crypto
-    dl
-    z
-    )
+if(BRPC_WITH_GLOG)
+    set(DYNAMIC_LIB
+        ${BRPC_LIB}
+        ${GFLAGS_LIB}
+        ${GLOG_LIB}
+        ${PROTOBUF_LIBRARY}
+        ${LEVELDB_LIB}
+        ${CMAKE_THREAD_LIBS_INIT}
+        rt
+        ssl
+        crypto
+        dl
+        z
+        )
+else()
+    set(DYNAMIC_LIB
+        ${BRPC_LIB}
+        ${GFLAGS_LIB}
+        ${PROTOBUF_LIBRARY}
+        ${LEVELDB_LIB}
+        ${CMAKE_THREAD_LIBS_INIT}
+        rt
+        ssl
+        crypto
+        dl
+        z
+	)
+endif()
 
 # for *.so
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/output/lib)
@@ -120,7 +151,7 @@ execute_process(
     OUTPUT_VARIABLE BRAFT_REVISION
 )
 
-set(CMAKE_CPP_FLAGS "${CMAKE_CPP_FLAGS} -DGFLAGS_NS=${GFLAGS_NS}")
+set(CMAKE_CPP_FLAGS "${CMAKE_CPP_FLAGS} -DBRPC_WITH_GLOG=${WITH_GLOG_VAL} -DGFLAGS_NS=${GFLAGS_NS}")
 set(CMAKE_CPP_FLAGS "${CMAKE_CPP_FLAGS} -DBTHREAD_USE_FAST_PTHREAD_MUTEX -D__const__= -D_GNU_SOURCE -DUSE_SYMBOLIZE -DNO_TCMALLOC -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS -D__STDC_CONSTANT_MACROS -DBRAFT_REVISION=\\\"${BRAFT_REVISION}\\\" -D__STRICT_ANSI__")
 set(CMAKE_CPP_FLAGS "${CMAKE_CPP_FLAGS} -g ${DEBUG_SYMBOL}")
 set(CMAKE_CPP_FLAGS "${CMAKE_CPP_FLAGS} -msse4 -msse4.2")
