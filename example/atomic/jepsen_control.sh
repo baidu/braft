@@ -31,7 +31,7 @@ do
 done
 
 function help {
-    echo "Usage: jepsen_control.sh start|stop|restart|join|leave"
+    echo "Usage: jepsen_control.sh boot|start|stop|restart|join|leave"
     exit 1
 }
 
