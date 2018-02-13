@@ -18,12 +18,17 @@ namespace braft {
 DECLARE_bool(raft_file_check_hole);
 }
 
+int g_port = 0;
 class FileServiceTest : public testing::Test {
 protected:
     void SetUp() {
         ASSERT_EQ(0, _server.AddService(braft::file_service(), 
                                         brpc::SERVER_DOESNT_OWN_SERVICE));
-        ASSERT_EQ(0, _server.Start(60006, NULL));
+	for (int i = 10000; i < 60000; i++) {
+            if (0 == _server.Start(i, NULL)) {
+		g_port = i;
+	    }
+	}
     }
     void TearDown() {
         _server.Stop(0);
@@ -38,11 +43,11 @@ TEST_F(FileServiceTest, sanity) {
     int64_t reader_id = 0;
     ASSERT_EQ(0, braft::file_service_add(reader.get(), &reader_id));
     std::string uri;
-    butil::string_printf(&uri, "remote://127.0.0.1:60006/%ld", reader_id);
+    butil::string_printf(&uri, "remote://127.0.0.1:%d/%ld", g_port, reader_id);
     braft::RemoteFileCopier copier;
-    ASSERT_NE(0, copier.init("local://127.0.0.1:60006/123456", fs, NULL));
-    ASSERT_NE(0, copier.init("remote://127.0.0.1:60006//123456", fs, NULL));
-    ASSERT_NE(0, copier.init("remote://127.0.1:60006//123456", fs, NULL));
+    ASSERT_NE(0, copier.init("local://127.0.0.1:%d/123456", g_port, fs, NULL));
+    ASSERT_NE(0, copier.init("remote://127.0.0.1:%d//123456", g_port, fs, NULL));
+    ASSERT_NE(0, copier.init("remote://127.0.1:%d//123456", g_port, fs, NULL));
     ASSERT_NE(0, copier.init("remote://127.0.0.1//123456", fs, NULL));
     ASSERT_EQ(0, copier.init(uri, fs, NULL));
 
@@ -93,7 +98,7 @@ TEST_F(FileServiceTest, hole_file) {
 
     braft::RemoteFileCopier copier;
     std::string uri;
-    butil::string_printf(&uri, "remote://127.0.0.1:60006/%ld", reader_id);
+    butil::string_printf(&uri, "remote://127.0.0.1:%d/%ld", g_port, reader_id);
     // normal init
     braft::FLAGS_raft_file_check_hole = false;
     ASSERT_EQ(0, copier.init(uri, fs, NULL));
