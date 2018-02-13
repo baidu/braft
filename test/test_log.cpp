@@ -1,4 +1,4 @@
-// libraft - Quorum-based replication of states accross machines.
+// libraft - Quorum-based replication of states across machines.
 // Copyright (c) 2015 Baidu.com, Inc. All Rights Reserved
 
 // Author: WangYao (fisherman), wangyao02@baidu.com
@@ -707,10 +707,10 @@ void* read_thread_routine(void* arg) {
 
 void* write_thread_routine(void* arg) {
     braft::SegmentLogStorage* storage = (braft::SegmentLogStorage*)arg;
-    // Write operation distrubution: 
+    // Write operation distribution: 
     //  - 10% truncate_prefix
     //  - 10% truncate_suffix,
-    //  - 30% increase last_read_index (which stands for committment in the real
+    //  - 30% increase last_read_index (which stands for commitment in the real
     // world), 
     //  - 50% append new entry
     int next_log_index = storage->last_log_index() + 1;

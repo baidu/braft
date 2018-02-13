@@ -1,4 +1,4 @@
-// libraft - Quorum-based replication of states accross machines.
+// libraft - Quorum-based replication of states across machines.
 // Copyright (c) 2015 Baidu.com, Inc. All Rights Reserved
 
 // Author: WangYao (fisherman), wangyao02@baidu.com
@@ -82,8 +82,8 @@ TEST_F(TestUsageSuits, pread_pwrite) {
 
     butil::IOBuf data;
     data.append("hello");
-    ssize_t nwriten = braft::file_pwrite(data, fd, 1000);
-    ASSERT_EQ(nwriten, data.size());
+    ssize_t nwritten = braft::file_pwrite(data, fd, 1000);
+    ASSERT_EQ(nwritten, data.size());
 
     portal.clear();
     nread = braft::file_pread(&portal, fd, 1000, 10);

@@ -557,7 +557,7 @@ int Replicator::_continue_sending(void* arg, int error_code) {
     if (error_code == ETIMEDOUT) {
         // Send empty entries after block timeout to check the correct
         // _next_index otherwise the replictor is likely waits in
-        // _wait_more_entries and no futher logs would be replicated even if the
+        // _wait_more_entries and no further logs would be replicated even if the
         // last_index of this followers is less than |next_index - 1|
         r->_send_empty_entries(false);
     } else if (error_code != ESTOP) {
@@ -701,7 +701,7 @@ void Replicator::_on_install_snapshot_returned(
     return r->_send_entries();
 }
 
-void Replicator::_notify_on_caught_up(int error_code, bool before_destory) {
+void Replicator::_notify_on_caught_up(int error_code, bool before_destroy) {
     if (_catchup_closure == NULL) {
         return;
     }
@@ -718,7 +718,7 @@ void Replicator::_notify_on_caught_up(int error_code, bool before_destory) {
             _catchup_closure->status().set_error(error_code, "%s", berror(error_code));
         }
         if (_catchup_closure->_has_timer) {
-            if (!before_destory && bthread_timer_del(_catchup_closure->_timer) == 1) {
+            if (!before_destroy && bthread_timer_del(_catchup_closure->_timer) == 1) {
                 // There's running timer task, let timer task trigger
                 // on_caught_up to void ABA problem
                 return;
@@ -952,7 +952,7 @@ int64_t Replicator::get_next_index(ReplicatorId id) {
 void Replicator::_destroy() {
     bthread_id_t saved_id = _id;
     CHECK_EQ(0, bthread_id_unlock_and_destroy(saved_id));
-    // TODO: Add more infomation
+    // TODO: Add more information
     LOG(INFO) << "Replicator=" << saved_id << " is going to quit";
     delete this;
 }

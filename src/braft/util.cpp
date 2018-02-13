@@ -90,10 +90,10 @@ ssize_t file_pwrite(const butil::IOBuf& data, int fd, off_t offset) {
     off_t orig_offset = offset;
     ssize_t left = size;
     while (left > 0) {
-        ssize_t writen = piece_data.pcut_into_file_descriptor(fd, offset, left);
-        if (writen >= 0) {
-            offset += writen;
-            left -= writen;
+        ssize_t written = piece_data.pcut_into_file_descriptor(fd, offset, left);
+        if (written >= 0) {
+            offset += written;
+            left -= written;
         } else if (errno == EINTR) {
             continue;
         } else {
