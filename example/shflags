@@ -424,7 +424,7 @@ _flags_getFlagInfo()
   return ${flags_return}
 }
 
-# check for presense of item in a list. passed a string (e.g. 'abc'), this
+# check for presence of item in a list. passed a string (e.g. 'abc'), this
 # function will determine if the string is present in the list of strings (e.g.
 # ' foo bar abc ').
 #
@@ -756,7 +756,7 @@ _flags_parseGetopt()
       fi
     fi
 
-    # shift the option and non-boolean arguements out.
+    # shift the option and non-boolean arguments out.
     shift
     [ ${_flags_type_} != ${__FLAGS_TYPE_BOOLEAN} ] && shift
   done
@@ -780,7 +780,7 @@ _flags_parseGetopt()
 # A basic boolean flag. Boolean flags do not take any arguments, and their
 # value is either 1 (false) or 0 (true). For long flags, the false value is
 # specified on the command line by prepending the word 'no'. With short flags,
-# the presense of the flag toggles the current value between true and false.
+# the presence of the flag toggles the current value between true and false.
 # Specifying a short boolean flag twice on the command results in returning the
 # value back to the default value.
 #

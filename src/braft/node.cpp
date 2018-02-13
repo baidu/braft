@@ -578,7 +578,7 @@ void NodeImpl::apply(const Task& task) {
 
 void NodeImpl::on_configuration_change_done(int64_t term) {
     BAIDU_SCOPED_LOCK(_mutex);
-    if (_state > STATE_TRANSFERING || term != _current_term) {
+    if (_state > STATE_TRANSFERRING || term != _current_term) {
         LOG(WARNING) << "node " << node_id()
                      << " process on_configuration_change_done "
                      << " at term=" << term
@@ -627,7 +627,7 @@ void NodeImpl::on_caughtup(const PeerId& peer, int64_t term,
         return;
     }
 
-    if (st.ok()) {  // Caught up succesfully
+    if (st.ok()) {  // Caught up successfully
         _conf_ctx.on_caughtup(version, peer, true);
         return;
     }
@@ -693,7 +693,7 @@ void NodeImpl::handle_stepdown_timeout() {
     BAIDU_SCOPED_LOCK(_mutex);
 
     // check state
-    if (_state > STATE_TRANSFERING) {
+    if (_state > STATE_TRANSFERRING) {
         BRAFT_VLOG << "node " << _group_id << ":" << _server_id
             << " term " << _current_term << " stop stepdown_timer"
             << " state is " << state2str(_state);
@@ -715,8 +715,8 @@ void NodeImpl::unsafe_register_conf_change(const Configuration& old_conf,
                      << "] Refusing configuration changing because the state is "
                      << state2str(_state) ;
         if (done) {
-            if (_state == STATE_TRANSFERING) {
-                done->status().set_error(EBUSY, "Is transfering leadership");
+            if (_state == STATE_TRANSFERRING) {
+                done->status().set_error(EBUSY, "Is transferring leadership");
             } else {
                 done->status().set_error(EPERM, "Not leader");
             }
@@ -848,7 +848,7 @@ void NodeImpl::shutdown(Closure* done) {
 
         if (_state < STATE_SHUTTING) {  // Got the right to shut
             // Remove node from NodeManager and |this| would not be accessed by
-            // the comming RPCs
+            // the coming RPCs
             NodeManager::GetInstance()->remove(this);
             // if it is leader, set the wakeup_a_candidate with true,
             // if it is follower, call on_stop_following in step_down
@@ -1022,7 +1022,7 @@ void NodeImpl::handle_transfer_timeout(int64_t term, const PeerId& peer) {
     BAIDU_SCOPED_LOCK(_mutex);
     if (term == _current_term) {
         _replicator_group.stop_transfer_leadership(peer);
-        if (_state == STATE_TRANSFERING) {
+        if (_state == STATE_TRANSFERRING) {
             _fsm_caller->on_leader_start(term);
             _state = STATE_LEADER;
             _stop_transfer_arg = NULL;
@@ -1035,7 +1035,7 @@ int NodeImpl::transfer_leadership_to(const PeerId& peer) {
     if (_state != STATE_LEADER) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
                      << " is in state " << state2str(_state);
-        return _state == STATE_TRANSFERING ? EBUSY : EPERM;
+        return _state == STATE_TRANSFERRING ? EBUSY : EPERM;
     }
     if (_conf_ctx.is_busy() /*FIXME: make this expression more readable*/) {
         // It's very messy to deal with the case when the |peer| received
@@ -1068,7 +1068,7 @@ int NodeImpl::transfer_leadership_to(const PeerId& peer) {
         }
     }
     if (peer_id == _server_id) {
-        LOG(INFO) << "Transfering leadership to self";
+        LOG(INFO) << "Transferring leadership to self";
         return 0;
     }
     if (!_conf.contains(peer_id)) {
@@ -1083,9 +1083,9 @@ int NodeImpl::transfer_leadership_to(const PeerId& peer) {
         LOG(WARNING) << "No such peer=" << peer_id;
         return EINVAL;
     }
-    _state = STATE_TRANSFERING;
+    _state = STATE_TRANSFERRING;
     butil::Status status;
-    status.set_error(ETRANSFERLEADERSHIP, "Raft leader is transfering "
+    status.set_error(ETRANSFERLEADERSHIP, "Raft leader is transferring "
             "leadership to %s", peer_id.to_string().c_str());
     _fsm_caller->on_leader_stop(status);
     LOG(INFO) << "node " << _group_id << ":" << _server_id
@@ -1397,7 +1397,7 @@ void NodeImpl::elect_self(std::unique_lock<raft_mutex_t>* lck) {
     lck->lock();
     // vote need defense ABA after unlock&lock
     if (old_term != _current_term) {
-        // term changed casue by step_down
+        // term changed cause by step_down
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
             << " raise term " << _current_term << " when get last_log_id";
         return;
@@ -1456,7 +1456,7 @@ void NodeImpl::step_down(const int64_t term, bool wakeup_a_candidate,
     // delete timer and something else
     if (_state == STATE_CANDIDATE) {
         _vote_timer.stop();
-    } else if (_state <= STATE_TRANSFERING) {
+    } else if (_state <= STATE_TRANSFERRING) {
         _stepdown_timer.stop();
 
         _ballot_box->clear_pending_tasks();
@@ -1516,7 +1516,7 @@ void NodeImpl::step_down(const int64_t term, bool wakeup_a_candidate,
 void NodeImpl::reset_leader_id(const PeerId& new_leader_id, 
         const butil::Status& status) {
     if (new_leader_id.is_empty()) {
-        if (!_leader_id.is_empty() && _state > STATE_TRANSFERING) {
+        if (!_leader_id.is_empty() && _state > STATE_TRANSFERRING) {
             LeaderChangeContext stop_following_context(_leader_id, 
                     _current_term, status);
             _fsm_caller->on_stop_following(stop_following_context);
@@ -1637,10 +1637,10 @@ void NodeImpl::apply(LogEntryAndClosure tasks[], size_t size) {
     std::unique_lock<raft_mutex_t> lck(_mutex);
     if (_state != STATE_LEADER) {
         butil::Status st;
-        if (_state != STATE_TRANSFERING) {
+        if (_state != STATE_TRANSFERRING) {
             st.set_error(EPERM, "is not leader");
         } else {
-            st.set_error(EBUSY, "is transfering leadership");
+            st.set_error(EBUSY, "is transferring leadership");
         }
         lck.unlock();
         BRAFT_VLOG << "node " << _group_id << ":" << _server_id << " can't apply : " << st;

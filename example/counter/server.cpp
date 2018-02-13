@@ -191,7 +191,7 @@ friend class FetchAddClosure;
             braft::AsyncClosureGuard closure_guard(iter.done());
             if (iter.done()) {
                 // This task is applied by this node, get value from this
-                // closure to avoid addtional parsing.
+                // closure to avoid additional parsing.
                 FetchAddClosure* c = dynamic_cast<FetchAddClosure*>(iter.done());
                 response = c->response();
                 detal_value = c->request()->value();

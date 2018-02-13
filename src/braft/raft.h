@@ -164,12 +164,12 @@ public:
 
     // Return true this iterator is currently references to a valid task, false
     // otherwise, indicating that the iterator has reached the end of this
-    // batch of tasks or some error has occured
+    // batch of tasks or some error has occurred
     bool valid() const;
 
-    // Invoked when some critical error occured. And we will consider the last 
+    // Invoked when some critical error occurred. And we will consider the last 
     // |ntail| tasks (starting from the last iterated one) as not applied. After
-    // this point, no futher changes on the StateMachine as well as the Node 
+    // this point, no further changes on the StateMachine as well as the Node 
     // would be allowed and you should try to repair this replica or just drop 
     // it.
     //
@@ -186,7 +186,7 @@ friend class FSMCaller;
 };
 
 // |StateMachine| is the sink of all the events of a very raft node.
-// Implement a specific StateMachine for your own bussiness logic.
+// Implement a specific StateMachine for your own business logic.
 //
 // NOTE: All the interfaces are not guaranteed to be thread safe and they are 
 // called sequentially, saying that every single operation will block all the 
@@ -267,7 +267,7 @@ public:
 enum State {
     // Don't change the order if you are not sure about the usage.
     STATE_LEADER = 1,
-    STATE_TRANSFERING = 2,
+    STATE_TRANSFERRING = 2,
     STATE_CANDIDATE = 3,
     STATE_FOLLOWER = 4,
     STATE_ERROR = 5,
@@ -278,7 +278,7 @@ enum State {
 };
 
 inline const char* state2str(State state) {
-    const char* str[] = {"LEADER", "TRANSFERING", "CANDIDATE", "FOLLOWER", 
+    const char* str[] = {"LEADER", "TRANSFERRING", "CANDIDATE", "FOLLOWER", 
                          "ERROR", "UNINITIALIZED", "SHUTTING", "SHUTDOWN", };
     if (state < STATE_END) {
         return str[(int)state - 1];
@@ -380,7 +380,7 @@ struct NodeOptions {
     // Default: A empty group
     Configuration initial_conf;
 
-    // The specific StateMachine implemented your bussiness logic, which must be
+    // The specific StateMachine implemented your business logic, which must be
     // a valid instance.
     StateMachine* fsm;
 
@@ -512,7 +512,7 @@ public:
     // reset the election_timeout for the very node
     void reset_election_timeout_ms(int election_timeout_ms);
 
-    // Try transfering leadership to |peer|.
+    // Try transferring leadership to |peer|.
     // If peer is ANY_PEER, a proper follower will be chosen as the leader for
     // the next term.
     // Returns 0 on success, -1 otherwise.

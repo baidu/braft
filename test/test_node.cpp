@@ -1,4 +1,4 @@
-// libraft - Quorum-based replication of states accross machines.
+// libraft - Quorum-based replication of states across machines.
 // Copyright (c) 2015 Baidu.com, Inc. All Rights Reserved
 
 // Author: WangYao (fisherman), wangyao02@baidu.com
@@ -2256,11 +2256,11 @@ TEST_F(NodeTest, on_start_following_and_on_stop_following) {
     ASSERT_EQ(followers_second.size(), 3);
     // leader_third's _on_start_following_times and _on_stop_following_times should both be 2.
     // When it was still in follower state, it would do handle_timeout_now_request and
-    // trigger on_stop_following when leader_second transfered leadership to it.
+    // trigger on_stop_following when leader_second transferred leadership to it.
     ASSERT_EQ(static_cast<MockFSM*>(leader_third->_impl->_options.fsm)->_on_start_following_times, 2);
     ASSERT_EQ(static_cast<MockFSM*>(leader_third->_impl->_options.fsm)->_on_start_following_times, 2);
     for (int i = 0; i < 3; i++) {
-        // leader_second became follower when it transfered leadership to target, 
+        // leader_second became follower when it transferred leadership to target, 
         // and when it receives leader_third's append_entries_request on_start_following is triggled.
         if (followers_third[i]->node_id().peer_id == leader_second->node_id().peer_id) {
             ASSERT_EQ(static_cast<MockFSM*>(followers_third[i]->_impl->_options.fsm)->_on_start_following_times, 2);
