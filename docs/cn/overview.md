@@ -47,7 +47,7 @@ RAFT协议从2013年出来，社区涌现了非常多的[实现](http://raft.git
 
 一个良好的RAFT算法实现能够对上层屏蔽细节， 让开发者从复杂的异常处理中解放出来， 专注于自己的业务逻辑，像写单机程序一样构建分布式系统。虽然RAFT算法本身虽然以易于理解著称，但是要实现正确还是得面临复杂的异常处理，并发事件，必须妥善的解决所有的race conditon以及ABA problem, 于此同时还得保证足够优秀的性能。braft在保证正确性和高性能的同时， 还需要保证接口足够的简单易用.
 
-# Suportted features of BRAFT
+# Supported features of BRAFT
 
 * Leader election.
 * Replication and recovery.
