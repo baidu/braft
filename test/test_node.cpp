@@ -143,14 +143,21 @@ public:
     }
 
     virtual void on_start_following(const braft::LeaderChangeContext& start_following_context) {
-        LOG(TRACE) << "start following new leader: " <<  start_following_context.leader_id();
+        LOG(TRACE) << "address " << address << " start following new leader: " 
+                   <<  start_following_context;
         ++_on_start_following_times;
     }
 
     virtual void on_stop_following(const braft::LeaderChangeContext& stop_following_context) {
-        LOG(TRACE) << "stop following old leader: " <<  stop_following_context.leader_id();
+        LOG(TRACE) << "address " << address << " stop following old leader: " 
+                   <<  stop_following_context;
         ++_on_stop_following_times;
     }
+
+    virtual void on_configuration_committed(const ::braft::Configuration& conf) {
+        LOG(TRACE) << "address " << address << " commit conf: " << conf;
+    }
+
 };
 
 class ExpectClosure : public braft::Closure {
@@ -2179,7 +2186,7 @@ TEST_F(NodeTest, on_start_following_and_on_stop_following) {
     ASSERT_EQ(followers_first.size(), 4);
     // leader_first's _on_start_following_times and _on_stop_following_times should both be 0.
     ASSERT_EQ(static_cast<MockFSM*>(leader_first->_impl->_options.fsm)->_on_start_following_times, 0);
-    ASSERT_EQ(static_cast<MockFSM*>(leader_first->_impl->_options.fsm)->_on_start_following_times, 0);
+    ASSERT_EQ(static_cast<MockFSM*>(leader_first->_impl->_options.fsm)->_on_stop_following_times, 0);
     for (int i = 0; i < 4; i++) {
         ASSERT_EQ(static_cast<MockFSM*>(followers_first[i]->_impl->_options.fsm)->_on_start_following_times, 1);
         ASSERT_EQ(static_cast<MockFSM*>(followers_first[i]->_impl->_options.fsm)->_on_stop_following_times, 0);
@@ -2218,7 +2225,7 @@ TEST_F(NodeTest, on_start_following_and_on_stop_following) {
     // trigger on_stop_following when not receiving heartbeat for a long
     // time(election_timeout_ms).
     ASSERT_EQ(static_cast<MockFSM*>(leader_second->_impl->_options.fsm)->_on_start_following_times, 1);
-    ASSERT_EQ(static_cast<MockFSM*>(leader_second->_impl->_options.fsm)->_on_start_following_times, 1);
+    ASSERT_EQ(static_cast<MockFSM*>(leader_second->_impl->_options.fsm)->_on_stop_following_times, 1);
     for (int i = 0; i < 3; i++) {
         // Firstly these followers have a leader, but it stops and a candidate
         // sends request_vote_request to them, which triggers on_stop_following.
@@ -2258,7 +2265,7 @@ TEST_F(NodeTest, on_start_following_and_on_stop_following) {
     // When it was still in follower state, it would do handle_timeout_now_request and
     // trigger on_stop_following when leader_second transferred leadership to it.
     ASSERT_EQ(static_cast<MockFSM*>(leader_third->_impl->_options.fsm)->_on_start_following_times, 2);
-    ASSERT_EQ(static_cast<MockFSM*>(leader_third->_impl->_options.fsm)->_on_start_following_times, 2);
+    ASSERT_EQ(static_cast<MockFSM*>(leader_third->_impl->_options.fsm)->_on_stop_following_times, 2);
     for (int i = 0; i < 3; i++) {
         // leader_second became follower when it transferred leadership to target, 
         // and when it receives leader_third's append_entries_request on_start_following is triggled.
