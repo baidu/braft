@@ -254,7 +254,7 @@ void FSMCaller::do_committed(int64_t committed_index) {
     for (; iter_impl.is_good();) {
         if (iter_impl.entry()->type != ENTRY_TYPE_DATA) {
             if (iter_impl.entry()->type == ENTRY_TYPE_CONFIGURATION) {
-                if (iter_impl.entry()->old_peers != NULL) {
+                if (iter_impl.entry()->old_peers == NULL) {
                     // Joint stage is not supposed to be noticeable by end users.
                     _fsm->on_configuration_committed(
                             Configuration(*iter_impl.entry()->peers));
