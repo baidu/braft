@@ -58,7 +58,7 @@ public:
     void on_leader_start(int64_t term) {
         _leader_term = term;
     }
-    void on_leader_stop(const braft::LeaderChangeContext&) {
+    void on_leader_stop(const butil::Status&) {
         _leader_term = -1;
     }
 
