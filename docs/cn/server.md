@@ -117,7 +117,7 @@ class Iterator {
 };
 ```
 
-#构造braft::Node
+# 构造braft::Node
 
 一个Node代表了一个RAFT实例， Node的ID由两个部分组成:
 
