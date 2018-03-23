@@ -37,6 +37,7 @@ Command:
   add_peer --group=$group_id --peer=$adding_peer --conf=$current_conf
   remove_peer --group=$group_id --peer=$removing_peer --conf=$current_conf
   change_peers --group=$group_id --conf=$current_conf --new_peers=$new_peers
-  reset_peer --group=$group_id --peer==$target_peer --conf=$target_conf
+  reset_peer --group=$group_id --peer==$target_peer --new_peers=$new_peers
   snapshot --group=$group_id --peer=$target_peer
+  transfer_leader --group=$group_id --peer=$target_leader --conf=$current_conf
 ```
