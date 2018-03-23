@@ -13,7 +13,16 @@ env:
 install:
 - sudo apt-get install -qq realpath libgflags-dev libprotobuf-dev libprotoc-dev protobuf-compiler libleveldb-dev libgoogle-perftools-dev
 - sudo apt-get install libgtest-dev && cd /usr/src/gtest && sudo env "PATH=$PATH" cmake . && sudo make && sudo mv libgtest* /usr/lib/ && cd -
+- sudo apt-get install -y gdb
 - git clone https://github.com/brpc/brpc.git && mkdir -p brpc/build && cd brpc/build && cmake .. && make -j4 && sudo make install && cd -
+
+before_script:
+- ulimit -c unlimited -S
 
 script:
 - sh build_in_travis_ci.sh
+
+after_failure:
+- COREFILE=$(find . -maxdepth 1 -name "core*" | head -n 1)
+- if [[ -f "$COREFILE" ]]; then gdb -c "$COREFILE" example -ex "thread apply all bt" -ex "set pagination 0" -batch; fi
+
