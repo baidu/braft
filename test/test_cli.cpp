@@ -109,7 +109,7 @@ TEST_F(CliTest, add_and_remove_peer) {
     st = braft::cli::remove_peer("test", old_conf, peer1,
                                 braft::cli::CliOptions()); 
     ASSERT_TRUE(st.ok()) << st;
-    usleep(100 * 1000);
+    usleep(1000 * 1000);
     // Retried remove_peer
     st = braft::cli::remove_peer("test", old_conf, peer1,
                                 braft::cli::CliOptions()); 
