@@ -609,7 +609,7 @@ TEST_F(SnapshotTest, snapshot_throttle_for_reading) {
     }
     // create and set snapshot throttle
     braft::ThroughputSnapshotThrottle* throttle = new 
-        braft::ThroughputSnapshotThrottle(30, 10);
+        braft::ThroughputSnapshotThrottle(60, 10);
     ASSERT_TRUE(throttle);
     ASSERT_EQ(storage1->set_snapshot_throttle(throttle), 0);
     ASSERT_EQ(0, storage1->init());
@@ -714,7 +714,7 @@ TEST_F(SnapshotTest, snapshot_throttle_for_writing) {
     }
     // create and set snapshot throttle for storage2
     braft::SnapshotThrottle* throttle = 
-        new braft::ThroughputSnapshotThrottle(10, 10);
+        new braft::ThroughputSnapshotThrottle(50, 10);
     ASSERT_TRUE(throttle);
     ASSERT_EQ(storage2->set_snapshot_throttle(throttle), 0);
     ASSERT_EQ(0, storage2->init());
