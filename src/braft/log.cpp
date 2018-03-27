@@ -985,7 +985,7 @@ int SegmentLogStorage::list_segments(bool is_empty) {
     SegmentMap::iterator it;
     for (it = _segments.begin(); it != _segments.end();) {
         Segment* segment = it->second.get();
-        if (segment->first_index() >= segment->last_index()) {
+        if (segment->first_index() > segment->last_index()) {
             LOG(WARNING) << "closed segment is bad, path: " << _path
                 << " first_index: " << segment->first_index()
                 << " last_index: " << segment->last_index();

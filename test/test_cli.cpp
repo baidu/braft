@@ -173,12 +173,13 @@ TEST_F(CliTest, change_peer) {
     }
     butil::Status st;
     for (size_t i = 0; i < N; ++i) {
-        usleep(1000);
+        usleep(1000 * 1000);
         braft::Configuration new_conf;
         new_conf.add_peer("127.0.0.1:" + std::to_string(9500 + i));
         st = braft::cli::change_peers("test", conf, new_conf, braft::cli::CliOptions());
         ASSERT_TRUE(st.ok()) << st;
     }
+    usleep(1000 * 1000);
     st = braft::cli::change_peers("test", conf, conf, braft::cli::CliOptions());
     ASSERT_TRUE(st.ok()) << st;
     for (size_t i = 0; i < N; ++i) {
@@ -188,7 +189,7 @@ TEST_F(CliTest, change_peer) {
         LOG(WARNING) << "change " << conf << " to " << new_conf;
         st = braft::cli::change_peers("test", conf, new_conf, braft::cli::CliOptions());
         ASSERT_TRUE(st.ok()) << st;
-        usleep(10 * 1000);
+        usleep(1000 * 1000);
         LOG(WARNING) << "change " << new_conf << " to " << conf;
         st = braft::cli::change_peers("test", new_conf, conf, braft::cli::CliOptions());
         ASSERT_TRUE(st.ok()) << st << " i=" << i;

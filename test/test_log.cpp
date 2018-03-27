@@ -811,6 +811,19 @@ TEST_F(LogStorageTest, large_entry) {
     entry = storage->get_entry(1);
     ASSERT_EQ(data, entry->data.to_string());
     entry->Release();
+
+    ASSERT_EQ(1, storage->_first_log_index); 
+    ASSERT_EQ(1, storage->_last_log_index);
+    ASSERT_EQ(0, storage->_segments.size());
+    scoped_refptr<braft::Segment> segment = storage->open_segment(); 
+    ASSERT_EQ(1, storage->_segments.size());
+
+    braft::SegmentLogStorage* storage2 = new braft::SegmentLogStorage("./data");
+    braft::ConfigurationManager* configuration_manager2 = new braft::ConfigurationManager;
+    ASSERT_EQ(0, storage2->init(configuration_manager2));
+    ASSERT_EQ(1, storage2->_first_log_index); 
+    ASSERT_EQ(1, storage2->_last_log_index);
+    ASSERT_EQ(1, storage2->_segments.size());
 }
 
 TEST_F(LogStorageTest, reboot_with_checksum_type_changed) {
