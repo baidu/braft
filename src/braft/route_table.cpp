@@ -70,6 +70,14 @@ public:
         return 0;
     }
 
+    int remove_group(const GroupId& group) {
+        const size_t nremoved = _map.Modify(delete_group, group);
+        if (nremoved == 0) {
+            return -1;
+        }
+        return 0;
+    }
+
 private:
 friend struct DefaultSingletonTraits<RouteTable>;
     RouteTable() {
@@ -106,6 +114,14 @@ friend struct DefaultSingletonTraits<RouteTable>;
         }
         gc->leader = leader_id;
         return 1;
+    }
+
+    static size_t delete_group(GroupMap& m, const GroupId& group) {
+        GroupConf* gc = m.seek(group);
+        if (gc != NULL) {
+            return (size_t)m.erase(group);;
+        }
+        return 0;
     }
 
     static size_t init(GroupMap& m) {
@@ -198,6 +214,11 @@ butil::Status refresh_leader(const GroupId& group, int timeout_ms) {
 int select_leader(const GroupId& group, PeerId* leader) {
     RouteTable* const rtb = RouteTable::GetInstance();
     return rtb->select_leader(group, leader);
+}
+
+int remove_group(const GroupId& group) {
+    RouteTable* const rtb = RouteTable::GetInstance();
+    return rtb->remove_group(group);
 }
 
 }  // namespace rtb
