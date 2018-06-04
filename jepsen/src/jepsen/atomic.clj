@@ -85,7 +85,7 @@
         (c/on node
             (c/su
                 (c/cd atomic-path
-                    (c/exec "./atomic_test "
+                    (c/exec "./atomic_test"
                           :-conf peers
                           :-atomic_op "get"
                           :-atomic_id id))))
@@ -102,7 +102,7 @@
         (c/on node
             (c/su
                 (c/cd atomic-path
-                    (c/exec "./atomic_test "
+                    (c/exec "./atomic_test"
                             :-conf peers
                             :-atomic_op "set"
                             :-atomic_val value
@@ -120,7 +120,7 @@
         (c/on node
             (c/su
                 (c/cd atomic-path
-                    (c/exec "./atomic_test "
+                    (c/exec "./atomic_test"
                             :-conf peers
                             :-atomic_op "cas"
                             :-atomic_val value1
