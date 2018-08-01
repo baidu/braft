@@ -13,7 +13,8 @@
             [jepsen.generator :as gen]
             [jepsen.nemesis   :as nemesis]
             [jepsen.store     :as store]
-            [jepsen.report    :as report]))
+            [jepsen.report    :as report]
+            [jepsen.core :as jepsen]))
 
 ;(deftest partition-test
 ;  (let [test (run!
@@ -50,7 +51,7 @@
 (defn run-set-test!
   "Runs a test around set creation and dumps some results to the report/ dir"
   [t]
-  (let [test (run! t)]
+  (let [test (jepsen/run! t)]
     (is (:valid? (:results test)))
     (report/linearizability (:linear (:results test)))))
 
