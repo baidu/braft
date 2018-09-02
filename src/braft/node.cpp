@@ -1156,12 +1156,12 @@ void NodeImpl::handle_vote_timeout() {
         butil::Status status;
         status.set_error(ERAFTTIMEDOUT, "Fail to get quorum vote-granted");
         step_down(_current_term, false, status);
-	pre_vote(&lck);
+        pre_vote(&lck);
     } else {
         // retry vote
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
                      << " term " << _current_term << " retry elect";
-	elect_self(&lck);
+        elect_self(&lck);
     }
 }
 
