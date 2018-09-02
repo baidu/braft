@@ -27,13 +27,13 @@
 (def timeout-msg-pattern
   (re-pattern "'.*' atomic_cas timedout, id: '.*' old: '.*' new: '.*'"))
 
-(defn start!
-  "start atomic_server."
+(defn boot!
+  "boot atomic_server."
   [node]
-  (info node "start atomic_server")
+  (info node "boot atomic_server")
   (c/cd atomic-path
-      (c/exec :sh "jepsen_control.sh" "start")
-      (c/exec :sleep 5)))
+        (c/exec :sh "jepsen_control.sh" "boot")
+        (c/exec :sleep 5)))
 
 (defn stop!
   "stop atomic_server."
@@ -73,7 +73,7 @@
     (reify db/DB
         (setup! [_ test node]
             (doto node
-                (start!)))
+                (boot!)))
         (teardown! [_ test node]
             (doto node
                 (stop!)))))
