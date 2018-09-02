@@ -1161,7 +1161,7 @@ void NodeImpl::handle_vote_timeout() {
         // retry vote
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
                      << " term " << _current_term << " retry elect";
-	elect_self(&lck);
+        elect_self(&lck);
     }
 }
 
