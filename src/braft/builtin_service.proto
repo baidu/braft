@@ -1,3 +1,4 @@
+syntax="proto2";
 package braft;
 option cc_generic_services = true;
 
