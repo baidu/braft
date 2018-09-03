@@ -1186,6 +1186,58 @@ TEST_F(NodeTest, PreVote) {
     ASSERT_EQ(saved_term, leader->_impl->_current_term);
 }
 
+TEST_F(NodeTest, Vote_timedout) {
+    google::SetCommandLineOption("raft_step_down_when_vote_timedout", "true");
+    std::vector<braft::PeerId> peers;
+    for (int i = 0; i < 2; i++) {
+        braft::PeerId peer;
+        peer.addr.ip = butil::my_ip();
+        peer.addr.port = 5006 + i;
+        peer.idx = 0;
+
+        peers.push_back(peer);
+    }
+
+    // start cluster
+    Cluster cluster("unittest", peers, 500);
+    for (size_t i = 0; i < peers.size(); i++) {
+        ASSERT_EQ(0, cluster.start(peers[i].addr, false, 1));
+    }
+
+    // elect leader
+    cluster.wait_leader();
+    braft::Node* leader = cluster.leader();
+    ASSERT_TRUE(leader != NULL);
+    LOG(WARNING) << "leader is " << leader->node_id();
+
+    usleep(1000 * 1000);
+    std::vector<braft::Node*> nodes;
+    cluster.followers(&nodes);
+    ASSERT_FALSE(nodes.empty());
+    // stop follower, only one node left 
+    const butil::EndPoint follower_addr = nodes[0]->_impl->_server_id.addr;
+    cluster.stop(follower_addr);
+    
+    // wait old leader to step down 
+    usleep(2000 * 1000);
+    // trigger old leader to vote, expecting fail when vote timedout
+    std::unique_lock<raft_mutex_t> lck(leader->_impl->_mutex);
+    leader->_impl->elect_self(&lck);
+    lck.unlock();
+    usleep(3000 * 1000);
+   
+    // start the stopped follower
+    LOG(WARNING) << "restart follower";
+    cluster.start(follower_addr);
+    usleep(2000 * 1000);
+
+    ASSERT_TRUE(cluster.ensure_same(5));
+    LOG(WARNING) << "cluster stop";
+    cluster.stop_all();
+
+    google::SetCommandLineOption("raft_step_down_when_vote_timedout", "false");
+}
+
 TEST_F(NodeTest, SetPeer1) {
     // bootstrap from null
     Cluster cluster("unittest", std::vector<braft::PeerId>());

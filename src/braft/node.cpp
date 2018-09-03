@@ -40,6 +40,10 @@ DEFINE_int32(raft_max_election_delay_ms, 1000,
                      "Max election delay time allowed by user");
 BRPC_VALIDATE_GFLAG(raft_max_election_delay_ms, brpc::PositiveInteger);
 
+DEFINE_bool(raft_step_down_when_vote_timedout, false, 
+            "candidate steps down when reaching timeout");
+BRPC_VALIDATE_GFLAG(raft_step_down_when_vote_timedout, brpc::PassValidate);
+
 #ifndef UNIT_TEST
 static bvar::Adder<int64_t> g_num_nodes("raft_node_count");
 #else
@@ -681,7 +685,7 @@ void NodeImpl::check_dead_nodes(const Configuration& conf, int64_t now_ms) {
     }
     LOG(WARNING) << "node " << node_id()
                  << " term " << _current_term
-                 << " steps down  when alive nodes don't satisfy quorum"
+                 << " steps down when alive nodes don't satisfy quorum"
                     " dead_nodes: " << dead_nodes
                  << " conf: " << conf;
     butil::Status status;
@@ -1140,10 +1144,23 @@ void NodeImpl::handle_vote_timeout() {
     std::unique_lock<raft_mutex_t> lck(_mutex);
 
     // check state
-    if (_state == STATE_CANDIDATE) {
+    if (_state != STATE_CANDIDATE) {
+    	return;
+    }
+    if (FLAGS_raft_step_down_when_vote_timedout) {
+        // step down to follower
+        LOG(WARNING) << "node " << node_id()
+                     << " term " << _current_term
+                     << " steps down when reaching vote timeout:"
+                        " fail to get quorum vote-granted";
+        butil::Status status;
+        status.set_error(ERAFTTIMEDOUT, "Fail to get quorum vote-granted");
+        step_down(_current_term, false, status);
+        pre_vote(&lck);
+    } else {
         // retry vote
-        BRAFT_VLOG << "node " << _group_id << ":" << _server_id
-            << " term " << _current_term << " retry elect";
+        LOG(WARNING) << "node " << _group_id << ":" << _server_id
+                     << " term " << _current_term << " retry elect";
         elect_self(&lck);
     }
 }
@@ -1203,7 +1220,8 @@ struct OnRequestVoteRPCDone : public google::protobuf::Closure {
         do {
             if (cntl.ErrorCode() != 0) {
                 LOG(WARNING) << "node " << node->node_id()
-                    << " RequestVote to " << peer << " error: " << cntl.ErrorText();
+                             << " received RequestVoteResponse from " << peer 
+			     << " error: " << cntl.ErrorText();
                 break;
             }
             node->handle_request_vote_response(peer, term, response);
