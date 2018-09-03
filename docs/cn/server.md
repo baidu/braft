@@ -41,7 +41,7 @@ class YourStateMachineImple : public braft::StateMachine {
 protected:
     // on_apply是*必须*实现的
     // on_apply会在一条或者多条日志被多数节点持久化之后调用， 通知用户将这些日志所表示的操作应用到业务状态机中.
-    // 通过iter, 可以从遍历所有为处理但是已经提交的日志， 如果你的状态机支持批量更新，可以一次性获取多
+    // 通过iter, 可以从遍历所有未处理但是已经提交的日志， 如果你的状态机支持批量更新，可以一次性获取多
     // 条日志提高状态机的吞吐.
     // 
     void on_apply(braft::Iterator& iter) {
