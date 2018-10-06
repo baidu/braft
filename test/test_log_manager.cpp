@@ -457,6 +457,9 @@ TEST_F(LogManagerTest, pipelined_append) {
     sc2.join();
     ASSERT_TRUE(sc2.status().ok()) << sc2.status();
 
+    // Wait set_disk_id to be called
+    usleep(100 * 1000l);
+
     // Wrong applied id doesn't change _logs_in_memory
     lm->set_applied_id(braft::LogId(N * 2, 1));
     ASSERT_EQ(N * 2, lm->_logs_in_memory.size());

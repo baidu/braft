@@ -155,7 +155,8 @@ public:
     void handle_append_entries_request(brpc::Controller* cntl,
                                       const AppendEntriesRequest* request,
                                       AppendEntriesResponse* response,
-                                      google::protobuf::Closure* done);
+                                      google::protobuf::Closure* done,
+                                      bool from_append_entries_cache = false);
 
     // handle received InstallSnapshot
     void handle_install_snapshot_request(brpc::Controller* controller,
@@ -266,6 +267,17 @@ friend class butil::RefCountedThreadSafe<NodeImpl>;
     void apply(LogEntryAndClosure tasks[], size_t size);
     void check_dead_nodes(const Configuration& conf, int64_t now_ms);
 
+    bool handle_out_of_order_append_entries(brpc::Controller* cntl,
+                                            const AppendEntriesRequest* request,
+                                            AppendEntriesResponse* response,
+                                            google::protobuf::Closure* done,
+                                            int64_t local_last_index);
+    void check_append_entries_cache(int64_t local_last_index);
+    void clear_append_entries_cache();
+    static void* handle_append_entries_from_cache(void* arg);
+    static void on_append_entries_cache_timedout(void* arg);
+    static void* handle_append_entries_cache_timedout(void* arg);
+
 private:
 
     class ConfigurationCtx {
@@ -308,6 +320,49 @@ private:
         int64_t expected_term;
     };
 
+    struct AppendEntriesRpc : public butil::LinkNode<AppendEntriesRpc> {
+        brpc::Controller* cntl;
+        const AppendEntriesRequest* request;
+        AppendEntriesResponse* response;
+        google::protobuf::Closure* done;
+        int64_t receive_time_ms;
+    };
+
+    struct HandleAppendEntriesFromCacheArg {
+        NodeImpl* node;
+        butil::LinkedList<AppendEntriesRpc> rpcs;
+    };
+
+    // A simple cache to temporaryly store out-of-order AppendEntries requests.
+    class AppendEntriesCache {
+    public:
+        AppendEntriesCache(NodeImpl* node, int64_t version)
+            : _node(node), _timer(bthread_timer_t())
+            , _cache_version(0), _timer_version(0) {}
+
+        int64_t first_index() const;
+        int64_t cache_version() const;
+        bool empty() const;
+        bool store(AppendEntriesRpc* rpc);
+        void process_runable_rpcs(int64_t local_last_index);
+        void clear();
+        void do_handle_append_entries_cache_timedout(
+                int64_t timer_version, int64_t timer_start_ms);
+
+    private:
+        void ack_fail(AppendEntriesRpc* rpc);
+        void start_to_handle(HandleAppendEntriesFromCacheArg* arg);
+        bool start_timer();
+        void stop_timer();
+
+        NodeImpl* _node;
+        butil::LinkedList<AppendEntriesRpc> _rpc_queue;
+        std::map<int64_t, AppendEntriesRpc*> _rpc_map;
+        bthread_timer_t _timer;
+        int64_t _cache_version;
+        int64_t _timer_version;
+    };
+
     State _state;
     int64_t _current_term;
     int64_t _last_leader_timestamp;
@@ -342,6 +397,8 @@ private:
     ReplicatorId _waking_candidate;
     bthread::ExecutionQueueId<LogEntryAndClosure> _apply_queue_id;
     bthread::ExecutionQueue<LogEntryAndClosure>::scoped_ptr_t _apply_queue;
+    AppendEntriesCache* _append_entries_cache;
+    int64_t _append_entries_cache_version;
 };
 
 }

@@ -22,6 +22,9 @@
 
 namespace braft {
 extern bvar::Adder<int64_t> g_num_nodes;
+DECLARE_int32(raft_max_parallel_append_entries_rpc_num);
+DECLARE_bool(raft_enable_append_entries_cache);
+DECLARE_int32(raft_max_append_entries_cache_size);
 }
 using braft::raft_mutex_t;
 
@@ -379,6 +382,11 @@ CHECK:
                 butil::IOBuf& first_data = first->logs[j];
                 butil::IOBuf& fsm_data = fsm->logs[j];
                 if (first_data.to_string() != fsm_data.to_string()) {
+                    LOG(INFO) << "log data of index=" << j << " not match, "
+                              << " addr: " << first->address << " vs "
+                              << fsm->address << ", data "
+                              << first_data.to_string() << " vs " 
+                              << fsm_data.to_string();
                     fsm->unlock();
                     goto WAIT;
                 }
@@ -445,11 +453,24 @@ private:
     raft_mutex_t _mutex;
 };
 
-class NodeTest : public testing::Test {
+class NodeTest : public testing::TestWithParam<const char*> {
 protected:
     void SetUp() {
         g_dont_print_apply_log = false;
-        //logging::FLAGS_verbose = 90;
+        logging::FLAGS_v = 90;
+        google::SetCommandLineOption("crash_on_fatal_log", "true");
+        if (GetParam() == std::string("NoReplication")) {
+            braft::FLAGS_raft_max_parallel_append_entries_rpc_num = 1;
+            braft::FLAGS_raft_enable_append_entries_cache = false;
+        } else if (GetParam() == std::string("NoCache")) {
+            braft::FLAGS_raft_max_parallel_append_entries_rpc_num = 32;
+            braft::FLAGS_raft_enable_append_entries_cache = false;
+        } else if (GetParam() == std::string("HasCache")) {
+            braft::FLAGS_raft_max_parallel_append_entries_rpc_num = 32;
+            braft::FLAGS_raft_enable_append_entries_cache = true;
+            braft::FLAGS_raft_max_append_entries_cache_size = 8;
+        }
+        LOG(NOTICE) << "Start unitests: " << GetParam();
         ::system("rm -rf data");
         ASSERT_EQ(0, braft::g_num_nodes.get_value());
     }
@@ -463,7 +484,7 @@ protected:
     }
 };
 
-TEST_F(NodeTest, InitShutdown) {
+TEST_P(NodeTest, InitShutdown) {
     brpc::Server server;
     int ret = braft::add_service(&server, "0.0.0.0:5006");
     ASSERT_EQ(0, ret);
@@ -492,7 +513,7 @@ TEST_F(NodeTest, InitShutdown) {
     cond.wait();
 }
 
-TEST_F(NodeTest, Server) {
+TEST_P(NodeTest, Server) {
     brpc::Server server1;
     brpc::Server server2;
     ASSERT_EQ(0, braft::add_service(&server1, "0.0.0.0:5006"));
@@ -502,7 +523,7 @@ TEST_F(NodeTest, Server) {
     server2.Start("0.0.0.0:5007", NULL);
 }
 
-TEST_F(NodeTest, SingleNode) {
+TEST_P(NodeTest, SingleNode) {
     brpc::Server server;
     int ret = braft::add_service(&server, 5006);
     server.Start(5006, NULL);
@@ -547,7 +568,7 @@ TEST_F(NodeTest, SingleNode) {
     server.Join();
 }
 
-TEST_F(NodeTest, NoLeader) {
+TEST_P(NodeTest, NoLeader) {
     std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
         braft::PeerId peer;
@@ -560,7 +581,7 @@ TEST_F(NodeTest, NoLeader) {
 
     // start cluster
     Cluster cluster("unittest", peers);
-    cluster.start(peers[0].addr);
+    cluster.start(peers[1].addr);
 
     std::vector<braft::Node*> nodes;
     cluster.followers(&nodes);
@@ -605,7 +626,7 @@ TEST_F(NodeTest, NoLeader) {
     LOG(NOTICE) << "remove peer " << peer0;
 }
 
-TEST_F(NodeTest, TripleNode) {
+TEST_P(NodeTest, TripleNode) {
     std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
         braft::PeerId peer;
@@ -694,7 +715,7 @@ TEST_F(NodeTest, TripleNode) {
     cluster.stop_all();
 }
 
-TEST_F(NodeTest, LeaderFail) {
+TEST_P(NodeTest, LeaderFail) {
     std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
         braft::PeerId peer;
@@ -807,7 +828,7 @@ TEST_F(NodeTest, LeaderFail) {
     cluster.stop_all();
 }
 
-TEST_F(NodeTest, JoinNode) {
+TEST_P(NodeTest, JoinNode) {
     std::vector<braft::PeerId> peers;
     braft::PeerId peer0;
     peer0.addr.ip = butil::my_ip();
@@ -898,7 +919,7 @@ TEST_F(NodeTest, JoinNode) {
     cluster.stop_all();
 }
 
-TEST_F(NodeTest, RemoveFollower) {
+TEST_P(NodeTest, RemoveFollower) {
     std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
         braft::PeerId peer;
@@ -1000,7 +1021,7 @@ TEST_F(NodeTest, RemoveFollower) {
     cluster.ensure_same();
 }
 
-TEST_F(NodeTest, RemoveLeader) {
+TEST_P(NodeTest, RemoveLeader) {
     std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
         braft::PeerId peer;
@@ -1094,7 +1115,7 @@ TEST_F(NodeTest, RemoveLeader) {
     cluster.ensure_same();
 }
 
-TEST_F(NodeTest, PreVote) {
+TEST_P(NodeTest, PreVote) {
     std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
         braft::PeerId peer;
@@ -1186,7 +1207,7 @@ TEST_F(NodeTest, PreVote) {
     ASSERT_EQ(saved_term, leader->_impl->_current_term);
 }
 
-TEST_F(NodeTest, Vote_timedout) {
+TEST_P(NodeTest, Vote_timedout) {
     google::SetCommandLineOption("raft_step_down_when_vote_timedout", "true");
     std::vector<braft::PeerId> peers;
     for (int i = 0; i < 2; i++) {
@@ -1238,7 +1259,7 @@ TEST_F(NodeTest, Vote_timedout) {
     google::SetCommandLineOption("raft_step_down_when_vote_timedout", "false");
 }
 
-TEST_F(NodeTest, SetPeer1) {
+TEST_P(NodeTest, SetPeer1) {
     // bootstrap from null
     Cluster cluster("unittest", std::vector<braft::PeerId>());
     braft::PeerId boot_peer;
@@ -1258,7 +1279,7 @@ TEST_F(NodeTest, SetPeer1) {
     cluster.wait_leader();
 }
 
-TEST_F(NodeTest, SetPeer2) {
+TEST_P(NodeTest, SetPeer2) {
     std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
         braft::PeerId peer;
@@ -1385,7 +1406,7 @@ TEST_F(NodeTest, SetPeer2) {
     cluster.ensure_same();
 }
 
-TEST_F(NodeTest, RestoreSnapshot) {
+TEST_P(NodeTest, RestoreSnapshot) {
     std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
         braft::PeerId peer;
@@ -1447,7 +1468,7 @@ TEST_F(NodeTest, RestoreSnapshot) {
     cluster.stop_all();
 }
 
-TEST_F(NodeTest, InstallSnapshot) {
+TEST_P(NodeTest, InstallSnapshot) {
     std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
         braft::PeerId peer;
@@ -1546,7 +1567,7 @@ TEST_F(NodeTest, InstallSnapshot) {
     cluster.stop_all();
 }
 
-TEST_F(NodeTest, NoSnapshot) {
+TEST_P(NodeTest, NoSnapshot) {
     brpc::Server server;
     brpc::ServerOptions server_options;
     int ret = braft::add_service(&server, "0.0.0.0:5006");
@@ -1603,7 +1624,7 @@ TEST_F(NodeTest, NoSnapshot) {
     server.Join();
 }
 
-TEST_F(NodeTest, AutoSnapshot) {
+TEST_P(NodeTest, AutoSnapshot) {
     brpc::Server server;
     brpc::ServerOptions server_options;
     int ret = braft::add_service(&server, "0.0.0.0:5006");
@@ -1660,7 +1681,7 @@ TEST_F(NodeTest, AutoSnapshot) {
     server.Join();
 }
 
-TEST_F(NodeTest, LeaderShouldNotChange) {
+TEST_P(NodeTest, LeaderShouldNotChange) {
     std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
         braft::PeerId peer;
@@ -1692,7 +1713,7 @@ TEST_F(NodeTest, LeaderShouldNotChange) {
     cluster.stop_all();
 }
 
-TEST_F(NodeTest, RecoverFollower) {
+TEST_P(NodeTest, RecoverFollower) {
     std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
         braft::PeerId peer;
@@ -1758,7 +1779,7 @@ TEST_F(NodeTest, RecoverFollower) {
     cluster.stop_all();
 }
 
-TEST_F(NodeTest, leader_transfer) {
+TEST_P(NodeTest, leader_transfer) {
     std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
         braft::PeerId peer;
@@ -1791,7 +1812,7 @@ TEST_F(NodeTest, leader_transfer) {
     cluster.stop_all();
 }
 
-TEST_F(NodeTest, leader_transfer_before_log_is_compleleted) {
+TEST_P(NodeTest, leader_transfer_before_log_is_compleleted) {
     std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
         braft::PeerId peer;
@@ -1848,7 +1869,7 @@ TEST_F(NodeTest, leader_transfer_before_log_is_compleleted) {
     cluster.stop_all();
 }
 
-TEST_F(NodeTest, leader_transfer_resume_on_failure) {
+TEST_P(NodeTest, leader_transfer_resume_on_failure) {
     std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
         braft::PeerId peer;
@@ -1924,7 +1945,7 @@ protected:
     }
 };
 
-TEST_F(NodeTest, shutdown_and_join_work_after_init_fails) {
+TEST_P(NodeTest, shutdown_and_join_work_after_init_fails) {
     brpc::Server server;
     int ret = braft::add_service(&server, 5006);
     server.Start(5006, NULL);
@@ -1986,7 +2007,7 @@ TEST_F(NodeTest, shutdown_and_join_work_after_init_fails) {
     server.Join();
 }
 
-TEST_F(NodeTest, shutting_leader_triggers_timeout_now) {
+TEST_P(NodeTest, shutting_leader_triggers_timeout_now) {
     GFLAGS_NS::SetCommandLineOption("raft_sync", "false");
     std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
@@ -2014,7 +2035,7 @@ TEST_F(NodeTest, shutting_leader_triggers_timeout_now) {
     GFLAGS_NS::SetCommandLineOption("raft_sync", "true");
 }
 
-TEST_F(NodeTest, removing_leader_triggers_timeout_now) {
+TEST_P(NodeTest, removing_leader_triggers_timeout_now) {
     GFLAGS_NS::SetCommandLineOption("raft_sync", "false");
     std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
@@ -2044,7 +2065,7 @@ TEST_F(NodeTest, removing_leader_triggers_timeout_now) {
     GFLAGS_NS::SetCommandLineOption("raft_sync", "true");
 }
 
-TEST_F(NodeTest, transfer_should_work_after_install_snapshot) {
+TEST_P(NodeTest, transfer_should_work_after_install_snapshot) {
     std::vector<braft::PeerId> peers;
     for (size_t i = 0; i < 3; ++i) {
         braft::PeerId peer;
@@ -2100,7 +2121,7 @@ TEST_F(NodeTest, transfer_should_work_after_install_snapshot) {
     ASSERT_EQ(last_peer, leader->node_id().peer_id);
 }
 
-TEST_F(NodeTest, append_entries_when_follower_is_in_error_state) {
+TEST_P(NodeTest, append_entries_when_follower_is_in_error_state) {
     std::vector<braft::PeerId> peers;
     // five nodes
     for (int i = 0; i < 5; i++) {
@@ -2195,7 +2216,7 @@ TEST_F(NodeTest, append_entries_when_follower_is_in_error_state) {
     cluster.stop_all();
 }
 
-TEST_F(NodeTest, on_start_following_and_on_stop_following) {
+TEST_P(NodeTest, on_start_following_and_on_stop_following) {
     std::vector<braft::PeerId> peers;
     // five nodes
     for (int i = 0; i < 5; i++) {
@@ -2337,7 +2358,7 @@ TEST_F(NodeTest, on_start_following_and_on_stop_following) {
     cluster.stop_all();
 }
 
-TEST_F(NodeTest, read_committed_user_log) {
+TEST_P(NodeTest, read_committed_user_log) {
     std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
         braft::PeerId peer;
@@ -2495,7 +2516,7 @@ TEST_F(NodeTest, read_committed_user_log) {
     cluster.stop_all();
 }
 
-TEST_F(NodeTest, boostrap_with_snapshot) {
+TEST_P(NodeTest, boostrap_with_snapshot) {
     butil::EndPoint addr;
     ASSERT_EQ(0, butil::str2endpoint("127.0.0.1:5006", &addr));
     MockFSM fsm(addr);
@@ -2537,7 +2558,7 @@ TEST_F(NodeTest, boostrap_with_snapshot) {
     node.join();
 }
 
-TEST_F(NodeTest, boostrap_without_snapshot) {
+TEST_P(NodeTest, boostrap_without_snapshot) {
     butil::EndPoint addr;
     ASSERT_EQ(0, butil::str2endpoint("127.0.0.1:5006", &addr));
     braft::BootstrapOptions boptions;
@@ -2566,7 +2587,7 @@ TEST_F(NodeTest, boostrap_without_snapshot) {
     node.join();
 }
 
-TEST_F(NodeTest, change_peers) {
+TEST_P(NodeTest, change_peers) {
     std::vector<braft::PeerId> peers;
     braft::PeerId peer0;
     peer0.addr.ip = butil::my_ip();
@@ -2615,7 +2636,7 @@ TEST_F(NodeTest, change_peers) {
     ASSERT_TRUE(cluster.ensure_same());
 }
 
-TEST_F(NodeTest, change_peers_add_multiple_node) {
+TEST_P(NodeTest, change_peers_add_multiple_node) {
     std::vector<braft::PeerId> peers;
     braft::PeerId peer0;
     peer0.addr.ip = butil::my_ip();
@@ -2668,7 +2689,7 @@ TEST_F(NodeTest, change_peers_add_multiple_node) {
     ASSERT_TRUE(cluster.ensure_same());
 }
 
-TEST_F(NodeTest, change_peers_steps_down_in_joint_consensus) {
+TEST_P(NodeTest, change_peers_steps_down_in_joint_consensus) {
     std::vector<braft::PeerId> peers;
     braft::PeerId peer0("127.0.0.1:5006");
     braft::PeerId peer1("127.0.0.1:5007");
@@ -2725,7 +2746,14 @@ TEST_F(NodeTest, change_peers_steps_down_in_joint_consensus) {
     leader = cluster.leader();
     ASSERT_TRUE(leader->list_peers(&peers).ok());
     ASSERT_TRUE(conf.equals(peers));
-    ASSERT_FALSE(leader->_impl->_conf_ctx.is_busy());
+    ASSERT_TRUE(leader->_impl->_conf.stable() || !leader->_impl->_conf_ctx.is_busy());
+    int wait_count = 1000;
+    while (leader->_impl->_conf_ctx.is_busy() && wait_count > 0) {
+        LOG(WARNING) << "wait util stable stage finish";
+        usleep(5 * 1000);
+        --wait_count;
+    }
+    ASSERT_TRUE(!leader->_impl->_conf_ctx.is_busy());
 }
 
 struct ChangeArg {
@@ -2767,7 +2795,7 @@ static void* change_routine(void* arg) {
     return NULL;
 }
 
-TEST_F(NodeTest, change_peers_chaos_with_snapshot) {
+TEST_P(NodeTest, change_peers_chaos_with_snapshot) {
     g_dont_print_apply_log = true;
     GFLAGS_NS::SetCommandLineOption("raft_sync", "false");
     ASSERT_FALSE(GFLAGS_NS::SetCommandLineOption("crash_on_fatal_log", "true").empty());
@@ -2775,7 +2803,7 @@ TEST_F(NodeTest, change_peers_chaos_with_snapshot) {
     std::vector<braft::PeerId> peers;
     // start cluster
     peers.push_back(braft::PeerId("127.0.0.1:5006"));
-    Cluster cluster("unittest", peers, 1000);
+    Cluster cluster("unittest", peers, 2000);
     cluster.start(peers.front().addr, false, 1);
     for (int i = 1; i < 10; ++i) {
         peers.push_back("127.0.0.1:" + std::to_string(5006 + i));
@@ -2816,7 +2844,7 @@ TEST_F(NodeTest, change_peers_chaos_with_snapshot) {
     GFLAGS_NS::SetCommandLineOption("minloglevel", "3");
 }
 
-TEST_F(NodeTest, change_peers_chaos_without_snapshot) {
+TEST_P(NodeTest, change_peers_chaos_without_snapshot) {
     g_dont_print_apply_log = true;
     GFLAGS_NS::SetCommandLineOption("minloglevel", "3");
     GFLAGS_NS::SetCommandLineOption("raft_sync", "false");
@@ -2824,7 +2852,7 @@ TEST_F(NodeTest, change_peers_chaos_without_snapshot) {
     std::vector<braft::PeerId> peers;
     // start cluster
     peers.push_back(braft::PeerId("127.0.0.1:5006"));
-    Cluster cluster("unittest", peers, 1000);
+    Cluster cluster("unittest", peers, 2000);
     cluster.start(peers.front().addr, false, 100000);
     for (int i = 1; i < 10; ++i) {
         peers.push_back("127.0.0.1:" + std::to_string(5006 + i));
@@ -2873,3 +2901,288 @@ TEST_F(NodeTest, change_peers_chaos_without_snapshot) {
     GFLAGS_NS::SetCommandLineOption("raft_sync", "true");
     GFLAGS_NS::SetCommandLineOption("minloglevel", "0");
 }
+
+class AppendEntriesSyncClosure : public google::protobuf::Closure {
+public:
+    AppendEntriesSyncClosure() {
+        _cntl = new brpc::Controller;
+    }
+    ~AppendEntriesSyncClosure() {
+        if (_cntl) {
+            delete _cntl;
+        }
+    }
+    void Run() {
+        _event.signal();
+    }
+    void wait() {
+        _event.wait();
+    }
+    braft::AppendEntriesRequest& request() { return _request; }
+    braft::AppendEntriesResponse& response() { return _response; }
+    brpc::Controller& cntl() {
+        return *_cntl;
+    }
+
+private:
+    bthread::CountdownEvent _event;
+    braft::AppendEntriesRequest _request;
+    braft::AppendEntriesResponse _response;
+    brpc::Controller* _cntl;
+};
+
+void follower_append_entries(
+        const braft::AppendEntriesRequest& request_template, int entry_size,
+        int64_t prev_log_index, AppendEntriesSyncClosure& closure, braft::Node* node) {
+    braft::AppendEntriesRequest& request = closure.request();
+    request.CopyFrom(request_template);
+    request.set_prev_log_index(prev_log_index);
+    for (int i = 0; i < entry_size; ++i) {
+        braft::EntryMeta em;
+        butil::IOBuf data;
+        data.append("hello");
+        em.set_data_len(data.size());
+        em.set_type(braft::ENTRY_TYPE_DATA);
+        em.set_term(request_template.term());
+        request.add_entries()->Swap(&em);
+        closure.cntl().request_attachment().append(data);
+    }
+    node->_impl->handle_append_entries_request(
+            &closure.cntl(), &closure.request(), &closure.response(), &closure);
+}
+
+TEST_P(NodeTest, follower_handle_out_of_order_append_entries) {
+    std::vector<braft::PeerId> peers;
+    for (int i = 0; i < 3; i++) {
+        braft::PeerId peer;
+        peer.addr.ip = butil::my_ip();
+        peer.addr.port = 5006 + i;
+        peer.idx = 0;
+
+        peers.push_back(peer);
+    }
+
+    // start cluster
+    Cluster cluster("unittest", peers, 3000);
+    for (size_t i = 0; i < peers.size(); i++) {
+        ASSERT_EQ(0, cluster.start(peers[i].addr));
+    }
+
+    // elect leader
+    cluster.wait_leader();
+    braft::Node* leader = cluster.leader();
+    ASSERT_TRUE(leader != NULL);
+    LOG(WARNING) << "leader is " << leader->node_id();
+
+    cluster.ensure_same();
+
+    std::vector<braft::Node*> followers;
+    cluster.followers(&followers);
+    
+    while (true) {
+        followers[0]->_impl->_mutex.lock();
+        int64_t local_index = followers[0]->_impl->_log_manager->last_log_index();
+        followers[0]->_impl->_mutex.unlock();
+        if (local_index == 0) {
+            bthread_usleep(1000);
+            continue;
+        } else {
+            break;
+        }
+    }
+
+    followers[0]->_impl->_mutex.lock();
+    int64_t local_index = followers[0]->_impl->_log_manager->last_log_index();
+    int64_t term = followers[0]->_impl->_current_term;
+    std::string group_id = followers[0]->_impl->_group_id;
+    std::string server_id = followers[0]->_impl->_leader_id.to_string();
+    std::string peer_id = "";
+    int64_t committed_index = followers[0]->_impl->_ballot_box->last_committed_index();
+    followers[0]->_impl->_mutex.unlock();
+    int32_t max_append_entries_cache_size = braft::FLAGS_raft_max_append_entries_cache_size;
+    if (!braft::FLAGS_raft_enable_append_entries_cache) {
+        max_append_entries_cache_size = 0;
+    }
+
+    // Create a template
+    braft::AppendEntriesRequest request_template;
+    request_template.set_term(term);
+    request_template.set_group_id(group_id);
+    request_template.set_server_id(server_id);
+    request_template.set_peer_id(peer_id);
+    // request_template.set_prev_log_index(local_index);
+    request_template.set_prev_log_term(term);
+    request_template.set_committed_index(committed_index);
+
+    // Fill the entire cache
+    std::deque<AppendEntriesSyncClosure*> out_of_order_closures;
+    for (int32_t i = 0; i < max_append_entries_cache_size / 2; ++i) {
+        out_of_order_closures.push_back(new AppendEntriesSyncClosure());
+        AppendEntriesSyncClosure& closure = *out_of_order_closures.back();
+        follower_append_entries(
+                request_template, 1, local_index + 1 + i,
+                closure, followers[0]);
+    }
+    for (int32_t i = max_append_entries_cache_size - 1; i >= max_append_entries_cache_size / 2; --i) {
+        out_of_order_closures.push_back(new AppendEntriesSyncClosure());
+        AppendEntriesSyncClosure& closure = *out_of_order_closures.back();
+        follower_append_entries(
+                request_template, 1, local_index + 1 + i,
+                closure, followers[0]);
+    }
+    followers[0]->_impl->_mutex.lock();
+    ASSERT_EQ(followers[0]->_impl->_log_manager->last_log_index(), local_index);
+    ASSERT_TRUE(followers[0]->_impl->_append_entries_cache == NULL ||
+                followers[0]->_impl->_append_entries_cache->_rpc_map.size() ==
+                size_t(max_append_entries_cache_size));
+    followers[0]->_impl->_mutex.unlock();
+
+    // Fill another out-of-order request, be rejected
+    AppendEntriesSyncClosure closure1;
+    follower_append_entries(
+            request_template, 1, local_index + 1 + max_append_entries_cache_size,
+            closure1, followers[0]);
+    closure1.wait();
+    ASSERT_FALSE(closure1.response().success());
+
+    // Let all out-of-order entries be handled
+    AppendEntriesSyncClosure closure2;
+    follower_append_entries(
+            request_template, 1, local_index, closure2, followers[0]);
+    closure2.wait();
+    ASSERT_TRUE(closure2.response().success());
+    for (auto& c : out_of_order_closures) {
+        c->wait();
+        ASSERT_TRUE(c->response().success());
+    }
+    out_of_order_closures.clear();
+    local_index += max_append_entries_cache_size + 1;
+    followers[0]->_impl->_mutex.lock();
+    ASSERT_EQ(followers[0]->_impl->_log_manager->last_log_index(), local_index);
+    ASSERT_TRUE(followers[0]->_impl->_append_entries_cache == NULL);
+    followers[0]->_impl->_mutex.unlock();
+
+    if (max_append_entries_cache_size <= 1) {
+        LOG(WARNING) << "cluster stop";
+        cluster.stop_all();
+        return;
+    }
+
+    // Overlap out-of-order requests
+    AppendEntriesSyncClosure closure3;
+    follower_append_entries(
+            request_template, 3, local_index + 5,
+            closure3, followers[0]);
+    followers[0]->_impl->_mutex.lock();
+    ASSERT_EQ(followers[0]->_impl->_append_entries_cache->_rpc_map.size(), 1);
+    ASSERT_EQ(followers[0]->_impl->_append_entries_cache->first_index(), local_index + 5 + 1);
+    followers[0]->_impl->_mutex.unlock();
+
+    AppendEntriesSyncClosure closure4;
+    follower_append_entries(
+            request_template, 2, local_index + 5,
+            closure4, followers[0]);
+    followers[0]->_impl->_mutex.lock();
+    ASSERT_EQ(followers[0]->_impl->_append_entries_cache->_rpc_map.size(), 1);
+    ASSERT_EQ(followers[0]->_impl->_append_entries_cache->first_index(), local_index + 5 + 1);
+    followers[0]->_impl->_mutex.unlock();
+    closure3.wait();
+    ASSERT_FALSE(closure3.response().success());
+
+    AppendEntriesSyncClosure closure5;
+    follower_append_entries(
+            request_template, 2, local_index + 6,
+            closure5, followers[0]);
+    followers[0]->_impl->_mutex.lock();
+    ASSERT_EQ(followers[0]->_impl->_append_entries_cache->_rpc_map.size(), 1);
+    ASSERT_EQ(followers[0]->_impl->_append_entries_cache->first_index(), local_index + 6 + 1);
+    followers[0]->_impl->_mutex.unlock();
+    closure4.wait();
+    ASSERT_FALSE(closure4.response().success());
+
+    AppendEntriesSyncClosure closure6;
+    follower_append_entries(
+            request_template, 3, local_index + 4,
+            closure6, followers[0]);
+    followers[0]->_impl->_mutex.lock();
+    ASSERT_EQ(followers[0]->_impl->_append_entries_cache->_rpc_map.size(), 1);
+    ASSERT_EQ(followers[0]->_impl->_append_entries_cache->first_index(), local_index + 4 + 1);
+    followers[0]->_impl->_mutex.unlock();
+    closure5.wait();
+    ASSERT_FALSE(closure5.response().success());
+
+    // Wait until timeout
+    closure6.wait();
+    ASSERT_FALSE(closure6.response().success());
+    followers[0]->_impl->_mutex.lock();
+    ASSERT_EQ(followers[0]->_impl->_log_manager->last_log_index(), local_index);
+    ASSERT_TRUE(followers[0]->_impl->_append_entries_cache == NULL);
+    followers[0]->_impl->_mutex.unlock();
+
+    // Part of cache continuous
+    AppendEntriesSyncClosure closure7;
+    follower_append_entries(
+            request_template, 3, local_index + 5,
+            closure7, followers[0]);
+    followers[0]->_impl->_mutex.lock();
+    ASSERT_EQ(followers[0]->_impl->_append_entries_cache->_rpc_map.size(), 1);
+    ASSERT_EQ(followers[0]->_impl->_append_entries_cache->first_index(), local_index + 5 + 1);
+    followers[0]->_impl->_mutex.unlock();
+
+    AppendEntriesSyncClosure closure8;
+    follower_append_entries(
+            request_template, 2, local_index + 2,
+            closure8, followers[0]);
+    followers[0]->_impl->_mutex.lock();
+    ASSERT_EQ(followers[0]->_impl->_append_entries_cache->_rpc_map.size(), 2);
+    ASSERT_EQ(followers[0]->_impl->_append_entries_cache->first_index(), local_index + 2 + 1);
+    followers[0]->_impl->_mutex.unlock();
+
+    AppendEntriesSyncClosure closure9;
+    follower_append_entries(
+            request_template, 1, local_index + 1,
+            closure9, followers[0]);
+    followers[0]->_impl->_mutex.lock();
+    ASSERT_EQ(followers[0]->_impl->_append_entries_cache->_rpc_map.size(), 3);
+    ASSERT_EQ(followers[0]->_impl->_append_entries_cache->first_index(), local_index + 1 + 1);
+    followers[0]->_impl->_mutex.unlock();
+
+    AppendEntriesSyncClosure closure10;
+    follower_append_entries(
+            request_template, 1, local_index,
+            closure10, followers[0]);
+    followers[0]->_impl->_mutex.lock();
+    ASSERT_EQ(followers[0]->_impl->_append_entries_cache->_rpc_map.size(), 1);
+    ASSERT_EQ(followers[0]->_impl->_append_entries_cache->first_index(), local_index + 5 + 1);
+    followers[0]->_impl->_mutex.unlock();
+    
+    closure10.wait();
+    closure9.wait();
+    closure8.wait();
+    ASSERT_TRUE(closure10.response().success());
+    ASSERT_TRUE(closure9.response().success());
+    ASSERT_TRUE(closure8.response().success());
+    local_index += 2 + 2;
+    followers[0]->_impl->_mutex.lock();
+    ASSERT_EQ(followers[0]->_impl->_log_manager->last_log_index(), local_index);
+    followers[0]->_impl->_mutex.unlock();
+
+    // Wait util timeout
+    closure7.wait();
+    ASSERT_FALSE(closure7.response().success());
+    followers[0]->_impl->_mutex.lock();
+    ASSERT_EQ(followers[0]->_impl->_log_manager->last_log_index(), local_index);
+    ASSERT_TRUE(followers[0]->_impl->_append_entries_cache == NULL);
+    followers[0]->_impl->_mutex.unlock();
+
+    LOG(WARNING) << "cluster stop";
+    cluster.stop_all();
+}
+
+INSTANTIATE_TEST_CASE_P(NodeTestWithoutPipelineReplication,
+                        NodeTest,
+                        ::testing::Values("NoReplcation"));
+
+INSTANTIATE_TEST_CASE_P(NodeTestWithPipelineReplication,
+                        NodeTest,
+                        ::testing::Values("NoCache", "HasCache"));
