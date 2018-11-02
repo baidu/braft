@@ -52,6 +52,10 @@ if(BRPC_WITH_GLOG)
     include_directories(${GLOG_INCLUDE_PATH})
 endif()
 
+if(LEVELDB_WITH_SNAPPY)
+    find_library(SNAPPY_LIB NAMES snappy)
+endif()
+
 find_path(BRPC_INCLUDE_PATH NAMES brpc/server.h)
 find_library(BRPC_LIB NAMES libbrpc.a brpc)
 if ((NOT BRPC_INCLUDE_PATH) OR (NOT BRPC_LIB))
@@ -78,7 +82,6 @@ if(BRPC_WITH_GLOG)
         ${PROTOBUF_LIBRARY}
         ${LEVELDB_LIB}
         ${CMAKE_THREAD_LIBS_INIT}
-        rt
         ssl
         crypto
         dl
@@ -91,12 +94,36 @@ else()
         ${PROTOBUF_LIBRARY}
         ${LEVELDB_LIB}
         ${CMAKE_THREAD_LIBS_INIT}
-        rt
         ssl
         crypto
         dl
         z
 	)
+endif()
+
+if(LEVELDB_WITH_SNAPPY)
+    set(DYNAMIC_LIB ${DYNAMIC_LIB}
+        ${SNAPPY_LIB}
+	)
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+    set(DYNAMIC_LIB ${DYNAMIC_LIB}
+        pthread
+        "-framework CoreFoundation"
+        "-framework CoreGraphics"
+        "-framework CoreData"
+        "-framework CoreText"
+        "-framework Security"
+        "-framework Foundation"
+        "-Wl,-U,_MallocExtension_ReleaseFreeMemory"
+        "-Wl,-U,_ProfilerStart"
+        "-Wl,-U,_ProfilerStop"
+        )
+else()
+    set(DYNAMIC_LIB ${DYNAMIC_LIB}
+        rt
+        )
 endif()
 
 # for *.so
