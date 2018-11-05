@@ -272,9 +272,9 @@ TEST_F(SnapshotExecutorTest, retry_request) {
     ASSERT_TRUE(writer);
     std::string file_path = writer->get_path() + "/data";
     char cmd[1024];
-    snprintf(cmd, sizeof(cmd), "dd if=/dev/zero of=%s bs=1M count=128",
+    snprintf(cmd, sizeof(cmd), "dd if=/dev/zero of=%s bs=1048576 count=128",
              file_path.c_str());
-    ASSERT_EQ(0, system(cmd));
+    system(cmd);
     writer->add_file("data");
     SnapshotMeta meta;
     meta.set_last_included_index(1);
@@ -332,9 +332,9 @@ TEST_F(SnapshotExecutorTest, interrupt_installing) {
     ASSERT_TRUE(writer);
     std::string file_path = writer->get_path() + "/data";
     char cmd[1024];
-    snprintf(cmd, sizeof(cmd), "dd if=/dev/zero of=%s bs=1M count=128",
+    snprintf(cmd, sizeof(cmd), "dd if=/dev/zero of=%s bs=1048576 count=128",
              file_path.c_str());
-    ASSERT_EQ(0, system(cmd));
+    system(cmd);
     writer->add_file("data");
     SnapshotMeta meta;
     meta.set_last_included_index(1);
