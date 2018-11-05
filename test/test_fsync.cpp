@@ -43,7 +43,11 @@ TEST_F(FsyncTest, benchmark_append) {
             ASSERT_NE(-1, nw);
             left -= nw;
         }
+#ifdef __APPLE__
+        fcntl(fd, F_FULLFSYNC);
+#else
         fdatasync(fd);
+#endif
     }
     timer.stop();
     LOG(INFO) << "fdatasync takes " << timer.u_elapsed();

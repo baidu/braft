@@ -26,7 +26,15 @@ DECLARE_int32(raft_max_parallel_append_entries_rpc_num);
 DECLARE_bool(raft_enable_append_entries_cache);
 DECLARE_int32(raft_max_append_entries_cache_size);
 }
+
 using braft::raft_mutex_t;
+class TestEnvironment : public ::testing::Environment {
+public:
+    void SetUp() {
+    }
+    void TearDown() {
+    }
+};
 
 bool g_dont_print_apply_log = false;
 class MockFSM : public braft::StateMachine {
@@ -457,7 +465,7 @@ class NodeTest : public testing::TestWithParam<const char*> {
 protected:
     void SetUp() {
         g_dont_print_apply_log = false;
-        logging::FLAGS_v = 90;
+        //logging::FLAGS_v = 90;
         google::SetCommandLineOption("crash_on_fatal_log", "true");
         if (GetParam() == std::string("NoReplication")) {
             braft::FLAGS_raft_max_parallel_append_entries_rpc_num = 1;
@@ -3186,3 +3194,10 @@ INSTANTIATE_TEST_CASE_P(NodeTestWithoutPipelineReplication,
 INSTANTIATE_TEST_CASE_P(NodeTestWithPipelineReplication,
                         NodeTest,
                         ::testing::Values("NoCache", "HasCache"));
+
+int main(int argc, char* argv[]) {
+    ::testing::AddGlobalTestEnvironment(new TestEnvironment());
+    ::testing::InitGoogleTest(&argc, argv);
+    google::ParseCommandLineFlags(&argc, &argv, true);
+    return RUN_ALL_TESTS();
+}

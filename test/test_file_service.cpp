@@ -45,7 +45,7 @@ TEST_F(FileServiceTest, sanity) {
     int64_t reader_id = 0;
     ASSERT_EQ(0, braft::file_service_add(reader.get(), &reader_id));
     std::string uri;
-    butil::string_printf(&uri, "remote://127.0.0.1:%d/%ld", g_port, reader_id);
+    butil::string_printf(&uri, "remote://127.0.0.1:%d/%" PRId64, g_port, reader_id);
     braft::RemoteFileCopier copier;
     {
 	std::string bad_uri;
@@ -111,7 +111,7 @@ TEST_F(FileServiceTest, hole_file) {
 
     braft::RemoteFileCopier copier;
     std::string uri;
-    butil::string_printf(&uri, "remote://127.0.0.1:%d/%ld", g_port, reader_id);
+    butil::string_printf(&uri, "remote://127.0.0.1:%d/%" PRId64, g_port, reader_id);
     // normal init
     braft::FLAGS_raft_file_check_hole = false;
     ASSERT_EQ(0, copier.init(uri, fs, NULL));
@@ -125,5 +125,4 @@ TEST_F(FileServiceTest, hole_file) {
     ASSERT_EQ(0, copier.copy_to_file("hole.data", "./c/hole.data", NULL));
     ret = system("diff ./a/hole.data ./c/hole.data");
     ASSERT_EQ(0, ret);
-
 }
