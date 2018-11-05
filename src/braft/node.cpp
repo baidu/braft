@@ -1691,7 +1691,7 @@ void NodeImpl::apply(LogEntryAndClosure tasks[], size_t size) {
                       << " doesn't match current_term=" << _current_term;
             if (tasks[i].done) {
                 tasks[i].done->status().set_error(
-                        EPERM, "expected_term=%ld doesn't match current_term=%ld",
+                        EPERM, "expected_term=%" PRId64 " doesn't match current_term=%" PRId64,
                         tasks[i].expected_term, _current_term);
                 run_closure_in_bthread(tasks[i].done);
             }
@@ -2249,17 +2249,17 @@ void NodeImpl::update_configuration_after_installing_snapshot() {
 
 butil::Status NodeImpl::read_committed_user_log(const int64_t index, UserLog* user_log) {
     if (index <= 0) {
-        return butil::Status(EINVAL, "request index:%ld is invalid.", index);
+        return butil::Status(EINVAL, "request index:%" PRId64 " is invalid.", index);
     }
     const int64_t saved_last_applied_index = _fsm_caller->last_applied_index();
     if (index > saved_last_applied_index) {
-        return butil::Status(ENOMOREUSERLOG, "request index:%ld is greater"
-                " than last_applied_index:%ld.", index, saved_last_applied_index);
+        return butil::Status(ENOMOREUSERLOG, "request index:%" PRId64 " is greater"
+                " than last_applied_index:%" PRId64, index, saved_last_applied_index);
     }
     int64_t cur_index = index;
     LogEntry* entry = _log_manager->get_entry(cur_index);
     if (entry == NULL){
-        return butil::Status(ELOGDELETED, "user log is deleted at index:%ld.", index);
+        return butil::Status(ELOGDELETED, "user log is deleted at index:%" PRId64, index);
     }
     do {
         if (entry->type == ENTRY_TYPE_DATA){
@@ -2272,14 +2272,14 @@ butil::Status NodeImpl::read_committed_user_log(const int64_t index, UserLog* us
             ++cur_index;
         }
         if (cur_index > saved_last_applied_index) {
-            return butil::Status(ENOMOREUSERLOG, "no user log between index:%ld"
-                    " and last_applied_index:%ld.", index, saved_last_applied_index);
+            return butil::Status(ENOMOREUSERLOG, "no user log between index:%" PRId64
+                    " and last_applied_index:%" PRId64, index, saved_last_applied_index);
         }
         entry = _log_manager->get_entry(cur_index);
     } while (entry != NULL);
     // entry is likely to be NULL because snapshot is done after 
     // getting saved_last_applied_index.
-    return butil::Status(ELOGDELETED, "user log is deleted at index:%ld.", cur_index);
+    return butil::Status(ELOGDELETED, "user log is deleted at index:%" PRId64, cur_index);
 }
 
 void NodeImpl::describe(std::ostream& os, bool use_html) {

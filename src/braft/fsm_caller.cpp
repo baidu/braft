@@ -366,8 +366,8 @@ void FSMCaller::do_snapshot_load(LoadSnapshotClosure* done) {
     snapshot_id.term = meta.last_included_term();
     if (last_applied_id > snapshot_id) {
         done->status().set_error(ESTALE,"Loading a stale snapshot"
-                                 " last_applied_index=%ld last_applied_term=%ld"
-                                 " snapshot_index=%ld snapshot_term=%ld",
+                                 " last_applied_index=%" PRId64 " last_applied_term=%" PRId64
+                                 " snapshot_index=%" PRId64 " snapshot_term=%" PRId64,
                                  last_applied_id.index, last_applied_id.term,
                                  snapshot_id.index, snapshot_id.term);
         return done->Run();
@@ -530,8 +530,8 @@ void IteratorImpl::next() {
             if (_cur_entry == NULL) {
                 _error.set_type(ERROR_TYPE_LOG);
                 _error.status().set_error(-1,
-                        "Fail to get entry at index=%ld "
-                        "while committed_index=%ld",
+                        "Fail to get entry at index=%" PRId64
+                        " while committed_index=%" PRId64,
                         _cur_index, _committed_index);
             }
             _applying_index->store(_cur_index, butil::memory_order_relaxed);
@@ -564,7 +564,7 @@ void IteratorImpl::set_error_and_rollback(
     _error.set_type(ERROR_TYPE_STATE_MACHINE);
     _error.status().set_error(ESTATEMACHINE, 
             "StateMachine meet critical error when applying one "
-            " or more tasks since index=%ld, %s", _cur_index,
+            " or more tasks since index=%" PRId64 ", %s", _cur_index,
             (st ? st->error_cstr() : "none"));
 }
 
