@@ -208,10 +208,12 @@ void RemoteFileCopier::Session::send_next_rpc() {
             // Reset count to make next rpc retry the previous one
             _request.set_count(0);
             AddRef();
+            int64_t retry_interval_ms_when_throttled = 
+                                    _throttle->get_retry_interval_ms();
             if (bthread_timer_add(
-                        &_timer, 
-                        butil::milliseconds_from_now(_options.retry_interval_ms),
-                        on_timer, this) != 0) {
+                    &_timer, 
+                    butil::milliseconds_from_now(retry_interval_ms_when_throttled),
+                    on_timer, this) != 0) {
                 lck.unlock();
                 LOG(ERROR) << "Fail to add timer";
                 return on_timer(this);
@@ -250,10 +252,15 @@ void RemoteFileCopier::Session::on_rpc_returned() {
                 return on_finished();
             }
         }
+        // set retry time interval
+        int64_t retry_interval_ms = _options.retry_interval_ms; 
+        if (_cntl.ErrorCode() == EAGAIN && _throttle) {
+            retry_interval_ms = _throttle->get_retry_interval_ms();
+        }
         AddRef();
         if (bthread_timer_add(
                     &_timer, 
-                    butil::milliseconds_from_now(_options.retry_interval_ms),
+                    butil::milliseconds_from_now(retry_interval_ms),
                     on_timer, this) != 0) {
             lck.unlock();
             LOG(ERROR) << "Fail to add timer";

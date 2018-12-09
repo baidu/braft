@@ -32,6 +32,7 @@ public:
     virtual size_t throttled_by_throughput(int64_t bytes) = 0;
     virtual bool add_one_more_task(const int task_num_threshold) = 0;
     virtual void finish_one_task() = 0;
+    virtual int64_t get_retry_interval_ms() = 0;
 private:
     DISALLOW_COPY_AND_ASSIGN(SnapshotThrottle);
     friend class butil::RefCountedThreadSafe<SnapshotThrottle>;
@@ -46,6 +47,7 @@ public:
     size_t throttled_by_throughput(int64_t bytes);
     bool add_one_more_task(const int task_num_threshold);
     void finish_one_task();
+    int64_t get_retry_interval_ms() { return 1000 / _check_cycle + 1;}
 
 private:
     ~ThroughputSnapshotThrottle();

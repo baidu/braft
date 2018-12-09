@@ -607,7 +607,7 @@ TEST_F(SnapshotTest, snapshot_throttle_for_reading) {
     if (fs) {
         ASSERT_EQ(storage1->set_file_system_adaptor(fs), 0);
     }
-    // create and set snapshot throttle
+    // create and set snapshot throttle for storage1
     braft::ThroughputSnapshotThrottle* throttle = new 
         braft::ThroughputSnapshotThrottle(60, 10);
     ASSERT_TRUE(throttle);
@@ -709,12 +709,17 @@ TEST_F(SnapshotTest, snapshot_throttle_for_writing) {
         fs->delete_file("data2", true);
     }
     braft::SnapshotStorage* storage2 = new braft::LocalSnapshotStorage("./data2");
+    // create and set snapshot throttle for storage2
+    braft::ThroughputSnapshotThrottle* throttle2 = new 
+        braft::ThroughputSnapshotThrottle(3 * 1000 * 1000, 10);
+    ASSERT_TRUE(throttle2);
+    ASSERT_EQ(storage2->set_snapshot_throttle(throttle2), 0);
     if (fs) {
         ASSERT_EQ(storage2->set_file_system_adaptor(fs), 0);
     }
     // create and set snapshot throttle for storage2
     braft::SnapshotThrottle* throttle = 
-        new braft::ThroughputSnapshotThrottle(50, 10);
+        new braft::ThroughputSnapshotThrottle(20, 10);
     ASSERT_TRUE(throttle);
     ASSERT_EQ(storage2->set_snapshot_throttle(throttle), 0);
     ASSERT_EQ(0, storage2->init());
