@@ -30,6 +30,8 @@ public:
     // Get available throughput after throttled 
     // Must be thread-safe
     virtual size_t throttled_by_throughput(int64_t bytes) = 0;
+    virtual bool add_one_more_task(const int task_num_threshold) = 0;
+    virtual void finish_one_task() = 0;
 private:
     DISALLOW_COPY_AND_ASSIGN(SnapshotThrottle);
     friend class butil::RefCountedThreadSafe<SnapshotThrottle>;
@@ -42,6 +44,8 @@ public:
     int64_t get_throughput() const { return _throttle_throughput_bytes; }
     int64_t get_cycle() const { return _check_cycle; }
     size_t throttled_by_throughput(int64_t bytes);
+    bool add_one_more_task(const int task_num_threshold);
+    void finish_one_task();
 
 private:
     ~ThroughputSnapshotThrottle();
@@ -49,6 +53,8 @@ private:
     int64_t _throttle_throughput_bytes;
     // user defined check cycles of throughput per second
     int64_t _check_cycle;
+    // the num of tasks doing install_snapshot
+    int _snapshot_task_num;
     int64_t _last_throughput_check_time_us;
     int64_t _cur_throughput_bytes;
     raft_mutex_t _mutex;

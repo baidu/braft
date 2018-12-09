@@ -26,6 +26,7 @@ ThroughputSnapshotThrottle::ThroughputSnapshotThrottle(
         int64_t throttle_throughput_bytes, int64_t check_cycle) 
     : _throttle_throughput_bytes(throttle_throughput_bytes)
     , _check_cycle(check_cycle)
+    , _snapshot_task_num(0)
     , _last_throughput_check_time_us(
             caculate_check_time_us(butil::cpuwide_time_us(), check_cycle))
     , _cur_throughput_bytes(0)
@@ -63,6 +64,31 @@ size_t ThroughputSnapshotThrottle::throttled_by_throughput(int64_t bytes) {
     return available_size;
 }
 
+bool ThroughputSnapshotThrottle::add_one_more_task(const int task_num_threshold) { 
+    std::unique_lock<raft_mutex_t> lck(_mutex);
+    int saved_task_num = _snapshot_task_num;
+    if (_snapshot_task_num >= task_num_threshold) {
+        lck.unlock();
+        LOG(INFO) << "Fail to add one more task when current task num is: " 
+                  << saved_task_num << ", task num threshold: " << task_num_threshold;
+        return false;
+    }
+    saved_task_num = ++_snapshot_task_num;
+    lck.unlock();
+    LOG(INFO) << "Succed to add one more task, new task num is: " << saved_task_num
+              << ", task num threshold: " << task_num_threshold;
+    return true;
+}
+
+void ThroughputSnapshotThrottle::finish_one_task() {
+    std::unique_lock<raft_mutex_t> lck(_mutex);
+    int saved_task_num = --_snapshot_task_num;
+    // _snapshot_task_num should not be negative
+    CHECK_GE(_snapshot_task_num, 0) << "Finishing task cause wrong task num: "
+                                    << saved_task_num;
+    lck.unlock();
+    LOG(INFO) << "Finish one task, new task num is: " << saved_task_num;
+    return;
+}
+
 }  //  namespace braft
-
-

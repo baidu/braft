@@ -423,4 +423,75 @@ TEST_F(SnapshotExecutorTest, retry_install_snapshot) {
     ASSERT_EQ(0, storage1.close(reader));
 }
 
+TEST_F(SnapshotExecutorTest, retry_request_with_throttle) {
+    MockFSMCaller fsm_caller;
+    MockLogManager log_manager;
+    SnapshotExecutorOptions options;
+    options.init_term = 1;
+    options.addr = _server.listen_address();
+    options.node = NULL;
+    options.fsm_caller = &fsm_caller;
+    options.log_manager = &log_manager;
+    options.uri = "local://.data/snapshot0";
+
+    int64_t throttle_throughput_bytes = 100 * 1024 * 1024;
+    int64_t check_cycle = 10;
+    braft::ThroughputSnapshotThrottle* throttle = 
+        new braft::ThroughputSnapshotThrottle(throttle_throughput_bytes, check_cycle);
+    scoped_refptr<braft::SnapshotThrottle> tst(throttle);
+    options.snapshot_throttle = tst;
+
+    SnapshotExecutor executor;
+    ASSERT_EQ(0, executor.init(options));
+    LocalSnapshotStorage storage1(".data/snapshot1");
+    storage1.set_server_addr(_server.listen_address());
+    ASSERT_EQ(0, storage1.init());
+    SnapshotWriter* writer = storage1.create();
+    ASSERT_TRUE(writer);
+    std::string file_path = writer->get_path() + "/data";
+    char cmd[1024];
+    snprintf(cmd, sizeof(cmd), "dd if=/dev/zero of=%s bs=1M count=128",
+             file_path.c_str());
+    ASSERT_EQ(0, system(cmd));
+    writer->add_file("data");
+    SnapshotMeta meta;
+    meta.set_last_included_index(1);
+    meta.set_last_included_term(1);
+    ASSERT_EQ(0, writer->save_meta(meta));
+    ASSERT_EQ(0, storage1.close(writer));
+    SnapshotReader* reader= storage1.open();
+    std::string uri = reader->generate_uri_for_copy();
+    const size_t N = 10;
+    bthread_t tids[N];
+    InstallArg args[N];
+    for (size_t i = 0; i < N; ++i) {
+        args[i].e = &executor;
+        args[i].request.set_group_id("test");
+        args[i].request.set_term(1);
+        args[i].request.mutable_meta()->CopyFrom(meta);
+        args[i].request.set_uri(uri);
+    }
+    for (size_t i = 0; i < N; ++i) {
+        bthread_start_background(&tids[i], NULL, install_thread, &args[i]);
+    }
+    for (size_t i = 0; i < N; ++i) {
+        bthread_join(tids[i], NULL);
+    }
+    size_t suc = 0;
+    for (size_t i = 0; i < N; ++i) {
+        LOG(INFO) << "Try number: " << i << "------------------------"; 
+        if (args[i].cntl.Failed()) {
+            LOG(ERROR) << "Result, Error: " << args[i].cntl.ErrorText();
+        } else {
+            suc += 1;
+            LOG(INFO) << "Result, Success.";
+        }
+    }
+    ASSERT_EQ(0, storage1.close(reader));
+    ASSERT_EQ(1u, suc);
+    reader = executor.snapshot_storage()->open();
+    ASSERT_EQ(0, reader->get_file_meta("data", NULL));
+    ASSERT_EQ(0, executor.snapshot_storage()->close(reader));
+}
+
 }  // namespace raft

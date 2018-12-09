@@ -22,6 +22,11 @@
 
 namespace braft {
 
+DEFINE_int32(raft_max_install_snapshot_tasks_num, 1000,
+            "Max num of install_snapshot tasks per disk at the same time");
+BRPC_VALIDATE_GFLAG(raft_max_install_snapshot_tasks_num,
+                    brpc::PositiveInteger);
+
 class SaveSnapshotDone : public SaveSnapshotClosure {
 public:
     SaveSnapshotDone(SnapshotExecutor* node, SnapshotWriter* writer, Closure* done);
@@ -90,6 +95,7 @@ SnapshotExecutor::SnapshotExecutor()
     , _log_manager(NULL)
     , _downloading_snapshot(NULL)
     , _running_jobs(0)
+    , _snapshot_throttle(NULL)
 {
 }
 
@@ -337,6 +343,7 @@ int SnapshotExecutor::init(const SnapshotExecutorOptions& options) {
         _snapshot_storage->set_file_system_adaptor(options.file_system_adaptor);
     }
     if (options.snapshot_throttle) {
+	_snapshot_throttle = options.snapshot_throttle;
         _snapshot_storage->set_snapshot_throttle(options.snapshot_throttle);
     }
     if (_snapshot_storage->init() != 0) {
@@ -377,11 +384,19 @@ void SnapshotExecutor::install_snapshot(brpc::Controller* cntl,
     int ret = 0;
     brpc::ClosureGuard done_guard(done);
     SnapshotMeta meta = request->meta();
-    if (ret != 0) {
-        cntl->SetFailed(brpc::EREQUEST,
-                        "Fail to parse request");
+
+    // check if install_snapshot tasks num exceeds threshold 
+    if (_snapshot_throttle && !_snapshot_throttle->add_one_more_task(
+                          FLAGS_raft_max_install_snapshot_tasks_num)){
+        if (_node) {
+            LOG(WARNING) << "node " << _node->node_id() << ' ' << noflush;
+        }
+        LOG(WARNING) << "Fail to install snapshot because task num exceeds threshold: " 
+                  << FLAGS_raft_max_install_snapshot_tasks_num;
+        cntl->SetFailed(EBUSY, "Too many install_snapshot tasks now");
         return;
     }
+
     std::unique_ptr<DownloadingSnapshot> ds(new DownloadingSnapshot);
     ds->cntl = cntl;
     ds->done = done;
@@ -396,12 +411,19 @@ void SnapshotExecutor::install_snapshot(brpc::Controller* cntl,
             // This RPC will be responded by the previous session
             done_guard.release();
         }
+        if (_snapshot_throttle) {
+            _snapshot_throttle->finish_one_task();
+        }
         return;
     }
     // Release done first as this RPC might be replaced by the retry one
     done_guard.release();
     CHECK(_cur_copier);
     _cur_copier->join();
+    // when coping finished or canceled, more install_snapshot tasks are allowed
+    if (_snapshot_throttle) {
+        _snapshot_throttle->finish_one_task();
+    }
     return load_downloading_snapshot(ds.release(), meta);
 }
 

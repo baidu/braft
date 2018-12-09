@@ -162,6 +162,7 @@ friend class InstallSnapshotDone;
     butil::atomic<DownloadingSnapshot*> _downloading_snapshot;
     SnapshotMeta _loading_snapshot_meta;
     bthread::CountdownEvent _running_jobs;
+    scoped_refptr<SnapshotThrottle> _snapshot_throttle;
 };
 
 inline SnapshotExecutorOptions::SnapshotExecutorOptions() 

@@ -42,6 +42,10 @@ DEFINE_int32(raft_max_body_size, 512 * 1024,
              "The max byte size of AppendEntriesRequest");
 BRPC_VALIDATE_GFLAG(raft_max_body_size, ::brpc::PositiveInteger);
 
+DEFINE_int32(raft_retry_replicate_interval_ms, 1000,
+             "Interval of retry to append entries or install snapshot");
+BRPC_VALIDATE_GFLAG(raft_retry_replicate_interval_ms, brpc::PositiveInteger);
+
 static bvar::LatencyRecorder g_send_entries_latency("raft_send_entries");
 static bvar::LatencyRecorder g_normalized_send_entries_latency("raft_send_entries_normalized");
 
@@ -213,7 +217,7 @@ void Replicator::_on_block_timedout(void *arg) {
     }
 }
 
-void Replicator::_block(long start_time_us, int /*error_code NOTE*/) {
+void Replicator::_block(long start_time_us, int error_code) {
     // TODO: Currently we don't care about error_code which indicates why the
     // very RPC fails. To make it better there should be different timeout for
     // each individual error (e.g. we don't need check every
@@ -223,15 +227,22 @@ void Replicator::_block(long start_time_us, int /*error_code NOTE*/) {
         CHECK_EQ(0, bthread_id_unlock(_id)) << "Fail to unlock " << _id;
         return;
     }
+    int blocking_time = 0;
+    if (error_code == EBUSY || error_code == EINTR) {
+        blocking_time = FLAGS_raft_retry_replicate_interval_ms;
+    } else {
+        blocking_time = *_options.dynamic_heartbeat_timeout_ms;
+    }
     const timespec due_time = butil::milliseconds_from(
-            butil::microseconds_to_timespec(start_time_us), 
-            *_options.dynamic_heartbeat_timeout_ms);
+	    butil::microseconds_to_timespec(start_time_us), blocking_time);
     bthread_timer_t timer;
     const int rc = bthread_timer_add(&timer, due_time, 
                                   _on_block_timedout, (void*)_id.value);
-    BRAFT_VLOG << "Blocking " << _options.peer_id << " for " 
-              << *_options.dynamic_heartbeat_timeout_ms << "ms";
     if (rc == 0) {
+        std::stringstream ss;
+	ss << "Blocking " << _options.peer_id << " for "
+           << blocking_time << "ms" << ", group " << _options.group_id;
+	BRAFT_VLOG << ss.str();
         _st.st = BLOCKING;
         CHECK_EQ(0, bthread_id_unlock(_id)) << "Fail to unlock " << _id;
         return;
