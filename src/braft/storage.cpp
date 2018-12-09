@@ -30,9 +30,9 @@
 namespace braft {
 
 DEFINE_bool(raft_sync, true, "call fsync when need");
+BRPC_VALIDATE_GFLAG(raft_sync, ::brpc::PassValidate);
 DEFINE_bool(raft_create_parent_directories, true,
             "Create parent directories of the path in local storage if true");
-BRPC_VALIDATE_GFLAG(raft_sync, ::brpc::PassValidate);
 
 DEFINE_bool(raft_sync_meta, false, "sync log meta, snapshot meta and raft meta");
 BRPC_VALIDATE_GFLAG(raft_sync_meta, ::brpc::PassValidate);

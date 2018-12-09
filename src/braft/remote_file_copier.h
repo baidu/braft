@@ -27,6 +27,8 @@
 
 namespace braft {
 
+DECLARE_bool(raft_enable_throttle_when_install_snapshot);
+
 struct CopyOptions {
     CopyOptions();
     int max_retry;

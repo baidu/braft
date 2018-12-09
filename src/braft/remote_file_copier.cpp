@@ -33,6 +33,14 @@ namespace braft {
 DEFINE_int32(raft_max_byte_count_per_rpc, 1024 * 128 /*128K*/,
              "Maximum of block size per RPC");
 BRPC_VALIDATE_GFLAG(raft_max_byte_count_per_rpc, brpc::PositiveInteger);
+DEFINE_bool(raft_allow_read_partly_when_install_snapshot, true,
+            "Whether allowing read snapshot data partly");
+BRPC_VALIDATE_GFLAG(raft_allow_read_partly_when_install_snapshot,
+                    ::brpc::PassValidate);
+DEFINE_bool(raft_enable_throttle_when_install_snapshot, true,
+            "enable throttle when install snapshot, for both leader and follower");
+BRPC_VALIDATE_GFLAG(raft_enable_throttle_when_install_snapshot,
+                    ::brpc::PassValidate);
 
 RemoteFileCopier::RemoteFileCopier()
     : _reader_id(0)
@@ -195,14 +203,14 @@ void RemoteFileCopier::Session::send_next_rpc() {
     _cntl.set_timeout_ms(_options.timeout_ms);
     _request.set_offset(offset);
     // Read partly when throttled
-    _request.set_read_partly(true);
+    _request.set_read_partly(FLAGS_raft_allow_read_partly_when_install_snapshot);
     std::unique_lock<raft_mutex_t> lck(_mutex);
     if (_finished) {
         return;
     }
     // throttle
     size_t new_max_count = max_count;
-    if (_throttle) {
+    if (_throttle && FLAGS_raft_enable_throttle_when_install_snapshot) {
         new_max_count = _throttle->throttled_by_throughput(max_count);
         if (new_max_count == 0) {
             // Reset count to make next rpc retry the previous one

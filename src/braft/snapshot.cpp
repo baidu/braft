@@ -335,7 +335,7 @@ public:
         }
         // go through throttle
         size_t new_max_count = max_count;
-        if (_snapshot_throttle != NULL) {
+        if (_snapshot_throttle && FLAGS_raft_enable_throttle_when_install_snapshot) {
             new_max_count = _snapshot_throttle->throttled_by_throughput(max_count);
             if (new_max_count < max_count) {
                 // if it's not allowed to read partly or it's allowed but

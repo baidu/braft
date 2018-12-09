@@ -22,6 +22,13 @@
 
 namespace braft {
 
+// used to increase throttle threshold dynamically when user-defined
+// threshold is too small in extreme cases.
+// notice that this flag does not distinguish disk types(sata or ssd, and so on)
+DEFINE_int64(raft_minimal_throttle_threshold_mb, 0,
+            "minimal throttle throughput threshold per second");
+BRPC_VALIDATE_GFLAG(raft_minimal_throttle_threshold_mb,
+                    brpc::NonNegativeInteger);
 DEFINE_int32(raft_max_install_snapshot_tasks_num, 1000, 
              "Max num of install_snapshot tasks per disk at the same time");
 BRPC_VALIDATE_GFLAG(raft_max_install_snapshot_tasks_num, 
@@ -42,7 +49,9 @@ ThroughputSnapshotThrottle::~ThroughputSnapshotThrottle() {}
 size_t ThroughputSnapshotThrottle::throttled_by_throughput(int64_t bytes) {
     size_t available_size = bytes;
     int64_t now = butil::cpuwide_time_us();
-    int64_t limit_per_cycle = _throttle_throughput_bytes / _check_cycle;
+    int64_t limit_throughput_bytes_s = std::max(_throttle_throughput_bytes,
+                FLAGS_raft_minimal_throttle_threshold_mb * 1024 *1024);
+    int64_t limit_per_cycle = limit_throughput_bytes_s / _check_cycle;
     std::unique_lock<raft_mutex_t> lck(_mutex);
     if (_cur_throughput_bytes + bytes > limit_per_cycle) {
         // reading another |bytes| excceds the limit
