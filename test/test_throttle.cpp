@@ -32,6 +32,8 @@ void *read_across_throttle(void* arg) {
         // reading size of every time 
         int64_t request_bytes = 128 * 1024;
         int64_t ret = a->throttle->throttled_by_throughput(request_bytes);
+        a->throttle->return_unused_throughput(ret, 0, 0);
+        ret = a->throttle->throttled_by_throughput(request_bytes);
         a->total_throughput += ret;
         // if current reading is totally throttled, try again 100ms later
         if (ret == 0) {
@@ -76,6 +78,18 @@ TEST_F(TestUsageSuits, throttle_functioning) {
     // another 1M is refused in current cycle
     int64_t ret3 = throttle.throttled_by_throughput(request_1);
     ASSERT_EQ(ret3, 0);
+    // return unsed 1M
+    throttle.return_unused_throughput(request_1, 0, 10);
+    ret3 = throttle.throttled_by_throughput(request_1);
+    ASSERT_EQ(ret3, request_1);
+    // return unsed 1M, too long ago
+    throttle.return_unused_throughput(request_1, 0, cycle_time * 2);
+    ret3 = throttle.throttled_by_throughput(request_1);
+    ASSERT_EQ(ret3, 0);
+    // return unsed 1M - 10
+    throttle.return_unused_throughput(request_1, request_1 - 10, 0);
+    ret3 = throttle.throttled_by_throughput(request_1);
+    ASSERT_EQ(ret3, 10);
     usleep(cycle_time);
     // previous 1M is ok in next cycle
     ret3 = throttle.throttled_by_throughput(request_1);

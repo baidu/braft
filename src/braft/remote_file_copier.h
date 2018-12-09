@@ -91,6 +91,7 @@ public:
         GetFileResponse _response;
         bthread::CountdownEvent _finish_event;
         scoped_refptr<SnapshotThrottle> _throttle;   
+        int64_t _throttle_token_acquire_time_us;
     };
 
     RemoteFileCopier();

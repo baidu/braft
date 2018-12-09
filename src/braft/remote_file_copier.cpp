@@ -182,6 +182,7 @@ RemoteFileCopier::Session::Session()
     , _buf(NULL)
     , _timer()
     , _throttle(NULL)
+    , _throttle_token_acquire_time_us(1)
 {
     _done.owner = this;
 }
@@ -211,6 +212,7 @@ void RemoteFileCopier::Session::send_next_rpc() {
     // throttle
     size_t new_max_count = max_count;
     if (_throttle && FLAGS_raft_enable_throttle_when_install_snapshot) {
+        _throttle_token_acquire_time_us = butil::cpuwide_time_us();
         new_max_count = _throttle->throttled_by_throughput(max_count);
         if (new_max_count == 0) {
             // Reset count to make next rpc retry the previous one
@@ -246,6 +248,7 @@ void RemoteFileCopier::Session::on_rpc_returned() {
     }
     if (_cntl.Failed()) {
         // Reset count to make next rpc retry the previous one
+        int64_t request_count = _request.count();
         _request.set_count(0);
         if (_cntl.ErrorCode() == ECANCELED) {
             if (_st.ok()) {
@@ -264,6 +267,12 @@ void RemoteFileCopier::Session::on_rpc_returned() {
         int64_t retry_interval_ms = _options.retry_interval_ms; 
         if (_cntl.ErrorCode() == EAGAIN && _throttle) {
             retry_interval_ms = _throttle->get_retry_interval_ms();
+            // No token consumed, just return back, other nodes maybe able to use them
+            if (FLAGS_raft_enable_throttle_when_install_snapshot) {
+                _throttle->return_unused_throughput(
+                        request_count, 0,
+                        butil::cpuwide_time_us() - _throttle_token_acquire_time_us);
+            }
         }
         AddRef();
         if (bthread_timer_add(
@@ -275,6 +284,12 @@ void RemoteFileCopier::Session::on_rpc_returned() {
             return on_timer(this);
         }
         return;
+    }
+    if (_throttle && FLAGS_raft_enable_throttle_when_install_snapshot &&
+        _request.count() > (int64_t)_cntl.response_attachment().size()) {
+        _throttle->return_unused_throughput(
+                _request.count(), _cntl.response_attachment().size(),
+                butil::cpuwide_time_us() - _throttle_token_acquire_time_us);
     }
     _retry_times = 0;
     // Reset count to |real_read_size| to make next rpc get the right offset

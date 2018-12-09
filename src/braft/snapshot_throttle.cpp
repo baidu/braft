@@ -113,4 +113,16 @@ void ThroughputSnapshotThrottle::finish_one_task(bool is_leader) {
     return;
 }
 
+void ThroughputSnapshotThrottle::return_unused_throughput(
+            int64_t acquired, int64_t consumed, int64_t elaspe_time_us) {
+    int64_t now = butil::cpuwide_time_us();
+    std::unique_lock<raft_mutex_t> lck(_mutex);
+    if (now - elaspe_time_us < _last_throughput_check_time_us) {
+        // Tokens are aqured in last cycle, ignore
+        return;
+    }
+    _cur_throughput_bytes = std::max(
+            _cur_throughput_bytes - (acquired - consumed), int64_t(0));
+}
+
 }  //  namespace braft
