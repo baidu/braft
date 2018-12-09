@@ -28,7 +28,8 @@
 #include "braft/node.h"
 #include "braft/file_service.h"
 
-#define BRAFT_SNAPSHOT_PATTERN "snapshot_%020ld"
+//#define BRAFT_SNAPSHOT_PATTERN "snapshot_%020ld"
+#define BRAFT_SNAPSHOT_PATTERN "snapshot_%020"PRId64
 #define BRAFT_SNAPSHOT_META_FILE "__raft_snapshot_meta"
 
 namespace braft {

@@ -5,6 +5,7 @@
 // Date: 2015/10/08 17:00:05
 
 #include <gtest/gtest.h>
+#include <gflags/gflags.h>
 #include <butil/logging.h>
 #include <butil/file_util.h>
 #include <errno.h>
@@ -15,6 +16,10 @@
 #include "braft/local_file_meta.pb.h"
 #include "braft/snapshot_throttle.h"
 #include "memory_file_system_adaptor.h"
+
+namespace logging {
+DECLARE_int32(minloglevel);
+};
 
 class SnapshotTest : public testing::Test {
 protected:
@@ -350,6 +355,9 @@ void *write_thread(void* arg) {
 }
 
 TEST_F(SnapshotTest, thread_safety) {
+    // writer thread will make much log when sleep
+    logging::FLAGS_minloglevel = 1;
+
     braft::FileSystemAdaptor* fs;
     FOR_EACH_FILE_SYSTEM_ADAPTOR_BEGIN(fs);
 
@@ -373,6 +381,8 @@ TEST_F(SnapshotTest, thread_safety) {
     delete storage;
 
     FOR_EACH_FILE_SYSTEM_ADAPTOR_END;
+
+    logging::FLAGS_minloglevel = 0;
 }
 
 void write_file(braft::FileSystemAdaptor* fs, const std::string& path, const std::string& data) {

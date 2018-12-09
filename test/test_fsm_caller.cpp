@@ -31,7 +31,7 @@ public:
     void on_apply(braft::Iterator& iter) {
         for (; iter.valid(); iter.next()) {
             std::string expected;
-            butil::string_printf(&expected, "hello_%lu", _expected_next++);
+            butil::string_printf(&expected, "hello_%" PRIu64, _expected_next++);
             ASSERT_EQ(expected, iter.data().to_string());
             if (iter.done()) {
                 ASSERT_TRUE(iter.done()->status().ok()) << "index=" << iter.index();
@@ -130,7 +130,7 @@ TEST_F(FSMCallerTest, sanity) {
         entry->AddRef();
         entry->type = braft::ENTRY_TYPE_DATA;
         std::string buf;
-        butil::string_printf(&buf, "hello_%lu", i);
+        butil::string_printf(&buf, "hello_%lld", (long long)i);
         entry->data.append(buf);
         entry->id.index = i + 1;
         entry->id.term = i;

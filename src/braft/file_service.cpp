@@ -16,6 +16,7 @@
 
 #include "braft/file_service.h"
 
+#include <inttypes.h>
 #include <stack>
 #include <butil/file_util.h>
 #include <butil/files/file_path.h>
@@ -39,7 +40,7 @@ void FileServiceImpl::get_file(::google::protobuf::RpcController* controller,
     Map::const_iterator iter = _reader_map.find(request->reader_id());
     if (iter == _reader_map.end()) {
         lck.unlock();
-        cntl->SetFailed(ENOENT, "Fail to find reader=%ld", request->reader_id());
+        cntl->SetFailed(ENOENT, "Fail to find reader=%" PRId64, request->reader_id());
         return;
     }
     // Don't touch iter ever after

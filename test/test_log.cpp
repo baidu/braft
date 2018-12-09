@@ -262,7 +262,7 @@ TEST_F(LogStorageTest, multi_segment_and_segment_logstorage) {
             entry->id.index = index;
 
             char data_buf[128];
-            snprintf(data_buf, sizeof(data_buf), "hello, world: %ld", index);
+            snprintf(data_buf, sizeof(data_buf), "hello, world: %" PRId64, index);
             entry->data.append(data_buf);
             entries.push_back(entry);
         }
@@ -283,7 +283,7 @@ TEST_F(LogStorageTest, multi_segment_and_segment_logstorage) {
         ASSERT_EQ(entry->id.index, index);
 
         char data_buf[128];
-        snprintf(data_buf, sizeof(data_buf), "hello, world: %ld", index);
+        snprintf(data_buf, sizeof(data_buf), "hello, world: %" PRId64, index);
         ASSERT_EQ(data_buf, entry->data.to_string());
         entry->Release();
     }
@@ -321,7 +321,7 @@ TEST_F(LogStorageTest, multi_segment_and_segment_logstorage) {
         ASSERT_EQ(entry->id.index, index);
 
         char data_buf[128];
-        snprintf(data_buf, sizeof(data_buf), "hello, world: %ld", index);
+        snprintf(data_buf, sizeof(data_buf), "hello, world: %" PRId64, index);
         ASSERT_EQ(data_buf, entry->data.to_string());
         entry->Release();
     }
@@ -337,7 +337,7 @@ TEST_F(LogStorageTest, multi_segment_and_segment_logstorage) {
             entry->id.index = index;
 
             char data_buf[128];
-            snprintf(data_buf, sizeof(data_buf), "hello, world: %ld", index);
+            snprintf(data_buf, sizeof(data_buf), "hello, world: %" PRId64, index);
             entry->data.append(data_buf);
             entries.push_back(entry);
         }
@@ -381,7 +381,7 @@ TEST_F(LogStorageTest, multi_segment_and_segment_logstorage) {
         ASSERT_EQ(entry->id.index, index);
 
         char data_buf[128];
-        snprintf(data_buf, sizeof(data_buf), "hello, world: %ld", index);
+        snprintf(data_buf, sizeof(data_buf), "hello, world: %" PRId64, index);
         ASSERT_EQ(data_buf, entry->data.to_string());
         entry->Release();
     }
@@ -414,7 +414,7 @@ TEST_F(LogStorageTest, append_close_load_append) {
             entry->id.index = index;
 
             char data_buf[128];
-            snprintf(data_buf, sizeof(data_buf), "hello, world: %ld", index);
+            snprintf(data_buf, sizeof(data_buf), "hello, world: %" PRId64, index);
             entry->data.append(data_buf);
             entries.push_back(entry);
         }
@@ -445,7 +445,7 @@ TEST_F(LogStorageTest, append_close_load_append) {
             entry->id.index = index;
 
             char data_buf[128];
-            snprintf(data_buf, sizeof(data_buf), "hello, world: %ld", index);
+            snprintf(data_buf, sizeof(data_buf), "hello, world: %" PRId64, index);
             entry->data.append(data_buf);
             entries.push_back(entry);
         }
@@ -473,7 +473,7 @@ TEST_F(LogStorageTest, append_close_load_append) {
         ASSERT_EQ(entry->id.index, index);
 
         char data_buf[128];
-        snprintf(data_buf, sizeof(data_buf), "hello, world: %ld", index);
+        snprintf(data_buf, sizeof(data_buf), "hello, world: %" PRId64, index);
         ASSERT_EQ(data_buf, entry->data.to_string());
         entry->Release();
     }
@@ -499,7 +499,7 @@ TEST_F(LogStorageTest, append_read_badcase) {
             entry->id.index = index;
 
             char data_buf[128];
-            snprintf(data_buf, sizeof(data_buf), "hello, world: %ld", index);
+            snprintf(data_buf, sizeof(data_buf), "hello, world: %" PRId64, index);
             entry->data.append(data_buf);
             entries.push_back(entry);
         }
@@ -627,7 +627,7 @@ TEST_F(LogStorageTest, configuration) {
             entry->id.index = index;
 
             char data_buf[128];
-            snprintf(data_buf, sizeof(data_buf), "hello, world: %ld", index);
+            snprintf(data_buf, sizeof(data_buf), "hello, world: %" PRId64, index);
             entry->data.append(data_buf);
             entries.push_back(entry);
         }

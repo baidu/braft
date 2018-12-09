@@ -262,9 +262,9 @@ void Replicator::_on_heartbeat_returned(
         AppendEntriesRequest* request, 
         AppendEntriesResponse* response,
         int64_t rpc_send_time) {
-    std::unique_ptr<brpc::Controller> cntl_gurad(cntl);
-    std::unique_ptr<AppendEntriesRequest>  req_gurad(request);
-    std::unique_ptr<AppendEntriesResponse> res_gurad(response);
+    std::unique_ptr<brpc::Controller> cntl_guard(cntl);
+    std::unique_ptr<AppendEntriesRequest>  req_guard(request);
+    std::unique_ptr<AppendEntriesResponse> res_guard(response);
     Replicator *r = NULL;
     bthread_id_t dummy_id = { id };
     const long start_time_us = butil::gettimeofday_us();
@@ -323,9 +323,9 @@ void Replicator::_on_rpc_returned(ReplicatorId id, brpc::Controller* cntl,
                      AppendEntriesRequest* request, 
                      AppendEntriesResponse* response,
                      int64_t rpc_send_time) {
-    std::unique_ptr<brpc::Controller> cntl_gurad(cntl);
-    std::unique_ptr<AppendEntriesRequest>  req_gurad(request);
-    std::unique_ptr<AppendEntriesResponse> res_gurad(response);
+    std::unique_ptr<brpc::Controller> cntl_guard(cntl);
+    std::unique_ptr<AppendEntriesRequest>  req_guard(request);
+    std::unique_ptr<AppendEntriesResponse> res_guard(response);
     Replicator *r = NULL;
     bthread_id_t dummy_id = { id };
     const long start_time_us = butil::gettimeofday_us();
@@ -1008,9 +1008,9 @@ void Replicator::_on_timeout_now_returned(
                 TimeoutNowRequest* request, 
                 TimeoutNowResponse* response,
                 bool stop_after_finish) {
-    std::unique_ptr<brpc::Controller> cntl_gurad(cntl);
-    std::unique_ptr<TimeoutNowRequest>  req_gurad(request);
-    std::unique_ptr<TimeoutNowResponse> res_gurad(response);
+    std::unique_ptr<brpc::Controller> cntl_guard(cntl);
+    std::unique_ptr<TimeoutNowRequest>  req_guard(request);
+    std::unique_ptr<TimeoutNowResponse> res_guard(response);
     Replicator *r = NULL;
     bthread_id_t dummy_id = { id };
     if (bthread_id_lock(dummy_id, (void**)&r) != 0) {

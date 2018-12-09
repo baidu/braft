@@ -14,7 +14,7 @@ install:
 - sudo apt-get install -qq realpath libgflags-dev libprotobuf-dev libprotoc-dev protobuf-compiler libleveldb-dev libgoogle-perftools-dev
 - sudo apt-get install libgtest-dev && cd /usr/src/gtest && sudo env "PATH=$PATH" cmake . && sudo make && sudo mv libgtest* /usr/lib/ && cd -
 - sudo apt-get install -y gdb
-- git clone https://github.com/brpc/brpc.git && mkdir -p brpc/build && cd brpc/build && cmake .. && make -j4 && sudo make install && cd -
+- git clone https://github.com/brpc/brpc.git && mkdir -p brpc/bld && cd brpc/bld && cmake .. && make -j4 && sudo make install && cd -
 
 before_script:
 - ulimit -c unlimited -S

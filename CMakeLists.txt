@@ -3,10 +3,15 @@ project(braft C CXX)
 
 #option(EXAMPLE_LINK_SO "Whether examples are linked dynamically" OFF)
 option(BRPC_WITH_GLOG "With glog" OFF)
+option(WITH_DEBUG_SYMBOLS "With debug symbols" ON)
 
 set(WITH_GLOG_VAL "0")
 if(BRPC_WITH_GLOG)
     set(WITH_GLOG_VAL "1")
+endif()
+
+if(WITH_DEBUG_SYMBOLS)
+    set(DEBUG_SYMBOL "-g")
 endif()
 
 set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake)
@@ -52,6 +57,10 @@ if(BRPC_WITH_GLOG)
     include_directories(${GLOG_INCLUDE_PATH})
 endif()
 
+if(LEVELDB_WITH_SNAPPY)
+    find_library(SNAPPY_LIB NAMES snappy)
+endif()
+
 find_path(BRPC_INCLUDE_PATH NAMES brpc/server.h)
 find_library(BRPC_LIB NAMES libbrpc.a brpc)
 if ((NOT BRPC_INCLUDE_PATH) OR (NOT BRPC_LIB))
@@ -63,11 +72,20 @@ if (NOT PROTOBUF_PROTOC_EXECUTABLE)
     set (PROTOBUF_PROTOC_EXECUTABLE "${PROTO_LIB_DIR}/../bin/protoc")
 endif()
 
+if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+    set(OPENSSL_ROOT_DIR
+        "/usr/local/opt/openssl"    # Homebrew installed OpenSSL
+        )
+endif()
+
+include(FindOpenSSL)
+
 include_directories(
         ${GFLAGS_INCLUDE_PATH}
         ${PROTOBUF_INCLUDE_DIRS}
         ${LEVELDB_INCLUDE_PATH}
         ${BRPC_INCLUDE_PATH}
+        ${OPENSSL_INCLUDE_DIR}
         )
 
 if(BRPC_WITH_GLOG)
@@ -78,9 +96,8 @@ if(BRPC_WITH_GLOG)
         ${PROTOBUF_LIBRARY}
         ${LEVELDB_LIB}
         ${CMAKE_THREAD_LIBS_INIT}
-        rt
-        ssl
-        crypto
+        ${OPENSSL_LIBRARIES}
+        ${OPENSSL_CRYPTO_LIBRARY}
         dl
         z
         )
@@ -91,12 +108,36 @@ else()
         ${PROTOBUF_LIBRARY}
         ${LEVELDB_LIB}
         ${CMAKE_THREAD_LIBS_INIT}
-        rt
-        ssl
-        crypto
+        ${OPENSSL_LIBRARIES}
+        ${OPENSSL_CRYPTO_LIBRARY}
         dl
         z
 	)
+endif()
+
+if(LEVELDB_WITH_SNAPPY)
+    set(DYNAMIC_LIB ${DYNAMIC_LIB}
+        ${SNAPPY_LIB}
+	)
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+    set(DYNAMIC_LIB ${DYNAMIC_LIB}
+        pthread
+        "-framework CoreFoundation"
+        "-framework CoreGraphics"
+        "-framework CoreData"
+        "-framework CoreText"
+        "-framework Security"
+        "-framework Foundation"
+        "-Wl,-U,_MallocExtension_ReleaseFreeMemory"
+        "-Wl,-U,_ProfilerStart"
+        "-Wl,-U,_ProfilerStop"
+        )
+else()
+    set(DYNAMIC_LIB ${DYNAMIC_LIB}
+        rt
+        )
 endif()
 
 # for *.so
@@ -151,11 +192,19 @@ execute_process(
     OUTPUT_VARIABLE BRAFT_REVISION
 )
 
-set(CMAKE_CPP_FLAGS "${CMAKE_CPP_FLAGS} -DBRPC_WITH_GLOG=${WITH_GLOG_VAL} -DGFLAGS_NS=${GFLAGS_NS}")
+if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+    include(CheckFunctionExists)
+    CHECK_FUNCTION_EXISTS(clock_gettime HAVE_CLOCK_GETTIME)
+    if(NOT HAVE_CLOCK_GETTIME)
+        set(DEFINE_CLOCK_GETTIME "-DNO_CLOCK_GETTIME_IN_MAC")
+    endif()
+endif()
+
+set(CMAKE_CPP_FLAGS "${DEFINE_CLOCK_GETTIME} -DBRPC_WITH_GLOG=${WITH_GLOG_VAL} -DGFLAGS_NS=${GFLAGS_NS}")
 set(CMAKE_CPP_FLAGS "${CMAKE_CPP_FLAGS} -DBTHREAD_USE_FAST_PTHREAD_MUTEX -D__const__= -D_GNU_SOURCE -DUSE_SYMBOLIZE -DNO_TCMALLOC -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS -D__STDC_CONSTANT_MACROS -DBRAFT_REVISION=\\\"${BRAFT_REVISION}\\\" -D__STRICT_ANSI__")
-set(CMAKE_CPP_FLAGS "${CMAKE_CPP_FLAGS} -g ${DEBUG_SYMBOL}")
+set(CMAKE_CPP_FLAGS "${CMAKE_CPP_FLAGS} ${DEBUG_SYMBOL}")
 set(CMAKE_CPP_FLAGS "${CMAKE_CPP_FLAGS} -msse4 -msse4.2")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${CMAKE_CPP_FLAGS} -O2 -pipe -Wall -W -fPIC -fstrict-aliasing -Wno-invalid-offsetof -Wno-unused-parameter -fno-omit-frame-pointer")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${CMAKE_CPP_FLAGS} -O2 -pipe -Wall -W -fPIC -fstrict-aliasing -Wno-invalid-offsetof -Wno-unused-parameter -Wno-reserved-user-defined-literal -fno-omit-frame-pointer")
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${CMAKE_CPP_FLAGS} -O2 -pipe -Wall -W -fPIC -fstrict-aliasing -Wno-unused-parameter -fno-omit-frame-pointer")
 
 macro(use_cxx11)

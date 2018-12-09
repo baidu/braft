@@ -98,12 +98,12 @@ TEST_F(TestUsageSuits, FileSegData) {
     braft::FileSegData seg_writer;
     for (uint64_t i = 0; i < 10UL; i++) {
         char buf[1024];
-        snprintf(buf, sizeof(buf), "raw hello %lu", i);
+        snprintf(buf, sizeof(buf), "raw hello %" PRIu64, i);
         seg_writer.append(buf, 1000 * i, strlen(buf));
     }
     for (uint64_t i = 10; i < 20UL; i++) {
         char buf[1024];
-        snprintf(buf, sizeof(buf), "iobuf hello %lu", i);
+        snprintf(buf, sizeof(buf), "iobuf hello %" PRIu64, i);
         butil::IOBuf piece_buf;
         piece_buf.append(buf, strlen(buf));
         seg_writer.append(piece_buf, 1000 * i);
@@ -118,14 +118,14 @@ TEST_F(TestUsageSuits, FileSegData) {
 
         char buf[1024] = {0};
         if (index < 10) {
-            snprintf(buf, sizeof(buf), "raw hello %lu", index);
+            snprintf(buf, sizeof(buf), "raw hello %" PRIu64, index);
         } else {
-            snprintf(buf, sizeof(buf), "iobuf hello %lu", index);
+            snprintf(buf, sizeof(buf), "iobuf hello %" PRIu64, index);
         }
 
         char new_buf[1024] = {0};
         seg_data.copy_to(new_buf, strlen(buf));
-        printf("index:%lu old: %s new: %s\n", index, buf, new_buf);
+        printf("index:%" PRIu64 " old: %s new: %s\n", index, buf, new_buf);
         ASSERT_EQ(braft::murmurhash32(seg_data), braft::murmurhash32(buf, strlen(buf)));
 
         seg_data.clear();
