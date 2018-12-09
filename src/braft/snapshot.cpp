@@ -324,10 +324,15 @@ public:
                   off_t offset,
                   size_t max_count,
                   bool read_partly,
+                  size_t* read_count,
                   bool* is_eof) const {
         if (filename == BRAFT_SNAPSHOT_META_FILE) {
-            *is_eof = true;
-            return _meta_table.save_to_iobuf_as_remote(out);
+            int ret = _meta_table.save_to_iobuf_as_remote(out);
+            if (ret == 0) {
+                *read_count = out->size();
+                *is_eof = true;
+            }
+            return ret;
         }
         LocalFileMeta file_meta;
         if (_meta_table.get_file_meta(filename, &file_meta) != 0) {
@@ -349,7 +354,7 @@ public:
             }
             if (ret == 0) {
                 ret = LocalDirReader::read_file_with_meta(
-                    out, filename, &file_meta, offset, new_max_count, is_eof);
+                    out, filename, &file_meta, offset, new_max_count, read_count, is_eof);
                 used_count = out->size();
             }
             if ((ret == 0 || ret == EAGAIN) && used_count < (int64_t)new_max_count) {
@@ -359,7 +364,7 @@ public:
             return ret;
         }
         return LocalDirReader::read_file_with_meta(
-                out, filename, &file_meta, offset, new_max_count, is_eof);
+                out, filename, &file_meta, offset, new_max_count, read_count, is_eof);
     }
    
 private:

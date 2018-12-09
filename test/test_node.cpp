@@ -16,6 +16,7 @@
 #include <brpc/closure_guard.h>
 #include <bthread/bthread.h>
 #include <bthread/countdown_event.h>
+#include "braft/snapshot_throttle.h"
 #include "braft/node.h"
 #include "braft/enum.pb.h"
 #include "braft/errno.pb.h"
@@ -1573,12 +1574,12 @@ TEST_P(NodeTest, InstallSnapshot) {
     cluster.stop_all();
 }
 
-TEST_F(NodeTest, install_snapshot_exceed_max_task_num) {
+TEST_P(NodeTest, install_snapshot_exceed_max_task_num) {
     google::SetCommandLineOption("raft_max_install_snapshot_tasks_num", "1");
     std::vector<braft::PeerId> peers;
     for (int i = 0; i < 5; i++) {
         braft::PeerId peer;
-        peer.addr.ip = butil::get_host_ip();
+        peer.addr.ip = butil::my_ip();
         peer.addr.port = 5006 + i;
         peer.idx = 0;
 

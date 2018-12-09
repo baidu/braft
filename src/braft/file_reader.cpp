@@ -35,8 +35,9 @@ int LocalDirReader::read_file(butil::IOBuf* out,
                               off_t offset,
                               size_t max_count,
                               bool read_partly,
+                              size_t* read_count,
                               bool* is_eof) const {
-    return read_file_with_meta(out, filename, NULL, offset, max_count, is_eof);
+    return read_file_with_meta(out, filename, NULL, offset, max_count, read_count, is_eof);
 }
 
 int LocalDirReader::read_file_with_meta(butil::IOBuf* out,
@@ -44,6 +45,7 @@ int LocalDirReader::read_file_with_meta(butil::IOBuf* out,
                                         google::protobuf::Message* file_meta,
                                         off_t offset,
                                         size_t max_count,
+                                        size_t* read_count,
                                         bool* is_eof) const {
     out->clear();
     std::string file_path(_path + "/" + filename);
@@ -58,6 +60,7 @@ int LocalDirReader::read_file_with_meta(butil::IOBuf* out,
     if (nread < 0) {
         return EIO;
     }
+    *read_count = nread;
     *is_eof = false;
     if ((size_t)nread < max_count) {
         *is_eof = true;

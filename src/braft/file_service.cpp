@@ -57,10 +57,13 @@ void FileServiceImpl::get_file(::google::protobuf::RpcController* controller,
 
     butil::IOBuf buf;
     bool is_eof = false;
+    size_t read_count = 0;
+
     const int rc = reader->read_file(
                             &buf, request->filename(),
                             request->offset(), request->count(), 
                             request->read_partly(),
+                            &read_count,
                             &is_eof);
     if (rc != 0) {
         cntl->SetFailed(rc, "Fail to read from path=%s filename=%s : %s",
@@ -69,7 +72,7 @@ void FileServiceImpl::get_file(::google::protobuf::RpcController* controller,
     }
 
     response->set_eof(is_eof);
-    response->set_read_size(buf.size());      
+    response->set_read_size(read_count);      
     // skip empty data
     if (buf.size() == 0) {
         return;
