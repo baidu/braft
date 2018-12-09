@@ -1169,6 +1169,7 @@ int ReplicatorGroup::init(const NodeId& node_id, const ReplicatorGroupOptions& o
     _common_options.group_id = node_id.group_id;
     _common_options.server_id = node_id.peer_id;
     _common_options.snapshot_storage = options.snapshot_storage;
+    _common_options.snapshot_throttle = options.snapshot_throttle;
     return 0;
 }
 
