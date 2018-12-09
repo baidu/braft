@@ -503,8 +503,11 @@ int NodeImpl::init(const NodeOptions& options) {
     rg_options.log_manager = _log_manager;
     rg_options.ballot_box = _ballot_box;
     rg_options.node = this;
+    rg_options.snapshot_throttle = _options.snapshot_throttle
+        ? _options.snapshot_throttle->get()
+        : NULL;
     rg_options.snapshot_storage = _snapshot_executor
-        ?  _snapshot_executor->snapshot_storage()
+        ? _snapshot_executor->snapshot_storage()
         : NULL;
     _replicator_group.init(NodeId(_group_id, _server_id), rg_options);
 

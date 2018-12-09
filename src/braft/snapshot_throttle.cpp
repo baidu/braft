@@ -22,6 +22,11 @@
 
 namespace braft {
 
+DEFINE_int32(raft_max_install_snapshot_tasks_num, 1000, 
+             "Max num of install_snapshot tasks per disk at the same time");
+BRPC_VALIDATE_GFLAG(raft_max_install_snapshot_tasks_num, 
+                    brpc::PositiveInteger);
+
 ThroughputSnapshotThrottle::ThroughputSnapshotThrottle(
         int64_t throttle_throughput_bytes, int64_t check_cycle) 
     : _throttle_throughput_bytes(throttle_throughput_bytes)
@@ -64,13 +69,18 @@ size_t ThroughputSnapshotThrottle::throttled_by_throughput(int64_t bytes) {
     return available_size;
 }
 
-bool ThroughputSnapshotThrottle::add_one_more_task(const int task_num_threshold) { 
+bool ThroughputSnapshotThrottle::add_one_more_task(bool is_leader) { 
+    // Don't throttle leader, let follower do it
+    if (is_leader) {
+        return true;
+    }
+    int task_num_threshold = FLAGS_raft_max_install_snapshot_tasks_num;
     std::unique_lock<raft_mutex_t> lck(_mutex);
     int saved_task_num = _snapshot_task_num;
     if (_snapshot_task_num >= task_num_threshold) {
         lck.unlock();
-        LOG(INFO) << "Fail to add one more task when current task num is: " 
-                  << saved_task_num << ", task num threshold: " << task_num_threshold;
+        LOG(WARNING) << "Fail to add one more task when current task num is: " 
+                     << saved_task_num << ", task num threshold: " << task_num_threshold;
         return false;
     }
     saved_task_num = ++_snapshot_task_num;
@@ -80,7 +90,10 @@ bool ThroughputSnapshotThrottle::add_one_more_task(const int task_num_threshold)
     return true;
 }
 
-void ThroughputSnapshotThrottle::finish_one_task() {
+void ThroughputSnapshotThrottle::finish_one_task(bool is_leader) {
+    if (is_leader) {
+        return;
+    }
     std::unique_lock<raft_mutex_t> lck(_mutex);
     int saved_task_num = --_snapshot_task_num;
     // _snapshot_task_num should not be negative

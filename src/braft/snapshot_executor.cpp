@@ -22,11 +22,6 @@
 
 namespace braft {
 
-DEFINE_int32(raft_max_install_snapshot_tasks_num, 1000,
-            "Max num of install_snapshot tasks per disk at the same time");
-BRPC_VALIDATE_GFLAG(raft_max_install_snapshot_tasks_num,
-                    brpc::PositiveInteger);
-
 class SaveSnapshotDone : public SaveSnapshotClosure {
 public:
     SaveSnapshotDone(SnapshotExecutor* node, SnapshotWriter* writer, Closure* done);
@@ -386,14 +381,12 @@ void SnapshotExecutor::install_snapshot(brpc::Controller* cntl,
     SnapshotMeta meta = request->meta();
 
     // check if install_snapshot tasks num exceeds threshold 
-    if (_snapshot_throttle && !_snapshot_throttle->add_one_more_task(
-                          FLAGS_raft_max_install_snapshot_tasks_num)){
+    if (_snapshot_throttle && !_snapshot_throttle->add_one_more_task(false)){
         if (_node) {
             LOG(WARNING) << "node " << _node->node_id() << ' ' << noflush;
         }
-        LOG(WARNING) << "Fail to install snapshot because task num exceeds threshold: " 
-                  << FLAGS_raft_max_install_snapshot_tasks_num;
-        cntl->SetFailed(EBUSY, "Too many install_snapshot tasks now");
+        LOG(WARNING) << "Fail to install snapshot";
+        cntl->SetFailed(EBUSY, "Fail to add install_snapshot tasks now");
         return;
     }
 
@@ -412,7 +405,7 @@ void SnapshotExecutor::install_snapshot(brpc::Controller* cntl,
             done_guard.release();
         }
         if (_snapshot_throttle) {
-            _snapshot_throttle->finish_one_task();
+            _snapshot_throttle->finish_one_task(false);
         }
         return;
     }
@@ -422,7 +415,7 @@ void SnapshotExecutor::install_snapshot(brpc::Controller* cntl,
     _cur_copier->join();
     // when coping finished or canceled, more install_snapshot tasks are allowed
     if (_snapshot_throttle) {
-        _snapshot_throttle->finish_one_task();
+        _snapshot_throttle->finish_one_task(false);
     }
     return load_downloading_snapshot(ds.release(), meta);
 }

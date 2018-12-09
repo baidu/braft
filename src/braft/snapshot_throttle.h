@@ -30,8 +30,8 @@ public:
     // Get available throughput after throttled 
     // Must be thread-safe
     virtual size_t throttled_by_throughput(int64_t bytes) = 0;
-    virtual bool add_one_more_task(const int task_num_threshold) = 0;
-    virtual void finish_one_task() = 0;
+    virtual bool add_one_more_task(bool is_leader) = 0;
+    virtual void finish_one_task(bool is_leader) = 0;
     virtual int64_t get_retry_interval_ms() = 0;
 private:
     DISALLOW_COPY_AND_ASSIGN(SnapshotThrottle);
@@ -45,8 +45,8 @@ public:
     int64_t get_throughput() const { return _throttle_throughput_bytes; }
     int64_t get_cycle() const { return _check_cycle; }
     size_t throttled_by_throughput(int64_t bytes);
-    bool add_one_more_task(const int task_num_threshold);
-    void finish_one_task();
+    bool add_one_more_task(bool is_leader);
+    void finish_one_task(bool is_leader);
     int64_t get_retry_interval_ms() { return 1000 / _check_cycle + 1;}
 
 private:

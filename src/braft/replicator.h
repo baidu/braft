@@ -33,6 +33,7 @@ namespace braft {
 class LogManager;
 class BallotBox;
 class NodeImpl;
+class SnapshotThrottle;
 
 struct ReplicatorOptions {
     ReplicatorOptions();
@@ -46,6 +47,7 @@ struct ReplicatorOptions {
     NodeImpl *node;
     int64_t term;
     SnapshotStorage* snapshot_storage;
+    SnapshotThrottle* snapshot_throttle;
 };
 
 typedef uint64_t ReplicatorId;
@@ -234,6 +236,7 @@ struct ReplicatorGroupOptions {
     BallotBox* ballot_box;
     NodeImpl* node;
     SnapshotStorage* snapshot_storage;
+    SnapshotThrottle* snapshot_throttle;
 };
 
 // Maintains the replicators attached to all the followers

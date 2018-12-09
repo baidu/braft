@@ -18,15 +18,16 @@
 
 #include "braft/replicator.h"
 
-#include <gflags/gflags.h>                      // DEFINE_int32
+#include <gflags/gflags.h>                       // DEFINE_int32
 #include <butil/unique_ptr.h>                    // std::unique_ptr
 #include <butil/time.h>                          // butil::gettimeofday_us
-#include <brpc/controller.h>               // brpc::Controller
-#include <brpc/reloadable_flags.h>         // BRPC_VALIDATE_GFLAG
+#include <brpc/controller.h>                     // brpc::Controller
+#include <brpc/reloadable_flags.h>               // BRPC_VALIDATE_GFLAG
 
 #include "braft/node.h"                          // NodeImpl
-#include "braft/ballot_box.h"            // BallotBox 
+#include "braft/ballot_box.h"                    // BallotBox 
 #include "braft/log_entry.h"                     // LogEntry
+#include "braft/snapshot_throttle.h"             // SnapshotThrottle
 
 namespace braft {
 
@@ -86,6 +87,9 @@ Replicator::~Replicator() {
     if (_reader) {
         _options.snapshot_storage->close(_reader);
         _reader = NULL;
+        if (_options.snapshot_throttle) {
+            _options.snapshot_throttle->finish_one_task(true);
+        }
     }
     if (_options.node) {
         _options.node->Release();
@@ -680,8 +684,16 @@ void Replicator::_wait_more_entries() {
 
 void Replicator::_install_snapshot() {
     CHECK(!_reader);
+
+    if (_options.snapshot_throttle && !_options.snapshot_throttle->add_one_more_task(true)) {
+        return _block(butil::gettimeofday_us(), EBUSY);
+    }
+
     _reader = _options.snapshot_storage->open();
     if (!_reader){
+        if (_options.snapshot_throttle) {
+            _options.snapshot_throttle->finish_one_task(true);
+	}
         NodeImpl *node_impl = _options.node;
         node_impl->AddRef();
         CHECK_EQ(0, bthread_id_unlock(_id)) << "Fail to unlock " << _id;
@@ -755,6 +767,9 @@ void Replicator::_on_install_snapshot_returned(
     if (r->_reader) {
         r->_options.snapshot_storage->close(r->_reader);
         r->_reader = NULL;
+        if (r->_options.snapshot_throttle) {
+            r->_options.snapshot_throttle->finish_one_task(true);
+        }
     }
     std::stringstream ss;
     ss << "received InstallSnapshotResponse from "
