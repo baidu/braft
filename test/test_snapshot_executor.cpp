@@ -13,14 +13,24 @@
 
 namespace braft {
 
-static const char* SERVER_ADDR = "127.0.0.1:54321";
-
 class SnapshotExecutorTest : public testing::Test {
 protected:
     void SetUp() {
         system("rm -rf .data");
-        ASSERT_EQ(0, braft::add_service(&_server, SERVER_ADDR));
-        ASSERT_EQ(0, _server.Start(SERVER_ADDR, NULL));
+        bool server_started = false;
+        for (int i = 0; i < 10; ++i) {
+            std::stringstream addr_ss;
+            addr_ss << "127.0.0.1:" << (6500 + i);
+            if (0 != braft::add_service(&_server, addr_ss.str().c_str())) {
+                continue;
+            }
+            if (0 != _server.Start(addr_ss.str().c_str(), NULL)) {
+                continue;
+            }
+            server_started = true;
+            break;
+        }
+        ASSERT_TRUE(server_started);
     }
     void TearDown() {
         _server.Stop(0);
