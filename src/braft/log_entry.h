@@ -23,6 +23,7 @@
 #include <butil/third_party/murmurhash3/murmurhash3.h>  // fmix64
 #include "braft/configuration.h"
 #include "braft/raft.pb.h"
+#include "braft/util.h"
 
 namespace braft {
 
@@ -93,6 +94,10 @@ inline std::ostream& operator<<(std::ostream& os, const LogId& id) {
     os << "(index=" << id.index << ",term=" << id.term << ')';
     return os;
 }
+
+butil::Status parse_configuration_meta(const butil::IOBuf& data, LogEntry* entry);
+
+butil::Status serialize_configuration_meta(const LogEntry* entry, butil::IOBuf& data);
 
 }  //  namespace braft
 
