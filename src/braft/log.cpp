@@ -296,40 +296,13 @@ int Segment::load(ConfigurationManager* configuration_manager) {
             if (_load_entry(entry_off, NULL, &data, skip_len) != 0) {
                 break;
             }
-            ConfigurationPBMeta meta;
-            butil::IOBufAsZeroCopyInputStream wrapper(data);
-            if (!meta.ParseFromZeroCopyStream(&wrapper)) {
-                LOG(WARNING) << "Fail to parse ConfigurationPBMeta";
-                ret = -1;
-                break;
-            }
-            bool meta_ok = true;
-            std::vector<PeerId> peers;
-            for (int j = 0; j < meta.peers_size(); ++j) {
-                PeerId peer_id;
-                if (peer_id.parse(meta.peers(j)) != 0) {
-                    LOG(ERROR) << "Fail to parse " << meta.peers(j);
-                    meta_ok = false;
-                    break;
-                }
-                peers.push_back(peer_id);
-            }
-            std::vector<PeerId> old_peers;
-            for (int j = 0; j < meta.old_peers_size(); ++j) {
-                PeerId peer_id;
-                if (peer_id.parse(meta.old_peers(j)) != 0) {
-                    LOG(ERROR) << "Fail to parse " << meta.peers(j);
-                    meta_ok = false;
-                    break;
-                }
-                old_peers.push_back(peer_id);
-            }
-            ConfigurationEntry conf_entry;
-            conf_entry.id = LogId(i, header.term);
-            conf_entry.conf = peers;
-            conf_entry.old_conf = old_peers;
-            if (meta_ok) {
-                configuration_manager->add(conf_entry);
+            scoped_refptr<LogEntry> entry = new LogEntry();
+            entry->id.index = i;
+            entry->id.term = header.term;
+            butil::Status status = parse_configuration_meta(data, entry);
+            if (status.ok()) {
+                ConfigurationEntry conf_entry(*entry);
+                configuration_manager->add(conf_entry); 
             } else {
                 ret = -1;
                 break;
@@ -376,21 +349,13 @@ int Segment::append(const LogEntry* entry) {
         break;
     case ENTRY_TYPE_NO_OP:
         break;
-    case ENTRY_TYPE_CONFIGURATION: {
-            ConfigurationPBMeta meta;
-            const std::vector<PeerId>& peers = *(entry->peers);
-            for (size_t i = 0; i < peers.size(); i++) {
-                meta.add_peers(peers[i].to_string());
-            }
-            if (entry->old_peers) {
-                for (size_t i = 0; i < entry->old_peers->size(); ++i) {
-                    meta.add_old_peers((*(entry->old_peers))[i].to_string());
-                }
-            }
-            butil::IOBufAsZeroCopyOutputStream wrapper(&data);
-            if (!meta.SerializeToZeroCopyStream(&wrapper)) {
-                LOG(ERROR) << "Fail to serialize ConfigurationPBMeta";
-                return -1;
+    case ENTRY_TYPE_CONFIGURATION: 
+        {
+            butil::Status status = serialize_configuration_meta(entry, data);
+            if (!status.ok()) {
+                LOG(ERROR) << "Fail to serialize ConfigurationPBMeta, path: " 
+                    << _path;
+                return -1; 
             }
         }
         break;
@@ -475,21 +440,12 @@ LogEntry* Segment::get(const int64_t index) const {
             break;
         case ENTRY_TYPE_CONFIGURATION:
             {
-                butil::IOBufAsZeroCopyInputStream wrapper(data);
-                if (!configuration_meta.ParseFromZeroCopyStream(&wrapper)) {
+                butil::Status status = parse_configuration_meta(data, entry); 
+                if (!status.ok()) {
+                    LOG(WARNING) << "Fail to parse ConfigurationPBMeta, path: "
+                                 << _path;
                     ok = false;
                     break;
-                }
-                entry->peers = new std::vector<PeerId>;
-                for (int i = 0; i < configuration_meta.peers_size(); i++) {
-                    entry->peers->push_back(PeerId(configuration_meta.peers(i)));
-                }
-                if (configuration_meta.old_peers_size() > 0) {
-                    entry->old_peers = new std::vector<PeerId>;
-                    for (int i = 0; i < configuration_meta.old_peers_size(); i++) {
-                        entry->old_peers->push_back(
-                                PeerId(configuration_meta.old_peers(i)));
-                    }
                 }
             }
             break;

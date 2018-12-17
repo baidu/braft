@@ -414,13 +414,8 @@ void LogManager::append_entries(
         // Add ref for disk_thread
         (*entries)[i]->AddRef();
         if ((*entries)[i]->type == ENTRY_TYPE_CONFIGURATION) {
-            ConfigurationEntry conf;
-            conf.id = (*entries)[i]->id;
-            conf.conf = *((*entries)[i]->peers);
-            if (((*entries)[i]->old_peers)) {
-                conf.old_conf = *((*entries)[i]->old_peers);
-            }
-            _config_manager->add(conf);
+            ConfigurationEntry conf_entry(*((*entries)[i]));
+            _config_manager->add(conf_entry);
         }
     }
 

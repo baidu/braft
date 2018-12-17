@@ -26,6 +26,16 @@ struct ConfigurationEntry {
     LogId id;
     Configuration conf;
     Configuration old_conf;
+
+    ConfigurationEntry() {}
+    ConfigurationEntry(const LogEntry& entry) {
+        id = entry.id;
+        conf = *(entry.peers);
+        if (entry.old_peers) {
+            old_conf = *(entry.old_peers);
+        }
+    }
+
     bool stable() const { return old_conf.empty(); }
     bool empty() const { return conf.empty(); }
     void list_peers(std::set<PeerId>* peers) {
