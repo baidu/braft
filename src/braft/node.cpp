@@ -2303,6 +2303,7 @@ void NodeImpl::describe(std::ostream& os, bool use_html) {
     const int64_t leader_timestamp = _last_leader_timestamp;
     lck.unlock();
     const char *newline = use_html ? "<br>" : "\r\n";
+    os << "peer_id: " << _server_id << newline;
     os << "state: " << state2str(st) << newline;
     os << "term: " << term << newline;
     os << "conf_index: " << conf_index << newline;
