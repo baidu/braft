@@ -40,7 +40,7 @@ DEFINE_int32(raft_max_election_delay_ms, 1000,
                      "Max election delay time allowed by user");
 BRPC_VALIDATE_GFLAG(raft_max_election_delay_ms, brpc::PositiveInteger);
 
-DEFINE_bool(raft_step_down_when_vote_timedout, false, 
+DEFINE_bool(raft_step_down_when_vote_timedout, true, 
             "candidate steps down when reaching timeout");
 BRPC_VALIDATE_GFLAG(raft_step_down_when_vote_timedout, brpc::PassValidate);
 
