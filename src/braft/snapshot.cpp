@@ -340,15 +340,13 @@ public:
             return EPERM;
         }
 
-        // FIX: not such file or directory
-        // filename is a string like './raft/raft_snapshot/temp/block-17931339458560001'
-        // but in function read_file_with_meta, std::string file_path(_path + "/" + filename);
-        // _path is a string like './raft/raft_snapshot/snapshot_00000000000000000797'
+        // maybe filename and _path have the same parent directory
+        auto file_name(filename);
         auto pos = LocalDirReader::path().rfind('/');
         if (pos != std::string::npos) {
             auto parent = LocalDirReader::path().substr(0, pos + 1);
             if (filename.find(parent) == 0) {
-                filename = filename.substr(parent.size());
+                file_name = filename.substr(parent.size());
             }
         }
 
@@ -367,7 +365,7 @@ public:
                 }
             }
             if (ret == 0) {
-                ret = LocalDirReader::read_file_with_meta(out, filename,
+                ret = LocalDirReader::read_file_with_meta(out, file_name,
                     &file_meta, offset, new_max_count, read_count, is_eof);
                 used_count = out->size();
             }
@@ -377,7 +375,7 @@ public:
             }
             return ret;
         }
-        return LocalDirReader::read_file_with_meta(out, filename,
+        return LocalDirReader::read_file_with_meta(out, file_name,
             &file_meta, offset, new_max_count, read_count, is_eof);
     }
    
