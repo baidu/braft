@@ -344,7 +344,13 @@ public:
         // filename is a string like './raft/raft_snapshot/temp/block-17931339458560001'
         // but in function read_file_with_meta, std::string file_path(_path + "/" + filename);
         // _path is a string like './raft/raft_snapshot/snapshot_00000000000000000797'
-        auto pos = filename.rfind('/');
+        auto pos = LocalDirReader::path().rfind('/');
+        if (pos != std::string::npos) {
+            auto parent = LocalDirReader::path().substr(0, pos + 1);
+            if (filename.find(parent) == 0) {
+                filename = filename.substr(parent.size());
+            }
+        }
 
         // go through throttle
         size_t new_max_count = max_count;
@@ -361,8 +367,7 @@ public:
                 }
             }
             if (ret == 0) {
-                ret = LocalDirReader::read_file_with_meta(
-                    out, (pos != std::string::npos) ? filename.substr(pos + 1) : filename,
+                ret = LocalDirReader::read_file_with_meta(out, filename,
                     &file_meta, offset, new_max_count, read_count, is_eof);
                 used_count = out->size();
             }
@@ -372,8 +377,7 @@ public:
             }
             return ret;
         }
-        return LocalDirReader::read_file_with_meta(
-            out, (pos != std::string::npos) ? filename.substr(pos + 1) : filename,
+        return LocalDirReader::read_file_with_meta(out, filename,
             &file_meta, offset, new_max_count, read_count, is_eof);
     }
    
