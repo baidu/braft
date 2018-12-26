@@ -339,6 +339,13 @@ public:
         if (_meta_table.get_file_meta(filename, &file_meta) != 0) {
             return EPERM;
         }
+
+        // FIX: not such file or directory
+        // filename is a string like './raft/raft_snapshot/temp/block-17931339458560001'
+        // but in function read_file_with_meta, std::string file_path(_path + "/" + filename);
+        // _path is a string like './raft/raft_snapshot/snapshot_00000000000000000797'
+        auto pos = filename.rfind('/');
+
         // go through throttle
         size_t new_max_count = max_count;
         if (_snapshot_throttle && FLAGS_raft_enable_throttle_when_install_snapshot) {
@@ -355,7 +362,8 @@ public:
             }
             if (ret == 0) {
                 ret = LocalDirReader::read_file_with_meta(
-                    out, filename, &file_meta, offset, new_max_count, read_count, is_eof);
+                    out, (pos != std::string::npos) ? filename.substr(pos + 1) : filename,
+                    &file_meta, offset, new_max_count, read_count, is_eof);
                 used_count = out->size();
             }
             if ((ret == 0 || ret == EAGAIN) && used_count < (int64_t)new_max_count) {
@@ -365,7 +373,8 @@ public:
             return ret;
         }
         return LocalDirReader::read_file_with_meta(
-                out, filename, &file_meta, offset, new_max_count, read_count, is_eof);
+            out, (pos != std::string::npos) ? filename.substr(pos + 1) : filename,
+            &file_meta, offset, new_max_count, read_count, is_eof);
     }
    
 private:
