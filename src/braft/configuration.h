@@ -31,7 +31,6 @@
 namespace braft {
 
 typedef std::string GroupId;
-typedef int ReplicaId;
 
 // Represent a participant in a replicating group.
 struct PeerId {
