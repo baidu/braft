@@ -168,6 +168,7 @@ public:
 
 private:
 friend class FetchAddClosure;
+butil::AtExitManager at_exit_;
 
     void redirect(CounterResponse* response) {
         response->set_success(false);
@@ -350,6 +351,7 @@ private:
 
 int main(int argc, char* argv[]) {
     GFLAGS_NS::ParseCommandLineFlags(&argc, &argv, true);
+    butil::AtExitManager at_exit_;
 
     // Generally you only need one Server.
     brpc::Server server;
