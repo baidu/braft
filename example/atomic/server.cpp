@@ -152,6 +152,7 @@ public:
 
 private:
 friend class AtomicClosure;
+butil::AtExitManager at_exit_;
 
     void apply(AtomicOpType type, const google::protobuf::Message* request,
                AtomicResponse* response, google::protobuf::Closure* done) {

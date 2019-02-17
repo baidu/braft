@@ -238,6 +238,7 @@ private:
         return _fd;
     }
 friend class BlockClosure;
+butil::AtExitManager at_exit_;
 
     void redirect(BlockResponse* response) {
         response->set_success(false);
