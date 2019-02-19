@@ -102,6 +102,7 @@ static void* sender(void* arg) {
 
 int main(int argc, char* argv[]) {
     GFLAGS_NS::ParseCommandLineFlags(&argc, &argv, true);
+    butil::AtExitManager exit_manager;
 
     // Register configuration of target group to RouteTable
     if (braft::rtb::update_configuration(FLAGS_group, FLAGS_conf) != 0) {
