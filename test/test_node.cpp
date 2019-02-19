@@ -497,6 +497,8 @@ protected:
             ASSERT_EQ(0, braft::g_num_nodes.get_value());
         }
     }
+private:
+    butil::ShadowingAtExitManager exit_manager_;
 };
 
 TEST_P(NodeTest, InitShutdown) {
