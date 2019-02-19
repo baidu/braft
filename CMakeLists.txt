@@ -1,6 +1,11 @@
 cmake_minimum_required(VERSION 2.8.10)
 project(braft C CXX)
 
+SET(CPACK_GENERATOR "DEB")
+SET(CPACK_DEBIAN_PACKAGE_MAINTAINER "braft authors") #required
+
+INCLUDE(CPack)
+
 #option(EXAMPLE_LINK_SO "Whether examples are linked dynamically" OFF)
 option(BRPC_WITH_GLOG "With glog" OFF)
 option(WITH_DEBUG_SYMBOLS "With debug symbols" ON)
