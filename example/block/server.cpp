@@ -466,6 +466,7 @@ private:
 
 int main(int argc, char* argv[]) {
     GFLAGS_NS::ParseCommandLineFlags(&argc, &argv, true);
+    butil::AtExitManager exit_manager;
 
     // Generally you only need one Server.
     brpc::Server server;
