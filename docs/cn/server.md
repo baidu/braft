@@ -26,7 +26,7 @@ int add_service(brpc::Server* server, const char* const butil::EndPoint& listen_
 - **调用这些接口之前不要启动server， 否则相关的Service将无法加入到这个server中. 导致调用失败.**
 - **启动这个server的端口需要和add_service传入的端口一致， 不然会导致这个节点无法正常收发RPC请求.**
 
-#实现业务状态机
+# 实现业务状态机
 
 你需要继承braft::StateMachine并且实现里面的接口
 
