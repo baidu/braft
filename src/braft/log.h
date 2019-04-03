@@ -202,6 +202,7 @@ private:
     int load_meta();
     int list_segments(bool is_empty);
     int load_segments(ConfigurationManager* configuration_manager);
+    int check_segments();
     int get_segment(int64_t log_index, scoped_refptr<Segment>* ptr);
     void pop_segments(
             int64_t first_index_kept, 

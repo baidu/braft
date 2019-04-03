@@ -271,6 +271,7 @@ int Segment::load(ConfigurationManager* configuration_manager) {
     // load entry index
     int64_t file_size = st_buf.st_size;
     int64_t entry_off = 0;
+    int64_t last_index = _first_index - 1;
     for (int64_t i = _first_index; entry_off < file_size; i++) {
         EntryHeader header;
         const int rc = _load_entry(entry_off, &header, NULL, ENTRY_HEADER_SIZE);
@@ -309,19 +310,42 @@ int Segment::load(ConfigurationManager* configuration_manager) {
             }
         }
         _offset_and_term.push_back(std::make_pair(entry_off, header.term));
-        if (_is_open) {
-            ++_last_index;
-        }
+        ++last_index;
         entry_off += skip_len;
     }
+    if (ret != 0) {
+        return ret;
+    }
+    CHECK(last_index - _first_index + 1 == (int64_t)_offset_and_term.size())
+        << "last_index - first_index + 1=" << last_index - _first_index + 1
+        << " != _offset_and_term size=" << _offset_and_term.size();
 
     // truncate last uncompleted entry
-    if (ret == 0 && entry_off != file_size) {
+    if (entry_off != file_size) {
         LOG(INFO) << "truncate last uncompleted write entry, path: " << _path
             << " first_index: " << _first_index
             << " old_size: " << file_size << " new_size: " << entry_off;
         ret = ftruncate_uninterrupted(_fd, entry_off);
+        if (ret != 0) {
+            return ret;
+        }
     }
+
+    if (!_is_open && _last_index.load() != last_index) {
+        std::string new_path(_path);
+        butil::string_appendf(&new_path, "/" BRAFT_SEGMENT_CLOSED_PATTERN,
+                              _first_index, last_index);
+
+        ret = ::rename(path.c_str(), new_path.c_str());
+        LOG_IF(INFO, ret == 0) << "Renamed `" << path << "' to `"
+                               << new_path << '\'';
+        LOG_IF(ERROR, ret != 0) << "Fail to rename `" << path << "' to `"
+                                << new_path << "', " << berror();
+        if (ret != 0) {
+            return ret;
+        }
+    }
+    _last_index.store(last_index, butil::memory_order_relaxed);
 
     // seek to end, for opening segment
     ::lseek(_fd, entry_off, SEEK_SET);
@@ -502,9 +526,9 @@ int Segment::close(bool will_sync) {
         const int rc = ::rename(old_path.c_str(), new_path.c_str());
         LOG_IF(INFO, rc == 0) << "Renamed `" << old_path
                               << "' to `" << new_path <<'\'';
-        LOG_IF(INFO, rc != 0) << "Fail to rename `" << old_path
-                              << "' to `" << new_path <<"\', "
-                              << berror();
+        LOG_IF(ERROR, rc != 0) << "Fail to rename `" << old_path
+                               << "' to `" << new_path <<"\', "
+                               << berror();
         return rc;
     }
     return ret;
@@ -605,6 +629,9 @@ int Segment::truncate(const int64_t last_index_kept) {
                                << new_path << '\'';
         LOG_IF(ERROR, ret != 0) << "Fail to rename `" << old_path << "' to `"
                                 << new_path << "', " << berror();
+        if (ret != 0) {
+            return ret;
+        }
     }
 
     lck.lock();
@@ -649,6 +676,11 @@ int SegmentLogStorage::init(ConfigurationManager* configuration_manager) {
         }
 
         ret = load_segments(configuration_manager);
+        if (ret != 0) {
+            break;
+        }
+
+        ret = check_segments();
         if (ret != 0) {
             break;
         }
@@ -828,6 +860,15 @@ int SegmentLogStorage::truncate_suffix(const int64_t last_index_kept) {
     std::vector<scoped_refptr<Segment> > popped;
     scoped_refptr<Segment> last_segment;
     pop_segments_from_back(last_index_kept, &popped, &last_segment);
+    // the truncate suffix order is crucial to satisfy log matching property of raft
+    // log must be truncated from back to front
+    for (size_t i = 0; i < popped.size(); ++i) {
+        int ret = popped[i]->unlink();
+        if (ret != 0) {
+            return ret;
+        }
+        popped[i] = NULL;
+    }
     if (last_segment) {
         if (_first_log_index.load(butil::memory_order_relaxed) <=
             _last_log_index.load(butil::memory_order_relaxed)) {
@@ -845,10 +886,6 @@ int SegmentLogStorage::truncate_suffix(const int64_t last_index_kept) {
                 _open_segment = NULL;
             }
         }
-    }
-    for (size_t i = 0; i < popped.size(); ++i) {
-        popped[i]->unlink();
-        popped[i] = NULL;
     }
     return 0;
 }
@@ -894,7 +931,7 @@ int SegmentLogStorage::list_segments(bool is_empty) {
 
     // restore segment meta
     while (dir_reader.Next()) {
-        // unlink unneed segments and unfinished unlinked segments
+        // unlink unneeded segments and unfinished unlinked segments
         if ((is_empty && 0 == strncmp(dir_reader.name(), "log_", strlen("log_"))) ||
             (0 == strncmp(dir_reader.name() + (strlen(dir_reader.name()) - strlen(".tmp")),
                           ".tmp", strlen(".tmp")))) {
@@ -937,7 +974,54 @@ int SegmentLogStorage::list_segments(bool is_empty) {
             }
         }
     }
+    return 0;
+}
 
+int SegmentLogStorage::load_segments(ConfigurationManager* configuration_manager) {
+    int ret = 0;
+
+    // closed segments
+    SegmentMap::iterator it;
+    for (it = _segments.begin(); it != _segments.end(); ++it) {
+        Segment* segment = it->second.get();
+        LOG(INFO) << "load closed segment, path: " << _path
+            << " first_index: " << segment->first_index()
+            << " last_index: " << segment->last_index();
+        ret = segment->load(configuration_manager);
+        if (ret != 0) {
+            return ret;
+        }
+        _last_log_index.store(segment->last_index(), butil::memory_order_release);
+    }
+
+    // open segment
+    if (_open_segment) {
+        LOG(INFO) << "load open segment, path: " << _path
+            << " first_index: " << _open_segment->first_index();
+        ret = _open_segment->load(configuration_manager);
+        if (ret != 0) {
+            return ret;
+        }
+        if (_first_log_index.load() > _open_segment->last_index()) {
+            LOG(WARNING) << "open segment need discard, path: " << _path
+                << " first_log_index: " << _first_log_index.load()
+                << " first_index: " << _open_segment->first_index()
+                << " last_index: " << _open_segment->last_index();
+            _open_segment->unlink();
+            _open_segment = NULL;
+        } else {
+            _last_log_index.store(_open_segment->last_index(), 
+                                 butil::memory_order_release);
+        }
+    }
+    if (_last_log_index == 0) {
+        _last_log_index = _first_log_index - 1;
+    }
+    return 0;
+}
+
+int SegmentLogStorage::check_segments()
+{
     // check segment
     int64_t last_log_index = -1;
     SegmentMap::iterator it;
@@ -990,49 +1074,6 @@ int SegmentLogStorage::list_segments(bool is_empty) {
         CHECK_LE(last_log_index, _open_segment->last_index());
     }
 
-    return 0;
-}
-
-int SegmentLogStorage::load_segments(ConfigurationManager* configuration_manager) {
-    int ret = 0;
-
-    // closed segments
-    SegmentMap::iterator it;
-    for (it = _segments.begin(); it != _segments.end(); ++it) {
-        Segment* segment = it->second.get();
-        LOG(INFO) << "load closed segment, path: " << _path
-            << " first_index: " << segment->first_index()
-            << " last_index: " << segment->last_index();
-        ret = segment->load(configuration_manager);
-        if (ret != 0) {
-            return ret;
-        } 
-        _last_log_index.store(segment->last_index(), butil::memory_order_release);
-    }
-
-    // open segment
-    if (_open_segment) {
-        LOG(INFO) << "load open segment, path: " << _path
-            << " first_index: " << _open_segment->first_index();
-        ret = _open_segment->load(configuration_manager);
-        if (ret != 0) {
-            return ret;
-        }
-        if (_first_log_index.load() > _open_segment->last_index()) {
-            LOG(WARNING) << "open segment need discard, path: " << _path
-                << " first_log_index: " << _first_log_index.load()
-                << " first_index: " << _open_segment->first_index()
-                << " last_index: " << _open_segment->last_index();
-            _open_segment->unlink();
-            _open_segment = NULL;
-        } else {
-            _last_log_index.store(_open_segment->last_index(), 
-                                 butil::memory_order_release);
-        }
-    }
-    if (_last_log_index == 0) {
-        _last_log_index = _first_log_index - 1;
-    }
     return 0;
 }
 
