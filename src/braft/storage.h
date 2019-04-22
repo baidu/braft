@@ -42,6 +42,29 @@ DECLARE_bool(raft_create_parent_directories);
 
 struct LogEntry;
 
+struct IOMetric {
+public:
+    IOMetric() 
+        : start_time_us(butil::cpuwide_time_us())
+        , bthread_queue_time_us(0)
+        , open_segment_time_us(0)
+        , append_entry_time_us(0)
+        , sync_segment_time_us(0) {}
+
+    int64_t start_time_us;
+    int64_t bthread_queue_time_us;
+    int64_t open_segment_time_us;
+    int64_t append_entry_time_us;
+    int64_t sync_segment_time_us;
+};
+
+inline std::ostream& operator<<(std::ostream& os, const IOMetric& m) {
+    return os << "bthread_queue_time_us: " << m.bthread_queue_time_us
+              << " open_segment_time_us: " << m.open_segment_time_us 
+              << " append_entry_time_us: " << m.append_entry_time_us
+              << " sync_segment_time_us: " << m.sync_segment_time_us;
+}
+
 class LogStorage {
 public:
     virtual ~LogStorage() {}
@@ -64,8 +87,8 @@ public:
     // append entries to log
     virtual int append_entry(const LogEntry* entry) = 0;
 
-    // append entries to log, return append success number
-    virtual int append_entries(const std::vector<LogEntry*>& entries) = 0;
+    // append entries to log and update IOMetric, return append success number 
+    virtual int append_entries(const std::vector<LogEntry*>& entries, IOMetric* metric) = 0;
 
     // delete logs from storage's head, [first_log_index, first_index_kept) will be discarded
     virtual int truncate_prefix(const int64_t first_index_kept) = 0;

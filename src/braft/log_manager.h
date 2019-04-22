@@ -27,6 +27,7 @@
 #include "braft/util.h"                          // raft_mutex_t
 #include "braft/log_entry.h"                     // LogEntry
 #include "braft/configuration_manager.h"         // ConfigurationManager
+#include "braft/storage.h"                       // Storage
 
 namespace braft {
 
@@ -59,8 +60,10 @@ public:
     class StableClosure : public Closure {
     public:
         StableClosure() : _first_log_index(0) {}
+        void update_metric(IOMetric* metric);
     protected:
         int64_t _first_log_index;
+        IOMetric metric;
     private:
     friend class LogManager;
     friend class AppendBatcher;
@@ -154,7 +157,7 @@ friend class AppendBatcher;
         int error_code;
     };
 
-    void append_to_storage(std::vector<LogEntry*>* to_append, LogId* last_id);
+    void append_to_storage(std::vector<LogEntry*>* to_append, LogId* last_id, IOMetric* metric);
 
     static int disk_thread(void* meta,
                            bthread::TaskIterator<StableClosure*>& iter);

@@ -48,6 +48,12 @@ static bvar::LatencyRecorder g_nomralized_append_entries_latency(
 static bvar::CounterRecorder g_storage_flush_batch_counter(
                                         "raft_storage_flush_batch_counter");
 
+void LogManager::StableClosure::update_metric(IOMetric* m) {
+    metric.open_segment_time_us = m->open_segment_time_us;
+    metric.append_entry_time_us = m->append_entry_time_us;
+    metric.sync_segment_time_us = m->sync_segment_time_us;
+}
+
 LogManagerOptions::LogManagerOptions()
     : log_storage(NULL)
     , configuration_manager(NULL)
@@ -436,7 +442,7 @@ void LogManager::append_entries(
 }
 
 void LogManager::append_to_storage(std::vector<LogEntry*>* to_append, 
-                                   LogId* last_id) {
+                                   LogId* last_id, IOMetric* metric) {
     if (!_has_error.load(butil::memory_order_relaxed)) {
         size_t written_size = 0;
         for (size_t i = 0; i < to_append->size(); ++i) {
@@ -444,7 +450,7 @@ void LogManager::append_to_storage(std::vector<LogEntry*>* to_append,
         }
         butil::Timer timer;
         timer.start();
-        int nappent = _log_storage->append_entries(*to_append);
+        int nappent = _log_storage->append_entries(*to_append, metric);
         timer.stop();
         if (nappent != (int)to_append->size()) {
             // FIXME
@@ -487,7 +493,8 @@ public:
 
     void flush() {
         if (_size > 0) {
-            _lm->append_to_storage(&_to_append, _last_id);
+            IOMetric metric;
+            _lm->append_to_storage(&_to_append, _last_id, &metric);
             g_storage_flush_batch_counter << _size;
             for (size_t i = 0; i < _size; ++i) {
                 _storage[i]->_entries.clear();
@@ -495,6 +502,7 @@ public:
                     _storage[i]->status().set_error(
                             EIO, "Corrupted LogStorage");
                 }
+                _storage[i]->update_metric(&metric);
                 _storage[i]->Run();
             }
             _to_append.clear();
@@ -541,6 +549,8 @@ int LogManager::disk_thread(void* meta,
                 // ^^^ Must iterate to the end to release to corresponding
                 //     even if some error has ocurred
         StableClosure* done = *iter;
+        done->metric.bthread_queue_time_us = butil::cpuwide_time_us() - 
+                                            done->metric.bthread_queue_time_us;
         if (!done->_entries.empty()) {
             ab.append(done);
         } else {

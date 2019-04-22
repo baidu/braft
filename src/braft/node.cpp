@@ -53,6 +53,14 @@ DEFINE_int32(raft_max_append_entries_cache_size, 8,
             "the max size of out-of-order append entries cache");
 BRPC_VALIDATE_GFLAG(raft_max_append_entries_cache_size, ::brpc::PositiveInteger);
 
+DEFINE_int64(raft_append_entry_high_lat_us, 1000 * 1000,
+             "append entry high latency ms");
+BRPC_VALIDATE_GFLAG(raft_append_entry_high_lat_us, brpc::PositiveInteger);
+
+DEFINE_bool(raft_trace_append_entry_latency, false,
+             "trace append entry latency");
+BRPC_VALIDATE_GFLAG(raft_trace_append_entry_latency, brpc::PassValidate);
+
 #ifndef UNIT_TEST
 static bvar::Adder<int64_t> g_num_nodes("raft_node_count");
 #else
@@ -1713,6 +1721,18 @@ void LeaderStableClosure::Run() {
             _ballot_box->commit_at(
                     _first_log_index, _first_log_index + _nentries - 1, _node_id.peer_id);
         }
+        int64_t now = butil::cpuwide_time_us();
+        if (FLAGS_raft_trace_append_entry_latency && 
+            now - metric.start_time_us > (int64_t)FLAGS_raft_append_entry_high_lat_us) {
+            LOG(WARNING) << "leader append entry latency us " << (now - metric.start_time_us) 
+                         << " greater than " 
+                         << FLAGS_raft_append_entry_high_lat_us
+                         << metric
+                         << " node " << _node_id
+                         << " log_index [" << _first_log_index 
+                         << ", " << _first_log_index + _nentries - 1
+                         << "]";
+        }
     } else {
         LOG(ERROR) << "node " << _node_id << " append [" << _first_log_index << ", "
                    << _first_log_index + _nentries - 1 << "] failed";
@@ -2011,6 +2031,18 @@ private:
                         );
         //_ballot_box is thread safe and tolerats disorder.
         _node->_ballot_box->set_last_committed_index(committed_index);
+        int64_t now = butil::cpuwide_time_us();
+        if (FLAGS_raft_trace_append_entry_latency && now - metric.start_time_us > 
+                (int64_t)FLAGS_raft_append_entry_high_lat_us) {
+            LOG(WARNING) << "follower append entry latency us " << (now - metric.start_time_us) 
+                         << " greater than " 
+                         << FLAGS_raft_append_entry_high_lat_us
+                         << metric
+                         << " node " << _node->node_id()
+                         << " log_index [" << _request->prev_log_index() + 1 
+                         << ", " << _request->prev_log_index() + _request->entries_size() - 1
+                         << "]";
+        }
     }
 
     brpc::Controller* _cntl;

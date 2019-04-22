@@ -64,7 +64,7 @@ TEST_F(StorageTest, extra_space_should_be_trimmed) {
     entry->type = braft::ENTRY_TYPE_DATA;
     std::vector<braft::LogEntry*> entries;
     entries.push_back(entry);
-    ASSERT_EQ(1u, log_storage->append_entries(entries));
+    ASSERT_EQ(1u, log_storage->append_entries(entries, NULL));
     entry->Release();
     delete log_storage;
 

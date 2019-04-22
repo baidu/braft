@@ -49,6 +49,9 @@ DEFINE_int32(raft_retry_replicate_interval_ms, 1000,
 BRPC_VALIDATE_GFLAG(raft_retry_replicate_interval_ms,
                     brpc::PositiveInteger);
 
+DECLARE_int64(raft_append_entry_high_lat_us);
+DECLARE_bool(raft_trace_append_entry_latency);
+
 static bvar::LatencyRecorder g_send_entries_latency("raft_send_entries");
 static bvar::LatencyRecorder g_normalized_send_entries_latency(
              "raft_send_entries_normalized");
@@ -489,6 +492,18 @@ void Replicator::_on_rpc_returned(ReplicatorId id, brpc::Controller* cntl,
         r->_options.ballot_box->commit_at(
                 min_flying_index, rpc_last_log_index,
                 r->_options.peer_id);
+        int64_t rpc_latency_us = cntl->latency_us();
+        if (FLAGS_raft_trace_append_entry_latency && 
+            rpc_latency_us > FLAGS_raft_append_entry_high_lat_us) {
+            LOG(WARNING) << "append entry rpc latency us " << rpc_latency_us
+                         << " greater than " 
+                         << FLAGS_raft_append_entry_high_lat_us
+                         << " Group " << r->_options.group_id
+                         << " to peer  " << r->_options.peer_id
+                         << " request entry size " << entries_size
+                         << " request data size " 
+                         <<  cntl->request_attachment().size();
+        }
         g_send_entries_latency << cntl->latency_us();
         if (cntl->request_attachment().size() > 0) {
             g_normalized_send_entries_latency << 

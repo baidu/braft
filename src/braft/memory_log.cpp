@@ -71,7 +71,8 @@ int MemoryLogStorage::append_entry(const LogEntry* input_entry) {
     return 0;
 }
 
-int MemoryLogStorage::append_entries(const std::vector<LogEntry*>& entries) {
+int MemoryLogStorage::append_entries(const std::vector<LogEntry*>& entries, 
+                                     IOMetric* metric) {
     if (entries.empty()) {
         return 0;
     }
