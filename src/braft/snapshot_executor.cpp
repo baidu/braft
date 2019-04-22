@@ -130,7 +130,7 @@ void SnapshotExecutor::do_snapshot(Closure* done) {
     if (_saving_snapshot) {
         lck.unlock();
         if (done) {
-            done->status().set_error(EBUSY, "Is saving anther snapshot");
+            done->status().set_error(EBUSY, "Is saving another snapshot");
             run_closure_in_bthread(done, _usercode_in_pthread);
         }
         return;
@@ -338,7 +338,7 @@ int SnapshotExecutor::init(const SnapshotExecutorOptions& options) {
         _snapshot_storage->set_file_system_adaptor(options.file_system_adaptor);
     }
     if (options.snapshot_throttle) {
-	_snapshot_throttle = options.snapshot_throttle;
+        _snapshot_throttle = options.snapshot_throttle;
         _snapshot_storage->set_snapshot_throttle(options.snapshot_throttle);
     }
     if (_snapshot_storage->init() != 0) {
