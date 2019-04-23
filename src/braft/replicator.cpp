@@ -142,6 +142,14 @@ int Replicator::start(const ReplicatorOptions& options, ReplicatorId *id) {
 
 int Replicator::stop(ReplicatorId id) {
     bthread_id_t dummy_id = { id };
+    Replicator* r = NULL;
+    // already stopped
+    if (bthread_id_lock(dummy_id, (void**)&r) != 0) {
+        return 0;
+    }
+    // to run _catchup_closure if it is not NULL
+    r->_notify_on_caught_up(EPERM, true);
+    CHECK_EQ(0, bthread_id_unlock(dummy_id)) << "Fail to unlock " << dummy_id;
     return bthread_id_error(dummy_id, ESTOP);
 }
 
@@ -836,9 +844,9 @@ void Replicator::_notify_on_caught_up(int error_code, bool before_destroy) {
         return;
     }
     if (error_code != ETIMEDOUT && error_code != EPERM) {
-	if (!_is_catchup(_catchup_closure->_max_margin)) {
+        if (!_is_catchup(_catchup_closure->_max_margin)) {
             return;
-	}
+        }
         if (_catchup_closure->_error_was_set) {
             return;
         }
@@ -853,7 +861,7 @@ void Replicator::_notify_on_caught_up(int error_code, bool before_destroy) {
                 return;
             }
         }
-    } else { // Timed out
+    } else { // Timed out or leader step_down
         if (!_catchup_closure->_error_was_set) {
             _catchup_closure->status().set_error(error_code, "%s", berror(error_code));
         }
@@ -929,6 +937,7 @@ void Replicator::_on_catch_up_timedout(void* arg) {
     bthread_id_t id = { (uint64_t)arg };
     Replicator* r = NULL;
     if (bthread_id_lock(id, (void**)&r) != 0) {
+        LOG(WARNING) << "Replicator is destroyed when catch_up_timedout.";
         return;
     }
     r->_notify_on_caught_up(ETIMEDOUT, false);

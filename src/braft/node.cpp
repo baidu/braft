@@ -643,10 +643,14 @@ private:
 void NodeImpl::on_caughtup(const PeerId& peer, int64_t term,
                            int64_t version, const butil::Status& st) {
     BAIDU_SCOPED_LOCK(_mutex);
-    // CHECK _current_term and _state to avoid ABA problem
-    if (term != _current_term && _state != STATE_LEADER) {
-        // term has changed and nothing should be done, otherwise there will be
-        // an ABA problem.
+    // CHECK _state and _current_term to avoid ABA problem
+    if (_state != STATE_LEADER || term != _current_term) {
+        // if leader stepped down, reset() has already been called in step_down(),
+        // so nothing needs to be done here
+        LOG(WARNING) << "node " << node_id() << " stepped down when waiting peer "
+                     << peer << " to catch up, current state is " << state2str(_state)
+                     << ", current term is " << _current_term
+                     << ", expect term is " << term;
         return;
     }
 
@@ -661,8 +665,8 @@ void NodeImpl::on_caughtup(const PeerId& peer, int64_t term,
                 -  _replicator_group.last_rpc_send_timestamp(peer))
                     <= _options.election_timeout_ms) {
 
-        BRAFT_VLOG << "node " << _group_id << ":" << _server_id
-                   << " waits peer " << peer << " to catch up";
+        LOG(INFO) << "node " << _group_id << ":" << _server_id
+                  << " waits peer " << peer << " to catch up";
 
         OnCaughtUp* caught_up = new OnCaughtUp(this, _current_term, peer, version);
         timespec due_time = butil::milliseconds_from_now(
@@ -1511,6 +1515,7 @@ void NodeImpl::step_down(const int64_t term, bool wakeup_a_candidate,
 
     // soft state in memory
     _state = STATE_FOLLOWER;
+    // _conf_ctx.reset() will stop replicators of catching up nodes
     _conf_ctx.reset();
     _last_leader_timestamp = butil::monotonic_time_ms();
 
@@ -2681,9 +2686,15 @@ void NodeImpl::ConfigurationCtx::start(const Configuration& old_conf,
     Configuration removing;
     new_conf.diffs(old_conf, &adding, &removing);
     _nchanges = adding.size() + removing.size();
+
+    LOG(INFO) << "node " << _node->_group_id << ":" << _node->_server_id
+              << " change_peers from " << old_conf << " to " << new_conf << noflush;
+
     if (adding.empty()) {
+        LOG(INFO) << ", begin removing.";
         return next_stage();
     }
+    LOG(INFO) << ", begin caughtup.";
     adding.list_peers(&_adding_peers);
     for (std::set<PeerId>::const_iterator iter
             = _adding_peers.begin(); iter != _adding_peers.end(); ++iter) {
@@ -2725,6 +2736,9 @@ void NodeImpl::ConfigurationCtx::flush(const Configuration& conf,
 void NodeImpl::ConfigurationCtx::on_caughtup(
         int64_t version, const PeerId& peer_id, bool succ) {
     if (version != _version) {
+        LOG(WARNING) << "Node " << _node->node_id()
+            << " on_caughtup with unmatched version=" << version
+            << ", expect version=" << _version;
         return;
     }
     CHECK_EQ(STAGE_CATCHING_UP, _stage);
@@ -2782,9 +2796,21 @@ void NodeImpl::ConfigurationCtx::next_stage() {
 }
 
 void NodeImpl::ConfigurationCtx::reset(butil::Status* st) {
+    // reset() should be called only once
+    if (_stage == STAGE_NONE) {
+        BRAFT_VLOG << "node " << _node->node_id()
+                   << " reset ConfigurationCtx when stage is STAGE_NONE already";
+        return;
+    }
+
+    LOG(INFO) << "node " << _node->node_id()
+              << " reset ConfigurationCtx, new_peers: " << Configuration(_new_peers)
+              << ", old_peers: " << Configuration(_old_peers);
     if (st && st->ok()) {
         _node->stop_replicator(_new_peers, _old_peers);
     } else {
+        // leader step_down may stop replicators of catching up nodes, leading to
+        // run catchup_closure
         _node->stop_replicator(_old_peers, _new_peers);
     }
     _new_peers.clear();

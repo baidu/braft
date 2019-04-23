@@ -350,6 +350,7 @@ public:
                 // if it's not allowed to read partly or it's allowed but
                 // throughput is throttled to 0, try again.
                 if (!read_partly || new_max_count == 0) {
+                    BRAFT_VLOG << "Read file throttled, path: " << path();
                     ret = EAGAIN;
                 }
             }

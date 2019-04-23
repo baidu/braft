@@ -20,6 +20,7 @@
 #include "braft/node.h"
 #include "braft/enum.pb.h"
 #include "braft/errno.pb.h"
+#include <braft/snapshot_throttle.h>
 
 namespace braft {
 extern bvar::Adder<int64_t> g_num_nodes;
@@ -178,7 +179,6 @@ public:
         if (_expect_err_code >= 0) {
             EXPECT_EQ(status().error_code(), _expect_err_code) 
                 << _pos << " : " << status();
-                                                
         }
         if (_cond) {
             _cond->signal();
@@ -256,13 +256,22 @@ public:
                             butil::endpoint2str(listen_addr).c_str());
         butil::string_printf(&options.snapshot_uri, "local://./data/%s/snapshot",
                             butil::endpoint2str(listen_addr).c_str());
-        scoped_refptr<braft::SnapshotThrottle> tst(_throttle);
+
+        int64_t throttle_throughput_bytes = 10 * 1024 * 1024;
+        int64_t check_cycle = 10;
+        braft::SnapshotThrottle* throttle = 
+            new braft::ThroughputSnapshotThrottle(throttle_throughput_bytes, check_cycle);
+        scoped_refptr<braft::SnapshotThrottle> tst(throttle);
         options.snapshot_throttle = &tst;
+
+        options.catchup_margin = 2;
 
         braft::Node* node = new braft::Node(_name, braft::PeerId(listen_addr, 0));
         int ret = node->init(options);
         if (ret != 0) {
             LOG(WARNING) << "init_node failed, server: " << listen_addr;
+            delete throttle;
+            delete node;
             return ret;
         } else {
             LOG(NOTICE) << "init node " << listen_addr;
@@ -388,6 +397,8 @@ CHECK:
             fsm->lock();
 
             if (first->logs.size() != fsm->logs.size()) {
+                LOG(INFO) << "logs size not match: "
+                    << first->logs.size() << " vs " << fsm->logs.size();
                 fsm->unlock();
                 goto WAIT;
             }
@@ -933,6 +944,104 @@ TEST_P(NodeTest, JoinNode) {
 
     cluster.ensure_same();
 
+    cluster.stop_all();
+}
+
+TEST_F(NodeTest, Leader_step_down_during_install_snapshot) {
+    std::vector<braft::PeerId> peers;
+    braft::PeerId peer0;
+    peer0.addr.ip = butil::my_ip();
+    peer0.addr.port = 5006;
+    peer0.idx = 0;
+
+    // start cluster
+    peers.push_back(peer0);
+    Cluster cluster("unittest", peers, 1000);
+    ASSERT_EQ(0, cluster.start(peer0.addr));
+    LOG(NOTICE) << "start single cluster " << peer0;
+
+    cluster.wait_leader();
+
+    braft::Node* leader = cluster.leader();
+    ASSERT_TRUE(leader != NULL);
+    ASSERT_EQ(leader->node_id().peer_id, peer0);
+    LOG(WARNING) << "leader is " << leader->node_id();
+
+    bthread::CountdownEvent cond(10);
+    // apply something
+    for (int i = 0; i < 10; i++) {
+        butil::IOBuf data; 
+        std::string data_buf;
+        data_buf.resize(256 * 1024, 'a');
+        data.append(data_buf);
+        
+        braft::Task task;
+        task.data = &data;
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
+        leader->apply(task);
+    }
+    cond.wait();
+
+    // trigger leader snapshot
+    LOG(WARNING) << "trigger leader snapshot ";
+    cond.reset(1);
+    leader->snapshot(NEW_SNAPSHOTCLOSURE(&cond, 0));
+    cond.wait();
+
+    cond.reset(10);
+    // apply something
+    for (int i = 0; i < 10; i++) {
+        butil::IOBuf data;
+        std::string data_buf;
+        data_buf.resize(256 * 1024, 'b');
+        data.append(data_buf);
+        
+        braft::Task task;
+        task.data = &data;
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
+        leader->apply(task);
+    }
+    cond.wait();
+    
+    // trigger leader snapshot again to compact logs
+    LOG(WARNING) << "trigger leader snapshot again";
+    cond.reset(1);
+    leader->snapshot(NEW_SNAPSHOTCLOSURE(&cond, 0));
+    cond.wait();
+
+    // start peer1
+    braft::PeerId peer1;
+    peer1.addr.ip = butil::my_ip();
+    peer1.addr.port = 5006 + 1;
+    peer1.idx = 0;
+    ASSERT_EQ(0, cluster.start(peer1.addr, true));
+    LOG(NOTICE) << "start peer " << peer1;
+    // wait until started successfully
+    usleep(1000* 1000);
+
+    // add peer1, leader step down while caught_up
+    cond.reset(1);
+    LOG(NOTICE) << "add peer: " << peer1;
+    leader->add_peer(peer1, NEW_ADDPEERCLOSURE(&cond, EPERM));
+    usleep(500 * 1000);
+    LOG(NOTICE) << "leader " << leader->node_id() 
+                << " step_down because of some error";
+    butil::Status status;
+    status.set_error(braft::ERAFTTIMEDOUT, "Majority of the group dies");
+    leader->_impl->step_down(leader->_impl->_current_term, false, status);
+    cond.wait(); 
+    
+    // add peer1 again, success 
+    LOG(NOTICE) << "add peer again: " << peer1;
+    cond.reset(1);
+    cluster.wait_leader();
+    leader = cluster.leader();
+    leader->add_peer(peer1, NEW_ADDPEERCLOSURE(&cond, 0));
+    cond.wait(); 
+    
+    cluster.ensure_same();
+    
+    LOG(TRACE) << "stop cluster";
     cluster.stop_all();
 }
 
@@ -1570,8 +1679,11 @@ TEST_P(NodeTest, InstallSnapshot) {
     }
     cond.wait();
 
-    // wait leader to compact logs
-    usleep(5000 * 1000);
+    // trigger leader snapshot again to compact logs
+    LOG(WARNING) << "trigger leader snapshot again";
+    cond.reset(1);
+    leader->snapshot(NEW_SNAPSHOTCLOSURE(&cond, 0));
+    cond.wait();
 
     LOG(WARNING) << "restart follower";
     ASSERT_EQ(0, cluster.start(follower_addr));
