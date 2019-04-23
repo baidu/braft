@@ -2361,7 +2361,9 @@ TEST_P(NodeTest, on_start_following_and_on_stop_following) {
     cluster.wait_leader();
     braft::Node* leader_first = cluster.leader();
     ASSERT_TRUE(leader_first != NULL);
-    LOG(WARNING) << "leader_first is " << leader_first->node_id();
+    LOG(WARNING) << "leader_first is " << leader_first->node_id()
+                 << ", election_timeout is " 
+                 << leader_first->_impl->_options.election_timeout_ms;
 
     // apply something
     bthread::CountdownEvent cond(10);

@@ -220,9 +220,8 @@ int NodeImpl::init_log_storage() {
     CHECK(_fsm_caller);
     _log_storage = LogStorage::create(_options.log_uri);
     if (!_log_storage) {
-        LOG(ERROR) << "Fail to find log storage of `"
-                   << _options.log_uri
-                   << '\'';
+        LOG(ERROR) << "node " << _group_id << ":" << _server_id
+                   << " find log storage failed, uri " << _options.log_uri;
         return -1;
     }
     _log_manager = new LogManager();
@@ -369,14 +368,16 @@ int NodeImpl::bootstrap(const BootstrapOptions& options) {
 
     if (options.last_log_index > 0) {
         if (init_snapshot_storage() != 0) {
-            LOG(ERROR) << "Fail to init snapshot_storage";
+            LOG(ERROR) << "Fail to init snapshot_storage from "
+                       << _options.snapshot_uri;
             return -1;
         }
         SynchronizedClosure done;
         _snapshot_executor->do_snapshot(&done);
         done.wait();
         if (!done.status().ok()) {
-            LOG(ERROR) << "Fail to save snapshot " << done.status();
+            LOG(ERROR) << "Fail to save snapshot " << done.status()
+                       << " from " << _options.snapshot_uri;
             return -1;
         }
     }
@@ -408,12 +409,14 @@ int NodeImpl::init(const NodeOptions& options) {
 
     // check _server_id
     if (butil::IP_ANY == _server_id.addr.ip) {
-        LOG(ERROR) << "Node can't started from IP_ANY";
+        LOG(ERROR) << "Group " << _group_id 
+                   << " Node can't started from IP_ANY";
         return -1;
     }
 
     if (!NodeManager::GetInstance()->server_exists(_server_id.addr)) {
-        LOG(ERROR) << "No RPC Server attached to " << _server_id.addr
+        LOG(ERROR) << "Group " << _group_id
+                   << " No RPC Server attached to " << _server_id.addr
                    << ", did you forget to call braft::add_service()?";
         return -1;
     }
@@ -427,13 +430,15 @@ int NodeImpl::init(const NodeOptions& options) {
 
     if (bthread::execution_queue_start(&_apply_queue_id, NULL,
                                        execute_applying_tasks, this) != 0) {
-        LOG(ERROR) << "Fail to start execution_queue";
+        LOG(ERROR) << "node " << _group_id << ":" << _server_id 
+                   << " fail to start execution_queue";
         return -1;
     }
 
     _apply_queue = execution_queue_address(_apply_queue_id);
     if (!_apply_queue) {
-        LOG(ERROR) << "Fail to address execution_queue";
+        LOG(ERROR) << "node " << _group_id << ":" << _server_id
+                   << " fail to address execution_queue";
         return -1;
     }
 
@@ -443,20 +448,20 @@ int NodeImpl::init(const NodeOptions& options) {
     // log storage and log manager init
     if (init_log_storage() != 0) {
         LOG(ERROR) << "node " << _group_id << ":" << _server_id
-            << " init_log_storage failed";
+                   << " init_log_storage failed";
         return -1;
     }
 
     // meta init
     if (init_meta_storage() != 0) {
         LOG(ERROR) << "node " << _group_id << ":" << _server_id
-            << " init_meta_storage failed";
+                   << " init_meta_storage failed";
         return -1;
     }
 
     if (init_fsm_caller(LogId(0, 0)) != 0) {
         LOG(ERROR) << "node " << _group_id << ":" << _server_id
-            << " init_fsm_caller failed";
+                   << " init_fsm_caller failed";
         return -1;
     }
 
@@ -467,7 +472,7 @@ int NodeImpl::init(const NodeOptions& options) {
     ballot_box_options.closure_queue = _closure_queue;
     if (_ballot_box->init(ballot_box_options) != 0) {
         LOG(ERROR) << "node " << _group_id << ":" << _server_id
-            << " init _ballot_box failed";
+                   << " init _ballot_box failed";
         return -1;
     }
 
@@ -476,15 +481,15 @@ int NodeImpl::init(const NodeOptions& options) {
     //      init log storage before snapshot storage, snapshot storage will update configration
     if (init_snapshot_storage() != 0) {
         LOG(ERROR) << "node " << _group_id << ":" << _server_id
-            << " init_snapshot_storage failed";
+                   << " init_snapshot_storage failed";
         return -1;
     }
 
     butil::Status st = _log_manager->check_consistency();
     if (!st.ok()) {
         LOG(ERROR) << "node " << _group_id << ":" << _server_id
-            << " is initialized with inconsitency log: "
-            << st;
+                   << " is initialized with inconsitency log: "
+                   << st;
         return -1;
     }
 
@@ -523,7 +528,7 @@ int NodeImpl::init(const NodeOptions& options) {
     // start snapshot timer
     if (_snapshot_executor && _options.snapshot_interval_s > 0) {
         BRAFT_VLOG << "node " << _group_id << ":" << _server_id
-            << " term " << _current_term << " start snapshot_timer";
+                   << " term " << _current_term << " start snapshot_timer";
         _snapshot_timer.start();
     }
 
@@ -801,7 +806,7 @@ butil::Status NodeImpl::reset_peers(const Configuration& new_peers) {
     // check state
     if (!is_active_state(_state)) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
-            << " is in state " << state2str(_state) << ", can't set_peer";
+            << " is in state " << state2str(_state) << ", can't reset_peer";
         return butil::Status(EPERM, "Bad state %s", state2str(_state));
     }
     // check bootstrap
@@ -818,7 +823,7 @@ butil::Status NodeImpl::reset_peers(const Configuration& new_peers) {
     // check concurrent conf change
     if (_state == STATE_LEADER && _conf_ctx.is_busy()) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
-                     << " set_peer need wait current conf change";
+                     << " reset_peer need wait current conf change";
         return butil::Status(EBUSY, "Changing to another configuration");
     }
 
@@ -1079,14 +1084,15 @@ int NodeImpl::transfer_leadership_to(const PeerId& peer) {
     // last_log_id will be selected. 
     if (peer_id == ANY_PEER) {
         LOG(INFO) << "node " << _group_id << ":" << _server_id
-              << " starts to transfer leadership to any peer.";
+                  << " starts to transfer leadership to any peer.";
         // find the next candidate which is the most possible to become new leader
         if (_replicator_group.find_the_next_candidate(&peer_id, _conf) != 0) {
             return -1;    
         }
     }
     if (peer_id == _server_id) {
-        LOG(INFO) << "Transferring leadership to self";
+        LOG(INFO) << "node " << _group_id << ":" << _server_id  
+                  << " transfering leadership to self";
         return 0;
     }
     if (!_conf.contains(peer_id)) {
@@ -1098,7 +1104,8 @@ int NodeImpl::transfer_leadership_to(const PeerId& peer) {
     const int64_t last_log_index = _log_manager->last_log_index();
     const int rc = _replicator_group.transfer_leadership_to(peer_id, last_log_index);
     if (rc != 0) {
-        LOG(WARNING) << "No such peer=" << peer_id;
+        LOG(WARNING) << "node " << _group_id << ":" << _server_id
+                     << " fail to transfer leadership, no such peer=" << peer_id;
         return EINVAL;
     }
     _state = STATE_TRANSFERRING;
@@ -1186,22 +1193,22 @@ void NodeImpl::handle_request_vote_response(const PeerId& peer_id, const int64_t
     // check state
     if (_state != STATE_CANDIDATE) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
-            << " received invalid RequestVoteResponse from " << peer_id
-            << " state not in CANDIDATE but " << state2str(_state);
+                     << " received invalid RequestVoteResponse from " << peer_id
+                     << " state not in CANDIDATE but " << state2str(_state);
         return;
     }
     // check stale response
     if (term != _current_term) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
-            << " received stale RequestVoteResponse from " << peer_id
-            << " term " << term << " current_term " << _current_term;
+                     << " received stale RequestVoteResponse from " << peer_id
+                     << " term " << term << " current_term " << _current_term;
         return;
     }
     // check response term
     if (response.term() > _current_term) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
-            << " received invalid RequestVoteResponse from " << peer_id
-            << " term " << response.term() << " expect " << _current_term;
+                     << " received invalid RequestVoteResponse from " << peer_id
+                     << " term " << response.term() << " expect " << _current_term;
         butil::Status status;
         status.set_error(EHIGHERTERMRESPONSE, "Raft node receives higher term "
                 "request_vote_response.");
@@ -1210,9 +1217,9 @@ void NodeImpl::handle_request_vote_response(const PeerId& peer_id, const int64_t
     }
 
     LOG(INFO) << "node " << _group_id << ":" << _server_id
-        << " received RequestVoteResponse from " << peer_id
-        << " term " << response.term() << " granted " << response.granted();
-    // check granted quorum?
+              << " received RequestVoteResponse from " << peer_id
+              << " term " << response.term() << " granted " << response.granted();
+    // check if the quorum granted
     if (response.granted()) {
         _vote_ctx.grant(peer_id);
         if (_vote_ctx.granted()) {
@@ -1258,22 +1265,22 @@ void NodeImpl::handle_pre_vote_response(const PeerId& peer_id, const int64_t ter
     // check state
     if (_state != STATE_FOLLOWER) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
-            << " received invalid PreVoteResponse from " << peer_id
-            << " state not in STATE_FOLLOWER but " << state2str(_state);
+                     << " received invalid PreVoteResponse from " << peer_id
+                     << " state not in STATE_FOLLOWER but " << state2str(_state);
         return;
     }
     // check stale response
     if (term != _current_term) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
-            << " received stale PreVoteResponse from " << peer_id
-            << " term " << term << " current_term " << _current_term;
+                     << " received stale PreVoteResponse from " << peer_id
+                     << " term " << term << " current_term " << _current_term;
         return;
     }
     // check response term
     if (response.term() > _current_term) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
-            << " received invalid PreVoteResponse from " << peer_id
-            << " term " << response.term() << " expect " << _current_term;
+                     << " received invalid PreVoteResponse from " << peer_id
+                     << " term " << response.term() << " expect " << _current_term;
         butil::Status status;
         status.set_error(EHIGHERTERMRESPONSE, "Raft node receives higher term "
                 "pre_vote_response.");
@@ -1282,9 +1289,9 @@ void NodeImpl::handle_pre_vote_response(const PeerId& peer_id, const int64_t ter
     }
 
     LOG(INFO) << "node " << _group_id << ":" << _server_id
-        << " received PreVoteResponse from " << peer_id
-        << " term " << response.term() << " granted " << response.granted();
-    // check granted quorum?
+              << " received PreVoteResponse from " << peer_id
+              << " term " << response.term() << " granted " << response.granted();
+    // check if the quorum granted
     if (response.granted()) {
         _pre_vote_ctx.grant(peer_id);
         if (_pre_vote_ctx.granted()) {
@@ -1306,7 +1313,8 @@ struct OnPreVoteRPCDone : public google::protobuf::Closure {
         do {
             if (cntl.ErrorCode() != 0) {
                 LOG(WARNING) << "node " << node->node_id()
-                    << " request PreVote from " << peer << " error: " << cntl.ErrorText();
+                             << " request PreVote from " << peer 
+                             << " error: " << cntl.ErrorText();
                 break;
             }
             node->handle_pre_vote_response(peer, term, response);
@@ -1324,13 +1332,12 @@ struct OnPreVoteRPCDone : public google::protobuf::Closure {
 
 void NodeImpl::pre_vote(std::unique_lock<raft_mutex_t>* lck) {
     LOG(INFO) << "node " << _group_id << ":" << _server_id
-        << " term " << _current_term
-        << " start pre_vote";
+              << " term " << _current_term << " start pre_vote";
     if (_snapshot_executor && _snapshot_executor->is_installing_snapshot()) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
-            << " term " << _current_term
-            << " doesn't do pre_vote when installing snapshot as the "
-                     " configuration is possibly out of date";
+                     << " term " << _current_term
+                     << " doesn't do pre_vote when installing snapshot as the "
+                        " configuration is possibly out of date";
         return;
     }
     if (!_conf.contains(_server_id)) {
@@ -1347,7 +1354,7 @@ void NodeImpl::pre_vote(std::unique_lock<raft_mutex_t>* lck) {
     // pre_vote need defense ABA after unlock&lock
     if (old_term != _current_term) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
-            << " raise term " << _current_term << " when get last_log_id";
+                     << " raise term " << _current_term << " when get last_log_id";
         return;
     }
 
@@ -1365,7 +1372,7 @@ void NodeImpl::pre_vote(std::unique_lock<raft_mutex_t>* lck) {
         brpc::Channel channel;
         if (0 != channel.Init(iter->addr, &options)) {
             LOG(WARNING) << "node " << _group_id << ":" << _server_id
-                << " channel init failed, addr " << iter->addr;
+                         << " channel init failed, addr " << iter->addr;
             continue;
         }
 
@@ -1391,8 +1398,7 @@ void NodeImpl::pre_vote(std::unique_lock<raft_mutex_t>* lck) {
 // in lock
 void NodeImpl::elect_self(std::unique_lock<raft_mutex_t>* lck) {
     LOG(INFO) << "node " << _group_id << ":" << _server_id
-        << " term " << _current_term
-        << " start vote and grant vote self";
+              << " term " << _current_term << " start vote and grant vote self";
     if (!_conf.contains(_server_id)) {
         LOG(WARNING) << "node " << _group_id << ':' << _server_id
                      << " can't do elect_self as it is not in " << _conf.conf;
@@ -1401,7 +1407,7 @@ void NodeImpl::elect_self(std::unique_lock<raft_mutex_t>* lck) {
     // cancel follower election timer
     if (_state == STATE_FOLLOWER) {
         BRAFT_VLOG << "node " << _group_id << ":" << _server_id
-            << " term " << _current_term << " stop election_timer";
+                   << " term " << _current_term << " stop election_timer";
         _election_timer.stop();
     }
     // reset leader_id before vote
@@ -1417,7 +1423,7 @@ void NodeImpl::elect_self(std::unique_lock<raft_mutex_t>* lck) {
     _voted_id = _server_id;
 
     BRAFT_VLOG << "node " << _group_id << ":" << _server_id
-        << " term " << _current_term << " start vote_timer";
+               << " term " << _current_term << " start vote_timer";
     _vote_timer.start();
 
     _vote_ctx.init(_conf.conf, _conf.stable() ? NULL : &_conf.old_conf);
@@ -1431,7 +1437,7 @@ void NodeImpl::elect_self(std::unique_lock<raft_mutex_t>* lck) {
     if (old_term != _current_term) {
         // term changed cause by step_down
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
-            << " raise term " << _current_term << " when get last_log_id";
+                     << " raise term " << _current_term << " when get last_log_id";
         return;
     }
     std::set<PeerId> peers;
@@ -1448,7 +1454,7 @@ void NodeImpl::elect_self(std::unique_lock<raft_mutex_t>* lck) {
         brpc::Channel channel;
         if (0 != channel.Init(iter->addr, &options)) {
             LOG(WARNING) << "node " << _group_id << ":" << _server_id
-                << " channel init failed, addr " << iter->addr;
+                         << " channel init failed, addr " << iter->addr;
             continue;
         }
 
@@ -1593,10 +1599,8 @@ void NodeImpl::become_leader() {
     CHECK(_state == STATE_CANDIDATE);
     LOG(INFO) << "node " << _group_id << ":" << _server_id
               << " term " << _current_term
-              << " become leader of group "
-              << _conf.conf
-              << " "
-              << _conf.old_conf;
+              << " become leader of group " << _conf.conf
+              << " " << _conf.old_conf;
     // cancel candidate vote timer
     _vote_timer.stop();
 
@@ -1754,16 +1758,17 @@ int NodeImpl::handle_pre_vote_request(const RequestVoteRequest* request,
         const State saved_state = _state;
         lck.unlock();
         LOG(WARNING) << "node " << _group_id << ":" << _server_id 
-            << " is not in active state " << "current_term " << saved_current_term 
-            << " state " << state2str(saved_state);
+                     << " is not in active state " << "current_term " 
+                     << saved_current_term
+                     << " state " << state2str(saved_state);
         return EINVAL;
     }
 
     PeerId candidate_id;
     if (0 != candidate_id.parse(request->server_id())) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
-            << " received PreVote from " << request->server_id()
-            << " server_id bad format";
+                     << " received PreVote from " << request->server_id()
+                     << " server_id bad format";
         return EINVAL;
     }
 
@@ -1772,9 +1777,9 @@ int NodeImpl::handle_pre_vote_request(const RequestVoteRequest* request,
         if (request->term() < _current_term) {
             // ignore older term
             LOG(INFO) << "node " << _group_id << ":" << _server_id
-                << " ignore PreVote from " << request->server_id()
-                << " in term " << request->term()
-                << " current_term " << _current_term;
+                      << " ignore PreVote from " << request->server_id()
+                      << " in term " << request->term()
+                      << " current_term " << _current_term;
             break;
         }
 
@@ -1788,10 +1793,10 @@ int NodeImpl::handle_pre_vote_request(const RequestVoteRequest* request,
                         >= last_log_id);
 
         LOG(INFO) << "node " << _group_id << ":" << _server_id
-            << " received PreVote from " << request->server_id()
-            << " in term " << request->term()
-            << " current_term " << _current_term
-            << " granted " << granted;
+                  << " received PreVote from " << request->server_id()
+                  << " in term " << request->term()
+                  << " current_term " << _current_term
+                  << " granted " << granted;
 
     } while (0);
 
@@ -1809,16 +1814,17 @@ int NodeImpl::handle_request_vote_request(const RequestVoteRequest* request,
         const State saved_state = _state;
         lck.unlock();
         LOG(WARNING) << "node " << _group_id << ":" << _server_id 
-            << " is not in active state " << "current_term " << saved_current_term 
-            << " state " << state2str(saved_state);
+                     << " is not in active state " << "current_term " 
+                     << saved_current_term
+                     << " state " << state2str(saved_state);
         return EINVAL;
     }
 
     PeerId candidate_id;
     if (0 != candidate_id.parse(request->server_id())) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
-            << " received RequestVote from " << request->server_id()
-            << " server_id bad format";
+                     << " received RequestVote from " << request->server_id()
+                     << " server_id bad format";
         return EINVAL;
     }
 
@@ -1826,9 +1832,9 @@ int NodeImpl::handle_request_vote_request(const RequestVoteRequest* request,
         // check term
         if (request->term() >= _current_term) {
             LOG(INFO) << "node " << _group_id << ":" << _server_id
-                << " received RequestVote from " << request->server_id()
-                << " in term " << request->term()
-                << " current_term " << _current_term;
+                      << " received RequestVote from " << request->server_id()
+                      << " in term " << request->term()
+                      << " current_term " << _current_term;
             // incress current term, change state to follower
             if (request->term() > _current_term) {
                 butil::Status status;
@@ -1839,9 +1845,9 @@ int NodeImpl::handle_request_vote_request(const RequestVoteRequest* request,
         } else {
             // ignore older term
             LOG(INFO) << "node " << _group_id << ":" << _server_id
-                << " ignore RequestVote from " << request->server_id()
-                << " in term " << request->term()
-                << " current_term " << _current_term;
+                      << " ignore RequestVote from " << request->server_id()
+                      << " in term " << request->term()
+                      << " current_term " << _current_term;
             break;
         }
 
@@ -1852,7 +1858,7 @@ int NodeImpl::handle_request_vote_request(const RequestVoteRequest* request,
         // vote need ABA check after unlock&lock
         if (request->term() != _current_term) {
             LOG(WARNING) << "node " << _group_id << ":" << _server_id
-                << " raise term " << _current_term << " when get last_log_id";
+                         << " raise term " << _current_term << " when get last_log_id";
             break;
         }
 
@@ -1977,8 +1983,8 @@ void NodeImpl::handle_append_entries_request(brpc::Controller* cntl,
         const State saved_state = _state;
         lck.unlock();
         LOG(WARNING) << "node " << _group_id << ":" << _server_id 
-            << " is not in active state " << "current_term " << saved_current_term 
-            << " state " << state2str(saved_state);
+                     << " is not in active state " << "current_term " 
+                     << saved_current_term << " state " << state2str(saved_state);
         cntl->SetFailed(EINVAL, "node %s:%s is not in active state, state %s", 
                 _group_id.c_str(), _server_id.to_string().c_str(), state2str(saved_state));
         return;
@@ -1988,8 +1994,8 @@ void NodeImpl::handle_append_entries_request(brpc::Controller* cntl,
     if (0 != server_id.parse(request->server_id())) {
         lck.unlock();
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
-            << " received AppendEntries from " << request->server_id()
-            << " server_id bad format";
+                     << " received AppendEntries from " << request->server_id()
+                     << " server_id bad format";
         cntl->SetFailed(brpc::EREQUEST,
                         "Fail to parse server_id `%s'",
                         request->server_id().c_str());
@@ -2001,9 +2007,9 @@ void NodeImpl::handle_append_entries_request(brpc::Controller* cntl,
         const int64_t saved_current_term = _current_term;
         lck.unlock();
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
-            << " ignore stale AppendEntries from " << request->server_id()
-            << " in term " << request->term()
-            << " current_term " << saved_current_term;
+                     << " ignore stale AppendEntries from " << request->server_id()
+                     << " in term " << request->term()
+                     << " current_term " << saved_current_term;
         response->set_success(false);
         response->set_term(saved_current_term);
         return;
@@ -2036,7 +2042,7 @@ void NodeImpl::handle_append_entries_request(brpc::Controller* cntl,
             (_snapshot_executor
                 && _snapshot_executor->is_installing_snapshot())) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
-            << " received append entries while installing snapshot";
+                     << " received append entries while installing snapshot";
         cntl->SetFailed(EBUSY, "Is installing snapshot");
         return;
     }
@@ -2072,12 +2078,12 @@ void NodeImpl::handle_append_entries_request(brpc::Controller* cntl,
         response->set_last_log_index(last_index);
         lck.unlock();
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
-            << " reject term_unmatched AppendEntries from " << request->server_id()
-            << " in term " << request->term()
-            << " prev_log_index " << request->prev_log_index()
-            << " prev_log_term " << request->prev_log_term()
-            << " local_prev_log_term " << local_prev_log_term
-            << " last_log_index " << last_index
+                     << " reject term_unmatched AppendEntries from " << request->server_id()
+                     << " in term " << request->term()
+                     << " prev_log_index " << request->prev_log_index()
+                     << " prev_log_term " << request->prev_log_term()
+                     << " local_prev_log_term " << local_prev_log_term
+                     << " last_log_index " << last_index
                      << " entries_size " << request->entries_size()
                      << " from_append_entries_cache: " << from_append_entries_cache;
         return;
@@ -2197,8 +2203,8 @@ void NodeImpl::handle_install_snapshot_request(brpc::Controller* controller,
         const State saved_state = _state;
         lck.unlock();
         LOG(WARNING) << "node " << _group_id << ":" << _server_id 
-            << " is not in active state " << "current_term " << saved_current_term 
-            << " state " << state2str(saved_state);
+                     << " is not in active state " << "current_term " 
+                     << saved_current_term << " state " << state2str(saved_state);
         cntl->SetFailed(EINVAL, "node %s:%s is not in active state, state %s", 
                 _group_id.c_str(), _server_id.to_string().c_str(), state2str(saved_state));
         return;
@@ -2207,9 +2213,9 @@ void NodeImpl::handle_install_snapshot_request(brpc::Controller* controller,
     // check stale term
     if (request->term() < _current_term) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
-            << " ignore stale AppendEntries from " << request->server_id()
-            << " in term " << request->term()
-            << " current_term " << _current_term;
+                     << " ignore stale AppendEntries from " << request->server_id()
+                     << " in term " << request->term()
+                     << " current_term " << _current_term;
         response->set_term(_current_term);
         response->set_success(false);
         return;
@@ -2218,10 +2224,9 @@ void NodeImpl::handle_install_snapshot_request(brpc::Controller* controller,
     check_step_down(request->term(), server_id);
 
     if (server_id != _leader_id) {
-        LOG(ERROR) << "Another peer=" << server_id
-                   << " declares that it is the leader at term="
-                   << _current_term << " which was occupied by leader="
-                   << _leader_id;
+        LOG(ERROR) << "Another peer " << _group_id << ":" << server_id
+                   << " declares that it is the leader at term=" << _current_term 
+                   << " which was occupied by leader=" << _leader_id;
         // Increase the term by 1 and make both leaders step down to minimize the
         // loss of split brain
         butil::Status status;

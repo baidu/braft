@@ -271,8 +271,9 @@ void FSMCaller::do_committed(int64_t committed_index) {
         }
         Iterator iter(&iter_impl);
         _fsm->on_apply(iter);
-        LOG_IF(ERROR, iter.valid()) 
-                << "Iterator is still valid, did you return before iterator "
+        LOG_IF(ERROR, iter.valid())
+                << "Node " << _node->node_id() 
+                << " Iterator is still valid, did you return before iterator "
                    " reached the end?";
         // Try move to next in case that we pass the same log twice.
         iter.next();

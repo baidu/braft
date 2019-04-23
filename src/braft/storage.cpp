@@ -73,7 +73,8 @@ LogStorage* LogStorage::create(const std::string& uri) {
     const LogStorage* type = log_storage_extension()->Find(
                 protocol.as_string().c_str());
     if (type == NULL) {
-        LOG(ERROR) << "Fail to find log storage type " << protocol;
+        LOG(ERROR) << "Fail to find log storage type " << protocol
+                   << ", uri=" << uri;
         return NULL;
     }
     return type->new_instance(parameter);
@@ -90,7 +91,8 @@ SnapshotStorage* SnapshotStorage::create(const std::string& uri) {
     const SnapshotStorage* type = snapshot_storage_extension()->Find(
                 protocol.as_string().c_str());
     if (type == NULL) {
-        LOG(ERROR) << "Fail to find snapshot storage type " << protocol;
+        LOG(ERROR) << "Fail to find snapshot storage type " << protocol
+                   << ", uri=" << uri;
         return NULL;
     }
     return type->new_instance(parameter);
@@ -107,7 +109,8 @@ RaftMetaStorage* RaftMetaStorage::create(const std::string& uri) {
     const RaftMetaStorage* type = meta_storage_extension()->Find(
                 protocol.as_string().c_str());
     if (type == NULL) {
-        LOG(ERROR) << "Fail to find meta storage type " << protocol;
+        LOG(ERROR) << "Fail to find meta storage type " << protocol
+                   << ", uri=" << uri;
         return NULL;
     }
     return type->new_instance(parameter);

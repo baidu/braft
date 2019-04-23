@@ -241,7 +241,7 @@ int LocalSnapshotWriter::save_meta(const SnapshotMeta& meta) {
 int LocalSnapshotWriter::sync() {
     const int rc = _meta_table.save_to_file(_fs, _path + "/" BRAFT_SNAPSHOT_META_FILE);
     if (rc != 0 && ok()) {
-        LOG(ERROR) << "Fail to sync";
+        LOG(ERROR) << "Fail to sync, path: " << _path;
         set_error(rc, "Fail to sync : %s", berror(rc));
     }
     return rc;
@@ -375,7 +375,7 @@ private:
 
 std::string LocalSnapshotReader::generate_uri_for_copy() {
     if (_addr == butil::EndPoint()) {
-        LOG(ERROR) << "Address is not specified";
+        LOG(ERROR) << "Address is not specified, path:" << _path;
         return std::string();
     }
     if (_reader_id == 0) {
@@ -383,14 +383,12 @@ std::string LocalSnapshotReader::generate_uri_for_copy() {
         scoped_refptr<SnapshotFileReader> reader(
                 new SnapshotFileReader(_fs.get(), _path, _snapshot_throttle.get()));
         reader->set_meta_table(_meta_table);
-
-	    if (!reader->open()) {
-	        LOG(ERROR) << "Open snapshot=" << _path << " failed";
-                return std::string();
-	    }
-
+        if (!reader->open()) {
+            LOG(ERROR) << "Open snapshot=" << _path << " failed";
+            return std::string();
+        }
         if (file_service_add(reader.get(), &_reader_id) != 0) {
-            LOG(ERROR) << "Fail to add reader to file_service";
+            LOG(ERROR) << "Fail to add reader to file_service, path: " << _path;
             return std::string();
         }
     }
@@ -531,7 +529,7 @@ SnapshotWriter* LocalSnapshotStorage::create(bool from_empty) {
 
         writer = new LocalSnapshotWriter(snapshot_path, _fs.get());
         if (writer->init() != 0) {
-            LOG(ERROR) << "Fail to init writer";
+            LOG(ERROR) << "Fail to init writer, path: " << snapshot_path;
             delete writer;
             writer = NULL;
             break;
@@ -548,7 +546,8 @@ SnapshotCopier* LocalSnapshotStorage::start_to_copy_from(const std::string& uri)
     copier->_fs = _fs.get();
     copier->_throttle = _snapshot_throttle.get();
     if (copier->init(uri) != 0) {
-        LOG(ERROR) << "Fail to init copier to " << uri;
+        LOG(ERROR) << "Fail to init copier from " << uri
+                   << " path: " << _path;
         delete copier;
         return NULL;
     }
@@ -673,7 +672,7 @@ int LocalSnapshotStorage::set_filter_before_copy_remote() {
 
 int LocalSnapshotStorage::set_file_system_adaptor(FileSystemAdaptor* fs) {
     if (fs == NULL) {
-        LOG(ERROR) << "file system is NULL";
+        LOG(ERROR) << "file system is NULL, path: " << _path;
         return -1;
     }
     _fs = fs;
@@ -802,8 +801,7 @@ int LocalSnapshotCopier::filter_before_copy(LocalSnapshotWriter* writer,
             if (local_meta.has_checksum() &&
                 local_meta.checksum() == remote_meta.checksum()) {
                 LOG(INFO) << "Keep file=" << filename
-                          << " checksum="
-                          << remote_meta.checksum()
+                          << " checksum=" << remote_meta.checksum()
                           << " in " << writer->get_path();
                 continue;
             }
@@ -870,7 +868,8 @@ void LocalSnapshotCopier::filter() {
         SnapshotReader* reader = _storage->open();
         if (filter_before_copy(_writer, reader) != 0) {
             LOG(WARNING) << "Fail to filter writer before copying"
-                         << " destroy and create a new writer";
+                            ", path: " << _writer->get_path() 
+                         << ", destroy and create a new writer";
             _writer->set_error(-1, "Fail to filter");
             _storage->close(_writer, false);
             _writer = (LocalSnapshotWriter*)_storage->create(true);
@@ -892,7 +891,8 @@ void LocalSnapshotCopier::filter() {
 
 void LocalSnapshotCopier::copy_file(const std::string& filename) {
     if (_writer->get_file_meta(filename, NULL) == 0) {
-        LOG(INFO) << "Skipped downloading " << filename;
+        LOG(INFO) << "Skipped downloading " << filename
+                  << " path: " << _writer->get_path();
         return;
     }
     std::string file_path = _writer->get_path() + '/' + filename;
@@ -925,7 +925,8 @@ void LocalSnapshotCopier::copy_file(const std::string& filename) {
     scoped_refptr<RemoteFileCopier::Session> session
         = _copier.start_to_copy_to_file(filename, file_path, NULL);
     if (session == NULL) {
-        LOG(WARNING) << "Fail to copy " << filename;
+        LOG(WARNING) << "Fail to copy " << filename
+                     << " path: " << _writer->get_path();
         set_error(-1, "Fail to copy %s", filename.c_str());
         return;
     }
