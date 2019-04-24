@@ -658,6 +658,9 @@ void Replicator::_send_entries() {
             _reset_next_index();
             return _install_snapshot();
         }
+        // NOTICE: a follower's readonly mode does not prevent install_snapshot
+        // as we need followers to commit conf log(like add_node) when 
+        // leader reaches readonly as well 
         if (prepare_entry_rc == EREADONLY) {
             if (_flying_append_entries_size == 0) {
                 _st.st = IDLE;
@@ -748,7 +751,16 @@ void Replicator::_wait_more_entries() {
 }
 
 void Replicator::_install_snapshot() {
-    CHECK(!_reader);
+    if (_reader) {
+        // follower's readonly mode change may cause two install_snapshot
+        // one possible case is: 
+        //     enable -> install_snapshot -> disable -> wait_more_entries ->
+        //     install_snapshot again
+        LOG(WARNING) << "node " << _options.group_id << ":" << _options.server_id
+                     << " refuse to send InstallSnapshotRequest to " << _options.peer_id
+                     << " because there is an running one";
+        return;
+    }
 
     if (_options.snapshot_throttle && !_options.snapshot_throttle->
                                             add_one_more_task(true)) {
