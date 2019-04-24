@@ -733,7 +733,9 @@ void LocalSnapshotCopier::copy() {
         _writer->set_error(error_code(), error_data());
     }
     if (_writer) {
-        _storage->close(_writer, _filter_before_copy_remote);
+        if (_storage->close(_writer, _filter_before_copy_remote) != 0) {
+            set_error(EIO, "Fail to close writer");
+        }
         _writer = NULL;
     }
     if (ok()) {
