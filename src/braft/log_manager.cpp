@@ -675,18 +675,19 @@ int64_t LogManager::unsafe_get_term(const int64_t index) {
     if (index == 0) {
         return 0;
     }
-
-    if (index > _last_log_index) {
-        return 0;
-    }
-
     // check virtual first log
     if (index == _virtual_first_log_id.index) {
         return _virtual_first_log_id.term;
     }
-    
+    // check last_snapshot_id
     if (index == _last_snapshot_id.index) {
         return _last_snapshot_id.term;
+    }
+    // out of range, direct return NULL
+    // check this after check last_snapshot_id, because it is likely that
+    // last_snapshot_id < first_log_index
+    if (index > _last_log_index || index < _first_log_index) {
+        return 0;
     }
 
     LogEntry* entry = get_entry_from_memory(index);
@@ -701,20 +702,20 @@ int64_t LogManager::get_term(const int64_t index) {
     if (index == 0) {
         return 0;
     }
-
     std::unique_lock<raft_mutex_t> lck(_mutex);
-    // out of range, direct return NULL
-    if (index > _last_log_index) {
-        return 0;
-    }
-
     // check virtual first log
     if (index == _virtual_first_log_id.index) {
         return _virtual_first_log_id.term;
     }
-    
+    // check last_snapshot_id
     if (index == _last_snapshot_id.index) {
         return _last_snapshot_id.term;
+    }
+    // out of range, direct return NULL
+    // check this after check last_snapshot_id, because it is likely that
+    // last_snapshot_id < first_log_index
+    if (index > _last_log_index || index < _first_log_index) {
+        return 0;
     }
 
     LogEntry* entry = get_entry_from_memory(index);
