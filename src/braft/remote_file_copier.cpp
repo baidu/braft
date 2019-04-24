@@ -45,7 +45,6 @@ BRPC_VALIDATE_GFLAG(raft_enable_throttle_when_install_snapshot,
 RemoteFileCopier::RemoteFileCopier()
     : _reader_id(0)
     , _throttle(NULL)
-    , _throttle_token_acquire_time_us(0)
 {}
 
 int RemoteFileCopier::init(const std::string& uri, FileSystemAdaptor* fs, 

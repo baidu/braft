@@ -21,6 +21,7 @@
 #include "braft/enum.pb.h"
 #include "braft/errno.pb.h"
 #include <braft/snapshot_throttle.h>
+#include <braft/snapshot_executor.h> 
 
 namespace braft {
 extern bvar::Adder<int64_t> g_num_nodes;
@@ -1085,6 +1086,111 @@ TEST_F(NodeTest, Leader_step_down_during_install_snapshot) {
     cluster.ensure_same();
     
     LOG(TRACE) << "stop cluster";
+    cluster.stop_all();
+}
+
+
+TEST_P(NodeTest, Report_error_during_install_snapshot) {
+    std::vector<braft::PeerId> peers;
+    for (int i = 0; i < 3; i++) {
+        braft::PeerId peer;
+        peer.addr.ip = butil::my_ip();
+        peer.addr.port = 5006 + i;
+        peer.idx = 0;
+
+        peers.push_back(peer);
+    }
+
+    // start cluster
+    Cluster cluster("unittest", peers);
+    for (size_t i = 0; i < peers.size(); i++) {
+        ASSERT_EQ(0, cluster.start(peers[i].addr));
+    }
+
+    // elect leader
+    cluster.wait_leader();
+    braft::Node* leader = cluster.leader();
+    ASSERT_TRUE(leader != NULL);
+    LOG(WARNING) << "leader is " << leader->node_id();
+
+    // apply something
+    bthread::CountdownEvent cond(10);
+    for (int i = 0; i < 10; i++) {
+        butil::IOBuf data;
+        std::string data_buf;
+        data_buf.resize(256 * 1024, 'a');
+        data.append(data_buf);
+
+        braft::Task task;
+        task.data = &data;
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
+        leader->apply(task);
+    }
+    cond.wait();
+
+    cluster.ensure_same();
+
+    std::vector<braft::Node*> nodes;
+    cluster.followers(&nodes);
+    ASSERT_EQ(2, nodes.size());
+
+    // stop follower
+    LOG(WARNING) << "stop follower";
+    butil::EndPoint follower_addr = nodes[0]->node_id().peer_id.addr;
+    cluster.stop(follower_addr);
+
+    // apply something
+    cond.reset(10);
+    for (int i = 10; i < 20; i++) {
+        butil::IOBuf data;
+        std::string data_buf;
+        data_buf.resize(256 * 1024, 'b');
+        data.append(data_buf);
+
+        braft::Task task;
+        task.data = &data;
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
+        leader->apply(task);
+    }
+    cond.wait();
+
+    // trigger leader snapshot
+    LOG(WARNING) << "trigger leader snapshot ";
+    cond.reset(1);
+    leader->snapshot(NEW_SNAPSHOTCLOSURE(&cond, 0));
+    cond.wait();
+
+    // apply something
+    cond.reset(10);
+    for (int i = 20; i < 30; i++) {
+        butil::IOBuf data;
+        std::string data_buf;
+        data_buf.resize(256 * 1024, 'c');
+        data.append(data_buf);
+
+        braft::Task task;
+        task.data = &data;
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
+        leader->apply(task);
+    }
+    cond.wait();
+
+    // trigger leader snapshot again to compact logs
+    LOG(WARNING) << "trigger leader snapshot again";
+    cond.reset(1);
+    leader->snapshot(NEW_SNAPSHOTCLOSURE(&cond, 0));
+    cond.wait();
+
+    LOG(WARNING) << "restart follower";
+    ASSERT_EQ(0, cluster.start(follower_addr));
+    usleep(1*1000*1000);
+    
+    // trigger newly-started follower report_error when install_snapshot
+    cluster._nodes.back()->_impl->_snapshot_executor->report_error(EIO, "%s", 
+                                                    "Fail to close writer");
+    
+    sleep(2);
+    LOG(WARNING) << "cluster stop";
     cluster.stop_all();
 }
 

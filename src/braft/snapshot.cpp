@@ -759,10 +759,15 @@ void LocalSnapshotCopier::copy() {
         }
     } while (0);
     if (!ok() && _writer && _writer->ok()) {
-        _writer->set_error(error_code(), error_data());
+        LOG(WARNING) << "Fail to copy, error_code " << error_code()
+                     << " error_msg " << error_cstr() 
+                     << " writer path " << _writer->get_path();
+        _writer->set_error(error_code(), error_cstr());
     }
     if (_writer) {
-        if (_storage->close(_writer, _filter_before_copy_remote) != 0) {
+        // set_error for copier only when failed to close writer and copier was 
+        // ok before this moment 
+        if (_storage->close(_writer, _filter_before_copy_remote) != 0 && ok()) {
             set_error(EIO, "Fail to close writer");
         }
         _writer = NULL;
@@ -790,7 +795,7 @@ void LocalSnapshotCopier::load_meta_table() {
     lck.unlock();
     if (!session->status().ok()) {
         LOG(WARNING) << "Fail to copy meta file : " << session->status();
-        set_error(session->status().error_code(), session->status().error_data());
+        set_error(session->status().error_code(), session->status().error_cstr());
         return;
     }
     if (_remote_snapshot._meta_table.load_from_iobuf_as_remote(meta_buf) != 0) {
@@ -969,7 +974,7 @@ void LocalSnapshotCopier::copy_file(const std::string& filename) {
     _cur_session = NULL;
     lck.unlock();
     if (!session->status().ok()) {
-        set_error(session->status().error_code(), session->status().error_data());
+        set_error(session->status().error_code(), session->status().error_cstr());
         return;
     }
     if (_writer->add_file(filename, &meta) != 0) {

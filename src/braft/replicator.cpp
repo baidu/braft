@@ -696,11 +696,17 @@ int Replicator::_continue_sending(void* arg, int error_code) {
         return -1;
     }
     if (error_code == ETIMEDOUT) {
+        // Replication is in progress when block timedout, no need to start again
+        // this case can happen when 
+        //     1. pipeline is enabled and 
+        //     2. disable readonly mode triggers another replication
+        if (r->_wait_id != 0) {
+            return 0;
+        }
         // Send empty entries after block timeout to check the correct
         // _next_index otherwise the replictor is likely waits in
         // _wait_more_entries and no further logs would be replicated even if the
         // last_index of this followers is less than |next_index - 1|
-        CHECK_EQ(r->_wait_id, 0);
         r->_send_empty_entries(false);
     } else if (error_code != ESTOP && !r->_is_waiter_canceled) {
         // id is unlock in _send_entries
@@ -729,7 +735,7 @@ void Replicator::_wait_more_entries() {
                 _next_index - 1, _continue_sending, (void*)_id.value);
         _is_waiter_canceled = false;
         BRAFT_VLOG << "node " << _options.group_id << ":" << _options.peer_id
-                   << " wait more entries";
+                   << " wait more entries, wait_id " << _wait_id;
     }
     if (_flying_append_entries_size == 0) {
         _st.st = IDLE;
