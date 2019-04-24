@@ -654,6 +654,7 @@ void LogManager::set_snapshot(const SnapshotMeta* meta) {
 void LogManager::clear_bufferred_logs() {
     std::unique_lock<raft_mutex_t> lck(_mutex);
     if (_last_snapshot_id.index != 0) {
+        _virtual_first_log_id = _last_snapshot_id;
         truncate_prefix(_last_snapshot_id.index + 1, lck);
     }
 }

@@ -858,6 +858,8 @@ void NodeImpl::snapshot(Closure* done) {
 }
 
 void NodeImpl::do_snapshot(Closure* done) {
+    LOG(INFO) << "node " << _group_id << ":" << _server_id 
+              << " starts to do snapshot";
     if (_snapshot_executor) {
         _snapshot_executor->do_snapshot(done);
     } else {

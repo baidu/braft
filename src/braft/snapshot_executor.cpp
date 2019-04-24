@@ -108,6 +108,8 @@ SnapshotExecutor::~SnapshotExecutor() {
 
 void SnapshotExecutor::do_snapshot(Closure* done) {
     std::unique_lock<raft_mutex_t> lck(_mutex);
+    int64_t saved_last_snapshot_index = _last_snapshot_index;
+    int64_t saved_last_snapshot_term = _last_snapshot_term;
     if (_stopped) {
         lck.unlock();
         if (done) {
@@ -140,6 +142,11 @@ void SnapshotExecutor::do_snapshot(Closure* done) {
         // updated. But it's fine since we will do next snapshot saving in a
         // predictable time.
         lck.unlock();
+        LOG_IF(INFO, _node != NULL) << "node " << _node->node_id()
+            << " has no applied logs since last snapshot, "
+            << " last_snapshot_index " << saved_last_snapshot_index
+            << " last_snapshot_term " << saved_last_snapshot_term
+            << ", will clear bufferred log and return success";
         _log_manager->clear_bufferred_logs();
         if (done) {
             run_closure_in_bthread(done, _usercode_in_pthread);
