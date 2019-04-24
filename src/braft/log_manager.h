@@ -202,8 +202,12 @@ friend class AppendBatcher;
     int64_t _last_log_index;
     // the last snapshot's log_id
     LogId _last_snapshot_id;
-    // the last but one snapshot's log_id
-    LogId _last_but_one_snapshot_id;
+    // the virtual first log, for finding next_index of replicator, which 
+    // can avoid install_snapshot too often in extreme case where a follower's
+    // install_snapshot is slower than leader's save_snapshot
+    // [NOTICE] there should not be hole between this log_id and _last_snapshot_id,
+    // or may cause some unexpect cases
+    LogId _virtual_first_log_id;
 
     bthread::ExecutionQueueId<StableClosure*> _disk_queue;
 };

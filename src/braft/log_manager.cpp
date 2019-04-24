@@ -619,7 +619,7 @@ void LogManager::set_snapshot(const SnapshotMeta* meta) {
     _config_manager->set_snapshot(entry);
     int64_t term = unsafe_get_term(meta->last_included_index());
 
-    _last_but_one_snapshot_id = _last_snapshot_id;
+    const LogId _last_but_one_snapshot_id = _last_snapshot_id;
     _last_snapshot_id.index = meta->last_included_index();
     _last_snapshot_id.term = meta->last_included_term();
     if (_last_snapshot_id > _applied_id) {
@@ -628,6 +628,7 @@ void LogManager::set_snapshot(const SnapshotMeta* meta) {
     if (term == 0) {
         // last_included_index is larger than last_index
         // FIXME: what if last_included_index is less than first_index?
+        _virtual_first_log_id = _last_snapshot_id;
         truncate_prefix(meta->last_included_index() + 1, lck);
         return;
     } else if (term == meta->last_included_term()) {
@@ -637,11 +638,13 @@ void LogManager::set_snapshot(const SnapshotMeta* meta) {
         // followers
         if (_last_but_one_snapshot_id.index > 0) {
             // We have last snapshot index
+            _virtual_first_log_id = _last_but_one_snapshot_id;
             truncate_prefix(_last_but_one_snapshot_id.index + 1, lck);
         }
         return;
     } else {
         // TODO: check the result of reset.
+        _virtual_first_log_id = _last_snapshot_id;
         reset(meta->last_included_index() + 1, lck);
         return;
     }
@@ -677,10 +680,11 @@ int64_t LogManager::unsafe_get_term(const int64_t index) {
         return 0;
     }
 
-    // check index equal snapshot_index, return snapshot_term
-    if (index == _last_but_one_snapshot_id.index) {
-        return _last_but_one_snapshot_id.term;
+    // check virtual first log
+    if (index == _virtual_first_log_id.index) {
+        return _virtual_first_log_id.term;
     }
+    
     if (index == _last_snapshot_id.index) {
         return _last_snapshot_id.term;
     }
@@ -704,10 +708,11 @@ int64_t LogManager::get_term(const int64_t index) {
         return 0;
     }
 
-    // check index equal snapshot_index, return snapshot_term
-    if (index == _last_but_one_snapshot_id.index) {
-        return _last_but_one_snapshot_id.term;
+    // check virtual first log
+    if (index == _virtual_first_log_id.index) {
+        return _virtual_first_log_id.term;
     }
+    
     if (index == _last_snapshot_id.index) {
         return _last_snapshot_id.term;
     }
