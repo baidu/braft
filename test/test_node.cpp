@@ -83,7 +83,9 @@ public:
 
     virtual void on_apply(braft::Iterator& iter) {
         for (; iter.valid(); iter.next()) {
-            LOG_IF(TRACE, !g_dont_print_apply_log) << "addr " << address << " apply " << iter.index();
+            LOG_IF(TRACE, !g_dont_print_apply_log) << "addr " << address 
+                                                   << " apply " << iter.index()
+                                                   << " data " << iter.data();
             ::brpc::ClosureGuard guard(iter.done());
             lock();
             logs.push_back(iter.data());
@@ -177,7 +179,7 @@ class ExpectClosure : public braft::Closure {
 public:
     void Run() {
         if (_expect_err_code >= 0) {
-            EXPECT_EQ(status().error_code(), _expect_err_code) 
+            ASSERT_EQ(status().error_code(), _expect_err_code) 
                 << _pos << " : " << status();
         }
         if (_cond) {
@@ -397,8 +399,10 @@ CHECK:
             fsm->lock();
 
             if (first->logs.size() != fsm->logs.size()) {
-                LOG(INFO) << "logs size not match: "
-                    << first->logs.size() << " vs " << fsm->logs.size();
+                LOG(INFO) << "logs size not match, "
+                          << " addr: " << first->address << " vs "
+                          << fsm->address << ", log num "
+                          << first->logs.size() << " vs " << fsm->logs.size();
                 fsm->unlock();
                 goto WAIT;
             }
@@ -409,9 +413,9 @@ CHECK:
                 if (first_data.to_string() != fsm_data.to_string()) {
                     LOG(INFO) << "log data of index=" << j << " not match, "
                               << " addr: " << first->address << " vs "
-                              << fsm->address << ", data "
-                              << first_data.to_string() << " vs " 
-                              << fsm_data.to_string();
+                              << fsm->address << ", data ("
+                              << first_data.to_string() << ") vs " 
+                              << fsm_data.to_string() << ")";
                     fsm->unlock();
                     goto WAIT;
                 }
