@@ -235,15 +235,18 @@ void Replicator::_on_block_timedout(void *arg) {
 }
 
 void Replicator::_block(long start_time_us, int error_code) {
+    // mainly for pipeline case, to avoid too many block timer when this 
+    // replicator is something wrong
+    if (_st.st == BLOCKING) {
+        CHECK_EQ(0, bthread_id_unlock(_id)) << "Fail to unlock " << _id;
+        return;
+    }
+
     // TODO: Currently we don't care about error_code which indicates why the
     // very RPC fails. To make it better there should be different timeout for
     // each individual error (e.g. we don't need check every
     // heartbeat_timeout_ms whether a dead follower has come back), but it's just
     // fine now.
-    if (_st.st == BLOCKING) {
-        CHECK_EQ(0, bthread_id_unlock(_id)) << "Fail to unlock " << _id;
-        return;
-    }
     int blocking_time = 0;
     if (error_code == EBUSY || error_code == EINTR) {
         blocking_time = FLAGS_raft_retry_replicate_interval_ms;
@@ -703,6 +706,7 @@ int Replicator::_continue_sending(void* arg, int error_code) {
         if (r->_wait_id != 0) {
             return 0;
         }
+        
         // Send empty entries after block timeout to check the correct
         // _next_index otherwise the replictor is likely waits in
         // _wait_more_entries and no further logs would be replicated even if the
@@ -750,6 +754,10 @@ void Replicator::_install_snapshot() {
                                             add_one_more_task(true)) {
         return _block(butil::gettimeofday_us(), EBUSY);
     }
+    
+    // pre-set replictor state to INSTALLING_SNAPSHOT, so replicator could be
+    // blocked if something is wrong, such as throttled for a period of time 
+    _st.st = INSTALLING_SNAPSHOT;
 
     _reader = _options.snapshot_storage->open();
     if (!_reader){
@@ -809,7 +817,6 @@ void Replicator::_install_snapshot() {
 
     _install_snapshot_in_fly = cntl->call_id();
     _install_snapshot_counter++;
-    _st.st = INSTALLING_SNAPSHOT;
     _st.last_log_included = meta.last_included_index();
     _st.last_term_included = meta.last_included_term();
     google::protobuf::Closure* done = brpc::NewCallback<
