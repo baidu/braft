@@ -241,6 +241,7 @@ public:
 
     // Invoked when a configuration has been committed to the group
     virtual void on_configuration_committed(const ::braft::Configuration& conf);
+    virtual void on_configuration_committed(const ::braft::Configuration& conf, int64_t index);
 
     // this method is called when a follower stops following a leader and its leader_id becomes NULL,
     // situations including: 

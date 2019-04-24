@@ -228,6 +228,11 @@ void StateMachine::on_configuration_committed(const Configuration& conf) {
     return;
 }
 
+void StateMachine::on_configuration_committed(const Configuration& conf, int64_t index) {
+    (void)index;
+    return on_configuration_committed(conf);
+}
+
 void StateMachine::on_stop_following(const LeaderChangeContext&) {}
 void StateMachine::on_start_following(const LeaderChangeContext&) {}
 

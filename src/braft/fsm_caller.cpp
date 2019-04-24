@@ -265,7 +265,8 @@ void FSMCaller::do_committed(int64_t committed_index) {
                 if (iter_impl.entry()->old_peers == NULL) {
                     // Joint stage is not supposed to be noticeable by end users.
                     _fsm->on_configuration_committed(
-                            Configuration(*iter_impl.entry()->peers));
+                            Configuration(*iter_impl.entry()->peers),
+                            iter_impl.entry()->id.index);
                 }
             }
             // For other entries, we have nothing to do besides flush the
@@ -399,7 +400,7 @@ void FSMCaller::do_snapshot_load(LoadSnapshotClosure* done) {
         for (int i = 0; i < meta.peers_size(); ++i) {
             conf.add_peer(meta.peers(i));
         }
-        _fsm->on_configuration_committed(conf);
+        _fsm->on_configuration_committed(conf, meta.last_included_index());
     }
 
     _last_applied_index.store(meta.last_included_index(),

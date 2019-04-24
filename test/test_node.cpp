@@ -169,8 +169,8 @@ public:
         ++_on_stop_following_times;
     }
 
-    virtual void on_configuration_committed(const ::braft::Configuration& conf) {
-        LOG(TRACE) << "address " << address << " commit conf: " << conf;
+    virtual void on_configuration_committed(const ::braft::Configuration& conf, int64_t index) {
+        LOG(TRACE) << "address " << address << " commit conf: " << conf << " at index " << index;
     }
 
 };
