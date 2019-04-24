@@ -205,6 +205,7 @@ private:
         }
         return true;
     }
+    void _close_reader();
 
 private:
     struct FlyingAppendEntriesRpc {

@@ -85,13 +85,7 @@ Replicator::Replicator()
 Replicator::~Replicator() {
     // bind lifecycle with node, Release
     // Replicator stop is async
-    if (_reader) {
-        _options.snapshot_storage->close(_reader);
-        _reader = NULL;
-        if (_options.snapshot_throttle) {
-            _options.snapshot_throttle->finish_one_task(true);
-        }
-    }
+    _close_reader();
     if (_options.node) {
         _options.node->Release();
         _options.node = NULL;
@@ -759,6 +753,7 @@ void Replicator::_install_snapshot() {
         LOG(WARNING) << "node " << _options.group_id << ":" << _options.server_id
                      << " refuse to send InstallSnapshotRequest to " << _options.peer_id
                      << " because there is an running one";
+        CHECK_EQ(0, bthread_id_unlock(_id)) << "Fail to unlock " << _id;
         return;
     }
 
@@ -794,6 +789,7 @@ void Replicator::_install_snapshot() {
         LOG(WARNING) << "node " << _options.group_id << ":" << _options.server_id
                      << " refuse to send InstallSnapshotRequest to " << _options.peer_id
                      << " because snapshot uri is empty";
+        _close_reader();
         return _block(butil::gettimeofday_us(), EBUSY); 
     }
     SnapshotMeta meta;
@@ -1301,6 +1297,16 @@ void Replicator::get_status(ReplicatorId id, PeerStatus* status) {
         return;
     }
     return r->_get_status(status);
+}
+
+void Replicator::_close_reader() {
+    if (_reader) {
+        _options.snapshot_storage->close(_reader);
+        _reader = NULL;
+        if (_options.snapshot_throttle) {
+            _options.snapshot_throttle->finish_one_task(true);
+        }
+    }
 }
 
 // ==================== ReplicatorGroup ==========================
