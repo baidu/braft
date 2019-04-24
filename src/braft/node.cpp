@@ -2059,6 +2059,7 @@ void NodeImpl::handle_append_entries_request(brpc::Controller* cntl,
         int64_t last_index = _log_manager->last_log_index();
         int64_t saved_term = request->term();
         int     saved_entries_size = request->entries_size();
+        std::string rpc_server_id = request->server_id();
         if (!from_append_entries_cache &&
             handle_out_of_order_append_entries(
                     cntl, request, response, done, last_index)) {
@@ -2068,7 +2069,7 @@ void NodeImpl::handle_append_entries_request(brpc::Controller* cntl,
             done_guard.release();
             LOG(WARNING) << "node " << _group_id << ":" << _server_id
                          << " cache out-of-order AppendEntries from " 
-                         << request->server_id()
+                         << rpc_server_id
                          << " in term " << saved_term
                          << " prev_log_index " << prev_log_index
                          << " prev_log_term " << prev_log_term
