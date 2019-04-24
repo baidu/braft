@@ -168,6 +168,18 @@ void Node::get_status(NodeStatus* status) {
     return _impl->get_status(status);
 }
 
+void Node::enter_readonly_mode() {
+    return _impl->enter_readonly_mode();
+}
+
+void Node::leave_readonly_mode() {
+    return _impl->leave_readonly_mode();
+}
+
+bool Node::readonly() {
+    return _impl->readonly();
+}
+
 // ------------- Iterator
 void Iterator::next() {
     if (valid()) {

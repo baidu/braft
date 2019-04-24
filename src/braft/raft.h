@@ -43,6 +43,7 @@ class SnapshotHook;
 class LeaderChangeContext;
 class FileSystemAdaptor;
 class SnapshotThrottle;
+class LogStorage;
 
 const PeerId ANY_PEER(butil::EndPoint(butil::IP_ANY, 0), 0);
 
@@ -358,7 +359,7 @@ struct PeerStatus {
     PeerStatus()
         : valid(false), installing_snapshot(false), next_index(0)
         , last_rpc_send_timestamp(0), flying_append_entries_size(0)
-        , consecutive_error_times(0)
+        , readonly_index(0), consecutive_error_times(0)
     {}
 
     bool    valid;
@@ -366,6 +367,7 @@ struct PeerStatus {
     int64_t next_index;
     int64_t last_rpc_send_timestamp;
     int64_t flying_append_entries_size;
+    int64_t readonly_index;
     int     consecutive_error_times;
 };
 
@@ -376,7 +378,7 @@ public:
     typedef std::map<PeerId, PeerStatus> PeerStatusMap;
 
     NodeStatus()
-        : state(STATE_END), term(0), committed_index(0), known_applied_index(0)
+        : state(STATE_END), readonly(false), term(0), committed_index(0), known_applied_index(0)
         , pending_index(0), pending_queue_size(0), applying_index(0), first_index(0)
         , last_index(-1), disk_index(0)
     {}
@@ -384,6 +386,7 @@ public:
     State state;
     PeerId peer_id;
     PeerId leader_id;
+    bool readonly;
     int64_t term;
     int64_t committed_index;
     int64_t known_applied_index;
@@ -467,6 +470,18 @@ struct NodeOptions {
     // Default: false
     bool node_owns_fsm;
 
+    // If |node_owns_log_storage| is true. |log_storage| would be destroyed when the backing
+    // Node is no longer referenced.
+    //
+    // Default: true
+    bool node_owns_log_storage;
+
+    // The specific LogStorage implemented at the bussiness layer, which should be a valid
+    // instance, otherwise use SegmentLogStorage by default.
+    //
+    // Default: null
+    LogStorage* log_storage;
+
     // Run the user callbacks and user closures in pthread rather than bthread
     // 
     // Default: false
@@ -509,6 +524,8 @@ inline NodeOptions::NodeOptions()
     , catchup_margin(1000)
     , fsm(NULL)
     , node_owns_fsm(false)
+    , node_owns_log_storage(true)
+    , log_storage(NULL)
     , usercode_in_pthread(false)
     , filter_before_copy_remote(false)
     , snapshot_file_system_adaptor(NULL)
@@ -609,6 +626,33 @@ public:
     // Get the internal status of this node, the information is mostly the same as we
     // see from the website.
     void get_status(NodeStatus* status);
+
+    // Make this node enter readonly mode.
+    // Readonly mode should only be used to protect the system in some extreme cases.
+    // For exampe, in a storage system, too many write requests flood into the system
+    // unexpectly, and the system is in the danger of exhaust capacity. There's not enough
+    // time to add new machines, and wait for capacity balance. Once many disks become
+    // full, quorum dead happen to raft groups. One choice in this example is readonly
+    // mode, to let leader reject new write requests, but still handle reads request,
+    // and configuration changes.
+    // If a follower become readonly, the leader stop replicate new logs to it. This
+    // may cause the data far behind the leader, in the case that the leader is still
+    // writable. After the follower exit readonly mode, the leader will resume to
+    // replicate missing logs.
+    // A leader is readonly, if the node itself is readonly, or writable nodes (nodes that
+    // are not marked as readonly) in the group is less than majority. Once a leader become
+    // readonly, no new users logs will be acceptted.
+    void enter_readonly_mode();
+
+    // Node leave readonly node.
+    void leave_readonly_mode();
+
+    // Check if this node is readonly.
+    // There are two situations that if a node is readonly:
+    //      - This node is marked as readonly, by calling enter_readonly_mode();
+    //      - This node is a leader, and the count of writable nodes in the group
+    //        is less than the majority.
+    bool readonly();
 
 private:
     NodeImpl* _impl;

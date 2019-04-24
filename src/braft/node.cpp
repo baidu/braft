@@ -117,7 +117,9 @@ NodeImpl::NodeImpl(const GroupId& group_id, const PeerId& peer_id)
     , _stop_transfer_arg(NULL)
     , _waking_candidate(0)
     , _append_entries_cache(NULL)
-    , _append_entries_cache_version(0)  {
+    , _append_entries_cache_version(0)
+    , _node_readonly(false)
+    , _majority_nodes_readonly(false) {
     _server_id = peer_id;
     AddRef();
     g_num_nodes << 1;
@@ -168,9 +170,11 @@ NodeImpl::~NodeImpl() {
         _ballot_box = NULL;
     }
 
-    if (_log_storage) {
-        delete _log_storage;
-        _log_storage = NULL;
+    if (_options.node_owns_log_storage) {
+        if (_log_storage) {
+            delete _log_storage;
+            _log_storage = NULL;
+        }
     }
     if (_closure_queue) {
         delete _closure_queue;
@@ -1524,6 +1528,7 @@ void NodeImpl::step_down(const int64_t term, bool wakeup_a_candidate,
     // _conf_ctx.reset() will stop replicators of catching up nodes
     _conf_ctx.reset();
     _last_leader_timestamp = butil::monotonic_time_ms();
+    _majority_nodes_readonly = false;
 
     clear_append_entries_cache();
 
@@ -1684,9 +1689,12 @@ void NodeImpl::apply(LogEntryAndClosure tasks[], size_t size) {
     std::vector<LogEntry*> entries;
     entries.reserve(size);
     std::unique_lock<raft_mutex_t> lck(_mutex);
-    if (_state != STATE_LEADER) {
+    bool reject_new_user_logs = (_node_readonly || _majority_nodes_readonly);
+    if (_state != STATE_LEADER || reject_new_user_logs) {
         butil::Status st;
-        if (_state != STATE_TRANSFERRING) {
+        if (_state == STATE_LEADER && reject_new_user_logs) {
+            st.set_error(EREADONLY, "readonly mode reject new user logs");
+        } else if (_state != STATE_TRANSFERRING) {
             st.set_error(EPERM, "is not leader");
         } else {
             st.set_error(EBUSY, "is transferring leadership");
@@ -2105,6 +2113,7 @@ void NodeImpl::handle_append_entries_request(brpc::Controller* cntl,
         response->set_success(true);
         response->set_term(_current_term);
         response->set_last_log_index(_log_manager->last_log_index());
+        response->set_readonly(_node_readonly);
         lck.unlock();
         // see the comments at FollowerStableClosure::run()
         _ballot_box->set_last_committed_index(
@@ -2328,10 +2337,12 @@ void NodeImpl::describe(std::ostream& os, bool use_html) {
     // No replicator attached to nodes that are not leader;
     _replicator_group.list_replicators(&replicators);
     const int64_t leader_timestamp = _last_leader_timestamp;
+    const bool readonly = (_node_readonly || _majority_nodes_readonly);
     lck.unlock();
     const char *newline = use_html ? "<br>" : "\r\n";
     os << "peer_id: " << _server_id << newline;
     os << "state: " << state2str(st) << newline;
+    os << "readonly: " << readonly << newline;
     os << "term: " << term << newline;
     os << "conf_index: " << conf_index << newline;
     os << "peers:";
@@ -2434,6 +2445,7 @@ void NodeImpl::get_status(NodeStatus* status) {
     status->state = _state;
     status->term = _current_term;
     status->peer_id = _server_id;
+    status->readonly = (_node_readonly || _majority_nodes_readonly);
     _conf.conf.list_peers(&peers);
     _replicator_group.list_replicators(&replicators);
     lck.unlock();
@@ -2932,6 +2944,7 @@ void NodeImpl::ConfigurationCtx::reset(butil::Status* st) {
     ++_version;
     _stage = STAGE_NONE;
     _nchanges = 0;
+    _node->check_majority_nodes_readonly();
     if (_done) {
         if (!st) {
             _done->status().set_error(EPERM, "leader stepped down");
@@ -2940,6 +2953,69 @@ void NodeImpl::ConfigurationCtx::reset(butil::Status* st) {
         }
         run_closure_in_bthread(_done);
         _done = NULL;
+    }
+}
+
+void NodeImpl::enter_readonly_mode() {
+    BAIDU_SCOPED_LOCK(_mutex);
+    if (!_node_readonly) {
+        LOG(INFO) << "node " << _group_id << ":" << _server_id 
+                  << " enter readonly mode";
+        _node_readonly = true;
+    }
+}
+
+void NodeImpl::leave_readonly_mode() {
+    BAIDU_SCOPED_LOCK(_mutex);
+    if (_node_readonly) {
+        LOG(INFO) << "node " << _group_id << ":" << _server_id 
+                  << " leave readonly mode";
+        _node_readonly = false;
+    }
+}
+
+bool NodeImpl::readonly() {
+    BAIDU_SCOPED_LOCK(_mutex);
+    return _node_readonly || _majority_nodes_readonly;
+}
+
+int NodeImpl::change_readonly_config(int64_t term, const PeerId& peer_id, bool readonly) {
+    BAIDU_SCOPED_LOCK(_mutex);
+    if (term != _current_term && _state != STATE_LEADER) {
+        return EINVAL;
+    }
+    _replicator_group.change_readonly_config(peer_id, readonly);
+    check_majority_nodes_readonly();
+    return 0;
+}
+
+void NodeImpl::check_majority_nodes_readonly() {
+    check_majority_nodes_readonly(_conf.conf);
+    if (!_conf.old_conf.empty()) {
+        check_majority_nodes_readonly(_conf.old_conf);
+    }
+}
+
+void NodeImpl::check_majority_nodes_readonly(const Configuration& conf) {
+    std::vector<PeerId> peers;
+    conf.list_peers(&peers);
+    size_t readonly_nodes = 0;
+    for (size_t i = 0; i < peers.size(); i++) {
+        if (peers[i] == _server_id) {
+            readonly_nodes += ((_node_readonly) ? 1: 0);
+            continue;
+        }
+        if (_replicator_group.readonly(peers[i])) {
+            ++readonly_nodes;
+        }
+    }
+    size_t writable_nodes = peers.size() - readonly_nodes;
+    bool prev_readonly = _majority_nodes_readonly;
+    _majority_nodes_readonly = !(writable_nodes >= (peers.size() / 2 + 1));
+    if (prev_readonly != _majority_nodes_readonly) {
+        LOG(INFO) << "node " << _group_id << ":" << _server_id 
+                  << " majority readonly change from " << (prev_readonly ? "enable" : "disable")
+                  << " to " << (_majority_nodes_readonly ? " enable" : "disable");
     }
 }
 

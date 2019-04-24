@@ -179,7 +179,7 @@ void BallotBox::get_status(BallotBoxStatus* status) {
     }
     std::unique_lock<raft_mutex_t> lck(_mutex);
     status->committed_index = _last_committed_index;
-    if (_pending_queue_size != 0) {
+    if (_pending_meta_queue.size() != 0) {
         status->pending_index = _pending_index;
         status->pending_queue_size = _pending_meta_queue.size();
     }

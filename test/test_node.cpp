@@ -3460,6 +3460,197 @@ TEST_P(NodeTest, follower_handle_out_of_order_append_entries) {
     cluster.stop_all();
 }
 
+TEST_P(NodeTest, readonly) {
+    std::vector<braft::PeerId> peers;
+    for (int i = 0; i < 3; i++) {
+        braft::PeerId peer;
+        peer.addr.ip = butil::my_ip();
+        peer.addr.port = 5006 + i;
+        peer.idx = 0;
+
+        peers.push_back(peer);
+    }
+
+    // start cluster
+    Cluster cluster("unittest", peers);
+    for (size_t i = 0; i < peers.size(); i++) {
+        ASSERT_EQ(0, cluster.start(peers[i].addr));
+    }
+
+    // elect leader
+    cluster.wait_leader();
+    braft::Node* leader = cluster.leader();
+    ASSERT_TRUE(leader != NULL);
+    LOG(WARNING) << "leader is " << leader->node_id();
+
+    // apply something
+    bthread::CountdownEvent cond(10);
+    int start_index = 0;
+    for (int i = start_index; i < start_index + 10; i++) {
+        butil::IOBuf data;
+        char data_buf[128];
+        snprintf(data_buf, sizeof(data_buf), "hello: %d", i);
+        data.append(data_buf);
+
+        braft::Task task;
+        task.data = &data;
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
+        leader->apply(task);
+    }
+    cond.wait();
+
+    // let leader enter readonly mode, reject user logs
+    leader->enter_readonly_mode();
+    ASSERT_TRUE(leader->readonly());
+    cond.reset(10);
+    start_index += 10;
+    for (int i = start_index; i < start_index + 10; i++) {
+        butil::IOBuf data;
+        char data_buf[128];
+        snprintf(data_buf, sizeof(data_buf), "hello: %d", i);
+        data.append(data_buf);
+
+        braft::Task task;
+        task.data = &data;
+        task.done = NEW_APPLYCLOSURE(&cond, braft::EREADONLY);
+        leader->apply(task);
+    }
+    cond.wait();
+
+    // let leader leave readonly mode, accept user logs
+    leader->leave_readonly_mode();
+    ASSERT_FALSE(leader->readonly());
+    cond.reset(10);
+    start_index += 10;
+    for (int i = start_index; i < start_index + 10; i++) {
+        butil::IOBuf data;
+        char data_buf[128];
+        snprintf(data_buf, sizeof(data_buf), "hello: %d", i);
+        data.append(data_buf);
+
+        braft::Task task;
+        task.data = &data;
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
+        leader->apply(task);
+    }
+    cond.wait();
+  
+    std::vector<braft::Node*> followers;
+    cluster.followers(&followers);
+    ASSERT_EQ(2, followers.size());
+
+    // Let follower 0 enter readonly mode, still can accept user logs
+    followers[0]->enter_readonly_mode();
+    bthread_usleep(2000 * 1000); // wait a while for heartbeat
+    cond.reset(10);
+    start_index += 10;
+    for (int i = start_index; i < start_index + 10; i++) {
+        butil::IOBuf data;
+        char data_buf[128];
+        snprintf(data_buf, sizeof(data_buf), "hello: %d", i);
+        data.append(data_buf);
+
+        braft::Task task;
+        task.data = &data;
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
+        leader->apply(task);
+    }
+    cond.wait();
+
+    // Let follower 1 enter readonly mode, majority readonly, reject user logs
+    followers[1]->enter_readonly_mode();
+    int retry = 5;
+    while (!leader->readonly() && --retry >= 0) {
+        bthread_usleep(1000 * 1000);
+    }
+    ASSERT_TRUE(leader->readonly());
+    cond.reset(10);
+    start_index += 10;
+    for (int i = start_index; i < start_index + 10; i++) {
+        butil::IOBuf data;
+        char data_buf[128];
+        snprintf(data_buf, sizeof(data_buf), "hello: %d", i);
+        data.append(data_buf);
+
+        braft::Task task;
+        task.data = &data;
+        task.done = NEW_APPLYCLOSURE(&cond, braft::EREADONLY);
+        leader->apply(task);
+    }
+    cond.wait();  
+
+    // Add a new follower
+    braft::PeerId peer3;
+    peer3.addr.ip = butil::my_ip();
+    peer3.addr.port = 5006 + 3;
+    peer3.idx = 0;
+    ASSERT_EQ(0, cluster.start(peer3.addr, true));
+    bthread_usleep(1000* 1000);
+    cond.reset(1);
+    leader->add_peer(peer3, NEW_ADDPEERCLOSURE(&cond, 0));
+    cond.wait();
+
+    // Trigger follower 0 do snapshot
+    cond.reset(1);
+    followers[0]->snapshot(NEW_SNAPSHOTCLOSURE(&cond, 0));
+    cond.wait();
+
+    // 2/4 readonly, leader still in readonly
+    retry = 5;
+    while (!leader->readonly() && --retry >= 0) {
+        bthread_usleep(1000 * 1000);
+    }
+    ASSERT_TRUE(leader->readonly());
+    start_index += 10;
+    cond.reset(10);
+    for (int i = start_index; i < start_index + 10; i++) {
+        butil::IOBuf data;
+        char data_buf[128];
+        snprintf(data_buf, sizeof(data_buf), "hello: %d", i);
+        data.append(data_buf);
+
+        braft::Task task;
+        task.data = &data;
+        task.done = NEW_APPLYCLOSURE(&cond, braft::EREADONLY);
+        leader->apply(task);
+    }
+    cond.wait();  
+
+    // Remove follower 0
+    cond.reset(1);
+    leader->remove_peer(followers[0]->node_id().peer_id, NEW_REMOVEPEERCLOSURE(&cond, 0));
+    cond.wait();
+    cluster.stop(followers[0]->node_id().peer_id.addr);
+
+    // 1/3 readonly, leader leave Readonly
+    retry = 5;
+    while (leader->readonly() && --retry >= 0) {
+        bthread_usleep(1000 * 1000);
+    }
+    ASSERT_TRUE(!leader->readonly());
+    cond.reset(10);
+    start_index += 10;
+    for (int i = start_index; i < start_index + 10; i++) {
+        butil::IOBuf data;
+        char data_buf[128];
+        snprintf(data_buf, sizeof(data_buf), "hello: %d", i);
+        data.append(data_buf);
+
+        braft::Task task;
+        task.data = &data;
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
+        leader->apply(task);
+    }
+    cond.wait();  
+
+    // Follower 1 leave readonly, catch up logs
+    followers[1]->leave_readonly_mode();
+    cluster.ensure_same();
+
+    LOG(WARNING) << "cluster stop";
+    cluster.stop_all();
+}
+
 INSTANTIATE_TEST_CASE_P(NodeTestWithoutPipelineReplication,
                         NodeTest,
                         ::testing::Values("NoReplcation"));

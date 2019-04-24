@@ -70,6 +70,7 @@ Replicator::Replicator()
     , _heartbeat_counter(0)
     , _append_entries_counter(0)
     , _install_snapshot_counter(0)
+    , _readonly_index(0)
     , _wait_id(0)
     , _is_waiter_canceled(false)
     , _reader(NULL)
@@ -291,7 +292,7 @@ void Replicator::_on_heartbeat_returned(
         << " prev_log_term " << request->prev_log_term();
     if (cntl->Failed()) {
         ss << " fail, sleep.";
-	BRAFT_VLOG << ss.str();
+        BRAFT_VLOG << ss.str();
 
         // TODO: Should it be VLOG?
         LOG_IF(WARNING, (r->_consecutive_error_times++) % 10 == 0)
@@ -306,8 +307,8 @@ void Replicator::_on_heartbeat_returned(
     r->_consecutive_error_times = 0;
     if (response->term() > r->_options.term) {
         ss << " fail, greater term " << response->term()
-            << " expect term " << r->_options.term;
-	BRAFT_VLOG << ss.str();
+           << " expect term " << r->_options.term;
+        BRAFT_VLOG << ss.str();
 
         NodeImpl *node_impl = r->_options.node;
         // Acquire a reference of Node here in case that Node is detroyed
@@ -324,12 +325,28 @@ void Replicator::_on_heartbeat_returned(
         node_impl->Release();
         return;
     }
-    BRAFT_VLOG << ss.str();
+    bool readonly = response->has_readonly() && response->readonly();
+    BRAFT_VLOG << ss.str() << " readonly " << readonly;
     if (rpc_send_time > r->_last_rpc_send_timestamp){
         r->_last_rpc_send_timestamp = rpc_send_time; 
     }
     r->_start_heartbeat_timer(start_time_us);
+    NodeImpl* node_impl = NULL;
+    // Check if readonly config changed
+    if ((readonly && r->_readonly_index == 0) ||
+        (!readonly && r->_readonly_index != 0)) {
+        node_impl = r->_options.node;
+        node_impl->AddRef();
+    }
+    if (!node_impl) {
+        CHECK_EQ(0, bthread_id_unlock(dummy_id)) << "Fail to unlock " << dummy_id;
+        return;
+    }
+    const PeerId peer_id = r->_options.peer_id;
+    int64_t term = r->_options.term;
     CHECK_EQ(0, bthread_id_unlock(dummy_id)) << "Fail to unlock " << dummy_id;
+    node_impl->change_readonly_config(term, peer_id, readonly);
+    node_impl->Release();
     return;
 }
 
@@ -564,12 +581,22 @@ void Replicator::_send_empty_entries(bool is_heartbeat) {
 
 int Replicator::_prepare_entry(int offset, EntryMeta* em, butil::IOBuf *data) {
     if (data->length() >= (size_t)FLAGS_raft_max_body_size) {
-        return -1;
+        return ERANGE;
     }
-    const size_t log_index = _next_index + offset;
+    const int64_t log_index = _next_index + offset;
     LogEntry *entry = _options.log_manager->get_entry(log_index);
     if (entry == NULL) {
-        return -1;
+        return ENOENT;
+    }
+    // When leader become readonly, no new user logs can submit. On the other side,
+    // if any user log are accepted after this replicator become readonly, the leader
+    // still have enough followers to commit logs, we can safely stop waiting new logs
+    // until the replicator leave readonly mode.
+    if (_readonly_index != 0 && log_index >= _readonly_index) {
+        if (entry->type != ENTRY_TYPE_CONFIGURATION) {
+            return EREADONLY;
+        }
+        _readonly_index = log_index + 1;
     }
     em->set_term(entry->id.term);
     em->set_type(entry->type);
@@ -613,9 +640,11 @@ void Replicator::_send_entries() {
     }
     EntryMeta em;
     const int max_entries_size = FLAGS_raft_max_entries_size - _flying_append_entries_size;
+    int prepare_entry_rc = 0;
     CHECK_GT(max_entries_size, 0);
     for (int i = 0; i < max_entries_size; ++i) {
-        if (_prepare_entry(i, &em, &cntl->request_attachment()) != 0) {
+        prepare_entry_rc = _prepare_entry(i, &em, &cntl->request_attachment());
+        if (prepare_entry_rc != 0) {
             break;
         }
         request->add_entries()->Swap(&em);
@@ -625,6 +654,13 @@ void Replicator::_send_entries() {
         if (_next_index < _options.log_manager->first_log_index()) {
             _reset_next_index();
             return _install_snapshot();
+        }
+        if (prepare_entry_rc == EREADONLY) {
+            if (_flying_append_entries_size == 0) {
+                _st.st = IDLE;
+            }
+            CHECK_EQ(0, bthread_id_unlock(_id)) << "Fail to unlock " << _id;
+            return;
         }
         return _wait_more_entries();
     }
@@ -1111,6 +1147,52 @@ int64_t Replicator::get_next_index(ReplicatorId id) {
     return next_index;
 }
 
+int Replicator::change_readonly_config(ReplicatorId id, bool readonly) {
+    Replicator *r = NULL;
+    bthread_id_t dummy_id = { id };
+    if (bthread_id_lock(dummy_id, (void**)&r) != 0) {
+        return 0;
+    }
+    return r->_change_readonly_config(readonly);
+}
+
+int Replicator::_change_readonly_config(bool readonly) {
+    if ((readonly && _readonly_index != 0) ||
+        (!readonly && _readonly_index == 0)) {
+        // Check if readonly already set
+        BRAFT_VLOG << "node " << _options.group_id << ":" << _options.server_id
+                   << " ignore change readonly config of " << _options.peer_id
+                   << " to " << readonly << ", readonly_index " << _readonly_index;
+        CHECK_EQ(0, bthread_id_unlock(_id)) << "Fail to unlock " << _id;
+        return 0;
+    }
+    if (readonly) {
+        // Keep a readonly index here to make sure the pending logs can be committed.
+        _readonly_index = _options.log_manager->last_log_index() + 1;
+        LOG(INFO) << "node " << _options.group_id << ":" << _options.server_id
+                  << " enable readonly for " << _options.peer_id
+                  << ", readonly_index " << _readonly_index;
+        CHECK_EQ(0, bthread_id_unlock(_id)) << "Fail to unlock " << _id;
+    } else {
+        _readonly_index = 0;
+        LOG(INFO) << "node " << _options.group_id << ":" << _options.server_id
+                  << " disable readonly for " << _options.peer_id;
+        _wait_more_entries();
+    }
+    return 0;
+}
+
+bool Replicator::readonly(ReplicatorId id) {
+    Replicator *r = NULL;
+    bthread_id_t dummy_id = { id };
+    if (bthread_id_lock(dummy_id, (void**)&r) != 0) {
+        return 0;
+    }
+    bool readonly = (r->_readonly_index != 0);
+    CHECK_EQ(0, bthread_id_unlock(dummy_id)) << "Fail to unlock " << dummy_id;
+    return readonly;
+}
+
 void Replicator::_destroy() {
     bthread_id_t saved_id = _id;
     CHECK_EQ(0, bthread_id_unlock_and_destroy(saved_id));
@@ -1129,12 +1211,16 @@ void Replicator::_describe(std::ostream& os, bool use_html) {
     const int64_t heartbeat_counter = _heartbeat_counter;
     const int64_t append_entries_counter = _append_entries_counter;
     const int64_t install_snapshot_counter = _install_snapshot_counter;
+    const int64_t readonly_index = _readonly_index;
     CHECK_EQ(0, bthread_id_unlock(_id));
     // Don't touch *this ever after
     const char* new_line = use_html ? "<br>" : "\r\n";
     os << "replicator_" << id << '@' << peer_id << ':';
     os << " next_index=" << next_index << ' ';
     os << " flying_append_entries_size=" << flying_append_entries_size << ' ';
+    if (readonly_index != 0) {
+        os << " readonly_index=" << readonly_index << ' ';
+    }
     switch (st.st) {
     case IDLE:
         os << "idle";
@@ -1160,6 +1246,7 @@ void Replicator::_get_status(PeerStatus* status) {
     status->flying_append_entries_size = _flying_append_entries_size;
     status->last_rpc_send_timestamp = _last_rpc_send_timestamp;
     status->consecutive_error_times = _consecutive_error_times;
+    status->readonly_index = _readonly_index;
     CHECK_EQ(0, bthread_id_unlock(_id));
 }
 
@@ -1390,6 +1477,24 @@ void ReplicatorGroup::list_replicators(
             iter = _rmap.begin();  iter != _rmap.end(); ++iter) {
         out->push_back(*iter);
     }
+}
+ 
+int ReplicatorGroup::change_readonly_config(const PeerId& peer, bool readonly) {
+    std::map<PeerId, ReplicatorId>::const_iterator iter = _rmap.find(peer);
+    if (iter == _rmap.end()) {
+        return -1;
+    }
+    ReplicatorId rid = iter->second;
+    return Replicator::change_readonly_config(rid, readonly);
+}
+
+bool ReplicatorGroup::readonly(const PeerId& peer) const {
+    std::map<PeerId, ReplicatorId>::const_iterator iter = _rmap.find(peer);
+    if (iter == _rmap.end()) {
+        return false;
+    }
+    ReplicatorId rid = iter->second;
+    return Replicator::readonly(rid);
 }
 
 } //  namespace braft

@@ -109,6 +109,13 @@ public:
 
     // Get replicator internal status.
     static void get_status(ReplicatorId id, PeerStatus* status);
+
+    // Change the readonly config.
+    // Return 0 if success, the error code otherwise.
+    static int change_readonly_config(ReplicatorId id, bool readonly);
+
+    // Check if a replicator is readonly
+    static bool readonly(ReplicatorId id);
     
 private:
     enum St {
@@ -150,6 +157,7 @@ private:
     int64_t _min_flying_index() {
         return _next_index - _flying_append_entries_size;
     }
+    int _change_readonly_config(bool readonly);
 
     static void _on_rpc_returned(
                 ReplicatorId id, brpc::Controller* cntl,
@@ -218,6 +226,7 @@ private:
     int64_t _heartbeat_counter;
     int64_t _append_entries_counter;
     int64_t _install_snapshot_counter;
+    int64_t _readonly_index;
     Stat _st;
     std::deque<FlyingAppendEntriesRpc> _append_entries_in_fly;
     brpc::CallId _install_snapshot_in_fly;
@@ -323,6 +332,12 @@ public:
 
     // List all the existing replicators with PeerId
     void list_replicators(std::vector<std::pair<PeerId, ReplicatorId> >* out) const;
+
+    // Change the readonly config for a peer
+    int change_readonly_config(const PeerId& peer, bool readonly);
+
+    // Check if a replicator is in readonly
+    bool readonly(const PeerId& peer) const;
 
 private:
 

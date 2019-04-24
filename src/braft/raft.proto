@@ -45,6 +45,7 @@ message AppendEntriesResponse {
     required int64 term = 1;
     required bool success = 2;
     optional int64 last_log_index = 3;
+    optional bool readonly = 4;
 };
 
 message SnapshotMeta {
