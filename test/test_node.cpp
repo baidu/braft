@@ -217,7 +217,7 @@ typedef ExpectClosure SnapshotClosure;
 class Cluster {
 public:
     Cluster(const std::string& name, const std::vector<braft::PeerId>& peers,
-            int32_t election_timeout_ms = 300)
+            int32_t election_timeout_ms = 3000)
         : _name(name), _peers(peers) 
         , _election_timeout_ms(election_timeout_ms) {
         int64_t throttle_throughput_bytes = 10 * 1024 * 1024;
