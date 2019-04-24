@@ -200,7 +200,10 @@ friend class AppendBatcher;
     std::deque<LogEntry* /*FIXME*/> _logs_in_memory;
     int64_t _first_log_index;
     int64_t _last_log_index;
+    // the last snapshot's log_id
     LogId _last_snapshot_id;
+    // the last but one snapshot's log_id
+    LogId _last_but_one_snapshot_id;
 
     bthread::ExecutionQueueId<StableClosure*> _disk_queue;
 };

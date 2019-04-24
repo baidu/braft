@@ -619,7 +619,7 @@ void LogManager::set_snapshot(const SnapshotMeta* meta) {
     _config_manager->set_snapshot(entry);
     int64_t term = unsafe_get_term(meta->last_included_index());
 
-    const int64_t saved_last_snapshot_index = _last_snapshot_id.index;
+    _last_but_one_snapshot_id = _last_snapshot_id;
     _last_snapshot_id.index = meta->last_included_index();
     _last_snapshot_id.term = meta->last_included_term();
     if (_last_snapshot_id > _applied_id) {
@@ -635,9 +635,9 @@ void LogManager::set_snapshot(const SnapshotMeta* meta) {
         // We don't truncate log before the lastest snapshot immediately since
         // some log around last_snapshot_index is probably needed by some
         // followers
-        if (saved_last_snapshot_index > 0) {
+        if (_last_but_one_snapshot_id.index > 0) {
             // We have last snapshot index
-            truncate_prefix(saved_last_snapshot_index + 1, lck);
+            truncate_prefix(_last_but_one_snapshot_id.index + 1, lck);
         }
         return;
     } else {
@@ -678,6 +678,9 @@ int64_t LogManager::unsafe_get_term(const int64_t index) {
     }
 
     // check index equal snapshot_index, return snapshot_term
+    if (index == _last_but_one_snapshot_id.index) {
+        return _last_but_one_snapshot_id.term;
+    }
     if (index == _last_snapshot_id.index) {
         return _last_snapshot_id.term;
     }
@@ -702,6 +705,9 @@ int64_t LogManager::get_term(const int64_t index) {
     }
 
     // check index equal snapshot_index, return snapshot_term
+    if (index == _last_but_one_snapshot_id.index) {
+        return _last_but_one_snapshot_id.term;
+    }
     if (index == _last_snapshot_id.index) {
         return _last_snapshot_id.term;
     }
