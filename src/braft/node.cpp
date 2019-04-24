@@ -60,6 +60,17 @@ static bvar::Adder<int64_t> g_num_nodes("raft_node_count");
 bvar::Adder<int64_t> g_num_nodes("raft_node_count");
 #endif
 
+int SnapshotTimer::adjust_timeout_ms(int timeout_ms) {
+    if (!_first_schedule) {
+        return timeout_ms;
+    }
+    if (timeout_ms > 0) {
+        timeout_ms = butil::fast_rand_less_than(timeout_ms) + 1;
+    }
+    _first_schedule = false;
+    return timeout_ms;
+}
+
 class ConfigurationChangeDone : public Closure {
 public:
     void Run() {
@@ -345,7 +356,6 @@ int NodeImpl::bootstrap(const BootstrapOptions& options) {
     _options.log_uri = options.log_uri;
     _options.raft_meta_uri = options.raft_meta_uri;
     _options.snapshot_uri = options.snapshot_uri;
-    _options.snapshot_file_system_adaptor = _options.snapshot_file_system_adaptor;
     _config_manager = new ConfigurationManager();
 
     // Create _fsm_caller first as log_manager needs it to report error
