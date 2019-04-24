@@ -106,6 +106,9 @@ public:
     static int64_t get_next_index(ReplicatorId id);
 
     static void describe(ReplicatorId id, std::ostream& os, bool use_html);
+
+    // Get replicator internal status.
+    static void get_status(ReplicatorId id, PeerStatus* status);
     
 private:
     enum St {
@@ -181,6 +184,7 @@ private:
                 InstallSnapshotResponse* response);
     void _destroy();
     void _describe(std::ostream& os, bool use_html);
+    void _get_status(PeerStatus* status);
     bool _is_catchup(int64_t max_margin) {
         // We should wait until install snapshot finish. If the process is throttled,
         // it maybe very slow.
@@ -316,6 +320,9 @@ public:
 
     // List all the existing replicators
     void list_replicators(std::vector<ReplicatorId>* out) const;
+
+    // List all the existing replicators with PeerId
+    void list_replicators(std::vector<std::pair<PeerId, ReplicatorId> >* out) const;
 
 private:
 

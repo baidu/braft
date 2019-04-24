@@ -1153,6 +1153,16 @@ void Replicator::_describe(std::ostream& os, bool use_html) {
     os << " hc=" << heartbeat_counter << " ac=" << append_entries_counter << " ic=" << install_snapshot_counter << new_line;
 }
 
+void Replicator::_get_status(PeerStatus* status) {
+    status->valid = true;
+    status->installing_snapshot = (_st.st == INSTALLING_SNAPSHOT);
+    status->next_index = _next_index;
+    status->flying_append_entries_size = _flying_append_entries_size;
+    status->last_rpc_send_timestamp = _last_rpc_send_timestamp;
+    status->consecutive_error_times = _consecutive_error_times;
+    CHECK_EQ(0, bthread_id_unlock(_id));
+}
+
 void Replicator::describe(ReplicatorId id, std::ostream& os, bool use_html) {
     bthread_id_t dummy_id = { id };
     Replicator* r = NULL;
@@ -1161,6 +1171,18 @@ void Replicator::describe(ReplicatorId id, std::ostream& os, bool use_html) {
     }
     // dummy_id is unlock in _describe
     return r->_describe(os, use_html);
+}
+
+void Replicator::get_status(ReplicatorId id, PeerStatus* status) {
+    if (!status) {
+        return;
+    }
+    bthread_id_t dummy_id = { id };
+    Replicator* r = NULL;
+    if (bthread_id_lock(dummy_id, (void**)&r) != 0) {
+        return;
+    }
+    return r->_get_status(status);
 }
 
 // ==================== ReplicatorGroup ==========================
@@ -1357,6 +1379,16 @@ void ReplicatorGroup::list_replicators(std::vector<ReplicatorId>* out) const {
     for (std::map<PeerId, ReplicatorId>::const_iterator
             iter = _rmap.begin();  iter != _rmap.end(); ++iter) {
         out->push_back(iter->second);
+    }
+}
+
+void ReplicatorGroup::list_replicators(
+        std::vector<std::pair<PeerId, ReplicatorId> >* out) const {
+    out->clear();
+    out->reserve(_rmap.size());
+    for (std::map<PeerId, ReplicatorId>::const_iterator
+            iter = _rmap.begin();  iter != _rmap.end(); ++iter) {
+        out->push_back(*iter);
     }
 }
 

@@ -367,6 +367,26 @@ public:
         }
     }
 
+    void check_node_status() {
+        std::vector<braft::Node*> nodes;
+        {
+            std::lock_guard<raft_mutex_t> guard(_mutex);
+            for (size_t i = 0; i < _nodes.size(); i++) {
+                nodes.push_back(_nodes[i]);
+            }
+        }
+        for (size_t i = 0; i < _nodes.size(); ++i) {
+            braft::NodeStatus status;
+            nodes[i]->get_status(&status);
+            if (nodes[i]->is_leader()) {
+                ASSERT_EQ(status.state, braft::STATE_LEADER);
+            } else {
+                ASSERT_NE(status.state, braft::STATE_LEADER);
+                ASSERT_EQ(status.stable_followers.size(), 0);
+            }
+        }
+    }
+
     void ensure_leader(const butil::EndPoint& expect_addr) {
 CHECK:
         std::lock_guard<raft_mutex_t> guard(_mutex);
@@ -384,7 +404,7 @@ WAIT:
     }
 
     bool ensure_same(int wait_time_s = -1) {
-        std::lock_guard<raft_mutex_t> guard(_mutex);
+        std::unique_lock<raft_mutex_t> guard(_mutex);
         if (_fsms.size() <= 1) {
             return true;
         }
@@ -424,6 +444,8 @@ CHECK:
             fsm->unlock();
         }
         first->unlock();
+        guard.unlock();
+        check_node_status();
 
         return true;
 WAIT:
@@ -1027,24 +1049,20 @@ TEST_F(NodeTest, Leader_step_down_during_install_snapshot) {
     cond.reset(1);
     LOG(NOTICE) << "add peer: " << peer1;
     leader->add_peer(peer1, NEW_ADDPEERCLOSURE(&cond, EPERM));
-    usleep(50 * 1000);
+    usleep(500 * 1000);
 
     {
         brpc::Channel channel;
         brpc::ChannelOptions options;
         options.protocol = brpc::PROTOCOL_HTTP;
-
         if (channel.Init(leader->node_id().peer_id.addr, &options) != 0) {
             LOG(ERROR) << "Fail to initialize channel";
         }
-
         {
             brpc::Controller cntl;
             cntl.http_request().uri() = "/raft_stat/unittest";
             cntl.http_request().set_method(brpc::HTTP_METHOD_GET);
-
-            channel.CallMethod(NULL, &cntl, NULL, NULL, NULL/*done*/);
-
+            channel.CallMethod(NULL, &cntl, NULL, NULL, NULL/* done*/);
             LOG(NOTICE) << "http return: \n" << cntl.response_attachment();
         }
     }

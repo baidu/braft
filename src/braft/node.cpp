@@ -2341,6 +2341,7 @@ void NodeImpl::describe(std::ostream& os, bool use_html) {
         }
     }
     os << newline;  // newline for peers
+
     // info of configuration change
     if (st == STATE_LEADER) {
         os << "changing_conf: " << is_changing_conf
@@ -2415,6 +2416,66 @@ void NodeImpl::describe(std::ostream& os, bool use_html) {
         Replicator::describe(replicators[i], os, use_html);
     }
 }
+
+void NodeImpl::get_status(NodeStatus* status) {
+    if (status == NULL) {
+        return;
+    }
+
+    std::vector<PeerId> peers;
+    std::vector<std::pair<PeerId, ReplicatorId> > replicators;
+    std::unique_lock<raft_mutex_t> lck(_mutex);
+    status->state = _state;
+    status->term = _current_term;
+    status->peer_id = _server_id;
+    _conf.conf.list_peers(&peers);
+    _replicator_group.list_replicators(&replicators);
+    lck.unlock();
+
+    if (status->state == STATE_LEADER ||
+        status->state == STATE_TRANSFERRING) {
+        status->leader_id = _server_id;
+    } else if (status->state == STATE_FOLLOWER) {
+        status->leader_id = _leader_id;
+    }
+
+    LogManagerStatus log_manager_status;
+    _log_manager->get_status(&log_manager_status);
+    status->known_applied_index = log_manager_status.known_applied_index;
+    status->first_index = log_manager_status.first_index;
+    status->last_index = log_manager_status.last_index;
+    status->disk_index = log_manager_status.disk_index;
+
+    BallotBoxStatus ballot_box_status;
+    _ballot_box->get_status(&ballot_box_status);
+    status->committed_index = ballot_box_status.committed_index;
+    status->pending_index = ballot_box_status.pending_index;
+    status->pending_queue_size = ballot_box_status.pending_queue_size;
+
+    status->applying_index = _fsm_caller->applying_index();
+    
+    if (replicators.size() == 0) {
+        return;
+    }
+
+    for (size_t i = 0; i < peers.size(); ++i) {
+        if (peers[i] == _server_id) {
+            continue;
+        }
+        status->stable_followers.insert(std::make_pair(peers[i], PeerStatus()));
+    }
+
+    for (size_t i = 0; i < replicators.size(); ++i) {
+        NodeStatus::PeerStatusMap::iterator it =
+            status->stable_followers.find(replicators[i].first);
+        if (it == status->stable_followers.end()) {
+            it = status->unstable_followers.insert(
+                    std::make_pair(replicators[i].first, PeerStatus())).first;
+        }
+        Replicator::get_status(replicators[i].second, &(it->second));
+    }
+}
+
 void NodeImpl::stop_replicator(const std::set<PeerId>& keep,
                                const std::set<PeerId>& drop) {
     for (std::set<PeerId>::const_iterator

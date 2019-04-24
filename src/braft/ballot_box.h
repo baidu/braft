@@ -39,6 +39,15 @@ struct BallotBoxOptions {
     ClosureQueue* closure_queue;
 };
 
+struct BallotBoxStatus {
+    BallotBoxStatus()
+        : committed_index(0), pending_index(0), pending_queue_size(0)
+    {}
+    int64_t committed_index;
+    int64_t pending_index;
+    int64_t pending_queue_size;
+};
+
 class BallotBox {
 public:
     BallotBox();
@@ -78,6 +87,8 @@ public:
     { return _last_committed_index.load(butil::memory_order_acquire); }
 
     void describe(std::ostream& os, bool use_html);
+
+    void get_status(BallotBoxStatus* ballot_box_status);
 
 private:
 

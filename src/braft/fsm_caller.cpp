@@ -508,6 +508,15 @@ void FSMCaller::describe(std::ostream &os, bool use_html) {
     os << newline;
 }
 
+int64_t FSMCaller::applying_index() const {
+    TaskType cur_task = _cur_task;
+    if (cur_task != COMMITTED) {
+        return 0;
+    } else {
+        return _applying_index.load(butil::memory_order_relaxed);
+    }
+}
+
 void FSMCaller::join() {
     if (_queue_started) {
         bthread::execution_queue_join(_queue_id);

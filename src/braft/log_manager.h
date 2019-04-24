@@ -40,6 +40,16 @@ struct LogManagerOptions {
     FSMCaller* fsm_caller;  // To report log error
 };
 
+struct LogManagerStatus {
+    LogManagerStatus()
+        : first_index(1), last_index(0), disk_index(0), known_applied_index(0)
+    {}
+    int64_t first_index;
+    int64_t last_index;
+    int64_t disk_index;
+    int64_t known_applied_index;
+};
+
 class SnapshotMeta;
 
 class BAIDU_CACHELINE_ALIGNMENT LogManager {
@@ -132,6 +142,9 @@ public:
     butil::Status check_consistency();
 
     void describe(std::ostream& os, bool use_html);
+
+    // Get the internal status of LogManager.
+    void get_status(LogManagerStatus* status);
 
 private:
 friend class AppendBatcher;

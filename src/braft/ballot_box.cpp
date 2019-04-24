@@ -173,4 +173,16 @@ void BallotBox::describe(std::ostream& os, bool use_html) {
     }
 }
 
+void BallotBox::get_status(BallotBoxStatus* status) {
+    if (!status) {
+        return;
+    }
+    std::unique_lock<raft_mutex_t> lck(_mutex);
+    status->committed_index = _last_committed_index;
+    if (_pending_index != 0) {
+        status->pending_index = _pending_index;
+        status->pending_queue_size = _pending_meta_queue.size();
+    }
+}
+
 }  //  namespace braft

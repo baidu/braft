@@ -353,6 +353,82 @@ inline std::ostream& operator<<(std::ostream& os, const UserLog& user_log) {
     return os;
 }
 
+// Status of a peer
+struct PeerStatus {
+    PeerStatus()
+        : valid(false), installing_snapshot(false), next_index(0)
+        , last_rpc_send_timestamp(0), flying_append_entries_size(0)
+        , consecutive_error_times(0)
+    {}
+
+    bool    valid;
+    bool    installing_snapshot;
+    int64_t next_index;
+    int64_t last_rpc_send_timestamp;
+    int64_t flying_append_entries_size;
+    int     consecutive_error_times;
+};
+
+// Status of Node
+class NodeStatus {
+friend class NodeImpl;
+public:
+    typedef std::map<PeerId, PeerStatus> PeerStatusMap;
+
+    NodeStatus()
+        : state(STATE_END), term(0), committed_index(0), known_applied_index(0)
+        , pending_index(0), pending_queue_size(0), applying_index(0), first_index(0)
+        , last_index(-1), disk_index(0)
+    {}
+
+    State state;
+    PeerId peer_id;
+    PeerId leader_id;
+    int64_t term;
+    int64_t committed_index;
+    int64_t known_applied_index;
+
+    // The start index of the logs waiting to be committed.
+    // If the value is 0, means no pending logs.
+    // 
+    // WARNING: if this value is not 0, and keep the same in a long time,
+    // means something happend to prevent the node to commit logs in a
+    // large probability, and users should check carefully to find out
+    // the reasons.
+    int64_t pending_index;
+
+    // How many pending logs waiting to be committed.
+    // 
+    // WARNING: too many pending logs, means the processing rate can't catup with
+    // the writing rate. Users can consider to slow down the writing rate to avoid
+    // exhaustion of resources.
+    int64_t pending_queue_size;
+
+    // The current applying index. If the value is 0, means no applying log.
+    //
+    // WARNING: if this value is not 0, and keep the same in a long time, means
+    // the apply thread hung, users should check if a deadlock happend, or some
+    // time-consuming operations is handling in place.
+    int64_t applying_index;
+
+    // The first log of the node, including the logs in memory and disk.
+    int64_t first_index;
+
+    // The last log of the node, including the logs in memory and disk.
+    int64_t last_index;
+
+    // The max log in disk.
+    int64_t disk_index;
+
+    // Stable followers are peers in current configuration.
+    // If the node is not leader, this map is empty.
+    PeerStatusMap stable_followers;
+
+    // Unstable followers are peers not in current configurations. For example,
+    // if a new peer is added and not catchup now, it's in this map.
+    PeerStatusMap unstable_followers;
+};
+
 struct NodeOptions {
     // A follower would become a candidate if it doesn't receive any message 
     // from the leader in |election_timeout_ms| milliseconds
@@ -529,6 +605,10 @@ public:
     // [NOTE] in consideration of safety, we use last_applied_index instead of last_committed_index 
     // in code implementation.
     butil::Status read_committed_user_log(const int64_t index, UserLog* user_log);
+
+    // Get the internal status of this node, the information is mostly the same as we
+    // see from the website.
+    void get_status(NodeStatus* status);
 
 private:
     NodeImpl* _impl;

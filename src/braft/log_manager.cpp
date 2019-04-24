@@ -892,6 +892,17 @@ void LogManager::describe(std::ostream& os, bool use_html) {
     os << "last_log_id: " << last_log_id() << newline;
 }
 
+void LogManager::get_status(LogManagerStatus* status) {
+    if (!status) {
+        return;
+    }
+    std::unique_lock<raft_mutex_t> lck(_mutex);
+    status->first_index = _log_storage->first_log_index();
+    status->last_index = _log_storage->last_log_index();
+    status->disk_index = _disk_id.index;
+    status->known_applied_index = _applied_id.index;
+}
+
 void LogManager::report_error(int error_code, const char* fmt, ...) {
     _has_error.store(true, butil::memory_order_relaxed);
     va_list ap;
