@@ -1027,7 +1027,28 @@ TEST_F(NodeTest, Leader_step_down_during_install_snapshot) {
     cond.reset(1);
     LOG(NOTICE) << "add peer: " << peer1;
     leader->add_peer(peer1, NEW_ADDPEERCLOSURE(&cond, EPERM));
-    usleep(500 * 1000);
+    usleep(50 * 1000);
+
+    {
+        brpc::Channel channel;
+        brpc::ChannelOptions options;
+        options.protocol = brpc::PROTOCOL_HTTP;
+
+        if (channel.Init(leader->node_id().peer_id.addr, &options) != 0) {
+            LOG(ERROR) << "Fail to initialize channel";
+        }
+
+        {
+            brpc::Controller cntl;
+            cntl.http_request().uri() = "/raft_stat/unittest";
+            cntl.http_request().set_method(brpc::HTTP_METHOD_GET);
+
+            channel.CallMethod(NULL, &cntl, NULL, NULL, NULL/*done*/);
+
+            LOG(NOTICE) << "http return: \n" << cntl.response_attachment();
+        }
+    }
+
     LOG(NOTICE) << "leader " << leader->node_id() 
                 << " step_down because of some error";
     butil::Status status;

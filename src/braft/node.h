@@ -284,13 +284,38 @@ private:
     DISALLOW_COPY_AND_ASSIGN(ConfigurationCtx);
     public:
         enum Stage {
-            STAGE_NONE,
-            STAGE_CATCHING_UP,
-            STAGE_JOINT,
-            STAGE_STABLE,
+            // Don't change the order if you are not sure about the usage
+            STAGE_NONE = 0,
+            STAGE_CATCHING_UP = 1,
+            STAGE_JOINT = 2,
+            STAGE_STABLE = 3,
         };
         ConfigurationCtx(NodeImpl* node) :
             _node(node), _stage(STAGE_NONE), _version(0), _done(NULL) {}
+        void list_new_peers(std::vector<PeerId>* new_peers) const {
+            new_peers->clear();
+            std::set<PeerId>::iterator it;
+            for (it = _new_peers.begin(); it != _new_peers.end(); ++it) {
+                new_peers->push_back(*it);
+            }
+        }
+        void list_old_peers(std::vector<PeerId>* old_peers) const {
+            old_peers->clear();
+            std::set<PeerId>::iterator it;
+            for (it = _old_peers.begin(); it != _old_peers.end(); ++it) {
+                old_peers->push_back(*it);
+            }
+        }
+        const char* stage_str() {
+            const char* str[] = {"STAGE_NONE", "STAGE_CATCHING_UP", 
+                                 "STAGE_JOINT", "STAGE_STABLE", };
+            if (_stage <= STAGE_STABLE) {
+                return str[(int)_stage];
+            } else {
+                return "UNKNOWN";
+            }
+        }
+        int32_t stage() const { return _stage; }
         void reset(butil::Status* st = NULL);
         bool is_busy() const { return _stage != STAGE_NONE; }
         // Start change configuration.

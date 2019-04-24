@@ -2309,6 +2309,16 @@ void NodeImpl::describe(std::ostream& os, bool use_html) {
     //const int ref_count = ref_count_;
     std::vector<PeerId> peers;
     _conf.conf.list_peers(&peers);
+
+    const std::string is_changing_conf = _conf_ctx.is_busy() ? "YES" : "NO";
+    const char* conf_statge = _conf_ctx.stage_str(); 
+    // new_peers and old_peers during all conf-change stages, namely 
+    // STAGE_CATCHING_UP->STAGE_JOINT->STAGE_STABLE
+    std::vector<PeerId> new_peers;
+    _conf_ctx.list_new_peers(&new_peers);
+    std::vector<PeerId> old_peers;
+    _conf_ctx.list_old_peers(&old_peers);
+
     // No replicator attached to nodes that are not leader;
     _replicator_group.list_replicators(&replicators);
     const int64_t leader_timestamp = _last_leader_timestamp;
@@ -2331,6 +2341,41 @@ void NodeImpl::describe(std::ostream& os, bool use_html) {
         }
     }
     os << newline;  // newline for peers
+    // info of configuration change
+    if (st == STATE_LEADER) {
+        os << "changing_conf: " << is_changing_conf
+           << "    stage: " << conf_statge << newline; 
+    }
+    if (!new_peers.empty()) {
+        os << "new_peers:";
+        for (size_t j = 0; j < new_peers.size(); ++j) {
+            os << ' ';
+            if (use_html && new_peers[j] != _server_id) {
+                os << "<a href=\"http://" << new_peers[j].addr
+                   << "/raft_stat/" << _group_id << "\">";
+            }
+            os << new_peers[j];
+            if (use_html && new_peers[j] != _server_id) {
+                os << "</a>";
+            }
+        }
+        os << newline;  // newline for new_peers
+    }
+    if (!old_peers.empty()) {
+        os << "old_peers:";
+        for (size_t j = 0; j < old_peers.size(); ++j) {
+            os << ' ';
+            if (use_html && old_peers[j] != _server_id) {
+                os << "<a href=\"http://" << old_peers[j].addr
+                   << "/raft_stat/" << _group_id << "\">";
+            }
+            os << old_peers[j];
+            if (use_html && old_peers[j] != _server_id) {
+                os << "</a>";
+            }
+        }
+        os << newline;  // newline for old_peers
+    }
 
     if (st == STATE_FOLLOWER) {
         os << "leader: ";
