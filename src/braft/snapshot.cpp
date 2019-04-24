@@ -194,6 +194,34 @@ int LocalSnapshotWriter::init() {
         set_error(EIO, "Fail to load metatable from %s", meta_path.c_str());
         return EIO;
     }
+
+    // remove file if it's not in _meta_table to avoid dirty data
+    if (_fs->path_exists(meta_path)) {
+         std::vector<std::string> to_remove;
+         DirReader* dir_reader = _fs->directory_reader(_path);
+         if (!dir_reader->is_valid()) {
+             LOG(WARNING) << "directory reader failed, maybe NOEXIST or PERMISSION,"
+                 " path: " << _path;
+             delete dir_reader;
+             return EIO;
+         }
+         while (dir_reader->next()) {
+             std::string filename = dir_reader->name();
+             if (filename != BRAFT_SNAPSHOT_META_FILE) {
+                 if (get_file_meta(filename, NULL) != 0) {
+                     to_remove.push_back(filename);
+                 }
+             }
+         }
+         delete dir_reader;
+         for (size_t i = 0; i < to_remove.size(); ++i) {
+             std::string file_path = _path + "/" + to_remove[i];
+             _fs->delete_file(file_path, false);
+             LOG(WARNING) << "Snapshot file exist but meta not found so delete it,"
+                 " path: " << file_path;
+         }
+    }
+
     return 0;
 }
 
@@ -535,6 +563,7 @@ SnapshotWriter* LocalSnapshotStorage::create(bool from_empty) {
             writer = NULL;
             break;
         }
+        BRAFT_VLOG << "Create writer success, path: " << snapshot_path;
     } while (0);
 
     return writer;

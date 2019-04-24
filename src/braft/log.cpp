@@ -1069,8 +1069,8 @@ int SegmentLogStorage::save_meta(const int64_t log_index) {
 
     timer.stop();
     PLOG_IF(ERROR, ret != 0) << "Fail to save meta to " << meta_path;
-    BRAFT_VLOG << "log save_meta " << meta_path << " log_index: " << log_index
-        << " time: " << timer.u_elapsed();
+    LOG(INFO) << "log save_meta " << meta_path << " first_log_index: " << log_index
+              << " time: " << timer.u_elapsed();
     return ret;
 }
 
@@ -1091,8 +1091,8 @@ int SegmentLogStorage::load_meta() {
     _first_log_index.store(meta.first_log_index());
 
     timer.stop();
-    BRAFT_VLOG << "log load_meta " << meta_path << " log_index: " << meta.first_log_index()
-        << " time: " << timer.u_elapsed();
+    LOG(INFO) << "log load_meta " << meta_path << " first_log_index: " << meta.first_log_index()
+              << " time: " << timer.u_elapsed();
     return 0;
 }
 
