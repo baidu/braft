@@ -195,8 +195,9 @@ int LocalSnapshotWriter::init() {
         return EIO;
     }
 
-    // remove file if it's not in _meta_table to avoid dirty data
-    if (_fs->path_exists(meta_path)) {
+    // remove file if meta_path not exist or it's not in _meta_table 
+    // to avoid dirty data
+    {
          std::vector<std::string> to_remove;
          DirReader* dir_reader = _fs->directory_reader(_path);
          if (!dir_reader->is_valid()) {
