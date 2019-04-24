@@ -198,7 +198,7 @@ RemoteFileCopier::Session::~Session() {
 void RemoteFileCopier::Session::send_next_rpc() {
     _cntl.Reset();
     _response.Clear();
-    // Not clear request as we need some fields of the previouse RPC
+    // Not clear request as we need some fields of the previous RPC
     off_t offset = _request.offset() + _request.count();
     const size_t max_count = 
             (!_buf) ? FLAGS_raft_max_byte_count_per_rpc : UINT_MAX;
@@ -295,7 +295,8 @@ void RemoteFileCopier::Session::on_rpc_returned() {
     }
     _retry_times = 0;
     // Reset count to |real_read_size| to make next rpc get the right offset
-    if (_response.has_read_size() && (_response.read_size() != 0)) {
+    if (_response.has_read_size() && (_response.read_size() != 0)
+            && FLAGS_raft_allow_read_partly_when_install_snapshot) {
         _request.set_count(_response.read_size());
     }
     if (_file) {
