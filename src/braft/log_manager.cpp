@@ -619,7 +619,7 @@ void LogManager::set_snapshot(const SnapshotMeta* meta) {
     _config_manager->set_snapshot(entry);
     int64_t term = unsafe_get_term(meta->last_included_index());
 
-    const LogId _last_but_one_snapshot_id = _last_snapshot_id;
+    const LogId last_but_one_snapshot_id = _last_snapshot_id;
     _last_snapshot_id.index = meta->last_included_index();
     _last_snapshot_id.term = meta->last_included_term();
     if (_last_snapshot_id > _applied_id) {
@@ -636,10 +636,10 @@ void LogManager::set_snapshot(const SnapshotMeta* meta) {
         // We don't truncate log before the lastest snapshot immediately since
         // some log around last_snapshot_index is probably needed by some
         // followers
-        if (_last_but_one_snapshot_id.index > 0) {
+        if (last_but_one_snapshot_id.index > 0) {
             // We have last snapshot index
-            _virtual_first_log_id = _last_but_one_snapshot_id;
-            truncate_prefix(_last_but_one_snapshot_id.index + 1, lck);
+            _virtual_first_log_id = last_but_one_snapshot_id;
+            truncate_prefix(last_but_one_snapshot_id.index + 1, lck);
         }
         return;
     } else {
