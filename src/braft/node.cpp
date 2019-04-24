@@ -60,6 +60,9 @@ static bvar::Adder<int64_t> g_num_nodes("raft_node_count");
 bvar::Adder<int64_t> g_num_nodes("raft_node_count");
 #endif
 
+static bvar::CounterRecorder g_apply_tasks_batch_counter(
+        "raft_apply_tasks_batch_counter");
+
 int SnapshotTimer::adjust_timeout_ms(int timeout_ms) {
     if (!_first_schedule) {
         return timeout_ms;
@@ -1696,6 +1699,8 @@ void LeaderStableClosure::Run() {
 }
 
 void NodeImpl::apply(LogEntryAndClosure tasks[], size_t size) {
+    g_apply_tasks_batch_counter << size;
+
     std::vector<LogEntry*> entries;
     entries.reserve(size);
     std::unique_lock<raft_mutex_t> lck(_mutex);

@@ -40,8 +40,13 @@ static bvar::Adder<int64_t> g_read_term_from_storage
 static bvar::PerSecond<bvar::Adder<int64_t> > g_read_term_from_storage_second
             ("raft_read_term_from_storage_second", &g_read_term_from_storage);
 
-static bvar::LatencyRecorder g_storage_append_entries_latency("raft_storage_append_entries");
-static bvar::LatencyRecorder g_nomralized_append_entries_latency("raft_storage_append_entries_normalized");
+static bvar::LatencyRecorder g_storage_append_entries_latency(
+                                        "raft_storage_append_entries");
+static bvar::LatencyRecorder g_nomralized_append_entries_latency(
+                                        "raft_storage_append_entries_normalized");
+
+static bvar::CounterRecorder g_storage_flush_batch_counter(
+                                        "raft_storage_flush_batch_counter");
 
 LogManagerOptions::LogManagerOptions()
     : log_storage(NULL)
@@ -483,6 +488,7 @@ public:
     void flush() {
         if (_size > 0) {
             _lm->append_to_storage(&_to_append, _last_id);
+            g_storage_flush_batch_counter << _size;
             for (size_t i = 0; i < _size; ++i) {
                 _storage[i]->_entries.clear();
                 if (_lm->_has_error.load(butil::memory_order_relaxed)) {

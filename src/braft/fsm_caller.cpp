@@ -31,6 +31,9 @@
 
 namespace braft {
 
+static bvar::CounterRecorder g_commit_tasks_batch_counter(
+        "raft_commit_tasks_batch_counter");
+
 FSMCaller::FSMCaller()
     : _log_manager(NULL)
     , _fsm(NULL)
@@ -56,16 +59,20 @@ int FSMCaller::run(void* meta, bthread::TaskIterator<ApplyTask>& iter) {
         return 0;
     }
     int64_t max_committed_index = -1;
+    int64_t counter = 0;
     for (; iter; ++iter) {
         if (iter->type == COMMITTED) {
             if (iter->committed_index > max_committed_index) {
                 max_committed_index = iter->committed_index;
+                counter++;
             }
         } else {
             if (max_committed_index >= 0) {
                 caller->_cur_task = COMMITTED;
                 caller->do_committed(max_committed_index);
                 max_committed_index = -1;
+                g_commit_tasks_batch_counter << counter;
+                counter = 0;
             }
             switch (iter->type) {
             case COMMITTED:
@@ -116,6 +123,8 @@ int FSMCaller::run(void* meta, bthread::TaskIterator<ApplyTask>& iter) {
     if (max_committed_index >= 0) {
         caller->_cur_task = COMMITTED;
         caller->do_committed(max_committed_index);
+        g_commit_tasks_batch_counter << counter;
+        counter = 0;
     }
     caller->_cur_task = IDLE;
     return 0;

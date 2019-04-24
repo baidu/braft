@@ -37,7 +37,8 @@ BRPC_VALIDATE_GFLAG(raft_max_entries_size, ::brpc::PositiveInteger);
 
 DEFINE_int32(raft_max_parallel_append_entries_rpc_num, 1,
              "The max number of parallel AppendEntries requests");
-BRPC_VALIDATE_GFLAG(raft_max_parallel_append_entries_rpc_num, ::brpc::PositiveInteger);
+BRPC_VALIDATE_GFLAG(raft_max_parallel_append_entries_rpc_num,
+                    ::brpc::PositiveInteger);
 
 DEFINE_int32(raft_max_body_size, 512 * 1024,
              "The max byte size of AppendEntriesRequest");
@@ -45,10 +46,14 @@ BRPC_VALIDATE_GFLAG(raft_max_body_size, ::brpc::PositiveInteger);
 
 DEFINE_int32(raft_retry_replicate_interval_ms, 1000,
              "Interval of retry to append entries or install snapshot");
-BRPC_VALIDATE_GFLAG(raft_retry_replicate_interval_ms, brpc::PositiveInteger);
+BRPC_VALIDATE_GFLAG(raft_retry_replicate_interval_ms,
+                    brpc::PositiveInteger);
 
 static bvar::LatencyRecorder g_send_entries_latency("raft_send_entries");
-static bvar::LatencyRecorder g_normalized_send_entries_latency("raft_send_entries_normalized");
+static bvar::LatencyRecorder g_normalized_send_entries_latency(
+             "raft_send_entries_normalized");
+static bvar::CounterRecorder g_send_entries_batch_counter(
+             "raft_send_entries_batch_counter");
 
 ReplicatorOptions::ReplicatorOptions()
     : dynamic_heartbeat_timeout_ms(NULL)
@@ -670,6 +675,8 @@ void Replicator::_send_entries() {
     _append_entries_counter++;
     _next_index += request->entries_size();
     _flying_append_entries_size += request->entries_size();
+    
+    g_send_entries_batch_counter << request->entries_size();
 
     BRAFT_VLOG << "node " << _options.group_id << ":" << _options.server_id
         << " send AppendEntriesRequest to " << _options.peer_id << " term " << _options.term

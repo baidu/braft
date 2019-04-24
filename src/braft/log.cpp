@@ -993,7 +993,7 @@ int SegmentLogStorage::list_segments(bool is_empty) {
         }
 
         last_log_index = segment->last_index();
-        it++;
+        ++it;
     }
     if (_open_segment) {
         if (last_log_index == -1 &&

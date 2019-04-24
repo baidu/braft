@@ -76,8 +76,13 @@ protected:
 };
 
 class SnapshotTimer : public NodeTimer {
+public:
+    SnapshotTimer() : _first_schedule(true) {}
 protected:
     void run();
+    int adjust_timeout_ms(int timeout_ms);
+private:
+    bool _first_schedule;
 };
 
 class BAIDU_CACHELINE_ALIGNMENT NodeImpl 
