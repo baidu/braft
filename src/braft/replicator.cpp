@@ -740,7 +740,8 @@ void Replicator::_wait_more_entries() {
 void Replicator::_install_snapshot() {
     CHECK(!_reader);
 
-    if (_options.snapshot_throttle && !_options.snapshot_throttle->add_one_more_task(true)) {
+    if (_options.snapshot_throttle && !_options.snapshot_throttle->
+                                            add_one_more_task(true)) {
         return _block(butil::gettimeofday_us(), EBUSY);
     }
 
@@ -760,20 +761,25 @@ void Replicator::_install_snapshot() {
         return;
     } 
     std::string uri = _reader->generate_uri_for_copy();
+    // NOTICE: If uri is something wrong, retry later instead of reporting error
+    // immediately(making raft Node error), as FileSystemAdaptor layer of _reader is 
+    // user defined and may need some control logic when opened
+    if (uri.empty()) {
+        LOG(WARNING) << "node " << _options.group_id << ":" << _options.server_id
+                     << " refuse to send InstallSnapshotRequest to " << _options.peer_id
+                     << " because snapshot uri is empty";
+        return _block(butil::gettimeofday_us(), EBUSY); 
+    }
     SnapshotMeta meta;
     // report error on failure
-    if (uri.empty() || _reader->load_meta(&meta) != 0){
+    if (_reader->load_meta(&meta) != 0){
         std::string snapshot_path = _reader->get_path();
         NodeImpl *node_impl = _options.node;
         node_impl->AddRef();
         CHECK_EQ(0, bthread_id_unlock(_id)) << "Fail to unlock " << _id;
         braft::Error e;
         e.set_type(ERROR_TYPE_SNAPSHOT);
-        if (uri.empty()) {
-            e.status().set_error(EIO, "Fail to generate uri from " + snapshot_path);
-        } else {
-            e.status().set_error(EIO, "Fail to load meta from " + snapshot_path);
-        }
+        e.status().set_error(EIO, "Fail to load meta from " + snapshot_path);
         node_impl->on_error(e);
         node_impl->Release();
         return;
