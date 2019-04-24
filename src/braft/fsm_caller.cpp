@@ -41,6 +41,7 @@ FSMCaller::FSMCaller()
     , _node(NULL)
     , _cur_task(IDLE)
     , _applying_index(0)
+    , _queue_started(false)
 {
 }
 
@@ -155,15 +156,22 @@ int FSMCaller::init(const FSMCallerOptions &options) {
     execq_opt.bthread_attr = options.usercode_in_pthread 
                              ? BTHREAD_ATTR_PTHREAD
                              : BTHREAD_ATTR_NORMAL;
-    bthread::execution_queue_start(&_queue_id,
+    if (bthread::execution_queue_start(&_queue_id,
                                    &execq_opt,
                                    FSMCaller::run,
-                                   this);
+                                   this) != 0) {
+        LOG(ERROR) << "fsm fail to start execution_queue";
+        return -1;
+    }
+    _queue_started = true;
     return 0;
 }
 
 int FSMCaller::shutdown() {
-    return bthread::execution_queue_stop(_queue_id);
+    if (_queue_started) {
+        return bthread::execution_queue_stop(_queue_id);
+    }
+    return 0;
 }
 
 void FSMCaller::do_shutdown() {
@@ -500,7 +508,10 @@ void FSMCaller::describe(std::ostream &os, bool use_html) {
 }
 
 void FSMCaller::join() {
-    bthread::execution_queue_join(_queue_id);
+    if (_queue_started) {
+        bthread::execution_queue_join(_queue_id);
+        _queue_started = false;
+    }
 }
 
 IteratorImpl::IteratorImpl(StateMachine* sm, LogManager* lm,

@@ -183,6 +183,7 @@ friend class IteratorImpl;
     TaskType _cur_task;
     butil::atomic<int64_t> _applying_index;
     Error _error;
+    bool _queue_started;
 };
 
 };
