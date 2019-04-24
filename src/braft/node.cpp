@@ -218,7 +218,11 @@ int NodeImpl::init_snapshot_storage() {
 
 int NodeImpl::init_log_storage() {
     CHECK(_fsm_caller);
-    _log_storage = LogStorage::create(_options.log_uri);
+    if (_options.log_storage) {
+        _log_storage = _options.log_storage;
+    } else {
+        _log_storage = LogStorage::create(_options.log_uri);
+    }
     if (!_log_storage) {
         LOG(ERROR) << "node " << _group_id << ":" << _server_id
                    << " find log storage failed, uri " << _options.log_uri;
