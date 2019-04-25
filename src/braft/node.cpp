@@ -271,8 +271,8 @@ int NodeImpl::init_meta_storage() {
         ret = _meta_storage->init();
         if (ret != 0) {
             LOG(WARNING) << "node " << _group_id << ":" << _server_id
-                << " init mett storage failed, uri " << _options.raft_meta_uri
-                << " ret " << ret;
+                         << " init meta storage failed, uri " << _options.raft_meta_uri
+                         << " ret " << ret;
             break;
         }
 
@@ -280,8 +280,8 @@ int NodeImpl::init_meta_storage() {
         ret = _meta_storage->get_votedfor(&_voted_id);
         if (ret != 0) {
             LOG(WARNING) << "node " << _group_id << ":" << _server_id
-                << " meta storage get_votedfor failed, uri " << _options.raft_meta_uri
-                << " ret " << ret;
+                         << " meta storage get_votedfor failed, uri " 
+                         << _options.raft_meta_uri << " ret " << ret;
             break;
         }
     } while (0);
@@ -367,12 +367,13 @@ int NodeImpl::bootstrap(const BootstrapOptions& options) {
     _fsm_caller = new FSMCaller();
 
     if (init_log_storage() != 0) {
-        LOG(ERROR) << "Fail to init log_storage";
+        LOG(ERROR) << "Fail to init log_storage from " << _options.log_uri;
         return -1;
     }
 
     if (init_meta_storage() != 0) {
-        LOG(ERROR) << "Fail to init meta_storage";
+        LOG(ERROR) << "Fail to init stable_storage from "
+                   << _options.raft_meta_uri;
         return -1;
     }
     if (_current_term == 0) {
@@ -543,10 +544,10 @@ int NodeImpl::init(const NodeOptions& options) {
     _state = STATE_FOLLOWER;
 
     LOG(INFO) << "node " << _group_id << ":" << _server_id << " init,"
-        << " term: " << _current_term
-        << " last_log_id: " << _log_manager->last_log_id()
-        << " conf: " << _conf.conf
-        << " old_conf: " << _conf.old_conf;
+              << " term: " << _current_term
+              << " last_log_id: " << _log_manager->last_log_id()
+              << " conf: " << _conf.conf
+              << " old_conf: " << _conf.old_conf;
 
     // start snapshot timer
     if (_snapshot_executor && _options.snapshot_interval_s > 0) {
@@ -833,13 +834,13 @@ butil::Status NodeImpl::reset_peers(const Configuration& new_peers) {
     // check state
     if (!is_active_state(_state)) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
-            << " is in state " << state2str(_state) << ", can't reset_peer";
+                     << " is in state " << state2str(_state) << ", can't reset_peer";
         return butil::Status(EPERM, "Bad state %s", state2str(_state));
     }
     // check bootstrap
     if (_conf.conf.empty()) {
         LOG(INFO) << "node " << _group_id << ":" << _server_id 
-            << " reset_peers to " << new_peers << " from empty";
+                  << " reset_peers to " << new_peers << " from empty";
         _conf.conf = new_peers;
         butil::Status status;
         status.set_error(ESETPEER, "Set peer from empty configuration");
@@ -1290,7 +1291,7 @@ struct OnRequestVoteRPCDone : public google::protobuf::Closure {
             if (cntl.ErrorCode() != 0) {
                 LOG(WARNING) << "node " << node->node_id()
                              << " received RequestVoteResponse from " << peer 
-			     << " error: " << cntl.ErrorText();
+			                 << " error: " << cntl.ErrorText();
                 break;
             }
             node->handle_request_vote_response(peer, term, response);
@@ -1534,7 +1535,7 @@ void NodeImpl::step_down(const int64_t term, bool wakeup_a_candidate,
               << " term " << _current_term 
               << " stepdown from " << state2str(_state)
               << " new_term " << term <<
-              " wakeup_a_candidate=" << wakeup_a_candidate;
+                 " wakeup_a_candidate=" << wakeup_a_candidate;
 
     if (!is_active_state(_state)) {
         return;
@@ -1668,8 +1669,8 @@ void NodeImpl::become_leader() {
         }
 
         BRAFT_VLOG << "node " << _group_id << ":" << _server_id
-            << " term " << _current_term
-            << " add replicator " << *iter;
+                   << " term " << _current_term
+                   << " add replicator " << *iter;
         //TODO: check return code
         _replicator_group.add_replicator(*iter);
     }
@@ -2038,8 +2039,8 @@ void NodeImpl::handle_append_entries_request(brpc::Controller* cntl,
         const State saved_state = _state;
         lck.unlock();
         LOG(WARNING) << "node " << _group_id << ":" << _server_id 
-                     << " is not in active state " << "current_term " 
-                     << saved_current_term << " state " << state2str(saved_state);
+                     << " is not in active state " << "current_term " << saved_current_term 
+                     << " state " << state2str(saved_state);
         cntl->SetFailed(EINVAL, "node %s:%s is not in active state, state %s", 
                 _group_id.c_str(), _server_id.to_string().c_str(), state2str(saved_state));
         return;
@@ -2074,10 +2075,9 @@ void NodeImpl::handle_append_entries_request(brpc::Controller* cntl,
     check_step_down(request->term(), server_id);   
      
     if (server_id != _leader_id) {
-        LOG(ERROR) << "Another peer=" << server_id
-                   << " declares that it is the leader at term="
-                   << _current_term << " which was occupied by leader="
-                   << _leader_id;
+        LOG(ERROR) << "Another peer " << _group_id << ":" << server_id
+                   << " declares that it is the leader at term=" << _current_term 
+                   << " which was occupied by leader=" << _leader_id;
         // Increase the term by 1 and make both leaders step down to minimize the
         // loss of split brain
         butil::Status status;
@@ -2134,7 +2134,8 @@ void NodeImpl::handle_append_entries_request(brpc::Controller* cntl,
         response->set_last_log_index(last_index);
         lck.unlock();
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
-                     << " reject term_unmatched AppendEntries from " << request->server_id()
+                     << " reject term_unmatched AppendEntries from " 
+                     << request->server_id()
                      << " in term " << request->term()
                      << " prev_log_index " << request->prev_log_index()
                      << " prev_log_term " << request->prev_log_term()

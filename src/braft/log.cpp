@@ -365,7 +365,7 @@ int Segment::append(const LogEntry* entry) {
             butil::Status status = serialize_configuration_meta(entry, data);
             if (!status.ok()) {
                 LOG(ERROR) << "Fail to serialize ConfigurationPBMeta, path: " 
-                    << _path;
+                           << _path;
                 return -1; 
             }
         }
