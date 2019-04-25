@@ -2261,11 +2261,11 @@ butil::Status NodeImpl::read_committed_user_log(const int64_t index, UserLog* us
     }
     int64_t cur_index = index;
     LogEntry* entry = _log_manager->get_entry(cur_index);
-    if (entry == NULL){
+    if (entry == NULL) {
         return butil::Status(ELOGDELETED, "user log is deleted at index:%" PRId64, index);
     }
     do {
-        if (entry->type == ENTRY_TYPE_DATA){
+        if (entry->type == ENTRY_TYPE_DATA) {
             user_log->set_log_index(cur_index);
             user_log->set_log_data(entry->data);
             entry->Release();

@@ -381,7 +381,7 @@ void SnapshotExecutor::install_snapshot(brpc::Controller* cntl,
     SnapshotMeta meta = request->meta();
 
     // check if install_snapshot tasks num exceeds threshold 
-    if (_snapshot_throttle && !_snapshot_throttle->add_one_more_task(false)){
+    if (_snapshot_throttle && !_snapshot_throttle->add_one_more_task(false)) {
         LOG(WARNING) << "Fail to install snapshot";
         cntl->SetFailed(EBUSY, "Fail to add install_snapshot tasks now");
         return;
