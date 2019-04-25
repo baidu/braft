@@ -313,7 +313,7 @@ void Replicator::_on_heartbeat_returned(
         return;
     }
     BRAFT_VLOG << " success";
-    if (rpc_send_time > r->_last_rpc_send_timestamp){
+    if (rpc_send_time > r->_last_rpc_send_timestamp) {
         r->_last_rpc_send_timestamp = rpc_send_time; 
     }
     r->_start_heartbeat_timer(start_time_us);
@@ -696,10 +696,10 @@ void Replicator::_install_snapshot() {
     }
 
     _reader = _options.snapshot_storage->open();
-    if (!_reader){
+    if (!_reader) {
         if (_options.snapshot_throttle) {
             _options.snapshot_throttle->finish_one_task(true);
-	}
+        }
         NodeImpl *node_impl = _options.node;
         node_impl->AddRef();
         CHECK_EQ(0, bthread_id_unlock(_id)) << "Fail to unlock " << _id;
@@ -713,7 +713,7 @@ void Replicator::_install_snapshot() {
     std::string uri = _reader->generate_uri_for_copy();
     SnapshotMeta meta;
     // report error on failure
-    if (_reader->load_meta(&meta) != 0){
+    if (_reader->load_meta(&meta) != 0) {
         std::string snapshot_path = _reader->get_path();
         NodeImpl *node_impl = _options.node;
         node_impl->AddRef();
