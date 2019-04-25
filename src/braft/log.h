@@ -96,7 +96,7 @@ public:
 
     std::string file_name();
 private:
-friend butil::RefCountedThreadSafe<Segment>;
+friend class butil::RefCountedThreadSafe<Segment>;
     ~Segment() {
         if (_fd >= 0) {
             ::close(_fd);

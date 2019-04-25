@@ -60,6 +60,20 @@ static bvar::Adder<int64_t> g_num_nodes("raft_node_count");
 bvar::Adder<int64_t> g_num_nodes("raft_node_count");
 #endif
 
+static bvar::CounterRecorder g_apply_tasks_batch_counter(
+        "raft_apply_tasks_batch_counter");
+
+int SnapshotTimer::adjust_timeout_ms(int timeout_ms) {
+    if (!_first_schedule) {
+        return timeout_ms;
+    }
+    if (timeout_ms > 0) {
+        timeout_ms = butil::fast_rand_less_than(timeout_ms) + 1;
+    }
+    _first_schedule = false;
+    return timeout_ms;
+}
+
 class ConfigurationChangeDone : public Closure {
 public:
     void Run() {
@@ -115,9 +129,12 @@ NodeImpl::NodeImpl(const GroupId& group_id, const PeerId& peer_id)
     , _ballot_box(NULL)
     , _snapshot_executor(NULL)
     , _stop_transfer_arg(NULL)
+    , _vote_triggered(false)
     , _waking_candidate(0)
     , _append_entries_cache(NULL)
-    , _append_entries_cache_version(0)  {
+    , _append_entries_cache_version(0)
+    , _node_readonly(false)
+    , _majority_nodes_readonly(false) {
     _server_id = peer_id;
     AddRef();
     g_num_nodes << 1;
@@ -138,6 +155,7 @@ NodeImpl::NodeImpl()
     , _ballot_box(NULL)
     , _snapshot_executor(NULL)
     , _stop_transfer_arg(NULL)
+    , _vote_triggered(false)
     , _waking_candidate(0) {
         AddRef();
     g_num_nodes << 1;
@@ -168,9 +186,11 @@ NodeImpl::~NodeImpl() {
         _ballot_box = NULL;
     }
 
-    if (_log_storage) {
-        delete _log_storage;
-        _log_storage = NULL;
+    if (_options.node_owns_log_storage) {
+        if (_log_storage) {
+            delete _log_storage;
+            _log_storage = NULL;
+        }
     }
     if (_closure_queue) {
         delete _closure_queue;
@@ -218,7 +238,11 @@ int NodeImpl::init_snapshot_storage() {
 
 int NodeImpl::init_log_storage() {
     CHECK(_fsm_caller);
-    _log_storage = LogStorage::create(_options.log_uri);
+    if (_options.log_storage) {
+        _log_storage = _options.log_storage;
+    } else {
+        _log_storage = LogStorage::create(_options.log_uri);
+    }
     if (!_log_storage) {
         LOG(ERROR) << "node " << _group_id << ":" << _server_id
                    << " find log storage failed, uri " << _options.log_uri;
@@ -337,7 +361,6 @@ int NodeImpl::bootstrap(const BootstrapOptions& options) {
     _options.log_uri = options.log_uri;
     _options.raft_meta_uri = options.raft_meta_uri;
     _options.snapshot_uri = options.snapshot_uri;
-    _options.snapshot_file_system_adaptor = _options.snapshot_file_system_adaptor;
     _config_manager = new ConfigurationManager();
 
     // Create _fsm_caller first as log_manager needs it to report error
@@ -418,7 +441,7 @@ int NodeImpl::init(const NodeOptions& options) {
     if (!NodeManager::GetInstance()->server_exists(_server_id.addr)) {
         LOG(ERROR) << "Group " << _group_id
                    << " No RPC Server attached to " << _server_id.addr
-                   << ", did you forget to call raft::add_service()?";
+                   << ", did you forget to call braft::add_service()?";
         return -1;
     }
 
@@ -644,10 +667,14 @@ private:
 void NodeImpl::on_caughtup(const PeerId& peer, int64_t term,
                            int64_t version, const butil::Status& st) {
     BAIDU_SCOPED_LOCK(_mutex);
-    // CHECK _current_term and _state to avoid ABA problem
-    if (term != _current_term && _state != STATE_LEADER) {
-        // term has changed and nothing should be done, otherwise there will be
-        // an ABA problem.
+    // CHECK _state and _current_term to avoid ABA problem
+    if (_state != STATE_LEADER || term != _current_term) {
+        // if leader stepped down, reset() has already been called in step_down(),
+        // so nothing needs to be done here
+        LOG(WARNING) << "node " << node_id() << " stepped down when waiting peer "
+                     << peer << " to catch up, current state is " << state2str(_state)
+                     << ", current term is " << _current_term
+                     << ", expect term is " << term;
         return;
     }
 
@@ -662,8 +689,8 @@ void NodeImpl::on_caughtup(const PeerId& peer, int64_t term,
                 -  _replicator_group.last_rpc_send_timestamp(peer))
                     <= _options.election_timeout_ms) {
 
-        BRAFT_VLOG << "node " << _group_id << ":" << _server_id
-                   << " waits peer " << peer << " to catch up";
+        LOG(INFO) << "node " << _group_id << ":" << _server_id
+                  << " waits peer " << peer << " to catch up";
 
         OnCaughtUp* caught_up = new OnCaughtUp(this, _current_term, peer, version);
         timespec due_time = butil::milliseconds_from_now(
@@ -851,6 +878,8 @@ void NodeImpl::snapshot(Closure* done) {
 }
 
 void NodeImpl::do_snapshot(Closure* done) {
+    LOG(INFO) << "node " << _group_id << ":" << _server_id 
+              << " starts to do snapshot";
     if (_snapshot_executor) {
         _snapshot_executor->do_snapshot(done);
     } else {
@@ -947,10 +976,13 @@ void NodeImpl::handle_election_timeout() {
         return;
     }
 
-    if ((butil::monotonic_time_ms() - _last_leader_timestamp) 
+    // check timestamp, skip one cycle check when trigger vote
+    if (!_vote_triggered &&
+            (butil::monotonic_time_ms() - _last_leader_timestamp) 
             < _options.election_timeout_ms) {
         return;
     }
+    _vote_triggered = false;
 
     // Reset leader as the leader is uncerntain on election timeout.
     PeerId empty_id;
@@ -1128,6 +1160,22 @@ int NodeImpl::transfer_leadership_to(const PeerId& peer) {
     return 0;
 }
 
+void NodeImpl::vote(int election_timeout) {
+    std::unique_lock<raft_mutex_t> lck(_mutex);
+    _options.election_timeout_ms = election_timeout;
+    _replicator_group.reset_heartbeat_interval(
+            heartbeat_timeout(_options.election_timeout_ms));
+    _replicator_group.reset_election_timeout_interval(_options.election_timeout_ms);
+    if (_state != STATE_FOLLOWER) {
+        return;
+    }
+    _vote_triggered = true;
+    LOG(INFO) << "node " << _group_id << ":" << _server_id << " trigger-vote,"
+        " current_term " << _current_term << " state " << state2str(_state) <<
+        " election_timeout " << election_timeout;
+    _election_timer.reset(election_timeout);
+}
+
 void NodeImpl::reset_election_timeout_ms(int election_timeout_ms) {
     std::unique_lock<raft_mutex_t> lck(_mutex);
     _options.election_timeout_ms = election_timeout_ms;
@@ -1201,8 +1249,8 @@ void NodeImpl::handle_request_vote_response(const PeerId& peer_id, const int64_t
     // check stale response
     if (term != _current_term) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
-            << " received stale RequestVoteResponse from " << peer_id
-            << " term " << term << " current_term " << _current_term;
+                     << " received stale RequestVoteResponse from " << peer_id
+                     << " term " << term << " current_term " << _current_term;
         return;
     }
     // check response term
@@ -1243,7 +1291,7 @@ struct OnRequestVoteRPCDone : public google::protobuf::Closure {
             if (cntl.ErrorCode() != 0) {
                 LOG(WARNING) << "node " << node->node_id()
                              << " received RequestVoteResponse from " << peer 
-			                 << " error: " << cntl.ErrorText();
+	                         << " error: " << cntl.ErrorText();
                 break;
             }
             node->handle_request_vote_response(peer, term, response);
@@ -1486,8 +1534,8 @@ void NodeImpl::step_down(const int64_t term, bool wakeup_a_candidate,
     BRAFT_VLOG << "node " << _group_id << ":" << _server_id
               << " term " << _current_term 
               << " stepdown from " << state2str(_state)
-              << " new_term " << term <<
-                 " wakeup_a_candidate=" << wakeup_a_candidate;
+              << " new_term " << term
+              << " wakeup_a_candidate=" << wakeup_a_candidate;
 
     if (!is_active_state(_state)) {
         return;
@@ -1512,8 +1560,10 @@ void NodeImpl::step_down(const int64_t term, bool wakeup_a_candidate,
 
     // soft state in memory
     _state = STATE_FOLLOWER;
+    // _conf_ctx.reset() will stop replicators of catching up nodes
     _conf_ctx.reset();
     _last_leader_timestamp = butil::monotonic_time_ms();
+    _majority_nodes_readonly = false;
 
     clear_append_entries_cache();
 
@@ -1671,12 +1721,17 @@ void LeaderStableClosure::Run() {
 }
 
 void NodeImpl::apply(LogEntryAndClosure tasks[], size_t size) {
+    g_apply_tasks_batch_counter << size;
+
     std::vector<LogEntry*> entries;
     entries.reserve(size);
     std::unique_lock<raft_mutex_t> lck(_mutex);
-    if (_state != STATE_LEADER) {
+    bool reject_new_user_logs = (_node_readonly || _majority_nodes_readonly);
+    if (_state != STATE_LEADER || reject_new_user_logs) {
         butil::Status st;
-        if (_state != STATE_TRANSFERRING) {
+        if (_state == STATE_LEADER && reject_new_user_logs) {
+            st.set_error(EREADONLY, "readonly mode reject new user logs");
+        } else if (_state != STATE_TRANSFERRING) {
             st.set_error(EPERM, "is not leader");
         } else {
             st.set_error(EBUSY, "is transferring leadership");
@@ -1760,7 +1815,7 @@ int NodeImpl::handle_pre_vote_request(const RequestVoteRequest* request,
         lck.unlock();
         LOG(WARNING) << "node " << _group_id << ":" << _server_id 
                      << " is not in active state " << "current_term " 
-                     << saved_current_term 
+                     << saved_current_term
                      << " state " << state2str(saved_state);
         return EINVAL;
     }
@@ -1815,7 +1870,8 @@ int NodeImpl::handle_request_vote_request(const RequestVoteRequest* request,
         const State saved_state = _state;
         lck.unlock();
         LOG(WARNING) << "node " << _group_id << ":" << _server_id 
-                     << " is not in active state " << "current_term " << saved_current_term 
+                     << " is not in active state " << "current_term " 
+                     << saved_current_term
                      << " state " << state2str(saved_state);
         return EINVAL;
     }
@@ -2053,6 +2109,7 @@ void NodeImpl::handle_append_entries_request(brpc::Controller* cntl,
         int64_t last_index = _log_manager->last_log_index();
         int64_t saved_term = request->term();
         int     saved_entries_size = request->entries_size();
+        std::string rpc_server_id = request->server_id();
         if (!from_append_entries_cache &&
             handle_out_of_order_append_entries(
                     cntl, request, response, done, last_index)) {
@@ -2062,7 +2119,7 @@ void NodeImpl::handle_append_entries_request(brpc::Controller* cntl,
             done_guard.release();
             LOG(WARNING) << "node " << _group_id << ":" << _server_id
                          << " cache out-of-order AppendEntries from " 
-                         << request->server_id()
+                         << rpc_server_id
                          << " in term " << saved_term
                          << " prev_log_index " << prev_log_index
                          << " prev_log_term " << prev_log_term
@@ -2084,7 +2141,8 @@ void NodeImpl::handle_append_entries_request(brpc::Controller* cntl,
                      << " prev_log_term " << request->prev_log_term()
                      << " local_prev_log_term " << local_prev_log_term
                      << " last_log_index " << last_index
-                     << " entries_size " << request->entries_size();
+                     << " entries_size " << request->entries_size()
+                     << " from_append_entries_cache: " << from_append_entries_cache;
         return;
     }
 
@@ -2092,6 +2150,7 @@ void NodeImpl::handle_append_entries_request(brpc::Controller* cntl,
         response->set_success(true);
         response->set_term(_current_term);
         response->set_last_log_index(_log_manager->last_log_index());
+        response->set_readonly(_node_readonly);
         lck.unlock();
         // see the comments at FollowerStableClosure::run()
         _ballot_box->set_last_committed_index(
@@ -2201,8 +2260,8 @@ void NodeImpl::handle_install_snapshot_request(brpc::Controller* cntl,
         const State saved_state = _state;
         lck.unlock();
         LOG(WARNING) << "node " << _group_id << ":" << _server_id 
-                     << " is not in active state " << "current_term " << saved_current_term 
-                     << " state " << state2str(saved_state);
+                     << " is not in active state " << "current_term " 
+                     << saved_current_term << " state " << state2str(saved_state);
         cntl->SetFailed(EINVAL, "node %s:%s is not in active state, state %s", 
                 _group_id.c_str(), _server_id.to_string().c_str(), state2str(saved_state));
         return;
@@ -2301,13 +2360,25 @@ void NodeImpl::describe(std::ostream& os, bool use_html) {
     //const int ref_count = ref_count_;
     std::vector<PeerId> peers;
     _conf.conf.list_peers(&peers);
+
+    const std::string is_changing_conf = _conf_ctx.is_busy() ? "YES" : "NO";
+    const char* conf_statge = _conf_ctx.stage_str(); 
+    // new_peers and old_peers during all conf-change stages, namely 
+    // STAGE_CATCHING_UP->STAGE_JOINT->STAGE_STABLE
+    std::vector<PeerId> new_peers;
+    _conf_ctx.list_new_peers(&new_peers);
+    std::vector<PeerId> old_peers;
+    _conf_ctx.list_old_peers(&old_peers);
+
     // No replicator attached to nodes that are not leader;
     _replicator_group.list_replicators(&replicators);
     const int64_t leader_timestamp = _last_leader_timestamp;
+    const bool readonly = (_node_readonly || _majority_nodes_readonly);
     lck.unlock();
     const char *newline = use_html ? "<br>" : "\r\n";
     os << "peer_id: " << _server_id << newline;
     os << "state: " << state2str(st) << newline;
+    os << "readonly: " << readonly << newline;
     os << "term: " << term << newline;
     os << "conf_index: " << conf_index << newline;
     os << "peers:";
@@ -2323,6 +2394,42 @@ void NodeImpl::describe(std::ostream& os, bool use_html) {
         }
     }
     os << newline;  // newline for peers
+
+    // info of configuration change
+    if (st == STATE_LEADER) {
+        os << "changing_conf: " << is_changing_conf
+           << "    stage: " << conf_statge << newline; 
+    }
+    if (!new_peers.empty()) {
+        os << "new_peers:";
+        for (size_t j = 0; j < new_peers.size(); ++j) {
+            os << ' ';
+            if (use_html && new_peers[j] != _server_id) {
+                os << "<a href=\"http://" << new_peers[j].addr
+                   << "/raft_stat/" << _group_id << "\">";
+            }
+            os << new_peers[j];
+            if (use_html && new_peers[j] != _server_id) {
+                os << "</a>";
+            }
+        }
+        os << newline;  // newline for new_peers
+    }
+    if (!old_peers.empty()) {
+        os << "old_peers:";
+        for (size_t j = 0; j < old_peers.size(); ++j) {
+            os << ' ';
+            if (use_html && old_peers[j] != _server_id) {
+                os << "<a href=\"http://" << old_peers[j].addr
+                   << "/raft_stat/" << _group_id << "\">";
+            }
+            os << old_peers[j];
+            if (use_html && old_peers[j] != _server_id) {
+                os << "</a>";
+            }
+        }
+        os << newline;  // newline for old_peers
+    }
 
     if (st == STATE_FOLLOWER) {
         os << "leader: ";
@@ -2362,6 +2469,67 @@ void NodeImpl::describe(std::ostream& os, bool use_html) {
         Replicator::describe(replicators[i], os, use_html);
     }
 }
+
+void NodeImpl::get_status(NodeStatus* status) {
+    if (status == NULL) {
+        return;
+    }
+
+    std::vector<PeerId> peers;
+    std::vector<std::pair<PeerId, ReplicatorId> > replicators;
+    std::unique_lock<raft_mutex_t> lck(_mutex);
+    status->state = _state;
+    status->term = _current_term;
+    status->peer_id = _server_id;
+    status->readonly = (_node_readonly || _majority_nodes_readonly);
+    _conf.conf.list_peers(&peers);
+    _replicator_group.list_replicators(&replicators);
+    lck.unlock();
+
+    if (status->state == STATE_LEADER ||
+        status->state == STATE_TRANSFERRING) {
+        status->leader_id = _server_id;
+    } else if (status->state == STATE_FOLLOWER) {
+        status->leader_id = _leader_id;
+    }
+
+    LogManagerStatus log_manager_status;
+    _log_manager->get_status(&log_manager_status);
+    status->known_applied_index = log_manager_status.known_applied_index;
+    status->first_index = log_manager_status.first_index;
+    status->last_index = log_manager_status.last_index;
+    status->disk_index = log_manager_status.disk_index;
+
+    BallotBoxStatus ballot_box_status;
+    _ballot_box->get_status(&ballot_box_status);
+    status->committed_index = ballot_box_status.committed_index;
+    status->pending_index = ballot_box_status.pending_index;
+    status->pending_queue_size = ballot_box_status.pending_queue_size;
+
+    status->applying_index = _fsm_caller->applying_index();
+    
+    if (replicators.size() == 0) {
+        return;
+    }
+
+    for (size_t i = 0; i < peers.size(); ++i) {
+        if (peers[i] == _server_id) {
+            continue;
+        }
+        status->stable_followers.insert(std::make_pair(peers[i], PeerStatus()));
+    }
+
+    for (size_t i = 0; i < replicators.size(); ++i) {
+        NodeStatus::PeerStatusMap::iterator it =
+            status->stable_followers.find(replicators[i].first);
+        if (it == status->stable_followers.end()) {
+            it = status->unstable_followers.insert(
+                    std::make_pair(replicators[i].first, PeerStatus())).first;
+        }
+        Replicator::get_status(replicators[i].second, &(it->second));
+    }
+}
+
 void NodeImpl::stop_replicator(const std::set<PeerId>& keep,
                                const std::set<PeerId>& drop) {
     for (std::set<PeerId>::const_iterator
@@ -2680,7 +2848,7 @@ void NodeImpl::ConfigurationCtx::start(const Configuration& old_conf,
     new_conf.diffs(old_conf, &adding, &removing);
     _nchanges = adding.size() + removing.size();
 
-    LOG(INFO) << "node " << _node->_group_id << ":" << _node->_server_id 
+    LOG(INFO) << "node " << _node->_group_id << ":" << _node->_server_id
               << " change_peers from " << old_conf << " to " << new_conf << noflush;
 
     if (adding.empty()) {
@@ -2729,6 +2897,9 @@ void NodeImpl::ConfigurationCtx::flush(const Configuration& conf,
 void NodeImpl::ConfigurationCtx::on_caughtup(
         int64_t version, const PeerId& peer_id, bool succ) {
     if (version != _version) {
+        LOG(WARNING) << "Node " << _node->node_id()
+            << " on_caughtup with unmatched version=" << version
+            << ", expect version=" << _version;
         return;
     }
     CHECK_EQ(STAGE_CATCHING_UP, _stage);
@@ -2786,9 +2957,21 @@ void NodeImpl::ConfigurationCtx::next_stage() {
 }
 
 void NodeImpl::ConfigurationCtx::reset(butil::Status* st) {
+    // reset() should be called only once
+    if (_stage == STAGE_NONE) {
+        BRAFT_VLOG << "node " << _node->node_id()
+                   << " reset ConfigurationCtx when stage is STAGE_NONE already";
+        return;
+    }
+
+    LOG(INFO) << "node " << _node->node_id()
+              << " reset ConfigurationCtx, new_peers: " << Configuration(_new_peers)
+              << ", old_peers: " << Configuration(_old_peers);
     if (st && st->ok()) {
         _node->stop_replicator(_new_peers, _old_peers);
     } else {
+        // leader step_down may stop replicators of catching up nodes, leading to
+        // run catchup_closure
         _node->stop_replicator(_old_peers, _new_peers);
     }
     _new_peers.clear();
@@ -2797,6 +2980,7 @@ void NodeImpl::ConfigurationCtx::reset(butil::Status* st) {
     ++_version;
     _stage = STAGE_NONE;
     _nchanges = 0;
+    _node->check_majority_nodes_readonly();
     if (_done) {
         if (!st) {
             _done->status().set_error(EPERM, "leader stepped down");
@@ -2805,6 +2989,69 @@ void NodeImpl::ConfigurationCtx::reset(butil::Status* st) {
         }
         run_closure_in_bthread(_done);
         _done = NULL;
+    }
+}
+
+void NodeImpl::enter_readonly_mode() {
+    BAIDU_SCOPED_LOCK(_mutex);
+    if (!_node_readonly) {
+        LOG(INFO) << "node " << _group_id << ":" << _server_id 
+                  << " enter readonly mode";
+        _node_readonly = true;
+    }
+}
+
+void NodeImpl::leave_readonly_mode() {
+    BAIDU_SCOPED_LOCK(_mutex);
+    if (_node_readonly) {
+        LOG(INFO) << "node " << _group_id << ":" << _server_id 
+                  << " leave readonly mode";
+        _node_readonly = false;
+    }
+}
+
+bool NodeImpl::readonly() {
+    BAIDU_SCOPED_LOCK(_mutex);
+    return _node_readonly || _majority_nodes_readonly;
+}
+
+int NodeImpl::change_readonly_config(int64_t term, const PeerId& peer_id, bool readonly) {
+    BAIDU_SCOPED_LOCK(_mutex);
+    if (term != _current_term && _state != STATE_LEADER) {
+        return EINVAL;
+    }
+    _replicator_group.change_readonly_config(peer_id, readonly);
+    check_majority_nodes_readonly();
+    return 0;
+}
+
+void NodeImpl::check_majority_nodes_readonly() {
+    check_majority_nodes_readonly(_conf.conf);
+    if (!_conf.old_conf.empty()) {
+        check_majority_nodes_readonly(_conf.old_conf);
+    }
+}
+
+void NodeImpl::check_majority_nodes_readonly(const Configuration& conf) {
+    std::vector<PeerId> peers;
+    conf.list_peers(&peers);
+    size_t readonly_nodes = 0;
+    for (size_t i = 0; i < peers.size(); i++) {
+        if (peers[i] == _server_id) {
+            readonly_nodes += ((_node_readonly) ? 1: 0);
+            continue;
+        }
+        if (_replicator_group.readonly(peers[i])) {
+            ++readonly_nodes;
+        }
+    }
+    size_t writable_nodes = peers.size() - readonly_nodes;
+    bool prev_readonly = _majority_nodes_readonly;
+    _majority_nodes_readonly = !(writable_nodes >= (peers.size() / 2 + 1));
+    if (prev_readonly != _majority_nodes_readonly) {
+        LOG(INFO) << "node " << _group_id << ":" << _server_id 
+                  << " majority readonly change from " << (prev_readonly ? "enable" : "disable")
+                  << " to " << (_majority_nodes_readonly ? " enable" : "disable");
     }
 }
 

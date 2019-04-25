@@ -40,8 +40,13 @@ static bvar::Adder<int64_t> g_read_term_from_storage
 static bvar::PerSecond<bvar::Adder<int64_t> > g_read_term_from_storage_second
             ("raft_read_term_from_storage_second", &g_read_term_from_storage);
 
-static bvar::LatencyRecorder g_storage_append_entries_latency("raft_storage_append_entries");
-static bvar::LatencyRecorder g_nomralized_append_entries_latency("raft_storage_append_entries_normalized");
+static bvar::LatencyRecorder g_storage_append_entries_latency(
+                                        "raft_storage_append_entries");
+static bvar::LatencyRecorder g_nomralized_append_entries_latency(
+                                        "raft_storage_append_entries_normalized");
+
+static bvar::CounterRecorder g_storage_flush_batch_counter(
+                                        "raft_storage_flush_batch_counter");
 
 LogManagerOptions::LogManagerOptions()
     : log_storage(NULL)
@@ -483,6 +488,7 @@ public:
     void flush() {
         if (_size > 0) {
             _lm->append_to_storage(&_to_append, _last_id);
+            g_storage_flush_batch_counter << _size;
             for (size_t i = 0; i < _size; ++i) {
                 _storage[i]->_entries.clear();
                 if (_lm->_has_error.load(butil::memory_order_relaxed)) {
@@ -619,7 +625,7 @@ void LogManager::set_snapshot(const SnapshotMeta* meta) {
     _config_manager->set_snapshot(entry);
     int64_t term = unsafe_get_term(meta->last_included_index());
 
-    const int64_t saved_last_snapshot_index = _last_snapshot_id.index;
+    const LogId last_but_one_snapshot_id = _last_snapshot_id;
     _last_snapshot_id.index = meta->last_included_index();
     _last_snapshot_id.term = meta->last_included_term();
     if (_last_snapshot_id > _applied_id) {
@@ -628,6 +634,7 @@ void LogManager::set_snapshot(const SnapshotMeta* meta) {
     if (term == 0) {
         // last_included_index is larger than last_index
         // FIXME: what if last_included_index is less than first_index?
+        _virtual_first_log_id = _last_snapshot_id;
         truncate_prefix(meta->last_included_index() + 1, lck);
         return;
     } else if (term == meta->last_included_term()) {
@@ -635,13 +642,15 @@ void LogManager::set_snapshot(const SnapshotMeta* meta) {
         // We don't truncate log before the lastest snapshot immediately since
         // some log around last_snapshot_index is probably needed by some
         // followers
-        if (saved_last_snapshot_index > 0) {
+        if (last_but_one_snapshot_id.index > 0) {
             // We have last snapshot index
-            truncate_prefix(saved_last_snapshot_index + 1, lck);
+            _virtual_first_log_id = last_but_one_snapshot_id;
+            truncate_prefix(last_but_one_snapshot_id.index + 1, lck);
         }
         return;
     } else {
         // TODO: check the result of reset.
+        _virtual_first_log_id = _last_snapshot_id;
         reset(meta->last_included_index() + 1, lck);
         return;
     }
@@ -651,6 +660,7 @@ void LogManager::set_snapshot(const SnapshotMeta* meta) {
 void LogManager::clear_bufferred_logs() {
     std::unique_lock<raft_mutex_t> lck(_mutex);
     if (_last_snapshot_id.index != 0) {
+        _virtual_first_log_id = _last_snapshot_id;
         truncate_prefix(_last_snapshot_id.index + 1, lck);
     }
 }
@@ -672,14 +682,19 @@ int64_t LogManager::unsafe_get_term(const int64_t index) {
     if (index == 0) {
         return 0;
     }
-
-    if (index > _last_log_index) {
-        return 0;
+    // check virtual first log
+    if (index == _virtual_first_log_id.index) {
+        return _virtual_first_log_id.term;
     }
-
-    // check index equal snapshot_index, return snapshot_term
+    // check last_snapshot_id
     if (index == _last_snapshot_id.index) {
         return _last_snapshot_id.term;
+    }
+    // out of range, direct return NULL
+    // check this after check last_snapshot_id, because it is likely that
+    // last_snapshot_id < first_log_index
+    if (index > _last_log_index || index < _first_log_index) {
+        return 0;
     }
 
     LogEntry* entry = get_entry_from_memory(index);
@@ -694,16 +709,20 @@ int64_t LogManager::get_term(const int64_t index) {
     if (index == 0) {
         return 0;
     }
-
     std::unique_lock<raft_mutex_t> lck(_mutex);
-    // out of range, direct return NULL
-    if (index > _last_log_index) {
-        return 0;
+    // check virtual first log
+    if (index == _virtual_first_log_id.index) {
+        return _virtual_first_log_id.term;
     }
-
-    // check index equal snapshot_index, return snapshot_term
+    // check last_snapshot_id
     if (index == _last_snapshot_id.index) {
         return _last_snapshot_id.term;
+    }
+    // out of range, direct return NULL
+    // check this after check last_snapshot_id, because it is likely that
+    // last_snapshot_id < first_log_index
+    if (index > _last_log_index || index < _first_log_index) {
+        return 0;
     }
 
     LogEntry* entry = get_entry_from_memory(index);
@@ -879,6 +898,17 @@ void LogManager::describe(std::ostream& os, bool use_html) {
     os << "disk_index: " << _disk_id.index << newline;
     os << "known_applied_index: " << _applied_id.index << newline;
     os << "last_log_id: " << last_log_id() << newline;
+}
+
+void LogManager::get_status(LogManagerStatus* status) {
+    if (!status) {
+        return;
+    }
+    std::unique_lock<raft_mutex_t> lck(_mutex);
+    status->first_index = _log_storage->first_log_index();
+    status->last_index = _log_storage->last_log_index();
+    status->disk_index = _disk_id.index;
+    status->known_applied_index = _applied_id.index;
 }
 
 void LogManager::report_error(int error_code, const char* fmt, ...) {

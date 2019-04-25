@@ -37,7 +37,8 @@ BRPC_VALIDATE_GFLAG(raft_max_entries_size, ::brpc::PositiveInteger);
 
 DEFINE_int32(raft_max_parallel_append_entries_rpc_num, 1,
              "The max number of parallel AppendEntries requests");
-BRPC_VALIDATE_GFLAG(raft_max_parallel_append_entries_rpc_num, ::brpc::PositiveInteger);
+BRPC_VALIDATE_GFLAG(raft_max_parallel_append_entries_rpc_num,
+                    ::brpc::PositiveInteger);
 
 DEFINE_int32(raft_max_body_size, 512 * 1024,
              "The max byte size of AppendEntriesRequest");
@@ -45,10 +46,14 @@ BRPC_VALIDATE_GFLAG(raft_max_body_size, ::brpc::PositiveInteger);
 
 DEFINE_int32(raft_retry_replicate_interval_ms, 1000,
              "Interval of retry to append entries or install snapshot");
-BRPC_VALIDATE_GFLAG(raft_retry_replicate_interval_ms, brpc::PositiveInteger);
+BRPC_VALIDATE_GFLAG(raft_retry_replicate_interval_ms,
+                    brpc::PositiveInteger);
 
 static bvar::LatencyRecorder g_send_entries_latency("raft_send_entries");
-static bvar::LatencyRecorder g_normalized_send_entries_latency("raft_send_entries_normalized");
+static bvar::LatencyRecorder g_normalized_send_entries_latency(
+             "raft_send_entries_normalized");
+static bvar::CounterRecorder g_send_entries_batch_counter(
+             "raft_send_entries_batch_counter");
 
 ReplicatorOptions::ReplicatorOptions()
     : dynamic_heartbeat_timeout_ms(NULL)
@@ -70,6 +75,7 @@ Replicator::Replicator()
     , _heartbeat_counter(0)
     , _append_entries_counter(0)
     , _install_snapshot_counter(0)
+    , _readonly_index(0)
     , _wait_id(0)
     , _is_waiter_canceled(false)
     , _reader(NULL)
@@ -84,13 +90,7 @@ Replicator::Replicator()
 Replicator::~Replicator() {
     // bind lifecycle with node, Release
     // Replicator stop is async
-    if (_reader) {
-        _options.snapshot_storage->close(_reader);
-        _reader = NULL;
-        if (_options.snapshot_throttle) {
-            _options.snapshot_throttle->finish_one_task(true);
-        }
-    }
+    _close_reader();
     if (_options.node) {
         _options.node->Release();
         _options.node = NULL;
@@ -142,6 +142,14 @@ int Replicator::start(const ReplicatorOptions& options, ReplicatorId *id) {
 
 int Replicator::stop(ReplicatorId id) {
     bthread_id_t dummy_id = { id };
+    Replicator* r = NULL;
+    // already stopped
+    if (bthread_id_lock(dummy_id, (void**)&r) != 0) {
+        return 0;
+    }
+    // to run _catchup_closure if it is not NULL
+    r->_notify_on_caught_up(EPERM, true);
+    CHECK_EQ(0, bthread_id_unlock(dummy_id)) << "Fail to unlock " << dummy_id;
     return bthread_id_error(dummy_id, ESTOP);
 }
 
@@ -226,15 +234,18 @@ void Replicator::_on_block_timedout(void *arg) {
 }
 
 void Replicator::_block(long start_time_us, int error_code) {
+    // mainly for pipeline case, to avoid too many block timer when this 
+    // replicator is something wrong
+    if (_st.st == BLOCKING) {
+        CHECK_EQ(0, bthread_id_unlock(_id)) << "Fail to unlock " << _id;
+        return;
+    }
+
     // TODO: Currently we don't care about error_code which indicates why the
     // very RPC fails. To make it better there should be different timeout for
     // each individual error (e.g. we don't need check every
     // heartbeat_timeout_ms whether a dead follower has come back), but it's just
     // fine now.
-    if (_st.st == BLOCKING) {
-        CHECK_EQ(0, bthread_id_unlock(_id)) << "Fail to unlock " << _id;
-        return;
-    }
     int blocking_time = 0;
     if (error_code == EBUSY || error_code == EINTR) {
         blocking_time = FLAGS_raft_retry_replicate_interval_ms;
@@ -274,13 +285,15 @@ void Replicator::_on_heartbeat_returned(
         return;
     }
 
-    BRAFT_VLOG << "node " << r->_options.group_id << ":" << r->_options.server_id 
-               << " received HeartbeatResponse from "
-               << r->_options.peer_id << " prev_log_index " << request->prev_log_index()
-               << " prev_log_term " << request->prev_log_term() << noflush;
+    std::stringstream ss;
+    ss << "node " << r->_options.group_id << ":" << r->_options.server_id 
+       << " received HeartbeatResponse from "
+       << r->_options.peer_id << " prev_log_index " << request->prev_log_index()
+       << " prev_log_term " << request->prev_log_term();
                
     if (cntl->Failed()) {
-        BRAFT_VLOG << " fail, sleep.";
+        ss << " fail, sleep.";
+        BRAFT_VLOG << ss.str();
 
         // TODO: Should it be VLOG?
         LOG_IF(WARNING, (r->_consecutive_error_times++) % 10 == 0)
@@ -294,8 +307,9 @@ void Replicator::_on_heartbeat_returned(
     }
     r->_consecutive_error_times = 0;
     if (response->term() > r->_options.term) {
-        BRAFT_VLOG << " fail, greater term " << response->term()
-                   << " expect term " << r->_options.term;
+        ss << " fail, greater term " << response->term()
+           << " expect term " << r->_options.term;
+        BRAFT_VLOG << ss.str();
 
         NodeImpl *node_impl = r->_options.node;
         // Acquire a reference of Node here in case that Node is detroyed
@@ -312,12 +326,29 @@ void Replicator::_on_heartbeat_returned(
         node_impl->Release();
         return;
     }
-    BRAFT_VLOG << " success";
+
+    bool readonly = response->has_readonly() && response->readonly();
+    BRAFT_VLOG << ss.str() << " readonly " << readonly;
     if (rpc_send_time > r->_last_rpc_send_timestamp) {
         r->_last_rpc_send_timestamp = rpc_send_time; 
     }
     r->_start_heartbeat_timer(start_time_us);
+    NodeImpl* node_impl = NULL;
+    // Check if readonly config changed
+    if ((readonly && r->_readonly_index == 0) ||
+        (!readonly && r->_readonly_index != 0)) {
+        node_impl = r->_options.node;
+        node_impl->AddRef();
+    }
+    if (!node_impl) {
+        CHECK_EQ(0, bthread_id_unlock(dummy_id)) << "Fail to unlock " << dummy_id;
+        return;
+    }
+    const PeerId peer_id = r->_options.peer_id;
+    int64_t term = r->_options.term;
     CHECK_EQ(0, bthread_id_unlock(dummy_id)) << "Fail to unlock " << dummy_id;
+    node_impl->change_readonly_config(term, peer_id, readonly);
+    node_impl->Release();
     return;
 }
 
@@ -335,12 +366,11 @@ void Replicator::_on_rpc_returned(ReplicatorId id, brpc::Controller* cntl,
         return;
     }
 
-    BRAFT_VLOG << "node " << r->_options.group_id << ":" << r->_options.server_id 
-               << " received AppendEntriesResponse from "
-               << r->_options.peer_id << " prev_log_index " << request->prev_log_index()
-               << " prev_log_term " << request->prev_log_term() 
-               << " count " << request->entries_size()
-               << noflush;
+    std::stringstream ss;
+    ss << "node " << r->_options.group_id << ":" << r->_options.server_id 
+       << " received AppendEntriesResponse from "
+       << r->_options.peer_id << " prev_log_index " << request->prev_log_index()
+       << " prev_log_term " << request->prev_log_term() << " count " << request->entries_size();
 
     bool valid_rpc = false;
     int64_t rpc_first_index = request->prev_log_index() + 1;
@@ -357,13 +387,15 @@ void Replicator::_on_rpc_returned(ReplicatorId id, brpc::Controller* cntl,
         }
     }
     if (!valid_rpc) {
-        BRAFT_VLOG << " ignore invalid rpc";
+        ss << " ignore invalid rpc";
+        BRAFT_VLOG << ss.str();
         CHECK_EQ(0, bthread_id_unlock(r->_id)) << "Fail to unlock " << r->_id;
         return;
     }
 
     if (cntl->Failed()) {
-        BRAFT_VLOG << " fail, sleep.";
+        ss << " fail, sleep.";
+        BRAFT_VLOG << ss.str();
 
         // TODO: Should it be VLOG?
         LOG_IF(WARNING, (r->_consecutive_error_times++) % 10 == 0)
@@ -398,9 +430,10 @@ void Replicator::_on_rpc_returned(ReplicatorId id, brpc::Controller* cntl,
             node_impl->Release();
             return;
         }
-        BRAFT_VLOG << " fail, find next_index remote last_log_index " << response->last_log_index()
-                   << " local next_index " << r->_next_index 
-                   << " rpc prev_log_index " << request->prev_log_index();
+        ss << " fail, find next_index remote last_log_index " << response->last_log_index()
+           << " local next_index " << r->_next_index 
+           << " rpc prev_log_index " << request->prev_log_index();
+        BRAFT_VLOG << ss.str();
         if (rpc_send_time > r->_last_rpc_send_timestamp) {
             r->_last_rpc_send_timestamp = rpc_send_time; 
         }
@@ -431,7 +464,8 @@ void Replicator::_on_rpc_returned(ReplicatorId id, brpc::Controller* cntl,
         return;
     }
 
-    BRAFT_VLOG << " success";
+    ss << " success";
+    BRAFT_VLOG << ss.str();
     
     if (response->term() != r->_options.term) {
         LOG(ERROR) << "Group " << r->_options.group_id
@@ -447,7 +481,7 @@ void Replicator::_on_rpc_returned(ReplicatorId id, brpc::Controller* cntl,
     const int entries_size = request->entries_size();
     const int64_t rpc_last_log_index = request->prev_log_index() + entries_size;
     BRAFT_VLOG_IF(entries_size > 0) << "Group " << r->_options.group_id
-                                    << " Replicated logs in [" 
+                                    << " replicated logs in [" 
                                     << min_flying_index << ", " 
                                     << rpc_last_log_index
                                     << "] to peer " << r->_options.peer_id;
@@ -551,12 +585,22 @@ void Replicator::_send_empty_entries(bool is_heartbeat) {
 
 int Replicator::_prepare_entry(int offset, EntryMeta* em, butil::IOBuf *data) {
     if (data->length() >= (size_t)FLAGS_raft_max_body_size) {
-        return -1;
+        return ERANGE;
     }
-    const size_t log_index = _next_index + offset;
+    const int64_t log_index = _next_index + offset;
     LogEntry *entry = _options.log_manager->get_entry(log_index);
     if (entry == NULL) {
-        return -1;
+        return ENOENT;
+    }
+    // When leader become readonly, no new user logs can submit. On the other side,
+    // if any user log are accepted after this replicator become readonly, the leader
+    // still have enough followers to commit logs, we can safely stop waiting new logs
+    // until the replicator leave readonly mode.
+    if (_readonly_index != 0 && log_index >= _readonly_index) {
+        if (entry->type != ENTRY_TYPE_CONFIGURATION) {
+            return EREADONLY;
+        }
+        _readonly_index = log_index + 1;
     }
     em->set_term(entry->id.term);
     em->set_type(entry->type);
@@ -600,9 +644,11 @@ void Replicator::_send_entries() {
     }
     EntryMeta em;
     const int max_entries_size = FLAGS_raft_max_entries_size - _flying_append_entries_size;
+    int prepare_entry_rc = 0;
     CHECK_GT(max_entries_size, 0);
     for (int i = 0; i < max_entries_size; ++i) {
-        if (_prepare_entry(i, &em, &cntl->request_attachment()) != 0) {
+        prepare_entry_rc = _prepare_entry(i, &em, &cntl->request_attachment());
+        if (prepare_entry_rc != 0) {
             break;
         }
         request->add_entries()->Swap(&em);
@@ -613,6 +659,16 @@ void Replicator::_send_entries() {
             _reset_next_index();
             return _install_snapshot();
         }
+        // NOTICE: a follower's readonly mode does not prevent install_snapshot
+        // as we need followers to commit conf log(like add_node) when 
+        // leader reaches readonly as well 
+        if (prepare_entry_rc == EREADONLY) {
+            if (_flying_append_entries_size == 0) {
+                _st.st = IDLE;
+            }
+            CHECK_EQ(0, bthread_id_unlock(_id)) << "Fail to unlock " << _id;
+            return;
+        }
         return _wait_more_entries();
     }
 
@@ -621,6 +677,8 @@ void Replicator::_send_entries() {
     _append_entries_counter++;
     _next_index += request->entries_size();
     _flying_append_entries_size += request->entries_size();
+    
+    g_send_entries_batch_counter << request->entries_size();
 
     BRAFT_VLOG << "node " << _options.group_id << ":" << _options.server_id
         << " send AppendEntriesRequest to " << _options.peer_id << " term " << _options.term
@@ -647,11 +705,18 @@ int Replicator::_continue_sending(void* arg, int error_code) {
         return -1;
     }
     if (error_code == ETIMEDOUT) {
+        // Replication is in progress when block timedout, no need to start again
+        // this case can happen when 
+        //     1. pipeline is enabled and 
+        //     2. disable readonly mode triggers another replication
+        if (r->_wait_id != 0) {
+            return 0;
+        }
+        
         // Send empty entries after block timeout to check the correct
         // _next_index otherwise the replictor is likely waits in
         // _wait_more_entries and no further logs would be replicated even if the
         // last_index of this followers is less than |next_index - 1|
-        CHECK_EQ(r->_wait_id, 0);
         r->_send_empty_entries(false);
     } else if (error_code != ESTOP && !r->_is_waiter_canceled) {
         // id is unlock in _send_entries
@@ -680,7 +745,7 @@ void Replicator::_wait_more_entries() {
                 _next_index - 1, _continue_sending, (void*)_id.value);
         _is_waiter_canceled = false;
         BRAFT_VLOG << "node " << _options.group_id << ":" << _options.peer_id
-                   << " wait more entries";
+                   << " wait more entries, wait_id " << _wait_id;
     }
     if (_flying_append_entries_size == 0) {
         _st.st = IDLE;
@@ -689,11 +754,26 @@ void Replicator::_wait_more_entries() {
 }
 
 void Replicator::_install_snapshot() {
-    CHECK(!_reader);
+    if (_reader) {
+        // follower's readonly mode change may cause two install_snapshot
+        // one possible case is: 
+        //     enable -> install_snapshot -> disable -> wait_more_entries ->
+        //     install_snapshot again
+        LOG(WARNING) << "node " << _options.group_id << ":" << _options.server_id
+                     << " refuse to send InstallSnapshotRequest to " << _options.peer_id
+                     << " because there is an running one";
+        CHECK_EQ(0, bthread_id_unlock(_id)) << "Fail to unlock " << _id;
+        return;
+    }
 
-    if (_options.snapshot_throttle && !_options.snapshot_throttle->add_one_more_task(true)) {
+    if (_options.snapshot_throttle && !_options.snapshot_throttle->
+                                            add_one_more_task(true)) {
         return _block(butil::gettimeofday_us(), EBUSY);
     }
+    
+    // pre-set replictor state to INSTALLING_SNAPSHOT, so replicator could be
+    // blocked if something is wrong, such as throttled for a period of time 
+    _st.st = INSTALLING_SNAPSHOT;
 
     _reader = _options.snapshot_storage->open();
     if (!_reader) {
@@ -711,6 +791,16 @@ void Replicator::_install_snapshot() {
         return;
     } 
     std::string uri = _reader->generate_uri_for_copy();
+    // NOTICE: If uri is something wrong, retry later instead of reporting error
+    // immediately(making raft Node error), as FileSystemAdaptor layer of _reader is 
+    // user defined and may need some control logic when opened
+    if (uri.empty()) {
+        LOG(WARNING) << "node " << _options.group_id << ":" << _options.server_id
+                     << " refuse to send InstallSnapshotRequest to " << _options.peer_id
+                     << " because snapshot uri is empty";
+        _close_reader();
+        return _block(butil::gettimeofday_us(), EBUSY); 
+    }
     SnapshotMeta meta;
     // report error on failure
     if (_reader->load_meta(&meta) != 0) {
@@ -744,7 +834,6 @@ void Replicator::_install_snapshot() {
 
     _install_snapshot_in_fly = cntl->call_id();
     _install_snapshot_counter++;
-    _st.st = INSTALLING_SNAPSHOT;
     _st.last_log_included = meta.last_included_index();
     _st.last_term_included = meta.last_included_term();
     google::protobuf::Closure* done = brpc::NewCallback<
@@ -777,14 +866,15 @@ void Replicator::_on_install_snapshot_returned(
             r->_options.snapshot_throttle->finish_one_task(true);
         }
     }
-    LOG(INFO) << "received InstallSnapshotResponse from "
-              << r->_options.group_id << ":" << r->_options.peer_id
-              << " last_included_index " << request->meta().last_included_index()
-              << " last_included_term " << request->meta().last_included_term()
-              << noflush;
+    std::stringstream ss;
+    ss << "received InstallSnapshotResponse from "
+       << r->_options.group_id << ":" << r->_options.peer_id
+       << " last_included_index " << request->meta().last_included_index()
+       << " last_included_term " << request->meta().last_included_term();
     do {
         if (cntl->Failed()) {
-            LOG(INFO) << " error: " << cntl->ErrorText();
+            ss << " error: " << cntl->ErrorText();
+            LOG(INFO) << ss.str();
 
             LOG_IF(WARNING, (r->_consecutive_error_times++) % 10 == 0) 
                             << "Group " << r->_options.group_id
@@ -796,13 +886,15 @@ void Replicator::_on_install_snapshot_returned(
         }
         if (!response->success()) {
             succ = false;
-            LOG(INFO) << " fail.";
+            ss << " fail.";
+            LOG(INFO) << ss.str();
             // Let hearbeat do step down
             break;
         }
         // Success 
         r->_next_index = request->meta().last_included_index() + 1;
-        LOG(INFO) << " success.";
+        ss << " success.";
+        LOG(INFO) << ss.str();
     } while (0);
 
     // We don't retry installing the snapshot explicitly. 
@@ -824,9 +916,9 @@ void Replicator::_notify_on_caught_up(int error_code, bool before_destroy) {
         return;
     }
     if (error_code != ETIMEDOUT && error_code != EPERM) {
-	if (!_is_catchup(_catchup_closure->_max_margin)) {
+        if (!_is_catchup(_catchup_closure->_max_margin)) {
             return;
-	}
+        }
         if (_catchup_closure->_error_was_set) {
             return;
         }
@@ -841,7 +933,7 @@ void Replicator::_notify_on_caught_up(int error_code, bool before_destroy) {
                 return;
             }
         }
-    } else { // Timed out
+    } else { // Timed out or leader step_down
         if (!_catchup_closure->_error_was_set) {
             _catchup_closure->status().set_error(error_code, "%s", berror(error_code));
         }
@@ -917,6 +1009,7 @@ void Replicator::_on_catch_up_timedout(void* arg) {
     bthread_id_t id = { (uint64_t)arg };
     Replicator* r = NULL;
     if (bthread_id_lock(id, (void**)&r) != 0) {
+        LOG(WARNING) << "Replicator is destroyed when catch_up_timedout.";
         return;
     }
     r->_notify_on_caught_up(ETIMEDOUT, false);
@@ -1023,12 +1116,14 @@ void Replicator::_on_timeout_now_returned(
         return;
     }
 
-    BRAFT_VLOG << "node " << r->_options.group_id << ":" << r->_options.server_id 
-               << " received TimeoutNowResponse from "
-               << r->_options.peer_id;
+    std::stringstream ss;
+    ss << "node " << r->_options.group_id << ":" << r->_options.server_id 
+       << " received TimeoutNowResponse from "
+       << r->_options.peer_id;
 
     if (cntl->Failed()) {
-        BRAFT_VLOG << " fail : " << cntl->ErrorText();
+        ss << " fail : " << cntl->ErrorText();
+        BRAFT_VLOG << ss.str();
 
         if (stop_after_finish) {
             r->_notify_on_caught_up(ESTOP, true);
@@ -1038,7 +1133,8 @@ void Replicator::_on_timeout_now_returned(
         }
         return;
     }
-    BRAFT_VLOG << (response->success() ? " success " : "fail:");
+    ss << (response->success() ? " success " : "fail:");
+    BRAFT_VLOG << ss.str();
 
     if (response->term() > r->_options.term) {
         NodeImpl *node_impl = r->_options.node;
@@ -1087,6 +1183,52 @@ int64_t Replicator::get_next_index(ReplicatorId id) {
     return next_index;
 }
 
+int Replicator::change_readonly_config(ReplicatorId id, bool readonly) {
+    Replicator *r = NULL;
+    bthread_id_t dummy_id = { id };
+    if (bthread_id_lock(dummy_id, (void**)&r) != 0) {
+        return 0;
+    }
+    return r->_change_readonly_config(readonly);
+}
+
+int Replicator::_change_readonly_config(bool readonly) {
+    if ((readonly && _readonly_index != 0) ||
+        (!readonly && _readonly_index == 0)) {
+        // Check if readonly already set
+        BRAFT_VLOG << "node " << _options.group_id << ":" << _options.server_id
+                   << " ignore change readonly config of " << _options.peer_id
+                   << " to " << readonly << ", readonly_index " << _readonly_index;
+        CHECK_EQ(0, bthread_id_unlock(_id)) << "Fail to unlock " << _id;
+        return 0;
+    }
+    if (readonly) {
+        // Keep a readonly index here to make sure the pending logs can be committed.
+        _readonly_index = _options.log_manager->last_log_index() + 1;
+        LOG(INFO) << "node " << _options.group_id << ":" << _options.server_id
+                  << " enable readonly for " << _options.peer_id
+                  << ", readonly_index " << _readonly_index;
+        CHECK_EQ(0, bthread_id_unlock(_id)) << "Fail to unlock " << _id;
+    } else {
+        _readonly_index = 0;
+        LOG(INFO) << "node " << _options.group_id << ":" << _options.server_id
+                  << " disable readonly for " << _options.peer_id;
+        _wait_more_entries();
+    }
+    return 0;
+}
+
+bool Replicator::readonly(ReplicatorId id) {
+    Replicator *r = NULL;
+    bthread_id_t dummy_id = { id };
+    if (bthread_id_lock(dummy_id, (void**)&r) != 0) {
+        return 0;
+    }
+    bool readonly = (r->_readonly_index != 0);
+    CHECK_EQ(0, bthread_id_unlock(dummy_id)) << "Fail to unlock " << dummy_id;
+    return readonly;
+}
+
 void Replicator::_destroy() {
     bthread_id_t saved_id = _id;
     CHECK_EQ(0, bthread_id_unlock_and_destroy(saved_id));
@@ -1105,12 +1247,16 @@ void Replicator::_describe(std::ostream& os, bool use_html) {
     const int64_t heartbeat_counter = _heartbeat_counter;
     const int64_t append_entries_counter = _append_entries_counter;
     const int64_t install_snapshot_counter = _install_snapshot_counter;
+    const int64_t readonly_index = _readonly_index;
     CHECK_EQ(0, bthread_id_unlock(_id));
     // Don't touch *this ever after
     const char* new_line = use_html ? "<br>" : "\r\n";
     os << "replicator_" << id << '@' << peer_id << ':';
     os << " next_index=" << next_index << ' ';
     os << " flying_append_entries_size=" << flying_append_entries_size << ' ';
+    if (readonly_index != 0) {
+        os << " readonly_index=" << readonly_index << ' ';
+    }
     switch (st.st) {
     case IDLE:
         os << "idle";
@@ -1129,6 +1275,17 @@ void Replicator::_describe(std::ostream& os, bool use_html) {
     os << " hc=" << heartbeat_counter << " ac=" << append_entries_counter << " ic=" << install_snapshot_counter << new_line;
 }
 
+void Replicator::_get_status(PeerStatus* status) {
+    status->valid = true;
+    status->installing_snapshot = (_st.st == INSTALLING_SNAPSHOT);
+    status->next_index = _next_index;
+    status->flying_append_entries_size = _flying_append_entries_size;
+    status->last_rpc_send_timestamp = _last_rpc_send_timestamp;
+    status->consecutive_error_times = _consecutive_error_times;
+    status->readonly_index = _readonly_index;
+    CHECK_EQ(0, bthread_id_unlock(_id));
+}
+
 void Replicator::describe(ReplicatorId id, std::ostream& os, bool use_html) {
     bthread_id_t dummy_id = { id };
     Replicator* r = NULL;
@@ -1137,6 +1294,28 @@ void Replicator::describe(ReplicatorId id, std::ostream& os, bool use_html) {
     }
     // dummy_id is unlock in _describe
     return r->_describe(os, use_html);
+}
+
+void Replicator::get_status(ReplicatorId id, PeerStatus* status) {
+    if (!status) {
+        return;
+    }
+    bthread_id_t dummy_id = { id };
+    Replicator* r = NULL;
+    if (bthread_id_lock(dummy_id, (void**)&r) != 0) {
+        return;
+    }
+    return r->_get_status(status);
+}
+
+void Replicator::_close_reader() {
+    if (_reader) {
+        _options.snapshot_storage->close(_reader);
+        _reader = NULL;
+        if (_options.snapshot_throttle) {
+            _options.snapshot_throttle->finish_one_task(true);
+        }
+    }
 }
 
 // ==================== ReplicatorGroup ==========================
@@ -1334,6 +1513,34 @@ void ReplicatorGroup::list_replicators(std::vector<ReplicatorId>* out) const {
             iter = _rmap.begin();  iter != _rmap.end(); ++iter) {
         out->push_back(iter->second);
     }
+}
+
+void ReplicatorGroup::list_replicators(
+        std::vector<std::pair<PeerId, ReplicatorId> >* out) const {
+    out->clear();
+    out->reserve(_rmap.size());
+    for (std::map<PeerId, ReplicatorId>::const_iterator
+            iter = _rmap.begin();  iter != _rmap.end(); ++iter) {
+        out->push_back(*iter);
+    }
+}
+ 
+int ReplicatorGroup::change_readonly_config(const PeerId& peer, bool readonly) {
+    std::map<PeerId, ReplicatorId>::const_iterator iter = _rmap.find(peer);
+    if (iter == _rmap.end()) {
+        return -1;
+    }
+    ReplicatorId rid = iter->second;
+    return Replicator::change_readonly_config(rid, readonly);
+}
+
+bool ReplicatorGroup::readonly(const PeerId& peer) const {
+    std::map<PeerId, ReplicatorId>::const_iterator iter = _rmap.find(peer);
+    if (iter == _rmap.end()) {
+        return false;
+    }
+    ReplicatorId rid = iter->second;
+    return Replicator::readonly(rid);
 }
 
 } //  namespace braft

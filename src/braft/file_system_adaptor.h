@@ -56,12 +56,13 @@ private:
 
 template <typename T>
 struct DestroyObj {
-    void operator()(T* const obj) { obj->destroy(); }
+    void operator()(T* const obj) { obj->close(); delete obj; }
 };
 
 
 class FileAdaptor {
 public:
+    virtual ~FileAdaptor() {}
     // Write to the file. Different from posix ::pwrite(), write will retry automatically
     // when occur EINTR.
     // Return |data.size()| if successful, -1 otherwise.
@@ -79,13 +80,12 @@ public:
     // Sync data of the file to disk device
     virtual bool sync() = 0;
 
-    // Destroy this adaptor
-    virtual void destroy() { delete this; }
+    // Close the descriptor of this file adaptor
+    virtual bool close() = 0;
 
 protected:
 
     FileAdaptor() {}
-    virtual ~FileAdaptor() {}
 
 private:
     DISALLOW_COPY_AND_ASSIGN(FileAdaptor);
@@ -177,6 +177,7 @@ public:
     virtual ssize_t read(butil::IOPortal* portal, off_t offset, size_t size);
     virtual ssize_t size();
     virtual bool sync();
+    virtual bool close();
 
 protected:
     PosixFileAdaptor(int fd) : _fd(fd) {}

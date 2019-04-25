@@ -40,8 +40,134 @@
 #include <bthread/bthread.h>
 #include <bthread/unstable.h>
 #include <bthread/countdown_event.h>
+#include <bvar/bvar.h>
 #include "braft/macros.h"
 #include "braft/raft.h"
+
+namespace bvar {
+namespace detail {
+
+class Percentile;
+
+typedef Window<IntRecorder, SERIES_IN_SECOND> RecorderWindow;
+typedef Window<Maxer<uint64_t>, SERIES_IN_SECOND> MaxUint64Window;
+typedef Window<Percentile, SERIES_IN_SECOND> PercentileWindow;
+
+// For mimic constructor inheritance.
+class CounterRecorderBase {
+public:
+    explicit CounterRecorderBase(time_t window_size);
+    time_t window_size() const { return _avg_counter_window.window_size(); }
+protected:
+    IntRecorder _avg_counter;
+    Maxer<uint64_t> _max_counter;
+    Percentile _counter_percentile;
+    RecorderWindow _avg_counter_window;
+    MaxUint64Window _max_counter_window;
+    PercentileWindow _counter_percentile_window;
+
+    PassiveStatus<int64_t> _total_times;
+    PassiveStatus<int64_t> _qps;
+    PassiveStatus<int64_t> _counter_p1;
+    PassiveStatus<int64_t> _counter_p2;
+    PassiveStatus<int64_t> _counter_p3;
+    PassiveStatus<int64_t> _counter_999;  // 99.9%
+    PassiveStatus<int64_t> _counter_9999; // 99.99%
+    CDF _counter_cdf;
+    PassiveStatus<Vector<int64_t, 4> > _counter_percentiles;
+};
+} // namespace detail
+
+// Specialized structure to record counter.
+// It's not a Variable, but it contains multiple bvar inside.
+class CounterRecorder : public detail::CounterRecorderBase {
+    typedef detail::CounterRecorderBase Base;
+public:
+    CounterRecorder() : Base(-1) {}
+    explicit CounterRecorder(time_t window_size) : Base(window_size) {}
+    explicit CounterRecorder(const butil::StringPiece& prefix) : Base(-1) {
+        expose(prefix);
+    }
+    CounterRecorder(const butil::StringPiece& prefix,
+                    time_t window_size) : Base(window_size) {
+        expose(prefix);
+    }
+    CounterRecorder(const butil::StringPiece& prefix1,
+                    const butil::StringPiece& prefix2) : Base(-1) {
+        expose(prefix1, prefix2);
+    }
+    CounterRecorder(const butil::StringPiece& prefix1,
+                    const butil::StringPiece& prefix2,
+                    time_t window_size) : Base(window_size) {
+        expose(prefix1, prefix2);
+    }
+
+    ~CounterRecorder() { hide(); }
+
+    // Record the counter num.
+    CounterRecorder& operator<<(int64_t count_num);
+        
+    // Expose all internal variables using `prefix' as prefix.
+    // Returns 0 on success, -1 otherwise.
+    // Example:
+    //   CounterRecorder rec;
+    //   rec.expose("foo_bar_add");     // foo_bar_add_avg_counter
+    //                                    // foo_bar_add_max_counter
+    //                                    // foo_bar_add_total_times
+    //                                    // foo_bar_add_qps
+    //   rec.expose("foo_bar", "apply");   // foo_bar_apply_avg_counter
+    //                                    // foo_bar_apply_max_counter
+    //                                    // foo_bar_apply_total_times
+    //                                    // foo_bar_apply_qps
+    int expose(const butil::StringPiece& prefix) {
+        return expose(butil::StringPiece(), prefix);
+    }
+    int expose(const butil::StringPiece& prefix1,
+               const butil::StringPiece& prefix2);
+    
+    // Hide all internal variables, called in dtor as well.
+    void hide();
+
+    // Get the average counter num in recent |window_size| seconds
+    // If |window_size| is absent, use the window_size to ctor.
+    int64_t avg_counter(time_t window_size) const
+    { return _avg_counter_window.get_value(window_size).get_average_int(); }
+    int64_t avg_counter() const
+    { return _avg_counter_window.get_value().get_average_int(); }
+
+    // Get p1/p2/p3/99.9-ile counter num in recent window_size-to-ctor seconds.
+    Vector<int64_t, 4> counter_percentiles() const;
+
+    // Get the max counter numer in recent window_size-to-ctor seconds.
+    int64_t max_counter() const { return _max_counter_window.get_value(); }
+
+    // Get the total number of recorded counter nums
+    int64_t total_times() const { return _avg_counter.get_value().num; }
+
+    // Get qps in recent |window_size| seconds. The `q' means counter nums.
+    // recorded by operator<<().
+    // If |window_size| is absent, use the window_size to ctor.
+    int64_t qps(time_t window_size) const;
+    int64_t qps() const { return _qps.get_value(); }
+
+    // Get |ratio|-ile counter num in recent |window_size| seconds
+    // E.g. 0.99 means 99%-ile
+    int64_t counter_percentile(double ratio) const;
+
+    // Get name of a sub-bvar.
+    const std::string& avg_counter_name() const { return _avg_counter_window.name(); }
+    const std::string& counter_percentiles_name() const
+    { return _counter_percentiles.name(); }
+    const std::string& counter_cdf_name() const { return _counter_cdf.name(); }
+    const std::string& max_counter_name() const
+    { return _max_counter_window.name(); }
+    const std::string& total_times_name() const { return _total_times.name(); }
+    const std::string& qps_name() const { return _qps.name(); }
+};
+
+std::ostream& operator<<(std::ostream& os, const CounterRecorder&);
+
+}  // namespace bvar
 
 namespace braft {
 class Closure;

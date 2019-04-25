@@ -152,6 +152,10 @@ void Node::snapshot(Closure* done) {
     _impl->snapshot(done);
 }
 
+void Node::vote(int election_timeout) {
+    _impl->vote(election_timeout);
+}
+
 void Node::reset_election_timeout_ms(int election_timeout_ms) {
     _impl->reset_election_timeout_ms(election_timeout_ms);
 }
@@ -162,6 +166,22 @@ int Node::transfer_leadership_to(const PeerId& peer) {
 
 butil::Status Node::read_committed_user_log(const int64_t index, UserLog* user_log) {
     return _impl->read_committed_user_log(index, user_log);
+}
+
+void Node::get_status(NodeStatus* status) {
+    return _impl->get_status(status);
+}
+
+void Node::enter_readonly_mode() {
+    return _impl->enter_readonly_mode();
+}
+
+void Node::leave_readonly_mode() {
+    return _impl->leave_readonly_mode();
+}
+
+bool Node::readonly() {
+    return _impl->readonly();
 }
 
 // ------------- Iterator
@@ -226,6 +246,11 @@ void StateMachine::on_error(const Error& e) {
 void StateMachine::on_configuration_committed(const Configuration& conf) {
     (void)conf;
     return;
+}
+
+void StateMachine::on_configuration_committed(const Configuration& conf, int64_t index) {
+    (void)index;
+    return on_configuration_committed(conf);
 }
 
 void StateMachine::on_stop_following(const LeaderChangeContext&) {}

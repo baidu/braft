@@ -167,9 +167,21 @@ void BallotBox::describe(std::ostream& os, bool use_html) {
     lck.unlock();
     const char *newline = use_html ? "<br>" : "\r\n";
     os << "last_committed_index: " << committed_index << newline;
-    if (pending_index != 0) {
+    if (pending_queue_size != 0) {
         os << "pending_index: " << pending_index << newline;
         os << "pending_queue_size: " << pending_queue_size << newline;
+    }
+}
+
+void BallotBox::get_status(BallotBoxStatus* status) {
+    if (!status) {
+        return;
+    }
+    std::unique_lock<raft_mutex_t> lck(_mutex);
+    status->committed_index = _last_committed_index;
+    if (_pending_meta_queue.size() != 0) {
+        status->pending_index = _pending_index;
+        status->pending_queue_size = _pending_meta_queue.size();
     }
 }
 

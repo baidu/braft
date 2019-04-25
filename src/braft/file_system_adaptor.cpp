@@ -37,7 +37,6 @@ const char* PosixDirReader::name() const {
 }
 
 PosixFileAdaptor::~PosixFileAdaptor() {
-    ::close(_fd);
 }
 
 ssize_t PosixFileAdaptor::write(const butil::IOBuf& data, off_t offset) {
@@ -55,6 +54,15 @@ ssize_t PosixFileAdaptor::size() {
 
 bool PosixFileAdaptor::sync() {
     return raft_fsync(_fd) == 0;
+}
+
+bool PosixFileAdaptor::close() {
+    if (_fd > 0) {
+        bool res = ::close(_fd) == 0;
+        _fd = -1;
+        return res;
+    }
+    return true;
 }
 
 static pthread_once_t s_check_cloexec_once = PTHREAD_ONCE_INIT;

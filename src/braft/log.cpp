@@ -272,6 +272,7 @@ int Segment::load(ConfigurationManager* configuration_manager) {
     // load entry index
     int64_t file_size = st_buf.st_size;
     int64_t entry_off = 0;
+    int64_t actual_last_index = _first_index - 1;
     for (int64_t i = _first_index; entry_off < file_size; i++) {
         EntryHeader header;
         const int rc = _load_entry(entry_off, &header, NULL, ENTRY_HEADER_SIZE);
@@ -310,10 +311,19 @@ int Segment::load(ConfigurationManager* configuration_manager) {
             }
         }
         _offset_and_term.push_back(std::make_pair(entry_off, header.term));
-        if (_is_open) {
-            ++_last_index;
-        }
+        ++actual_last_index;
         entry_off += skip_len;
+    }
+
+    if (ret == 0 && !_is_open && actual_last_index < _last_index) {
+        LOG(ERROR) << "data lost in a full segment, path: " << _path
+            << " first_index: " << _first_index << " expect_last_index: "
+            << _last_index << " actual_last_index: " << actual_last_index;
+        ret = -1;
+    }
+
+    if (_is_open) {
+        _last_index = actual_last_index;
     }
 
     // truncate last uncompleted entry
@@ -983,7 +993,7 @@ int SegmentLogStorage::list_segments(bool is_empty) {
         }
 
         last_log_index = segment->last_index();
-        it++;
+        ++it;
     }
     if (_open_segment) {
         if (last_log_index == -1 &&
@@ -1059,8 +1069,8 @@ int SegmentLogStorage::save_meta(const int64_t log_index) {
 
     timer.stop();
     PLOG_IF(ERROR, ret != 0) << "Fail to save meta to " << meta_path;
-    BRAFT_VLOG << "log save_meta " << meta_path << " log_index: " << log_index
-        << " time: " << timer.u_elapsed();
+    LOG(INFO) << "log save_meta " << meta_path << " first_log_index: " << log_index
+              << " time: " << timer.u_elapsed();
     return ret;
 }
 
@@ -1081,8 +1091,8 @@ int SegmentLogStorage::load_meta() {
     _first_log_index.store(meta.first_log_index());
 
     timer.stop();
-    BRAFT_VLOG << "log load_meta " << meta_path << " log_index: " << meta.first_log_index()
-        << " time: " << timer.u_elapsed();
+    LOG(INFO) << "log load_meta " << meta_path << " first_log_index: " << meta.first_log_index()
+              << " time: " << timer.u_elapsed();
     return 0;
 }
 

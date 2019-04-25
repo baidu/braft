@@ -97,6 +97,11 @@ public:
         return true;
     }
 
+    bool close() {
+        return true;
+    }
+
+
 private:
     scoped_refptr<TreeNodeImpl> _node_impl;
 };

@@ -194,6 +194,35 @@ int LocalSnapshotWriter::init() {
         set_error(EIO, "Fail to load metatable from %s", meta_path.c_str());
         return EIO;
     }
+
+    // remove file if meta_path not exist or it's not in _meta_table 
+    // to avoid dirty data
+    {
+         std::vector<std::string> to_remove;
+         DirReader* dir_reader = _fs->directory_reader(_path);
+         if (!dir_reader->is_valid()) {
+             LOG(WARNING) << "directory reader failed, maybe NOEXIST or PERMISSION,"
+                 " path: " << _path;
+             delete dir_reader;
+             return EIO;
+         }
+         while (dir_reader->next()) {
+             std::string filename = dir_reader->name();
+             if (filename != BRAFT_SNAPSHOT_META_FILE) {
+                 if (get_file_meta(filename, NULL) != 0) {
+                     to_remove.push_back(filename);
+                 }
+             }
+         }
+         delete dir_reader;
+         for (size_t i = 0; i < to_remove.size(); ++i) {
+             std::string file_path = _path + "/" + to_remove[i];
+             _fs->delete_file(file_path, false);
+             LOG(WARNING) << "Snapshot file exist but meta not found so delete it,"
+                 " path: " << file_path;
+         }
+    }
+
     return 0;
 }
 
@@ -350,6 +379,7 @@ public:
                 // if it's not allowed to read partly or it's allowed but
                 // throughput is throttled to 0, try again.
                 if (!read_partly || new_max_count == 0) {
+                    BRAFT_VLOG << "Read file throttled, path: " << path();
                     ret = EAGAIN;
                 }
             }
@@ -383,11 +413,10 @@ std::string LocalSnapshotReader::generate_uri_for_copy() {
         scoped_refptr<SnapshotFileReader> reader(
                 new SnapshotFileReader(_fs.get(), _path, _snapshot_throttle.get()));
         reader->set_meta_table(_meta_table);
-
-	    if (!reader->open()) {
-	        LOG(ERROR) << "Open snapshot=" << _path << " failed";
+        if (!reader->open()) {
+            LOG(ERROR) << "Open snapshot=" << _path << " failed";
             return std::string();
-	    }
+        }
         if (file_service_add(reader.get(), &_reader_id) != 0) {
             LOG(ERROR) << "Fail to add reader to file_service, path: " << _path;
             return std::string();
@@ -535,6 +564,7 @@ SnapshotWriter* LocalSnapshotStorage::create(bool from_empty) {
             writer = NULL;
             break;
         }
+        BRAFT_VLOG << "Create writer success, path: " << snapshot_path;
     } while (0);
 
     return writer;
@@ -730,10 +760,17 @@ void LocalSnapshotCopier::copy() {
         }
     } while (0);
     if (!ok() && _writer && _writer->ok()) {
-        _writer->set_error(error_code(), error_data());
+        LOG(WARNING) << "Fail to copy, error_code " << error_code()
+                     << " error_msg " << error_cstr() 
+                     << " writer path " << _writer->get_path();
+        _writer->set_error(error_code(), error_cstr());
     }
     if (_writer) {
-        _storage->close(_writer, _filter_before_copy_remote);
+        // set_error for copier only when failed to close writer and copier was 
+        // ok before this moment 
+        if (_storage->close(_writer, _filter_before_copy_remote) != 0 && ok()) {
+            set_error(EIO, "Fail to close writer");
+        }
         _writer = NULL;
     }
     if (ok()) {
@@ -759,7 +796,7 @@ void LocalSnapshotCopier::load_meta_table() {
     lck.unlock();
     if (!session->status().ok()) {
         LOG(WARNING) << "Fail to copy meta file : " << session->status();
-        set_error(session->status().error_code(), session->status().error_data());
+        set_error(session->status().error_code(), session->status().error_cstr());
         return;
     }
     if (_remote_snapshot._meta_table.load_from_iobuf_as_remote(meta_buf) != 0) {
@@ -868,8 +905,8 @@ void LocalSnapshotCopier::filter() {
     if (_filter_before_copy_remote) {
         SnapshotReader* reader = _storage->open();
         if (filter_before_copy(_writer, reader) != 0) {
-            LOG(WARNING) << "Fail to filter writer before copying, path: " 
-                         << _writer->get_path() 
+            LOG(WARNING) << "Fail to filter writer before copying"
+                            ", path: " << _writer->get_path() 
                          << ", destroy and create a new writer";
             _writer->set_error(-1, "Fail to filter");
             _storage->close(_writer, false);
@@ -938,7 +975,7 @@ void LocalSnapshotCopier::copy_file(const std::string& filename) {
     _cur_session = NULL;
     lck.unlock();
     if (!session->status().ok()) {
-        set_error(session->status().error_code(), session->status().error_data());
+        set_error(session->status().error_code(), session->status().error_cstr());
         return;
     }
     if (_writer->add_file(filename, &meta) != 0) {

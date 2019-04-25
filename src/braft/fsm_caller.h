@@ -119,6 +119,7 @@ public:
     int64_t last_applied_index() const {
         return _last_applied_index.load(butil::memory_order_relaxed);
     }
+    int64_t applying_index() const;
     void describe(std::ostream& os, bool use_html);
     void join();
 private:
@@ -183,6 +184,7 @@ friend class IteratorImpl;
     TaskType _cur_task;
     butil::atomic<int64_t> _applying_index;
     Error _error;
+    bool _queue_started;
 };
 
 };

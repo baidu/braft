@@ -189,7 +189,8 @@ RemoteFileCopier::Session::Session()
 
 RemoteFileCopier::Session::~Session() {
     if (_file) {
-        _file->destroy();
+        _file->close();
+        delete _file;
         _file = NULL;
     }
 }
@@ -197,7 +198,7 @@ RemoteFileCopier::Session::~Session() {
 void RemoteFileCopier::Session::send_next_rpc() {
     _cntl.Reset();
     _response.Clear();
-    // Not clear request as we need some fields of the previouse RPC
+    // Not clear request as we need some fields of the previous RPC
     off_t offset = _request.offset() + _request.count();
     const size_t max_count = 
             (!_buf) ? FLAGS_raft_max_byte_count_per_rpc : UINT_MAX;
@@ -216,6 +217,7 @@ void RemoteFileCopier::Session::send_next_rpc() {
         new_max_count = _throttle->throttled_by_throughput(max_count);
         if (new_max_count == 0) {
             // Reset count to make next rpc retry the previous one
+            BRAFT_VLOG << "Copy file throttled, path: " << _dest_path;
             _request.set_count(0);
             AddRef();
             int64_t retry_interval_ms_when_throttled = 
@@ -293,7 +295,8 @@ void RemoteFileCopier::Session::on_rpc_returned() {
     }
     _retry_times = 0;
     // Reset count to |real_read_size| to make next rpc get the right offset
-    if (_response.has_read_size() && (_response.read_size() != 0)) {
+    if (_response.has_read_size() && (_response.read_size() != 0)
+            && FLAGS_raft_allow_read_partly_when_install_snapshot) {
         _request.set_count(_response.read_size());
     }
     if (_file) {
@@ -346,7 +349,10 @@ void RemoteFileCopier::Session::on_timer(void* arg) {
 void RemoteFileCopier::Session::on_finished() {
     if (!_finished) {
         if (_file) {
-            _file->destroy();
+            if (!_file->close()) {
+                _st.set_error(EIO, "%s", berror(EIO));
+            }
+            delete _file;
             _file = NULL;
         }
         _finished = true;

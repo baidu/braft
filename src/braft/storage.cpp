@@ -109,7 +109,7 @@ RaftMetaStorage* RaftMetaStorage::create(const std::string& uri) {
     const RaftMetaStorage* type = meta_storage_extension()->Find(
                 protocol.as_string().c_str());
     if (type == NULL) {
-        LOG(ERROR) << "Fail to find stable storage type " << protocol
+        LOG(ERROR) << "Fail to find meta storage type " << protocol
                    << ", uri=" << uri;
         return NULL;
     }
