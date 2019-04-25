@@ -386,13 +386,15 @@ void Replicator::_on_rpc_returned(ReplicatorId id, brpc::Controller* cntl,
         }
     }
     if (!valid_rpc) {
-        BRAFT_VLOG << " ignore invalid rpc";
+        ss << " ignore invalid rpc";
+        BRAFT_VLOG << ss.str();
         CHECK_EQ(0, bthread_id_unlock(r->_id)) << "Fail to unlock " << r->_id;
         return;
     }
 
     if (cntl->Failed()) {
-        BRAFT_VLOG << " fail, sleep.";
+        ss << " fail, sleep.";
+        BRAFT_VLOG << ss.str();
 
         // TODO: Should it be VLOG?
         LOG_IF(WARNING, (r->_consecutive_error_times++) % 10 == 0)
@@ -427,9 +429,10 @@ void Replicator::_on_rpc_returned(ReplicatorId id, brpc::Controller* cntl,
             node_impl->Release();
             return;
         }
-        BRAFT_VLOG << " fail, find next_index remote last_log_index " << response->last_log_index()
-                   << " local next_index " << r->_next_index 
-                   << " rpc prev_log_index " << request->prev_log_index();
+        ss << " fail, find next_index remote last_log_index " << response->last_log_index()
+           << " local next_index " << r->_next_index 
+           << " rpc prev_log_index " << request->prev_log_index();
+        BRAFT_VLOG << ss.str();
         if (rpc_send_time > r->_last_rpc_send_timestamp) {
             r->_last_rpc_send_timestamp = rpc_send_time; 
         }
@@ -460,7 +463,8 @@ void Replicator::_on_rpc_returned(ReplicatorId id, brpc::Controller* cntl,
         return;
     }
 
-    BRAFT_VLOG << " success";
+    ss << " success";
+    BRAFT_VLOG << ss.str();
     
     if (response->term() != r->_options.term) {
         LOG(ERROR) << "Group " << r->_options.group_id
@@ -476,7 +480,7 @@ void Replicator::_on_rpc_returned(ReplicatorId id, brpc::Controller* cntl,
     const int entries_size = request->entries_size();
     const int64_t rpc_last_log_index = request->prev_log_index() + entries_size;
     BRAFT_VLOG_IF(entries_size > 0) << "Group " << r->_options.group_id
-                                    << " Replicated logs in [" 
+                                    << " replicated logs in [" 
                                     << min_flying_index << ", " 
                                     << rpc_last_log_index
                                     << "] to peer " << r->_options.peer_id;
@@ -1111,12 +1115,14 @@ void Replicator::_on_timeout_now_returned(
         return;
     }
 
-    BRAFT_VLOG << "node " << r->_options.group_id << ":" << r->_options.server_id 
-               << " received TimeoutNowResponse from "
-               << r->_options.peer_id;
+    std::stringstream ss;
+    ss << "node " << r->_options.group_id << ":" << r->_options.server_id 
+       << " received TimeoutNowResponse from "
+       << r->_options.peer_id;
 
     if (cntl->Failed()) {
-        BRAFT_VLOG << " fail : " << cntl->ErrorText();
+        ss << " fail : " << cntl->ErrorText();
+        BRAFT_VLOG << ss.str();
 
         if (stop_after_finish) {
             r->_notify_on_caught_up(ESTOP, true);
@@ -1126,7 +1132,8 @@ void Replicator::_on_timeout_now_returned(
         }
         return;
     }
-    BRAFT_VLOG << (response->success() ? " success " : "fail:");
+    ss << (response->success() ? " success " : "fail:");
+    BRAFT_VLOG << ss.str();
 
     if (response->term() > r->_options.term) {
         NodeImpl *node_impl = r->_options.node;

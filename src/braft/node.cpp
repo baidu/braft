@@ -1291,7 +1291,7 @@ struct OnRequestVoteRPCDone : public google::protobuf::Closure {
             if (cntl.ErrorCode() != 0) {
                 LOG(WARNING) << "node " << node->node_id()
                              << " received RequestVoteResponse from " << peer 
-			                 << " error: " << cntl.ErrorText();
+	                         << " error: " << cntl.ErrorText();
                 break;
             }
             node->handle_request_vote_response(peer, term, response);
@@ -1534,8 +1534,8 @@ void NodeImpl::step_down(const int64_t term, bool wakeup_a_candidate,
     BRAFT_VLOG << "node " << _group_id << ":" << _server_id
               << " term " << _current_term 
               << " stepdown from " << state2str(_state)
-              << " new_term " << term <<
-                 " wakeup_a_candidate=" << wakeup_a_candidate;
+              << " new_term " << term
+              << " wakeup_a_candidate=" << wakeup_a_candidate;
 
     if (!is_active_state(_state)) {
         return;
