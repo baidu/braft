@@ -260,11 +260,7 @@ public:
         butil::string_printf(&options.snapshot_uri, "local://./data/%s/snapshot",
                             butil::endpoint2str(listen_addr).c_str());
 
-        int64_t throttle_throughput_bytes = 10 * 1024 * 1024;
-        int64_t check_cycle = 10;
-        braft::SnapshotThrottle* throttle = 
-            new braft::ThroughputSnapshotThrottle(throttle_throughput_bytes, check_cycle);
-        scoped_refptr<braft::SnapshotThrottle> tst(throttle);
+        scoped_refptr<braft::SnapshotThrottle> tst(_throttle);
         options.snapshot_throttle = &tst;
 
         options.catchup_margin = 2;
@@ -273,7 +269,6 @@ public:
         int ret = node->init(options);
         if (ret != 0) {
             LOG(WARNING) << "init_node failed, server: " << listen_addr;
-            delete throttle;
             delete node;
             return ret;
         } else {
@@ -974,7 +969,7 @@ TEST_P(NodeTest, JoinNode) {
     cluster.stop_all();
 }
 
-TEST_F(NodeTest, Leader_step_down_during_install_snapshot) {
+TEST_P(NodeTest, Leader_step_down_during_install_snapshot) {
     std::vector<braft::PeerId> peers;
     braft::PeerId peer0;
     peer0.addr.ip = butil::my_ip();

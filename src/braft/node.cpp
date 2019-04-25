@@ -129,6 +129,7 @@ NodeImpl::NodeImpl(const GroupId& group_id, const PeerId& peer_id)
     , _ballot_box(NULL)
     , _snapshot_executor(NULL)
     , _stop_transfer_arg(NULL)
+    , _vote_triggered(false)
     , _waking_candidate(0)
     , _append_entries_cache(NULL)
     , _append_entries_cache_version(0)
@@ -154,6 +155,7 @@ NodeImpl::NodeImpl()
     , _ballot_box(NULL)
     , _snapshot_executor(NULL)
     , _stop_transfer_arg(NULL)
+    , _vote_triggered(false)
     , _waking_candidate(0) {
         AddRef();
     g_num_nodes << 1;
@@ -973,10 +975,13 @@ void NodeImpl::handle_election_timeout() {
         return;
     }
 
-    if ((butil::monotonic_time_ms() - _last_leader_timestamp) 
+    // check timestamp, skip one cycle check when trigger vote
+    if (!_vote_triggered &&
+            (butil::monotonic_time_ms() - _last_leader_timestamp) 
             < _options.election_timeout_ms) {
         return;
     }
+    _vote_triggered = false;
 
     // Reset leader as the leader is uncerntain on election timeout.
     PeerId empty_id;
@@ -1152,6 +1157,22 @@ int NodeImpl::transfer_leadership_to(const PeerId& peer) {
         return -1;
     }
     return 0;
+}
+
+void NodeImpl::vote(int election_timeout) {
+    std::unique_lock<raft_mutex_t> lck(_mutex);
+    _options.election_timeout_ms = election_timeout;
+    _replicator_group.reset_heartbeat_interval(
+            heartbeat_timeout(_options.election_timeout_ms));
+    _replicator_group.reset_election_timeout_interval(_options.election_timeout_ms);
+    if (_state != STATE_FOLLOWER) {
+        return;
+    }
+    _vote_triggered = true;
+    LOG(INFO) << "node " << _group_id << ":" << _server_id << " trigger-vote,"
+        " current_term " << _current_term << " state " << state2str(_state) <<
+        " election_timeout " << election_timeout;
+    _election_timer.reset(election_timeout);
 }
 
 void NodeImpl::reset_election_timeout_ms(int election_timeout_ms) {
