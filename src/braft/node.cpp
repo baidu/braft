@@ -2178,12 +2178,11 @@ void NodeImpl::after_shutdown() {
     }
 }
 
-void NodeImpl::handle_install_snapshot_request(brpc::Controller* controller,
+void NodeImpl::handle_install_snapshot_request(brpc::Controller* cntl,
                                     const InstallSnapshotRequest* request,
                                     InstallSnapshotResponse* response,
                                     google::protobuf::Closure* done) {
     brpc::ClosureGuard done_guard(done);
-    brpc::Controller* cntl = (brpc::Controller*)controller;
 
     if (_snapshot_executor == NULL) {
         cntl->SetFailed(EINVAL, "Not support snapshot");
@@ -2212,7 +2211,7 @@ void NodeImpl::handle_install_snapshot_request(brpc::Controller* controller,
     // check stale term
     if (request->term() < _current_term) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
-                     << " ignore stale AppendEntries from " << request->server_id()
+                     << " ignore stale InstallSnapshot from " << request->server_id()
                      << " in term " << request->term()
                      << " current_term " << _current_term;
         response->set_term(_current_term);
