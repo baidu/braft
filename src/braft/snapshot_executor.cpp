@@ -542,12 +542,12 @@ int SnapshotExecutor::register_downloading_snapshot(DownloadingSnapshot* ds) {
         rc = 1;
     } else if (m->request->meta().last_included_index() 
             > ds->request->meta().last_included_index()) {
-        // |is| is older
+        // |ds| is older
         LOG(WARNING) << "Register failed: is installing a newer one.";
         ds->cntl->SetFailed(EINVAL, "A newer snapshot is under installing");
         return -1;
     } else {
-        // |is| is newer
+        // |ds| is newer
         if (_loading_snapshot) {
             // We can't interrupt the loading one
             LOG(WARNING) << "Register failed: is loading an older snapshot.";
