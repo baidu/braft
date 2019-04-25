@@ -693,7 +693,7 @@ void Replicator::_install_snapshot() {
     if (!_reader) {
         if (_options.snapshot_throttle) {
             _options.snapshot_throttle->finish_one_task(true);
-	}
+	    }
         NodeImpl *node_impl = _options.node;
         node_impl->AddRef();
         CHECK_EQ(0, bthread_id_unlock(_id)) << "Fail to unlock " << _id;
