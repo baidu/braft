@@ -418,7 +418,7 @@ void SnapshotExecutor::install_snapshot(brpc::Controller* cntl,
     done_guard.release();
     CHECK(_cur_copier);
     _cur_copier->join();
-    // when coping finished or canceled, more install_snapshot tasks are allowed
+    // when copying finished or canceled, more install_snapshot tasks are allowed
     if (_snapshot_throttle) {
         _snapshot_throttle->finish_one_task(false);
     }
