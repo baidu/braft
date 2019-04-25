@@ -189,7 +189,7 @@ int SnapshotExecutor::on_snapshot_save_done(
     
     if (ret == 0) {
         if (writer->save_meta(meta)) {
-            LOG(WARNING) << "Fail to save snapshot";    
+            LOG(WARNING) << "node " << _node->node_id() << " fail to save snapshot";    
             ret = EIO;
         }
     } else {
@@ -200,9 +200,12 @@ int SnapshotExecutor::on_snapshot_save_done(
 
     if (_snapshot_storage->close(writer) != 0) {
         ret = EIO;
-        LOG(WARNING) << "Fail to close writer";
+        LOG(WARNING) << "node " << _node->node_id() << " fail to close writer";
     }
 
+    if (_node) {
+        LOG(INFO) << "node " << _node->node_id() << ' ' << noflush;
+    }
     lck.lock();
     if (ret == 0) {
         _last_snapshot_index = meta.last_included_index();
@@ -317,7 +320,7 @@ void SaveSnapshotDone::Run() {
 
 int SnapshotExecutor::init(const SnapshotExecutorOptions& options) {
     if (options.uri.empty()) {
-        LOG(ERROR) << "uri is empty()";
+        LOG(ERROR) << "node " << _node->node_id() << " uri is empty()";
         return -1;
     }
     _log_manager = options.log_manager;
@@ -328,7 +331,8 @@ int SnapshotExecutor::init(const SnapshotExecutorOptions& options) {
 
     _snapshot_storage = SnapshotStorage::create(options.uri);
     if (!_snapshot_storage) {
-        LOG(ERROR)  << "Fail to find snapshot storage, uri " << options.uri;
+        LOG(ERROR)  << "node " << _node->node_id() 
+                    << " fail to find snapshot storage, uri " << options.uri;
         return -1;
     }
     if (options.filter_before_copy_remote) {
@@ -342,7 +346,8 @@ int SnapshotExecutor::init(const SnapshotExecutorOptions& options) {
         _snapshot_storage->set_snapshot_throttle(options.snapshot_throttle);
     }
     if (_snapshot_storage->init() != 0) {
-        LOG(ERROR) << "Fail to init snapshot storage";
+        LOG(ERROR) << "node " << _node->node_id() 
+                   << " fail to init snapshot storage, uri " << options.uri;
         return -1;
     }
     LocalSnapshotStorage* tmp = dynamic_cast<LocalSnapshotStorage*>(_snapshot_storage);
@@ -396,6 +401,9 @@ void SnapshotExecutor::install_snapshot(brpc::Controller* cntl,
     //    ^^^ DON'T access request, response, done and cntl after this point
     //        as the retry snapshot will replace this one.
     if (ret != 0) {
+        if (_node) {
+            LOG(WARNING) << "node " << _node->node_id() << ' ' << noflush;
+        }
         LOG(WARNING) << "Fail to register_downloading_snapshot";
         if (ret > 0) {
             // This RPC will be responded by the previous session
@@ -468,7 +476,7 @@ void SnapshotExecutor::load_downloading_snapshot(DownloadingSnapshot* ds,
             new InstallSnapshotDone(this, reader);
     int ret = _fsm_caller->on_snapshot_load(install_snapshot_done);
     if (ret != 0) {
-        LOG(WARNING) << "Fail to call on_snapshot_load";
+        LOG(WARNING) << "node " << _node->node_id() << " fail to call on_snapshot_load";
         install_snapshot_done->status().set_error(EHOSTDOWN, "This raft node is down");
         return install_snapshot_done->Run();
     }
@@ -578,7 +586,10 @@ void SnapshotExecutor::interrupt_downloading_snapshot(int64_t new_term) {
     }
     CHECK(_cur_copier);
     _cur_copier->cancel();
-    LOG(INFO) << "Trying to cancel downloading snapshot : " 
+    if (_node) {
+        LOG(INFO) << "node " << _node->node_id() << ' ' << noflush;
+    }
+    LOG(INFO) << " Trying to cancel downloading snapshot : " 
               << _downloading_snapshot.load(butil::memory_order_relaxed)
                  ->request->ShortDebugString();
 }

@@ -186,7 +186,7 @@ int Segment::_load_entry(off_t offset, EntryHeader* head, butil::IOBuf* data,
     if (!verify_checksum(tmp.checksum_type, 
                         p, ENTRY_HEADER_SIZE - 4, header_checksum)) {
         LOG(ERROR) << "Found corrupted header at offset=" << offset
-                   << ", header=" << tmp;
+                   << ", header=" << tmp << ", path: " << _path;
         return -1;
     }
     if (head != NULL) {
@@ -207,7 +207,8 @@ int Segment::_load_entry(off_t offset, EntryHeader* head, butil::IOBuf* data,
         if (!verify_checksum(tmp.checksum_type, buf, tmp.data_checksum)) {
             LOG(ERROR) << "Found corrupted data at offset=" 
                        << offset + ENTRY_HEADER_SIZE
-                       << " header=" << tmp;
+                       << " header=" << tmp
+                       << " path: " << _path;
             // TODO: abort()?
             return -1;
         }
@@ -354,13 +355,14 @@ int Segment::append(const LogEntry* entry) {
             butil::Status status = serialize_configuration_meta(entry, data);
             if (!status.ok()) {
                 LOG(ERROR) << "Fail to serialize ConfigurationPBMeta, path: " 
-                    << _path;
+                           << _path;
                 return -1; 
             }
         }
         break;
     default:
-        LOG(FATAL) << "unknow entry type: " << entry->type;
+        LOG(FATAL) << "unknow entry type: " << entry->type
+                   << ", path: " << _path;
         return -1;
     }
     CHECK_LE(data.length(), 1ul << 56ul);
@@ -383,7 +385,8 @@ int Segment::append(const LogEntry* entry) {
         const ssize_t n = butil::IOBuf::cut_multiple_into_file_descriptor(
                 _fd, pieces + start, ARRAY_SIZE(pieces) - start);
         if (n < 0) {
-            LOG(ERROR) << "Fail to write to fd=" << _fd << ", " << berror();
+            LOG(ERROR) << "Fail to write to fd=" << _fd 
+                       << ", path: " << _path << berror();
             return -1;
         }
         written += n;
@@ -450,7 +453,7 @@ LogEntry* Segment::get(const int64_t index) const {
             }
             break;
         default:
-            CHECK(false) << "Unknown entry type";
+            CHECK(false) << "Unknown entry type, path: " << _path;
             break;
         }
 
@@ -489,8 +492,10 @@ int Segment::close(bool will_sync) {
 
     // TODO: optimize index memory usage by reconstruct vector
     LOG(INFO) << "close a full segment. Current first_index: " << _first_index 
-        << " last_index: " << _last_index << " raft_sync_segments: " << FLAGS_raft_sync_segments 
-        << " will_sync: " << will_sync;
+              << " last_index: " << _last_index 
+              << " raft_sync_segments: " << FLAGS_raft_sync_segments 
+              << " will_sync: " << will_sync 
+              << " path: " << new_path;
     int ret = 0;
     if (_last_index > _first_index) {
         if (FLAGS_raft_sync_segments && will_sync) {
@@ -587,7 +592,8 @@ int Segment::truncate(const int64_t last_index_kept) {
     // seek fd
     off_t ret_off = ::lseek(_fd, truncate_size, SEEK_SET);
     if (ret_off < 0) {
-        PLOG(ERROR) << "Fail to lseek fd=" << _fd << " to size=" << truncate_size;
+        PLOG(ERROR) << "Fail to lseek fd=" << _fd << " to size=" << truncate_size
+                    << " path: " << _path;
         return -1;
     }
 
@@ -672,7 +678,8 @@ int SegmentLogStorage::append_entries(const std::vector<LogEntry*>& entries) {
     }
     if (_last_log_index.load(butil::memory_order_relaxed) + 1
             != entries.front()->id.index) {
-        LOG(FATAL) << "There's gap between appending entries and _last_log_index";
+        LOG(FATAL) << "There's gap between appending entries and _last_log_index"
+                   << " path: " << _path;
         return -1;
     }
     scoped_refptr<Segment> last_segment = NULL;
@@ -772,7 +779,7 @@ int SegmentLogStorage::truncate_prefix(const int64_t first_index_kept) {
     // the deleting fails or the process crashes (which is unlikely to happen).
     // The new process would see the latest `first_log_index'
     if (save_meta(first_index_kept) != 0) { // NOTE
-        PLOG(ERROR) << "Fail to save meta";
+        PLOG(ERROR) << "Fail to save meta, path: " << _path;
         return -1;
     }
     std::vector<scoped_refptr<Segment> > popped;
@@ -855,7 +862,8 @@ int SegmentLogStorage::truncate_suffix(const int64_t last_index_kept) {
 
 int SegmentLogStorage::reset(const int64_t next_log_index) {
     if (next_log_index <= 0) {
-        LOG(ERROR) << "Invalid next_log_index=" << next_log_index;
+        LOG(ERROR) << "Invalid next_log_index=" << next_log_index
+                   << " path: " << _path;
         return EINVAL;
     }
     std::vector<scoped_refptr<Segment> > popped;
@@ -875,7 +883,7 @@ int SegmentLogStorage::reset(const int64_t next_log_index) {
     lck.unlock();
     // NOTE: see the comments in truncate_prefix
     if (save_meta(next_log_index) != 0) {
-        PLOG(ERROR) << "Fail to save meta";
+        PLOG(ERROR) << "Fail to save meta, path: " << _path;
         return -1;
     }
     for (size_t i = 0; i < popped.size(); ++i) {
@@ -888,7 +896,8 @@ int SegmentLogStorage::reset(const int64_t next_log_index) {
 int SegmentLogStorage::list_segments(bool is_empty) {
     butil::DirReaderPosix dir_reader(_path.c_str());
     if (!dir_reader.IsValid()) {
-        LOG(WARNING) << "directory reader failed, maybe NOEXIST or PERMISSION. path: " << _path;
+        LOG(WARNING) << "directory reader failed, maybe NOEXIST or PERMISSION."
+                     << " path: " << _path;
         return -1;
     }
 
@@ -1103,7 +1112,8 @@ scoped_refptr<Segment> SegmentLogStorage::open_segment() {
                     break;
                 }
             }
-            PLOG(ERROR) << "Fail to close old open_segment or create new open_segment";
+            PLOG(ERROR) << "Fail to close old open_segment or create new open_segment"
+                        << " path: " << _path;
             // Failed, revert former changes
             BAIDU_SCOPED_LOCK(_mutex);
             _segments.erase(prev_open_segment->first_index());

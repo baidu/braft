@@ -444,8 +444,8 @@ void LogManager::append_to_storage(std::vector<LogEntry*>* to_append,
         if (nappent != (int)to_append->size()) {
             // FIXME
             LOG(ERROR) << "Fail to append_entries, "
-                << "nappent=" << nappent 
-                << ", to_append=" << to_append->size();
+                       << "nappent=" << nappent 
+                       << ", to_append=" << to_append->size();
             report_error(EIO, "Fail to append entries");
         }
         if (nappent > 0) { 
@@ -563,7 +563,7 @@ int LogManager::disk_thread(void* meta,
                         dynamic_cast<TruncateSuffixClosure*>(done);
                 if (tsc) {
                     LOG(WARNING) << "Truncating storage to last_index_kept="
-                        << tsc->last_index_kept();
+                                 << tsc->last_index_kept();
                     ret = log_manager->_log_storage->truncate_suffix(
                                     tsc->last_index_kept());
                     if (ret == 0) {
