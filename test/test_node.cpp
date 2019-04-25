@@ -85,8 +85,7 @@ public:
     virtual void on_apply(braft::Iterator& iter) {
         for (; iter.valid(); iter.next()) {
             LOG_IF(TRACE, !g_dont_print_apply_log) << "addr " << address 
-                                                   << " apply " << iter.index()
-                                                   << " data " << iter.data();
+                                                   << " apply " << iter.index();
             ::brpc::ClosureGuard guard(iter.done());
             lock();
             logs.push_back(iter.data());
