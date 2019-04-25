@@ -2237,12 +2237,11 @@ void NodeImpl::after_shutdown() {
     }
 }
 
-void NodeImpl::handle_install_snapshot_request(brpc::Controller* controller,
+void NodeImpl::handle_install_snapshot_request(brpc::Controller* cntl,
                                     const InstallSnapshotRequest* request,
                                     InstallSnapshotResponse* response,
                                     google::protobuf::Closure* done) {
     brpc::ClosureGuard done_guard(done);
-    brpc::Controller* cntl = (brpc::Controller*)controller;
 
     if (_snapshot_executor == NULL) {
         cntl->SetFailed(EINVAL, "Not support snapshot");
@@ -2271,7 +2270,7 @@ void NodeImpl::handle_install_snapshot_request(brpc::Controller* controller,
     // check stale term
     if (request->term() < _current_term) {
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
-                     << " ignore stale AppendEntries from " << request->server_id()
+                     << " ignore stale InstallSnapshot from " << request->server_id()
                      << " in term " << request->term()
                      << " current_term " << _current_term;
         response->set_term(_current_term);
@@ -2324,11 +2323,11 @@ butil::Status NodeImpl::read_committed_user_log(const int64_t index, UserLog* us
     }
     int64_t cur_index = index;
     LogEntry* entry = _log_manager->get_entry(cur_index);
-    if (entry == NULL){
+    if (entry == NULL) {
         return butil::Status(ELOGDELETED, "user log is deleted at index:%" PRId64, index);
     }
     do {
-        if (entry->type == ENTRY_TYPE_DATA){
+        if (entry->type == ENTRY_TYPE_DATA) {
             user_log->set_log_index(cur_index);
             user_log->set_log_data(entry->data);
             entry->Release();
