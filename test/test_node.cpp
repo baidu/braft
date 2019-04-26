@@ -505,7 +505,7 @@ protected:
     void SetUp() {
         g_dont_print_apply_log = false;
         //logging::FLAGS_v = 90;
-        google::SetCommandLineOption("crash_on_fatal_log", "true");
+        GFLAGS_NS::SetCommandLineOption("crash_on_fatal_log", "true");
         if (GetParam() == std::string("NoReplication")) {
             braft::FLAGS_raft_max_parallel_append_entries_rpc_num = 1;
             braft::FLAGS_raft_enable_append_entries_cache = false;
@@ -1477,7 +1477,7 @@ TEST_P(NodeTest, PreVote) {
 }
 
 TEST_P(NodeTest, Vote_timedout) {
-    google::SetCommandLineOption("raft_step_down_when_vote_timedout", "true");
+    GFLAGS_NS::SetCommandLineOption("raft_step_down_when_vote_timedout", "true");
     std::vector<braft::PeerId> peers;
     for (int i = 0; i < 2; i++) {
         braft::PeerId peer;
@@ -1525,7 +1525,7 @@ TEST_P(NodeTest, Vote_timedout) {
     LOG(WARNING) << "cluster stop";
     cluster.stop_all();
 
-    google::SetCommandLineOption("raft_step_down_when_vote_timedout", "false");
+    GFLAGS_NS::SetCommandLineOption("raft_step_down_when_vote_timedout", "false");
 }
 
 TEST_P(NodeTest, SetPeer1) {
@@ -1840,7 +1840,7 @@ TEST_P(NodeTest, InstallSnapshot) {
 }
 
 TEST_P(NodeTest, install_snapshot_exceed_max_task_num) {
-    google::SetCommandLineOption("raft_max_install_snapshot_tasks_num", "1");
+    GFLAGS_NS::SetCommandLineOption("raft_max_install_snapshot_tasks_num", "1");
     std::vector<braft::PeerId> peers;
     for (int i = 0; i < 5; i++) {
         braft::PeerId peer;
@@ -1943,7 +1943,7 @@ TEST_P(NodeTest, install_snapshot_exceed_max_task_num) {
 
     LOG(WARNING) << "cluster stop";
     cluster.stop_all();
-    google::SetCommandLineOption("raft_max_install_snapshot_tasks_num", "1000");
+    GFLAGS_NS::SetCommandLineOption("raft_max_install_snapshot_tasks_num", "1000");
 }
 
 TEST_P(NodeTest, NoSnapshot) {
@@ -3762,6 +3762,6 @@ INSTANTIATE_TEST_CASE_P(NodeTestWithPipelineReplication,
 int main(int argc, char* argv[]) {
     ::testing::AddGlobalTestEnvironment(new TestEnvironment());
     ::testing::InitGoogleTest(&argc, argv);
-    google::ParseCommandLineFlags(&argc, &argv, true);
+    GFLAGS_NS::ParseCommandLineFlags(&argc, &argv, true);
     return RUN_ALL_TESTS();
 }
