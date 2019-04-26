@@ -2849,14 +2849,17 @@ void NodeImpl::ConfigurationCtx::start(const Configuration& old_conf,
     new_conf.diffs(old_conf, &adding, &removing);
     _nchanges = adding.size() + removing.size();
 
-    LOG(INFO) << "node " << _node->_group_id << ":" << _node->_server_id
-              << " change_peers from " << old_conf << " to " << new_conf << noflush;
+    std::stringstream ss;
+    ss << "node " << _node->_group_id << ":" << _node->_server_id
+       << " change_peers from " << old_conf << " to " << new_conf;
 
     if (adding.empty()) {
-        LOG(INFO) << ", begin removing.";
+        ss << ", begin removing.";
+        LOG(INFO) << ss.str();
         return next_stage();
     }
-    LOG(INFO) << ", begin caughtup.";
+    ss << ", begin caughtup.";
+    LOG(INFO) << ss.str();
     adding.list_peers(&_adding_peers);
     for (std::set<PeerId>::const_iterator iter
             = _adding_peers.begin(); iter != _adding_peers.end(); ++iter) {

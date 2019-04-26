@@ -210,16 +210,18 @@ int SnapshotExecutor::on_snapshot_save_done(
         LOG(WARNING) << "node " << _node->node_id() << " fail to close writer";
     }
 
+    std::stringstream ss;
     if (_node) {
-        LOG(INFO) << "node " << _node->node_id() << ' ' << noflush;
+        ss << "node " << _node->node_id() << ' ';
     }
     lck.lock();
     if (ret == 0) {
         _last_snapshot_index = meta.last_included_index();
         _last_snapshot_term = meta.last_included_term();
         lck.unlock();
-        LOG(INFO) << "snapshot_save_done, last_included_index=" << meta.last_included_index()
-                  << " last_included_term=" << meta.last_included_term(); 
+        ss << "snapshot_save_done, last_included_index=" << meta.last_included_index()
+           << " last_included_term=" << meta.last_included_term(); 
+        LOG(INFO) << ss.str();
         _log_manager->set_snapshot(&meta);
         lck.lock();
     }
@@ -409,9 +411,11 @@ void SnapshotExecutor::install_snapshot(brpc::Controller* cntl,
     //        as the retry snapshot will replace this one.
     if (ret != 0) {
         if (_node) {
-            LOG(WARNING) << "node " << _node->node_id() << ' ' << noflush;
+            LOG(WARNING) << "node " << _node->node_id()
+                         << " fail to register_downloading_snapshot";
+        } else {
+            LOG(WARNING) << "Fail to register_downloading_snapshot";
         }
-        LOG(WARNING) << "Fail to register_downloading_snapshot";
         if (ret > 0) {
             // This RPC will be responded by the previous session
             done_guard.release();
@@ -593,12 +597,14 @@ void SnapshotExecutor::interrupt_downloading_snapshot(int64_t new_term) {
     }
     CHECK(_cur_copier);
     _cur_copier->cancel();
+    std::stringstream ss;
     if (_node) {
-        LOG(INFO) << "node " << _node->node_id() << ' ' << noflush;
+        ss << "node " << _node->node_id() << ' ';
     }
-    LOG(INFO) << " Trying to cancel downloading snapshot : " 
-              << _downloading_snapshot.load(butil::memory_order_relaxed)
-                 ->request->ShortDebugString();
+    ss << "Trying to cancel downloading snapshot : " 
+       << _downloading_snapshot.load(butil::memory_order_relaxed)
+          ->request->ShortDebugString();
+    LOG(INFO) << ss.str();
 }
 
 void SnapshotExecutor::report_error(int error_code, const char* fmt, ...) {
