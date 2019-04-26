@@ -759,7 +759,7 @@ TEST_F(SnapshotTest, snapshot_throttle_for_writing) {
 }
 
 TEST_F(SnapshotTest, snapshot_throttle_for_reading_without_enable_throttle) {
-    google::SetCommandLineOption("raft_enable_throttle_when_install_snapshot", "false");
+    GFLAGS_NS::SetCommandLineOption("raft_enable_throttle_when_install_snapshot", "false");
     braft::FileSystemAdaptor* fs;
     FOR_EACH_FILE_SYSTEM_ADAPTOR_BEGIN(fs);
 
@@ -839,11 +839,11 @@ TEST_F(SnapshotTest, snapshot_throttle_for_reading_without_enable_throttle) {
     delete storage1;
 
     FOR_EACH_FILE_SYSTEM_ADAPTOR_END;
-    google::SetCommandLineOption("raft_enable_throttle_when_install_snapshot", "true");
+    GFLAGS_NS::SetCommandLineOption("raft_enable_throttle_when_install_snapshot", "true");
 }
 
 TEST_F(SnapshotTest, snapshot_throttle_for_writing_without_enable_throttle) {
-    google::SetCommandLineOption("raft_enable_throttle_when_install_snapshot", "false");
+    GFLAGS_NS::SetCommandLineOption("raft_enable_throttle_when_install_snapshot", "false");
     braft::FileSystemAdaptor* fs;
     FOR_EACH_FILE_SYSTEM_ADAPTOR_BEGIN(fs);
 
@@ -922,11 +922,11 @@ TEST_F(SnapshotTest, snapshot_throttle_for_writing_without_enable_throttle) {
     delete storage1;
 
     FOR_EACH_FILE_SYSTEM_ADAPTOR_END;
-    google::SetCommandLineOption("raft_enable_throttle_when_install_snapshot", "true");
+    GFLAGS_NS::SetCommandLineOption("raft_enable_throttle_when_install_snapshot", "true");
 }
 
 TEST_F(SnapshotTest, dynamically_change_throttle_threshold) {
-    google::SetCommandLineOption("raft_minimal_throttle_threshold_mb", "1");
+    GFLAGS_NS::SetCommandLineOption("raft_minimal_throttle_threshold_mb", "1");
     braft::FileSystemAdaptor* fs;
     FOR_EACH_FILE_SYSTEM_ADAPTOR_BEGIN(fs);
 
@@ -1005,5 +1005,5 @@ TEST_F(SnapshotTest, dynamically_change_throttle_threshold) {
     delete storage1;
 
     FOR_EACH_FILE_SYSTEM_ADAPTOR_END;
-    google::SetCommandLineOption("raft_minimal_throttle_threshold_mb", "0");
+    GFLAGS_NS::SetCommandLineOption("raft_minimal_throttle_threshold_mb", "0");
 }
