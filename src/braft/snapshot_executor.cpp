@@ -395,7 +395,7 @@ void SnapshotExecutor::install_snapshot(brpc::Controller* cntl,
     SnapshotMeta meta = request->meta();
 
     // check if install_snapshot tasks num exceeds threshold 
-    if (_snapshot_throttle && !_snapshot_throttle->add_one_more_task(false)){
+    if (_snapshot_throttle && !_snapshot_throttle->add_one_more_task(false)) {
         LOG(WARNING) << "Fail to install snapshot";
         cntl->SetFailed(EBUSY, "Fail to add install_snapshot tasks now");
         return;
@@ -429,7 +429,7 @@ void SnapshotExecutor::install_snapshot(brpc::Controller* cntl,
     done_guard.release();
     CHECK(_cur_copier);
     _cur_copier->join();
-    // when coping finished or canceled, more install_snapshot tasks are allowed
+    // when copying finished or canceled, more install_snapshot tasks are allowed
     if (_snapshot_throttle) {
         _snapshot_throttle->finish_one_task(false);
     }
@@ -553,12 +553,12 @@ int SnapshotExecutor::register_downloading_snapshot(DownloadingSnapshot* ds) {
         rc = 1;
     } else if (m->request->meta().last_included_index() 
             > ds->request->meta().last_included_index()) {
-        // |is| is older
+        // |ds| is older
         LOG(WARNING) << "Register failed: is installing a newer one.";
         ds->cntl->SetFailed(EINVAL, "A newer snapshot is under installing");
         return -1;
     } else {
-        // |is| is newer
+        // |ds| is newer
         if (_loading_snapshot) {
             // We can't interrupt the loading one
             LOG(WARNING) << "Register failed: is loading an older snapshot.";
