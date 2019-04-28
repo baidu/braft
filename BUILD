@@ -24,6 +24,7 @@ cc_library(
         "-DSNAPPY",
         "-DHAVE_SSE42",
         "-DNDEBUG",
+        "-D__STDC_FORMAT_MACROS",
         "-fno-omit-frame-pointer",
         "-momit-leaf-frame-pointer",
         "-msse4.2",
