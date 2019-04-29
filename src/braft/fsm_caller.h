@@ -141,7 +141,7 @@ friend class IteratorImpl;
     struct ApplyTask {
         TaskType type;
         union {
-            // For applying log entry (including configuartion change)
+            // For applying log entry (including configuration change)
             int64_t committed_index;
             
             // For on_leader_start

@@ -26,7 +26,7 @@
 
 namespace braft {
 
-// Log indentifier
+// Log identifier
 struct LogId {
     LogId() : index(0), term(0) {}
     LogId(int64_t index_, int64_t term_) : index(index_), term(term_) {}

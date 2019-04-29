@@ -248,7 +248,7 @@ public:
     // situations including: 
     // 1. handle election_timeout and start pre_vote 
     // 2. receive requests with higher term such as vote_request from a candidate
-    // or append_entires_request from a new leader
+    // or append_entries_request from a new leader
     // 3. receive timeout_now_request from current leader and start request_vote
     // the parameter stop_following_context gives the information(leader_id, term and status) about the
     // very leader whom the follower followed before.
@@ -452,7 +452,7 @@ struct NodeOptions {
     // Default: 1000
     int catchup_margin;
 
-    // If node is starting from a empty environment (both LogStorage and
+    // If node is starting from an empty environment (both LogStorage and
     // SnapshotStorage are empty), it would use |initial_conf| as the
     // configuration of the group, otherwise it would load configuration from
     // the existing environment.
@@ -707,7 +707,7 @@ struct BootstrapOptions {
 int bootstrap(const BootstrapOptions& options);
 
 // Attach raft services to |server|, this makes the raft services share the same
-// listen address with the user services.
+// listening address with the user services.
 //
 // NOTE: Now we only allow the backing Server to be started with a specific
 // listen address, if the Server is going to be started from a range of ports, 
