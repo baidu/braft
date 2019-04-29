@@ -357,7 +357,7 @@ int main(int argc, char* argv[]) {
     example::Counter counter;
     example::CounterServiceImpl service(&counter);
 
-    // Add your service into RPC rerver
+    // Add your service into RPC server
     if (server.AddService(&service, 
                           brpc::SERVER_DOESNT_OWN_SERVICE) != 0) {
         LOG(ERROR) << "Fail to add service";
