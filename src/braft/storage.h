@@ -59,7 +59,7 @@ public:
 };
 
 inline std::ostream& operator<<(std::ostream& os, const IOMetric& m) {
-    return os << "bthread_queue_time_us: " << m.bthread_queue_time_us
+    return os << " bthread_queue_time_us: " << m.bthread_queue_time_us
               << " open_segment_time_us: " << m.open_segment_time_us 
               << " append_entry_time_us: " << m.append_entry_time_us
               << " sync_segment_time_us: " << m.sync_segment_time_us;

@@ -550,7 +550,7 @@ int LogManager::disk_thread(void* meta,
                 //     even if some error has ocurred
         StableClosure* done = *iter;
         done->metric.bthread_queue_time_us = butil::cpuwide_time_us() - 
-                                            done->metric.bthread_queue_time_us;
+                                            done->metric.start_time_us;
         if (!done->_entries.empty()) {
             ab.append(done);
         } else {

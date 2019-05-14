@@ -54,7 +54,7 @@ DEFINE_int32(raft_max_append_entries_cache_size, 8,
 BRPC_VALIDATE_GFLAG(raft_max_append_entries_cache_size, ::brpc::PositiveInteger);
 
 DEFINE_int64(raft_append_entry_high_lat_us, 1000 * 1000,
-             "append entry high latency ms");
+             "append entry high latency us");
 BRPC_VALIDATE_GFLAG(raft_append_entry_high_lat_us, brpc::PositiveInteger);
 
 DEFINE_bool(raft_trace_append_entry_latency, false,
