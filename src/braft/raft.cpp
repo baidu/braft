@@ -112,6 +112,14 @@ bool Node::is_leader() {
     return _impl->is_leader();
 }
 
+bool Node::is_leader_lease_valid() {
+    return _impl->is_leader_lease_valid();
+}
+
+void Node::get_leader_lease_status(LeaderLeaseStatus* status) {
+    return _impl->get_leader_lease_status(status);
+}
+
 int Node::init(const NodeOptions& options) {
     return _impl->init(options);
 }
@@ -152,12 +160,16 @@ void Node::snapshot(Closure* done) {
     _impl->snapshot(done);
 }
 
-void Node::vote(int election_timeout) {
-    _impl->vote(election_timeout);
+butil::Status Node::vote(int election_timeout) {
+    return _impl->vote(election_timeout);
 }
 
-void Node::reset_election_timeout_ms(int election_timeout_ms) {
-    _impl->reset_election_timeout_ms(election_timeout_ms);
+butil::Status Node::reset_election_timeout_ms(int election_timeout_ms) {
+    return _impl->reset_election_timeout_ms(election_timeout_ms);
+}
+
+void Node::reset_election_timeout_ms(int election_timeout_ms, int max_clock_drift_ms) {
+    _impl->reset_election_timeout_ms(election_timeout_ms, max_clock_drift_ms);
 }
 
 int Node::transfer_leadership_to(const PeerId& peer) {

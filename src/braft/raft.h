@@ -372,9 +372,7 @@ struct PeerStatus {
 };
 
 // Status of Node
-class NodeStatus {
-friend class NodeImpl;
-public:
+struct NodeStatus {
     typedef std::map<PeerId, PeerStatus> PeerStatusMap;
 
     NodeStatus()
@@ -432,11 +430,58 @@ public:
     PeerStatusMap unstable_followers;
 };
 
+// State of a lease. Following is a typical lease state change diagram:
+// 
+// event:                 become leader                 become follower
+//                        ^           on leader start   ^   on leader stop
+//                        |           ^                 |   ^
+// time:        ----------|-----------|-----------------|---|-------
+// lease state:   EXPIRED | NOT_READY |      VALID      |  EXPIRED  
+// 
+enum LeaseState {
+    // Lease is disabled, this state will only be returned when
+    // |raft_enable_leader_lease == false|.
+    LEASE_DISABLED = 1,
+
+    // Lease is expired, this node is not leader any more.
+    LEASE_EXPIRED = 2,
+
+    // This node is leader, but we are not sure the data is up to date. This state
+    // continue until |on_leader_start| or the leader step down.
+    LEASE_NOT_READY = 3,
+
+    // Lease is valid.
+    LEASE_VALID = 4,
+};
+
+// Status of a leader lease.
+struct LeaderLeaseStatus {
+    LeaderLeaseStatus()
+        : state(LEASE_DISABLED), term(0), lease_epoch(0)
+    {}
+
+    LeaseState state;
+
+    // These followering fields are only meaningful when |state == LEASE_VALID|.
+    
+    // The term of this lease
+    int64_t term;
+
+    // A specific term may have more than one lease, when transfer leader timeout
+    // happen. Lease epoch will be guranteed to be monotinically increase, in the
+    // life cycle of a node.
+    int64_t lease_epoch;
+};
+
 struct NodeOptions {
     // A follower would become a candidate if it doesn't receive any message 
     // from the leader in |election_timeout_ms| milliseconds
     // Default: 1000 (1s)
     int election_timeout_ms; //follower to candidate timeout
+
+    // Max clock drift time. It will be used to keep the safety of leader lease.
+    // Default: 1000 (1s)
+    int max_clock_drift_ms;
 
     // A snapshot saving would be triggered every |snapshot_interval_s| seconds
     // if this was reset as a positive number
@@ -520,6 +565,7 @@ struct NodeOptions {
 
 inline NodeOptions::NodeOptions() 
     : election_timeout_ms(1000)
+    , max_clock_drift_ms(1000)
     , snapshot_interval_s(3600)
     , catchup_margin(1000)
     , fsm(NULL)
@@ -547,6 +593,18 @@ public:
 
     // Return true if this is the leader of the belonging group
     bool is_leader();
+
+    // Return true if this is the leader, and leader lease is valid. It's always
+    // false when |raft_enable_leader_lease == false|.
+    // In the follwing situations, the returned true is unbeleivable:
+    //    -  Not all nodes in the raft group set |raft_enable_leader_lease| to true,
+    //       and tranfer leader/vote interfaces are used;
+    //    -  In the raft group, the value of |election_timeout_ms| in one node is larger
+    //       than |election_timeout_ms + max_clock_drift_ms| in another peer.
+    bool is_leader_lease_valid();
+
+    // Get leader lease status for more complex checking
+    void get_leader_lease_status(LeaderLeaseStatus* status);
 
     // init node
     int init(const NodeOptions& options);
@@ -606,10 +664,31 @@ public:
     // user trigger vote
     // reset election_timeout, suggest some peer to become the leader in a
     // higher probability
-    void vote(int election_timeout);
+    butil::Status vote(int election_timeout);
 
-    // reset the election_timeout for the very node
-    void reset_election_timeout_ms(int election_timeout_ms);
+    // Reset the |election_timeout_ms| for the very node, the |max_clock_drift_ms|
+    // is also adjusted to keep the sum of |election_timeout_ms| and |the max_clock_drift_ms|
+    // unchanged.
+    butil::Status reset_election_timeout_ms(int election_timeout_ms);
+
+    // Forcely reset |election_timeout_ms| and |max_clock_drift_ms|. It may break
+    // leader lease safety, should be careful.
+    // Following are suggestions for you to change |election_timeout_ms| safely.
+    // 1. Three steps to safely upgrade |election_timeout_ms| to a larger one:
+    //     - Enlarge |max_clock_drift_ms| in all peers to make sure
+    //       |old election_timeout_ms + new max_clock_drift_ms| larger than
+    //       |new election_timeout_ms + old max_clock_drift_ms|.
+    //     - Wait at least |old election_timeout_ms + new max_clock_drift_ms| times to make
+    //       sure all previous elections complete.
+    //     - Upgrade |election_timeout_ms| to new one, meanwhiles |max_clock_drift_ms|
+    //       can set back to the old value.
+    // 2. Three steps to safely upgrade |election_timeout_ms| to a smaller one:
+    //     - Adjust |election_timeout_ms| and |max_clock_drift_ms| at the same time,
+    //       to make the sum of |election_timeout_ms + max_clock_drift_ms| unchanged.
+    //     - Wait at least |election_timeout_ms + max_clock_drift_ms| times to make
+    //       sure all previous elections complete.
+    //     - Upgrade |max_clock_drift_ms| back to the old value.
+    void reset_election_timeout_ms(int election_timeout_ms, int max_clock_drift_ms);
 
     // Try transferring leadership to |peer|.
     // If peer is ANY_PEER, a proper follower will be chosen as the leader for
