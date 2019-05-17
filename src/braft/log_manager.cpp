@@ -90,6 +90,8 @@ int LogManager::init(const LogManagerOptions &options) {
     _first_log_index = _log_storage->first_log_index();
     _last_log_index = _log_storage->last_log_index();
     _disk_id.index = _last_log_index;
+    // Term will be 0 if the node has no logs, and we will correct the value
+    // after snapshot load finish.
     _disk_id.term = _log_storage->get_term(_last_log_index);
     _fsm_caller = options.fsm_caller;
     return 0;
@@ -640,6 +642,9 @@ void LogManager::set_snapshot(const SnapshotMeta* meta) {
     _last_snapshot_id.term = meta->last_included_term();
     if (_last_snapshot_id > _applied_id) {
         _applied_id = _last_snapshot_id;
+    }
+    if (_last_snapshot_id > _disk_id) {
+        _disk_id = _last_snapshot_id;
     }
     if (term == 0) {
         // last_included_index is larger than last_index
