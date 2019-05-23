@@ -34,6 +34,4 @@ elif [ "$PURPOSE" = "unittest" ]; then
         exit 1
     fi
     make -j4 && cd test && sh ../../test/run_tests.sh && cd ../
-else
-    echo "Unknown purpose=\"$PURPOSE\""
 fi
