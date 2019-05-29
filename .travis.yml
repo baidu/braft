@@ -9,17 +9,23 @@ compiler:
 env:
 - PURPOSE=compile
 - PURPOSE=unittest
+- PURPOSE=compile-with-bazel
+
+before_install:
+- wget --no-clobber https://github.com/bazelbuild/bazel/releases/download/0.25.2/bazel_0.25.2-linux-x86_64.deb
+- sudo dpkg -i bazel_0.25.2-linux-x86_64.deb
 
 install:
 - sudo apt-get install -qq realpath libgflags-dev libprotobuf-dev libprotoc-dev protobuf-compiler libleveldb-dev libgoogle-perftools-dev
 - sudo apt-get install libgtest-dev && cd /usr/src/gtest && sudo env "PATH=$PATH" cmake . && sudo make && sudo mv libgtest* /usr/lib/ && cd -
 - sudo apt-get install -y gdb
-- git clone https://github.com/brpc/brpc.git && mkdir -p brpc/bld && cd brpc/bld && cmake .. && make -j4 && sudo make install && cd -
+- if [[ "$PURPOSE" != "compile-with-bazel" ]]; then git clone https://github.com/brpc/brpc.git && mkdir -p brpc/bld && cd brpc/bld && cmake .. && make -j4 && sudo make install && cd - ; fi
 
 before_script:
 - ulimit -c unlimited -S
 
 script:
+- if [[ "$PURPOSE" == "compile-with-bazel" ]]; then bazel build -c opt --copt -DHAVE_ZLIB=1 //...  ; fi
 - sh build_in_travis_ci.sh
 
 after_failure:
