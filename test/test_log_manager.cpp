@@ -134,7 +134,7 @@ TEST_F(LogManagerTest, configuration_changes) {
     for (size_t i = 0; i < N; ++i) {
         std::vector<braft::PeerId> peers;
         for (size_t j = 0; j <= i; ++j) {
-            peers.push_back(braft::PeerId(butil::EndPoint(), j));
+            peers.push_back(braft::PeerId(braft::EndPoint(), j));
         }
         std::vector<braft::LogEntry*> entries;
         braft::LogEntry* entry = new braft::LogEntry;
@@ -189,7 +189,7 @@ TEST_F(LogManagerTest, truncate_suffix_also_revert_configuration) {
     for (size_t i = 0; i < N; ++i) {
         std::vector<braft::PeerId> peers;
         for (size_t j = 0; j <= i; ++j) {
-            peers.push_back(braft::PeerId(butil::EndPoint(), j));
+            peers.push_back(braft::PeerId(braft::EndPoint(), j));
         }
         std::vector<braft::LogEntry*> entries;
         braft::LogEntry* entry = new braft::LogEntry;

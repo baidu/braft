@@ -27,53 +27,89 @@
 #include <butil/strings/string_piece.h>
 #include <butil/endpoint.h>
 #include <butil/logging.h>
+#include <butil/string_printf.h>
 
 namespace braft {
 
 typedef std::string GroupId;
 
+struct EndPoint {
+    std::string hostname;
+    int port;
+
+    EndPoint() : port(0) {}
+    EndPoint(std::string hostname2, int port2) : hostname(hostname2), port(port2) {}
+    std::string to_string() const {
+        std::string str;
+        butil::string_appendf(&str, "%s:%d", hostname.c_str(), port);
+        return str;
+    }
+};
+
+inline bool operator<(EndPoint p1, EndPoint p2) {
+    return (p1.hostname != p2.hostname) ? (p1.hostname < p2.hostname) : (p1.port < p2.port);
+}
+inline bool operator>(EndPoint p1, EndPoint p2) {
+    return p2 < p1;
+}
+inline bool operator<=(EndPoint p1, EndPoint p2) {
+    return !(p2 < p1);
+}
+inline bool operator>=(EndPoint p1, EndPoint p2) {
+    return !(p1 < p2);
+}
+inline bool operator==(EndPoint p1, EndPoint p2) {
+    return p1.hostname == p2.hostname && p1.port == p2.port;
+}
+inline bool operator!=(EndPoint p1, EndPoint p2) {
+    return !(p1 == p2);
+}
+
+inline std::ostream& operator<<(std::ostream& os, const EndPoint& ep) {
+    return os << ep.hostname << ':' << ep.port;
+}
+
 // Represent a participant in a replicating group.
 struct PeerId {
-    butil::EndPoint addr; // ip+port.
+    EndPoint addr; // ip+port.
     int idx; // idx in same addr, default 0
 
     PeerId() : idx(0) {}
-    explicit PeerId(butil::EndPoint addr_) : addr(addr_), idx(0) {}
-    PeerId(butil::EndPoint addr_, int idx_) : addr(addr_), idx(idx_) {}
+    explicit PeerId(EndPoint addr_) : addr(addr_), idx(0) {}
+    PeerId(EndPoint addr_, int idx_) : addr(addr_), idx(idx_) {}
     /*intended implicit*/PeerId(const std::string& str) 
     { CHECK_EQ(0, parse(str)); }
     PeerId(const PeerId& id) : addr(id.addr), idx(id.idx) {}
 
     void reset() {
-        addr.ip = butil::IP_ANY;
+       addr.hostname.clear();
         addr.port = 0;
         idx = 0;
     }
 
     bool is_empty() const {
-        return (addr.ip == butil::IP_ANY && addr.port == 0 && idx == 0);
+       return (addr.hostname.empty() && addr.port == 0 && idx == 0);
     }
 
     int parse(const std::string& str) {
         reset();
-        char ip_str[64];
-        if (2 > sscanf(str.c_str(), "%[^:]%*[:]%d%*[:]%d", ip_str, &addr.port, &idx)) {
+        addr.hostname.resize(str.size());
+        if (2 > sscanf(str.c_str(), "%[^:]%*[:]%d%*[:]%d", &*addr.hostname.begin(), &addr.port, &idx)) {
             reset();
-            return -1;
-        }
-        if (0 != butil::str2ip(ip_str, &addr.ip)) {
-            reset();
-            return -1;
-        }
-        return 0;
-    }
+             return -1;
+         }
+         addr.hostname.resize(strlen(addr.hostname.c_str()));
 
-    std::string to_string() const {
-        char str[128];
-        snprintf(str, sizeof(str), "%s:%d", butil::endpoint2str(addr).c_str(), idx);
-        return std::string(str);
-    }
-};
+         return 0;
+     }
+
+     std::string to_string() const {
+        std::string str;
+        butil::string_appendf(&str, "%s:%d:%d", addr.hostname.c_str(), addr.port, idx);
+        return str;
+     }
+ };
+ 
 
 inline bool operator<(const PeerId& id1, const PeerId& id2) {
     if (id1.addr < id2.addr) {

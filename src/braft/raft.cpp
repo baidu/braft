@@ -69,18 +69,20 @@ void global_init_once_or_die() {
     }
 }
 
-int add_service(brpc::Server* server, const butil::EndPoint& listen_addr) {
+int add_service(brpc::Server* server, const EndPoint& listen_addr) {
     global_init_once_or_die();
     return NodeManager::GetInstance()->add_service(server, listen_addr);
 }
 
 int add_service(brpc::Server* server, int port) {
-    butil::EndPoint addr(butil::IP_ANY, port);
+    EndPoint addr("", port);
     return add_service(server, addr);
 }
 int add_service(brpc::Server* server, const char* listen_ip_and_port) {
-    butil::EndPoint addr;
-    if (butil::str2endpoint(listen_ip_and_port, &addr) != 0) {
+    EndPoint addr;
+    addr.hostname.resize(strlen(listen_ip_and_port));
+
+    if(1 > sscanf(listen_ip_and_port, "%[^:]%*[:]%d", &*addr.hostname.begin(), &addr.port)){
         LOG(ERROR) << "Fail to parse `" << listen_ip_and_port << "'";
         return -1;
     }

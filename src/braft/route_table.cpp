@@ -174,7 +174,7 @@ butil::Status refresh_leader(const GroupId& group, int timeout_ms) {
     for (Configuration::const_iterator
             iter = conf.begin(); iter != conf.end(); ++iter) {
         brpc::Channel channel;
-        if (channel.Init(iter->addr, NULL) != 0) {
+        if (channel.Init(iter->addr.to_string().c_str(), NULL) != 0) {
             if (error.ok()) {
                 error.set_error(-1, "Fail to init channel to %s",
                                     iter->to_string().c_str());

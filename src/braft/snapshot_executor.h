@@ -41,7 +41,7 @@ struct SnapshotExecutorOptions {
     NodeImpl* node;
     LogManager* log_manager;
     int64_t init_term;
-    butil::EndPoint addr;
+    EndPoint addr;
     bool filter_before_copy_remote;
     bool usercode_in_pthread;
     scoped_refptr<FileSystemAdaptor> file_system_adaptor;

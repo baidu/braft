@@ -277,7 +277,7 @@ int LocalSnapshotWriter::sync() {
 }
 
 LocalSnapshotReader::LocalSnapshotReader(const std::string& path,
-                                         butil::EndPoint server_addr,
+                                         EndPoint server_addr,
                                          FileSystemAdaptor* fs,
                                          SnapshotThrottle* snapshot_throttle)
     : _path(path)
@@ -404,7 +404,7 @@ private:
 };
 
 std::string LocalSnapshotReader::generate_uri_for_copy() {
-    if (_addr == butil::EndPoint()) {
+    if (_addr == EndPoint()) {
         LOG(ERROR) << "Address is not specified, path:" << _path;
         return std::string();
     }

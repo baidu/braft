@@ -18,12 +18,13 @@
 #define BRAFT_RAFT_SERVICE_H
 
 #include "braft/raft.pb.h"
+#include "braft/configuration.h"
 
 namespace braft {
 
 class RaftServiceImpl : public RaftService {
 public:
-    explicit RaftServiceImpl(butil::EndPoint addr)
+    explicit RaftServiceImpl(EndPoint addr)
         : _addr(addr) {}
     ~RaftServiceImpl();
 
@@ -51,7 +52,7 @@ public:
                      ::braft::TimeoutNowResponse* response,
                      ::google::protobuf::Closure* done);
 private:
-    butil::EndPoint _addr;
+    EndPoint _addr;
 };
 
 }

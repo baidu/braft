@@ -54,7 +54,7 @@ public:
         options.disable_cli = false;
         butil::ip_t my_ip;
         EXPECT_EQ(0, butil::str2ip("127.0.0.1", &my_ip));
-        butil::EndPoint addr(my_ip, port);
+        braft::EndPoint addr("127.0.0.1", port);
         braft::PeerId my_id(addr, 0);
         if (is_leader) {
             options.initial_conf.add_peer(my_id);

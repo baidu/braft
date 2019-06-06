@@ -113,7 +113,7 @@ public:
 private:
     // Users shouldn't create LocalSnapshotReader Directly
     LocalSnapshotReader(const std::string& path,
-                        butil::EndPoint server_addr,
+                        EndPoint server_addr,
                         FileSystemAdaptor* fs,
                         SnapshotThrottle* snapshot_throttle);
     virtual ~LocalSnapshotReader();
@@ -121,7 +121,7 @@ private:
 
     std::string _path;
     LocalSnapshotMetaTable _meta_table;
-    butil::EndPoint _addr;
+    EndPoint _addr;
     int64_t _reader_id;
     scoped_refptr<FileSystemAdaptor> _fs;
     scoped_refptr<SnapshotThrottle> _snapshot_throttle;
@@ -200,8 +200,8 @@ public:
     virtual int set_snapshot_throttle(SnapshotThrottle* snapshot_throttle);
 
     SnapshotStorage* new_instance(const std::string& uri) const;
-    void set_server_addr(butil::EndPoint server_addr) { _addr = server_addr; }
-    bool has_server_addr() { return _addr != butil::EndPoint(); }
+    void set_server_addr(EndPoint server_addr) { _addr = server_addr; }
+    bool has_server_addr() { return _addr != EndPoint(); }
 private:
     SnapshotWriter* create(bool from_empty) WARN_UNUSED_RESULT;
     int destroy_snapshot(const std::string& path);
@@ -214,7 +214,7 @@ private:
     bool _filter_before_copy_remote;
     int64_t _last_snapshot_index;
     std::map<int64_t, int> _ref_map;
-    butil::EndPoint _addr;
+    EndPoint _addr;
     scoped_refptr<FileSystemAdaptor> _fs;
     scoped_refptr<SnapshotThrottle> _snapshot_throttle;
 };

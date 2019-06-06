@@ -45,7 +45,7 @@ class FileSystemAdaptor;
 class SnapshotThrottle;
 class LogStorage;
 
-const PeerId ANY_PEER(butil::EndPoint(butil::IP_ANY, 0), 0);
+const PeerId ANY_PEER(EndPoint("", 0), 0);
 
 // Raft-specific closure which encloses a butil::Status to report if the
 // operation was successful.
@@ -713,7 +713,7 @@ int bootstrap(const BootstrapOptions& options);
 // listen address, if the Server is going to be started from a range of ports, 
 // the behavior is undefined.
 // Returns 0 on success, -1 otherwise.
-int add_service(brpc::Server* server, const butil::EndPoint& listen_addr);
+int add_service(brpc::Server* server, const EndPoint& listen_addr);
 int add_service(brpc::Server* server, int port);
 int add_service(brpc::Server* server, const char* listen_ip_and_port);
 

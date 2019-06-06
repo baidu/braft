@@ -91,7 +91,7 @@ public:
 
     // Starts this node
     int start() {
-        butil::EndPoint addr(butil::my_ip(), FLAGS_port);
+        braft::EndPoint addr(butil::my_hostname(), FLAGS_port);
         braft::NodeOptions node_options;
         if (node_options.initial_conf.parse_from(FLAGS_conf) != 0) {
             LOG(ERROR) << "Fail to parse configuration `" << FLAGS_conf << '\'';

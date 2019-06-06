@@ -432,7 +432,7 @@ int NodeImpl::init(const NodeOptions& options) {
     _options = options;
 
     // check _server_id
-    if (butil::IP_ANY == _server_id.addr.ip) {
+    if (_server_id.addr.hostname.empty()) {
         LOG(ERROR) << "Group " << _group_id 
                    << " Node can't started from IP_ANY";
         return -1;
@@ -1419,7 +1419,7 @@ void NodeImpl::pre_vote(std::unique_lock<raft_mutex_t>* lck) {
         options.connection_type = brpc::CONNECTION_TYPE_SINGLE;
         options.max_retry = 0;
         brpc::Channel channel;
-        if (0 != channel.Init(iter->addr, &options)) {
+        if (0 != channel.Init(iter->addr.to_string().c_str(), &options)) {
             LOG(WARNING) << "node " << _group_id << ":" << _server_id
                          << " channel init failed, addr " << iter->addr;
             continue;
@@ -1501,7 +1501,7 @@ void NodeImpl::elect_self(std::unique_lock<raft_mutex_t>* lck) {
         options.connection_type = brpc::CONNECTION_TYPE_SINGLE;
         options.max_retry = 0;
         brpc::Channel channel;
-        if (0 != channel.Init(iter->addr, &options)) {
+        if (0 != channel.Init(iter->addr.to_string().c_str(), &options)) {
             LOG(WARNING) << "node " << _group_id << ":" << _server_id
                          << " channel init failed, addr " << iter->addr;
             continue;

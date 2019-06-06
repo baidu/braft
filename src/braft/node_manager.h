@@ -49,13 +49,13 @@ public:
 
     // Add service to |server| at |listen_addr|
     int add_service(brpc::Server* server, 
-                    const butil::EndPoint& listen_addr);
+                    const EndPoint& listen_addr);
 
     // Return true if |addr| is reachable by a RPC Server
-    bool server_exists(butil::EndPoint addr);
+    bool server_exists(EndPoint addr);
 
     // Remove the addr from _addr_set when the backing service is destroyed
-    void remove_address(butil::EndPoint addr);
+    void remove_address(EndPoint addr);
 
 private:
     NodeManager();
@@ -79,7 +79,7 @@ private:
     butil::DoublyBufferedData<Maps> _nodes;
 
     raft_mutex_t _mutex;
-    std::set<butil::EndPoint> _addr_set;
+    std::set<EndPoint> _addr_set;
 };
 
 }   //  namespace braft
