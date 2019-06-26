@@ -188,6 +188,10 @@ public:
         return NULL;
     }
     
+    virtual butil::Status gc_instance(const std::string& uri) const {
+        return butil::Status::OK();
+    }
+    
 private:
     std::string _path;
     int64_t _last_snapshot_index;

@@ -188,6 +188,8 @@ public:
     virtual int reset(const int64_t next_log_index);
 
     LogStorage* new_instance(const std::string& uri) const;
+    
+    butil::Status gc_instance(const std::string& uri) const;
 
     SegmentMap& segments() {
         return _segments;

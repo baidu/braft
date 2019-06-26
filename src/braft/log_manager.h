@@ -136,7 +136,7 @@ public:
     void set_applied_id(const LogId& applied_id);
 
     // Check the consistency between log and snapshot, which must satisfy ANY
-    // one of the follower condition
+    // one of the following condition
     //   - Log starts from 1. OR
     //   - Log starts from a positive position and there must be a snapshot
     //     of which the last_included_id is in the range 

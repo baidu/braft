@@ -551,7 +551,7 @@ struct NodeOptions {
     // Default: NULL
     scoped_refptr<FileSystemAdaptor>* snapshot_file_system_adaptor;    
     
-    // If non-null, we will pass this throughput_snapshot_throttle to SnapshotExecutor
+    // If non-null, we will pass this snapshot_throttle to SnapshotExecutor
     // Default: NULL
     scoped_refptr<SnapshotThrottle>* snapshot_throttle;
 
@@ -713,7 +713,7 @@ public:
 
     // Make this node enter readonly mode.
     // Readonly mode should only be used to protect the system in some extreme cases.
-    // For exampe, in a storage system, too many write requests flood into the system
+    // For example, in a storage system, too many write requests flood into the system
     // unexpectly, and the system is in the danger of exhaust capacity. There's not enough
     // time to add new machines, and wait for capacity balance. Once many disks become
     // full, quorum dead happen to raft groups. One choice in this example is readonly
@@ -795,6 +795,26 @@ int bootstrap(const BootstrapOptions& options);
 int add_service(brpc::Server* server, const butil::EndPoint& listen_addr);
 int add_service(brpc::Server* server, int port);
 int add_service(brpc::Server* server, const char* listen_ip_and_port);
+
+// GC
+struct GCOptions {
+    // Versioned-groupid of this raft instance. 
+    // Version is necessary because instance with the same groupid may be created 
+    // again very soon after destroyed.
+    VersionedGroupId vgid;
+    std::string log_uri;
+    std::string raft_meta_uri;
+    std::string snapshot_uri;
+};
+
+// TODO What if a disk is dropped and added again without released from 
+// global_mss_manager? It seems ok because all the instance on that disk would
+// be destroyed before dropping the disk itself, so there would be no garbage. 
+// 
+// GC the data of a raft instance when destroying the instance by some reason.
+//
+// Returns 0 on success, -1 otherwise.
+int gc_raft_data(const GCOptions& gc_options);
 
 }  //  namespace braft
 

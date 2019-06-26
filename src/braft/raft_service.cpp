@@ -25,7 +25,7 @@
 namespace braft {
 
 RaftServiceImpl::~RaftServiceImpl() {
-    NodeManager::GetInstance()->remove_address(_addr);
+    global_node_manager->remove_address(_addr);
 }
 
 void RaftServiceImpl::pre_vote(google::protobuf::RpcController* cntl_base,
@@ -42,8 +42,8 @@ void RaftServiceImpl::pre_vote(google::protobuf::RpcController* cntl_base,
         return;
     }
 
-    scoped_refptr<NodeImpl> node_ptr = NodeManager::GetInstance()->get(request->group_id(),
-                                                                       peer_id);
+    scoped_refptr<NodeImpl> node_ptr = 
+                        global_node_manager->get(request->group_id(), peer_id);
     NodeImpl* node = node_ptr.get();
     if (!node) {
         cntl->SetFailed(ENOENT, "peer_id not exist");
@@ -72,8 +72,8 @@ void RaftServiceImpl::request_vote(google::protobuf::RpcController* cntl_base,
         return;
     }
 
-    scoped_refptr<NodeImpl> node_ptr = NodeManager::GetInstance()->get(request->group_id(),
-                                                                       peer_id);
+    scoped_refptr<NodeImpl> node_ptr = 
+                        global_node_manager->get(request->group_id(), peer_id);
     NodeImpl* node = node_ptr.get();
     if (!node) {
         cntl->SetFailed(ENOENT, "peer_id not exist");
@@ -101,8 +101,8 @@ void RaftServiceImpl::append_entries(google::protobuf::RpcController* cntl_base,
         return;
     }
 
-    scoped_refptr<NodeImpl> node_ptr = NodeManager::GetInstance()->get(request->group_id(),
-                                                                       peer_id);
+    scoped_refptr<NodeImpl> node_ptr = 
+                        global_node_manager->get(request->group_id(), peer_id);
     NodeImpl* node = node_ptr.get();
     if (!node) {
         cntl->SetFailed(ENOENT, "peer_id not exist");
@@ -127,8 +127,8 @@ void RaftServiceImpl::install_snapshot(google::protobuf::RpcController* cntl_bas
         return;
     }
 
-    scoped_refptr<NodeImpl> node_ptr = NodeManager::GetInstance()->get(request->group_id(),
-                                                                       peer_id);
+    scoped_refptr<NodeImpl> node_ptr = 
+                        global_node_manager->get(request->group_id(), peer_id);
     NodeImpl* node = node_ptr.get();
     if (!node) {
         cntl->SetFailed(ENOENT, "peer_id not exist");
@@ -154,8 +154,8 @@ void RaftServiceImpl::timeout_now(::google::protobuf::RpcController* controller,
         return;
     }
 
-    scoped_refptr<NodeImpl> node_ptr = NodeManager::GetInstance()->get(request->group_id(),
-                                                                       peer_id);
+    scoped_refptr<NodeImpl> node_ptr = 
+                        global_node_manager->get(request->group_id(), peer_id);
     NodeImpl* node = node_ptr.get();
     if (!node) {
         cntl->SetFailed(ENOENT, "peer_id not exist");

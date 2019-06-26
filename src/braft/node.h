@@ -14,7 +14,7 @@
 
 // Authors: Wang,Yao(wangyao02@baidu.com)
 //          Zhangyi Chen(chenzhangyi01@baidu.com)
-//          Xiong,Kai(xionkai@baidu.com)
+//          Xiong,Kai(xiongkai@baidu.com)
 
 #ifndef BRAFT_RAFT_NODE_H
 #define BRAFT_RAFT_NODE_H
@@ -473,6 +473,7 @@ private:
     ConfigurationEntry _conf;
 
     GroupId _group_id;
+    VersionedGroupId _v_group_id;
     PeerId _server_id;
     NodeOptions _options;
 

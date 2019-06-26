@@ -719,6 +719,18 @@ SnapshotStorage* LocalSnapshotStorage::new_instance(const std::string& uri) cons
     return new LocalSnapshotStorage(uri);
 }
 
+butil::Status LocalSnapshotStorage::gc_instance(const std::string& uri) const {
+    butil::Status status;
+    if (gc_dir(uri) != 0) {
+        LOG(WARNING) << "Failed to gc snapshot storage from path " << _path;
+        status.set_error(EINVAL, "Failed to gc snapshot storage from path %s", 
+                         uri.c_str());
+        return status;
+    }
+    LOG(INFO) << "Succeed to gc snapshot storage from path " << uri;
+    return status;
+}
+
 // LocalSnapshotCopier
 
 LocalSnapshotCopier::LocalSnapshotCopier() 

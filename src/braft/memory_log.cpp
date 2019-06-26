@@ -159,4 +159,8 @@ LogStorage* MemoryLogStorage::new_instance(const std::string& uri) const {
     return new MemoryLogStorage(uri);
 }
 
+butil::Status MemoryLogStorage::gc_instance(const std::string& uri) const {
+    return butil::Status::OK();
+}
+
 } //  namespace braft

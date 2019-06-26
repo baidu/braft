@@ -41,11 +41,10 @@ void RaftStatImpl::default_method(::google::protobuf::RpcController* controller,
     brpc::Controller* cntl = (brpc::Controller*)controller;
     std::string group_id = cntl->http_request().unresolved_path();
     std::vector<scoped_refptr<NodeImpl> > nodes;
-    NodeManager* nm = NodeManager::GetInstance();
     if (group_id.empty()) {
-        nm->get_all_nodes(&nodes);
+        global_node_manager->get_all_nodes(&nodes);
     } else {
-        nm->get_nodes_by_group_id(group_id, &nodes);
+        global_node_manager->get_nodes_by_group_id(group_id, &nodes);
     }
     const bool html = brpc::UseHTML(cntl->http_request());
     if (html) {

@@ -24,7 +24,7 @@
 #include <butil/status.h>
 #include <butil/class_name.h>
 #include <brpc/extension.h>
-
+#include <butil/strings/string_piece.h>
 #include "braft/configuration.h"
 #include "braft/configuration_manager.h"
 
@@ -63,6 +63,60 @@ inline std::ostream& operator<<(std::ostream& os, const IOMetric& m) {
               << " open_segment_time_us: " << m.open_segment_time_us 
               << " append_entry_time_us: " << m.append_entry_time_us
               << " sync_segment_time_us: " << m.sync_segment_time_us;
+}
+
+inline butil::StringPiece parse_uri(butil::StringPiece* uri, std::string* parameter) {
+    // ${protocol}://${parameters}
+    size_t pos = uri->find("://");
+    if (pos == butil::StringPiece::npos) {
+        return butil::StringPiece();
+    }
+    butil::StringPiece protocol = uri->substr(0, pos);
+    uri->remove_prefix(pos + 3/* length of '://' */);
+    protocol.trim_spaces();
+    parameter->reserve(uri->size());
+    parameter->clear();
+    size_t removed_spaces = 0;
+    for (butil::StringPiece::const_iterator 
+            iter = uri->begin(); iter != uri->end(); ++iter) {
+        if (!isspace(*iter)) {
+            parameter->push_back(*iter);
+        } else {
+            ++removed_spaces;
+        }
+    }
+    LOG_IF(WARNING, removed_spaces) << "Removed " << removed_spaces 
+            << " spaces from `" << *uri << '\'';
+    return protocol;
+}
+
+inline int gc_dir(const std::string& path) {
+    butil::File::Error e;
+    butil::FilePath target_path(path);
+    butil::FilePath tmp_path(path + ".tmp");
+    // delete tmp path firstly in case there is garbage
+    if (!butil::DeleteFile(tmp_path, true)) {
+        LOG(ERROR) << "Fail to delete tmp file, path: " << tmp_path.value();
+        return -1;
+    }
+
+    if (butil::PathExists(target_path)) {
+        const bool rc = butil::ReplaceFile(butil::FilePath(target_path),
+                                          butil::FilePath(tmp_path), &e);
+        if (!rc) {
+            LOG(ERROR) << "Fail to rename `" << target_path.value()
+                       << " to `" << tmp_path.value() << "' : " << e;
+            return -1;
+        }
+        if (!butil::DeleteFile(tmp_path, true)) {
+            LOG(ERROR) << "Fail to delete tmp file, path: " << tmp_path.value();
+            return -1;
+        }
+    } else {
+        LOG(NOTICE) << "Target path not exist, so no need to gc, path: " 
+                    << target_path.value();
+    }
+    return 0; 
 }
 
 class LogStorage {
@@ -106,36 +160,45 @@ public:
     virtual LogStorage* new_instance(const std::string& uri) const = 0;
 
     static LogStorage* create(const std::string& uri);
+
+    // GC an instance of this kind of LogStorage with the parameters encoded 
+    // in |uri|
+    virtual butil::Status gc_instance(const std::string& uri) const = 0;
+    
+    static butil::Status destroy(const std::string& uri);
 };
 
 class RaftMetaStorage {
 public:
     virtual ~RaftMetaStorage() {}
 
-    // init stable storage, check consistency and integrity
-    virtual int init() = 0;
-
-    // set current term
-    virtual int set_term(const int64_t term) = 0;
-
-    // get current term
-    virtual int64_t get_term() = 0;
-
-    // set votefor information
-    virtual int set_votedfor(const PeerId& peer_id) = 0;
-
-    // get votefor information
-    virtual int get_votedfor(PeerId* peer_id) = 0;
+    // init stable storage
+    virtual butil::Status init() = 0;
 
     // set term and votedfor information
-    virtual int set_term_and_votedfor(const int64_t term, const PeerId& peer_id) = 0;
+    virtual butil::Status set_term_and_votedfor(const int64_t term, 
+                                                const PeerId& peer_id,
+                                                const VersionedGroupId& group) = 0;
 
-    // Create an instance of this kind of LogStorage with the parameters encoded 
+    // get term and votedfor information
+    virtual butil::Status get_term_and_votedfor(int64_t* term, PeerId* peer_id, 
+                                                const VersionedGroupId& group) = 0;
+
+    // Create an instance of this kind of RaftMetaStorage with the parameters encoded 
     // in |uri|
     // Return the address referenced to the instance on success, NULL otherwise.
     virtual RaftMetaStorage* new_instance(const std::string& uri) const = 0;
 
     static RaftMetaStorage* create(const std::string& uri);
+    
+    // GC an instance of this kind of StableStorage with the parameters encoded 
+    // in |uri|
+    virtual butil::Status gc_instance(const std::string& uri, 
+                                     const VersionedGroupId& vgid) const = 0;
+    
+    static butil::Status destroy(const std::string& uri, 
+                                const VersionedGroupId& vgid);
+
 };
 
 // Snapshot 
@@ -221,19 +284,22 @@ public:
     virtual ~SnapshotStorage() {}
 
     virtual int set_filter_before_copy_remote() {
-        CHECK(false) << butil::class_name_str(*this) << " doesn't support filter before copy remote";
+        CHECK(false) << butil::class_name_str(*this) 
+                     << " doesn't support filter before copy remote";
         return -1;
     }
 
     virtual int set_file_system_adaptor(FileSystemAdaptor* fs) {
         (void)fs;
-        CHECK(false) << butil::class_name_str(*this) << " doesn't support file system adaptor";
+        CHECK(false) << butil::class_name_str(*this) 
+                     << " doesn't support file system adaptor";
         return -1;
     }
 
     virtual int set_snapshot_throttle(SnapshotThrottle* st) {
         (void)st;
-        CHECK(false) << butil::class_name_str(*this) << " doesn't support snapshot throttle";
+        CHECK(false) << butil::class_name_str(*this) 
+                     << " doesn't support snapshot throttle";
         return -1;
     }
 
@@ -257,8 +323,16 @@ public:
     virtual SnapshotCopier* start_to_copy_from(const std::string& uri) = 0;
     virtual int close(SnapshotCopier* copier) = 0;
 
+    // Create an instance of this kind of SnapshotStorage with the parameters encoded 
+    // in |uri|
+    // Return the address referenced to the instance on success, NULL otherwise.
     virtual SnapshotStorage* new_instance(const std::string& uri) const WARN_UNUSED_RESULT = 0;
     static SnapshotStorage* create(const std::string& uri);
+    
+    // GC an instance of this kind of SnapshotStorage with the parameters encoded 
+    // in |uri|
+    virtual butil::Status gc_instance(const std::string& uri) const = 0;
+    static butil::Status destroy(const std::string& uri);
 };
 
 inline brpc::Extension<const LogStorage>* log_storage_extension() {

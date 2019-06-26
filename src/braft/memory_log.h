@@ -81,6 +81,10 @@ public:
     // Return the address referenced to the instance on success, NULL otherwise.
     virtual LogStorage* new_instance(const std::string& uri) const;
 
+    // GC an instance of this kind of LogStorage with the parameters encoded
+    // in |uri|
+    virtual butil::Status gc_instance(const std::string& uri) const;
+
 private:
     std::string _path;
     butil::atomic<int64_t> _first_log_index;

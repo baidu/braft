@@ -34,7 +34,7 @@ TEST_F(StorageTest, sanity) {
     braft::RaftMetaStorage* meta_storage 
             = braft::RaftMetaStorage::create("local://data/raft_meta");
     ASSERT_TRUE(meta_storage);
-    ASSERT_EQ(0, meta_storage->init());
+    ASSERT_TRUE(meta_storage->init().ok());
     ASSERT_FALSE(braft::RaftMetaStorage::create("hdfs://data/raft_meta"));
     ASSERT_FALSE(braft::RaftMetaStorage::create("://data/raft_meta"));
     ASSERT_FALSE(braft::RaftMetaStorage::create("data/raft_meta"));

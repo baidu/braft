@@ -14,7 +14,7 @@
 
 // Authors: Wang,Yao(wangyao02@baidu.com)
 //          Zhangyi Chen(chenzhangyi01@baidu.com)
-//          Xiong,Kai(xionkai@baidu.com)
+//          Xiong,Kai(xiongkai@baidu.com)
 
 #include <bthread/unstable.h>
 #include <brpc/errno.pb.h>
@@ -130,6 +130,7 @@ NodeImpl::NodeImpl(const GroupId& group_id, const PeerId& peer_id)
     , _current_term(0)
     , _last_leader_timestamp(butil::monotonic_time_ms())
     , _group_id(group_id)
+    , _server_id(peer_id)
     , _conf_ctx(this)
     , _log_storage(NULL)
     , _meta_storage(NULL)
@@ -146,7 +147,7 @@ NodeImpl::NodeImpl(const GroupId& group_id, const PeerId& peer_id)
     , _append_entries_cache_version(0)
     , _node_readonly(false)
     , _majority_nodes_readonly(false) {
-    _server_id = peer_id;
+    butil::string_printf(&_v_group_id, "%s_%d", _group_id.c_str(), _server_id.idx);
     AddRef();
     g_num_nodes << 1;
 }
@@ -156,6 +157,7 @@ NodeImpl::NodeImpl()
     , _current_term(0)
     , _last_leader_timestamp(butil::monotonic_time_ms())
     , _group_id()
+    , _server_id()
     , _conf_ctx(this)
     , _log_storage(NULL)
     , _meta_storage(NULL)
@@ -172,6 +174,7 @@ NodeImpl::NodeImpl()
     , _append_entries_cache_version(0)
     , _node_readonly(false)
     , _majority_nodes_readonly(false) {
+    butil::string_printf(&_v_group_id, "%s_%d", _group_id.c_str(), _server_id.idx);
     AddRef();
     g_num_nodes << 1;
 }
@@ -272,36 +275,37 @@ int NodeImpl::init_log_storage() {
 }
 
 int NodeImpl::init_meta_storage() {
-    int ret = 0;
+    // create stable storage
+    _meta_storage = RaftMetaStorage::create(_options.raft_meta_uri);
+    if (!_meta_storage) {
+        LOG(WARNING) << "node " << _group_id << ":" << _server_id
+                     << " failed to create meta storage, uri " 
+                     << _options.raft_meta_uri; 
+        return ENOENT;
+    }
 
-    do {
-        _meta_storage = RaftMetaStorage::create(_options.raft_meta_uri);
-        if (!_meta_storage) {
-            LOG(WARNING) << "node " << _group_id << ":" << _server_id
-                << " find meta storage failed, uri " << _options.raft_meta_uri;
-            ret = ENOENT;
-            break;
-        }
+    // check init
+    butil::Status status = _meta_storage->init();
+    if (!status.ok()) {
+        LOG(WARNING) << "node " << _group_id << ":" << _server_id
+                     << " failed to init meta storage, uri " 
+                     << _options.raft_meta_uri 
+                     << ", error " << status;
+        return status.error_code();
+    }
+    
+    // get term and votedfor
+    status = _meta_storage->
+                get_term_and_votedfor(&_current_term, &_voted_id, _v_group_id);
+    if (!status.ok()) {
+        LOG(WARNING) << "node " << _group_id << ":" << _server_id
+                     << " failed to get term and voted_id when init meta storage,"
+                     << " uri " << _options.raft_meta_uri 
+                     << ", error " << status;
+        return status.error_code();
+    }
 
-        ret = _meta_storage->init();
-        if (ret != 0) {
-            LOG(WARNING) << "node " << _group_id << ":" << _server_id
-                         << " init meta storage failed, uri " << _options.raft_meta_uri
-                         << " ret " << ret;
-            break;
-        }
-
-        _current_term = _meta_storage->get_term();
-        ret = _meta_storage->get_votedfor(&_voted_id);
-        if (ret != 0) {
-            LOG(WARNING) << "node " << _group_id << ":" << _server_id
-                         << " meta storage get_votedfor failed, uri " 
-                         << _options.raft_meta_uri << " ret " << ret;
-            break;
-        }
-    } while (0);
-
-    return ret;
+    return 0;
 }
 
 void NodeImpl::handle_snapshot_timeout() {
@@ -393,8 +397,12 @@ int NodeImpl::bootstrap(const BootstrapOptions& options) {
     }
     if (_current_term == 0) {
         _current_term = 1;
-        if (_meta_storage->set_term_and_votedfor(1, PeerId()) != 0) {
-            LOG(ERROR) << "Fail to set term";
+        butil::Status status = _meta_storage->
+                                set_term_and_votedfor(1, PeerId(), _v_group_id);
+        if (!status.ok()) {
+            // TODO add group_id 
+            LOG(ERROR) << "Fail to set term and votedfor when bootstrap,"
+                          " error: " << status;
             return -1;
         }
         return -1;
@@ -453,7 +461,7 @@ int NodeImpl::init(const NodeOptions& options) {
         return -1;
     }
 
-    if (!NodeManager::GetInstance()->server_exists(_server_id.addr)) {
+    if (!global_node_manager->server_exists(_server_id.addr)) {
         LOG(ERROR) << "Group " << _group_id
                    << " No RPC Server attached to " << _server_id.addr
                    << ", did you forget to call braft::add_service()?";
@@ -579,7 +587,7 @@ int NodeImpl::init(const NodeOptions& options) {
     }
 
     // add node to NodeManager
-    if (!NodeManager::GetInstance()->add(this)) {
+    if (!global_node_manager->add(this)) {
         LOG(ERROR) << "NodeManager add " << _group_id 
                    << ":" << _server_id << " failed";
         return -1;
@@ -920,7 +928,7 @@ void NodeImpl::shutdown(Closure* done) {
         if (_state < STATE_SHUTTING) {  // Got the right to shut
             // Remove node from NodeManager and |this| would not be accessed by
             // the coming RPCs
-            NodeManager::GetInstance()->remove(this);
+            global_node_manager->remove(this);
             // if it is leader, set the wakeup_a_candidate with true,
             // if it is follower, call on_stop_following in step_down
             if (_state <= STATE_FOLLOWER) {
@@ -1559,9 +1567,8 @@ void NodeImpl::elect_self(std::unique_lock<raft_mutex_t>* lck) {
     // reset leader_id before vote
     PeerId empty_id;
     butil::Status status;
-    status.set_error(ERAFTTIMEDOUT,
-            "A follower's leader_id is reset to NULL "
-            "as it begins to request_vote.");
+    status.set_error(ERAFTTIMEDOUT, "A follower's leader_id is reset to NULL "
+                                    "as it begins to request_vote.");
     reset_leader_id(empty_id, status);
 
     _state = STATE_CANDIDATE;
@@ -1619,7 +1626,16 @@ void NodeImpl::elect_self(std::unique_lock<raft_mutex_t>* lck) {
     }
 
     //TODO: outof lock
-    _meta_storage->set_term_and_votedfor(_current_term, _server_id);
+    status = _meta_storage->
+                    set_term_and_votedfor(_current_term, _server_id, _v_group_id);
+    if (!status.ok()) {
+         LOG(ERROR) << "node " << _group_id << ":" << _server_id
+                   << " fail to set_term_and_votedfor itself when elect_self,"
+                      " error: " << status;
+         // reset _voted_id to avoid inconsistent cases
+         // return immediately without granting _vote_ctx
+         _voted_id.reset(); 
+    }
     grant_self(&_vote_ctx, lck);
 }
 
@@ -1671,7 +1687,14 @@ void NodeImpl::step_down(const int64_t term, bool wakeup_a_candidate,
         _current_term = term;
         _voted_id.reset();
         //TODO: outof lock
-        _meta_storage->set_term_and_votedfor(term, _voted_id);
+        butil::Status status = _meta_storage->
+                    set_term_and_votedfor(term, _voted_id, _v_group_id);
+        if (!status.ok()) {
+            LOG(ERROR) << "node " << _group_id << ":" << _server_id
+                       << " fail to set_term_and_votedfor when step_down, error: "
+                       << status;
+            // TODO report error
+        }
     }
 
     // stop stagging new node
@@ -2056,7 +2079,16 @@ int NodeImpl::handle_request_vote_request(const RequestVoteRequest* request,
             step_down(request->term(), false, status);
             _voted_id = candidate_id;
             //TODO: outof lock
-            _meta_storage->set_votedfor(candidate_id);
+            status = _meta_storage->
+                    set_term_and_votedfor(_current_term, candidate_id, _v_group_id);
+            if (!status.ok()) {
+                LOG(ERROR) << "node " << _group_id << ":" << _server_id
+                           << " refuse to vote for " << request->server_id()
+                           << " because failed to set_votedfor it, error: "
+                           << status;
+                // reset _voted_id to response set_granted(false)
+                _voted_id.reset(); 
+            }
         }
     } while (0);
 
@@ -2137,7 +2169,7 @@ private:
                          // untrustable so we can't commit them even if their
                          // indexes are less than request->committed_index()
                         );
-        //_ballot_box is thread safe and tolerats disorder.
+        //_ballot_box is thread safe and tolerates disorder.
         _node->_ballot_box->set_last_committed_index(committed_index);
         int64_t now = butil::cpuwide_time_us();
         if (FLAGS_raft_trace_append_entry_latency && now - metric.start_time_us > 

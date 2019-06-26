@@ -18,7 +18,6 @@
 #include <errno.h>
 #include <butil/string_printf.h>
 #include <butil/string_splitter.h>
-#include <butil/strings/string_piece.h>
 #include <butil/logging.h>
 #include <brpc/reloadable_flags.h>
 
@@ -37,31 +36,6 @@ DEFINE_bool(raft_create_parent_directories, true,
 DEFINE_bool(raft_sync_meta, false, "sync log meta, snapshot meta and raft meta");
 BRPC_VALIDATE_GFLAG(raft_sync_meta, ::brpc::PassValidate);
 
-inline butil::StringPiece parse_uri(butil::StringPiece* uri, std::string* parameter) {
-    // ${protocol}://${parameters}
-    size_t pos = uri->find("://");
-    if (pos == butil::StringPiece::npos) {
-        return butil::StringPiece();
-    }
-    butil::StringPiece protocol = uri->substr(0, pos);
-    uri->remove_prefix(pos + 3/* length of '://' */);
-    protocol.trim_spaces();
-    parameter->reserve(uri->size());
-    parameter->clear();
-    size_t removed_spaces = 0;
-    for (butil::StringPiece::const_iterator 
-            iter = uri->begin(); iter != uri->end(); ++iter) {
-        if (!isspace(*iter)) {
-            parameter->push_back(*iter);
-        } else {
-            ++removed_spaces;
-        }
-    }
-    LOG_IF(WARNING, removed_spaces) << "Removed " << removed_spaces 
-            << " spaces from `" << *uri << '\'';
-    return protocol;
-}
-
 LogStorage* LogStorage::create(const std::string& uri) {
     butil::StringPiece copied_uri(uri);
     std::string parameter;
@@ -78,6 +52,28 @@ LogStorage* LogStorage::create(const std::string& uri) {
         return NULL;
     }
     return type->new_instance(parameter);
+}
+
+butil::Status LogStorage::destroy(const std::string& uri) {
+    butil::Status status;
+    butil::StringPiece copied_uri(uri);
+    std::string parameter;
+    butil::StringPiece protocol = parse_uri(&copied_uri, &parameter);
+    if (protocol.empty()) {
+        LOG(ERROR) << "Invalid log storage uri=`" << uri << '\'';
+        status.set_error(EINVAL, "Invalid log storage uri = %s", uri.c_str());
+        return status;
+    }
+    const LogStorage* type = log_storage_extension()->Find(
+                protocol.as_string().c_str());
+    if (type == NULL) {
+        LOG(ERROR) << "Fail to find log storage type " << protocol
+                   << ", uri=" << uri;
+        status.set_error(EINVAL, "Fail to find log storage type %s uri %s", 
+                         protocol.as_string().c_str(), uri.c_str());
+        return status;
+    }
+    return type->gc_instance(parameter);
 }
 
 SnapshotStorage* SnapshotStorage::create(const std::string& uri) {
@@ -98,6 +94,28 @@ SnapshotStorage* SnapshotStorage::create(const std::string& uri) {
     return type->new_instance(parameter);
 }
 
+butil::Status SnapshotStorage::destroy(const std::string& uri) {
+    butil::Status status;
+    butil::StringPiece copied_uri(uri);
+    std::string parameter;
+    butil::StringPiece protocol = parse_uri(&copied_uri, &parameter);
+    if (protocol.empty()) {
+        LOG(ERROR) << "Invalid snapshot storage uri=`" << uri << '\'';
+        status.set_error(EINVAL, "Invalid log storage uri = %s", uri.c_str());
+        return status;
+    }
+    const SnapshotStorage* type = snapshot_storage_extension()->Find(
+                protocol.as_string().c_str());
+    if (type == NULL) {
+        LOG(ERROR) << "Fail to find snapshot storage type " << protocol
+                   << ", uri=" << uri;
+        status.set_error(EINVAL, "Fail to find snapshot storage type %s uri %s", 
+                         protocol.as_string().c_str(), uri.c_str());
+        return status;
+    }
+    return type->gc_instance(parameter);
+}
+
 RaftMetaStorage* RaftMetaStorage::create(const std::string& uri) {
     butil::StringPiece copied_uri(uri);
     std::string parameter;
@@ -114,6 +132,29 @@ RaftMetaStorage* RaftMetaStorage::create(const std::string& uri) {
         return NULL;
     }
     return type->new_instance(parameter);
+}
+
+butil::Status RaftMetaStorage::destroy(const std::string& uri,
+                                       const VersionedGroupId& vgid) {
+    butil::Status status;
+    butil::StringPiece copied_uri(uri);
+    std::string parameter;
+    butil::StringPiece protocol = parse_uri(&copied_uri, &parameter);
+    if (protocol.empty()) {
+        LOG(ERROR) << "Invalid meta storage uri=`" << uri << '\'';
+        status.set_error(EINVAL, "Invalid meta storage uri = %s", uri.c_str());
+        return status;
+    }
+    const RaftMetaStorage* type = meta_storage_extension()->Find(
+                protocol.as_string().c_str());
+    if (type == NULL) {
+        LOG(ERROR) << "Fail to find meta storage type " << protocol
+                   << ", uri=" << uri;
+        status.set_error(EINVAL, "Fail to find meta storage type %s uri %s", 
+                         protocol.as_string().c_str(), uri.c_str());
+        return status;
+    }
+    return type->gc_instance(parameter, vgid);
 }
 
 }  //  namespace braft

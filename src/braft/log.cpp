@@ -1253,4 +1253,16 @@ LogStorage* SegmentLogStorage::new_instance(const std::string& uri) const {
     return new SegmentLogStorage(uri);
 }
 
+butil::Status SegmentLogStorage::gc_instance(const std::string& uri) const {
+    butil::Status status;
+    if (gc_dir(uri) != 0) {
+        LOG(WARNING) << "Failed to gc log storage from path " << _path;
+        status.set_error(EINVAL, "Failed to gc log storage from path %s", 
+                         uri.c_str());
+        return status;
+    }
+    LOG(INFO) << "Succeed to gc log storage from path " << uri;
+    return status;
+}
+
 }
