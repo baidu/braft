@@ -163,7 +163,14 @@ public:
 
     // GC an instance of this kind of LogStorage with the parameters encoded 
     // in |uri|
-    virtual butil::Status gc_instance(const std::string& uri) const = 0;
+    virtual butil::Status gc_instance(const std::string& uri) const {
+        CHECK(false) << butil::class_name_str(*this)
+                     << " didn't implement gc_instance interface while deleting"
+                        " raft log in " << uri;
+        butil::Status status;
+        status.set_error(ENOSYS, "gc_instance interface is not implemented");
+        return status;
+    }
     
     static butil::Status destroy(const std::string& uri);
 };
@@ -194,7 +201,14 @@ public:
     // GC an instance of this kind of StableStorage with the parameters encoded 
     // in |uri|
     virtual butil::Status gc_instance(const std::string& uri, 
-                                     const VersionedGroupId& vgid) const = 0;
+                                     const VersionedGroupId& vgid) const {
+        CHECK(false) << butil::class_name_str(*this)
+                     << " didn't implement gc_instance interface while deleting"
+                        " raft stable meta in " << uri;
+        butil::Status status;
+        status.set_error(ENOSYS, "gc_instance interface is not implemented");
+        return status;
+    }
     
     static butil::Status destroy(const std::string& uri, 
                                 const VersionedGroupId& vgid);
@@ -331,7 +345,15 @@ public:
     
     // GC an instance of this kind of SnapshotStorage with the parameters encoded 
     // in |uri|
-    virtual butil::Status gc_instance(const std::string& uri) const = 0;
+    virtual butil::Status gc_instance(const std::string& uri) const {
+        CHECK(false) << butil::class_name_str(*this)
+                     << " didn't implement gc_instance interface while deleting"
+                        " raft snapshot in " << uri;
+        butil::Status status;
+        status.set_error(ENOSYS, "gc_instance interface is not implemented");
+        return status;
+    }
+
     static butil::Status destroy(const std::string& uri);
 };
 
