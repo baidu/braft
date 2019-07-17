@@ -184,8 +184,7 @@ public:
 
     // set term and votedfor information
     virtual butil::Status set_term_and_votedfor(const int64_t term, 
-                                                const PeerId& peer_id,
-                                                const VersionedGroupId& group) = 0;
+                    const PeerId& peer_id, const VersionedGroupId& group) = 0;
 
     // get term and votedfor information
     virtual butil::Status get_term_and_votedfor(int64_t* term, PeerId* peer_id, 
