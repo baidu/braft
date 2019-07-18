@@ -448,6 +448,7 @@ private:
         }
         void start_grant_self_timer(int64_t wait_ms, NodeImpl* node);
         void stop_grant_self_timer(NodeImpl* node);
+        void reset(NodeImpl* node);
     private:
         bthread_timer_t _timer;
         Ballot _ballot;

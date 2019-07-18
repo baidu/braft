@@ -468,7 +468,7 @@ int NodeImpl::init(const NodeOptions& options) {
         return -1;
     }
 
-    CHECK_EQ(0, _vote_timer.init(this, options.election_timeout_ms));
+    CHECK_EQ(0, _vote_timer.init(this, options.election_timeout_ms + options.max_clock_drift_ms));
     CHECK_EQ(0, _election_timer.init(this, options.election_timeout_ms));
     CHECK_EQ(0, _stepdown_timer.init(this, options.election_timeout_ms));
     CHECK_EQ(0, _snapshot_timer.init(this, options.snapshot_interval_s * 1000));
@@ -1347,17 +1347,12 @@ void NodeImpl::handle_request_vote_response(const PeerId& peer_id, const int64_t
     // check if the quorum granted
     if (response.granted()) {
         _vote_ctx.grant(peer_id);
-        bool stop_timer = false;
         if (peer_id == _follower_lease.last_leader()) {
             _vote_ctx.grant(_server_id);
-            stop_timer = true;
+            _vote_ctx.stop_grant_self_timer(this);
         }
         if (_vote_ctx.granted()) {
             become_leader();
-            stop_timer = true;
-        }
-        if (stop_timer) {
-            _vote_ctx.stop_grant_self_timer(this);
         }
     }
 }
@@ -1439,17 +1434,12 @@ void NodeImpl::handle_pre_vote_response(const PeerId& peer_id, const int64_t ter
     // check if the quorum granted
     if (response.granted()) {
         _pre_vote_ctx.grant(peer_id);
-        bool stop_timer = false;
         if (peer_id == _follower_lease.last_leader()) {
             _pre_vote_ctx.grant(_server_id);
-            stop_timer = true;
+            _pre_vote_ctx.stop_grant_self_timer(this);
         }
         if (_pre_vote_ctx.granted()) {
             elect_self(&lck);
-            stop_timer = true;
-        }
-        if (stop_timer) {
-            _pre_vote_ctx.stop_grant_self_timer(this);
         }
     }
 }
@@ -1578,7 +1568,7 @@ void NodeImpl::elect_self(std::unique_lock<raft_mutex_t>* lck) {
     BRAFT_VLOG << "node " << _group_id << ":" << _server_id
                << " term " << _current_term << " start vote_timer";
     _vote_timer.start();
-
+    _pre_vote_ctx.reset(this);
     _vote_ctx.init(this);
 
     int64_t old_term = _current_term;
@@ -1654,9 +1644,11 @@ void NodeImpl::step_down(const int64_t term, bool wakeup_a_candidate,
     // delete timer and something else
     if (_state == STATE_CANDIDATE) {
         _vote_timer.stop();
+        _vote_ctx.reset(this);
+    } else if (_state == STATE_FOLLOWER) {
+        _pre_vote_ctx.reset(this);
     } else if (_state <= STATE_TRANSFERRING) {
         _stepdown_timer.stop();
-
         _ballot_box->clear_pending_tasks();
 
         // signal fsm leader stop immediately
@@ -1733,6 +1725,7 @@ void NodeImpl::reset_leader_id(const PeerId& new_leader_id,
         _leader_id.reset();
     } else {
         if (_leader_id.is_empty()) {
+            _pre_vote_ctx.reset(this);
             LeaderChangeContext start_following_context(new_leader_id, 
                     _current_term, status);
             _fsm_caller->on_start_following(start_following_context);
@@ -1787,6 +1780,7 @@ void NodeImpl::become_leader() {
               << " " << _conf.old_conf;
     // cancel candidate vote timer
     _vote_timer.stop();
+    _vote_ctx.reset(this);
 
     _state = STATE_LEADER;
     _leader_id = _server_id;
@@ -3318,6 +3312,11 @@ void NodeImpl::VoteBallotCtx::stop_grant_self_timer(NodeImpl* node) {
     }
 }
 
+void NodeImpl::VoteBallotCtx::reset(NodeImpl* node) {
+    stop_grant_self_timer(node);
+    ++_version;
+}
+
 void NodeImpl::grant_self(VoteBallotCtx* vote_ctx, std::unique_lock<raft_mutex_t>* lck) {
     // If follower lease expired, we can safely grant self. Otherwise, we wait util:
     // 1. last active leader vote the node, and we grant two votes together;
@@ -3331,7 +3330,6 @@ void NodeImpl::grant_self(VoteBallotCtx* vote_ctx, std::unique_lock<raft_mutex_t
         if (vote_ctx == &_pre_vote_ctx) {
             elect_self(lck);
         } else {
-            CHECK_EQ(_state, STATE_CANDIDATE);
             become_leader();
         }
         return;
@@ -3358,7 +3356,8 @@ void* NodeImpl::handle_grant_self_timedout(void* arg) {
     delete grant_arg;
 
     std::unique_lock<raft_mutex_t> lck(node->_mutex);
-    if (vote_ctx->version() != vote_ctx_version) {
+    if (!is_active_state(node->_state) ||
+        vote_ctx->version() != vote_ctx_version) {
         lck.unlock();
         node->Release();
         return NULL;
