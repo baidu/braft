@@ -203,16 +203,15 @@ NodeImpl::~NodeImpl() {
         delete _ballot_box;
         _ballot_box = NULL;
     }
-
+    if (_closure_queue) {
+        delete _closure_queue;
+        _closure_queue = NULL;
+    }
     if (_options.node_owns_log_storage) {
         if (_log_storage) {
             delete _log_storage;
             _log_storage = NULL;
         }
-    }
-    if (_closure_queue) {
-        delete _closure_queue;
-        _closure_queue = NULL;
     }
     if (_meta_storage) {
         delete _meta_storage;

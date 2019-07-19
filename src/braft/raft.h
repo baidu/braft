@@ -505,6 +505,11 @@ struct NodeOptions {
     // Default: A empty group
     Configuration initial_conf;
 
+    // Run the user callbacks and user closures in pthread rather than bthread
+    // 
+    // Default: false
+    bool usercode_in_pthread;
+
     // The specific StateMachine implemented your business logic, which must be
     // a valid instance.
     StateMachine* fsm;
@@ -515,27 +520,45 @@ struct NodeOptions {
     // Default: false
     bool node_owns_fsm;
 
-    // If |node_owns_log_storage| is true. |log_storage| would be destroyed when the backing
-    // Node is no longer referenced.
-    //
-    // Default: true
-    bool node_owns_log_storage;
-
     // The specific LogStorage implemented at the bussiness layer, which should be a valid
     // instance, otherwise use SegmentLogStorage by default.
     //
     // Default: null
     LogStorage* log_storage;
 
-    // Run the user callbacks and user closures in pthread rather than bthread
-    // 
-    // Default: false
-    bool usercode_in_pthread;
+    // If |node_owns_log_storage| is true. |log_storage| would be destroyed when
+    // the backing Node is no longer referenced.
+    //
+    // Default: true
+    bool node_owns_log_storage;
 
     // Describe a specific LogStorage in format ${type}://${parameters}
+    // It's valid iff |log_storage| is null
     std::string log_uri;
 
     // Describe a specific RaftMetaStorage in format ${type}://${parameters}
+    // Three types are provided up till now:
+    // 1. type=local
+    //     FileBasedSingleMetaStorage(old name is LocalRaftMetaStorage) will be
+    //     used, which is based on protobuf file and manages stable meta of
+    //     only one Node
+    //     typical format: local://${node_path}
+    // 2. type=local-merged
+    //     KVBasedMergedMetaStorage will be used, whose under layer is based
+    //     on KV storage and manages a batch of Nodes one the same disk. It's 
+    //     designed to solve performance problems caused by lots of small
+    //     synchronous IO during leader electing, when there are huge number of
+    //     Nodes in Multi-raft situation.
+    //     typical format: local-merged://${disk_path}
+    // 3. type=local-mixed
+    //     MixedMetaStorage will be used, which will double write the above
+    //     two types of meta storages when upgrade an downgrade.
+    //     typical format:
+    //     local-mixed://merged_path=${disk_path}&&single_path=${node_path}
+    // 
+    // Upgrade and Downgrade steps:
+    //     upgrade from Single to Merged: local -> mixed -> merged
+    //     downgrade from Merged to Single: merged -> mixed -> local
     std::string raft_meta_uri;
 
     // Describe a specific SnapshotStorage in format ${type}://${parameters}
@@ -568,11 +591,11 @@ inline NodeOptions::NodeOptions()
     , max_clock_drift_ms(1000)
     , snapshot_interval_s(3600)
     , catchup_margin(1000)
+    , usercode_in_pthread(false)
     , fsm(NULL)
     , node_owns_fsm(false)
-    , node_owns_log_storage(true)
     , log_storage(NULL)
-    , usercode_in_pthread(false)
+    , node_owns_log_storage(true)
     , filter_before_copy_remote(false)
     , snapshot_file_system_adaptor(NULL)
     , snapshot_throttle(NULL)
