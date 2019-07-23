@@ -94,6 +94,7 @@ int Segment::create() {
         return -1;
     }
 
+    int old_fd = _fd;
     std::string path(_path);
     butil::string_appendf(&path, "/" BRAFT_SEGMENT_OPEN_PATTERN, _first_index);
     _fd = ::open(path.c_str(), O_RDWR | O_CREAT | O_TRUNC, 0644);
@@ -102,7 +103,7 @@ int Segment::create() {
     }
     LOG_IF(INFO, _fd >= 0) << "Created new segment `" << path 
                            << "' with fd=" << _fd ;
-    return _fd >= 0 ? 0 : -1;
+    return _fd >= 0 ? (old_fd > 0 ? ::close(old_fd) : 0) : -1;
 }
 
 inline bool verify_checksum(int checksum_type,
