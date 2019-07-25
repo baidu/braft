@@ -103,7 +103,7 @@ int Segment::create() {
     }
     LOG_IF(INFO, _fd >= 0) << "Created new segment `" << path 
                            << "' with fd=" << _fd ;
-    return _fd >= 0 ? (old_fd > 0 ? ::close(old_fd) : 0) : -1;
+    return _fd >= 0 ? (old_fd >= 0 ? ::close(old_fd) : 0) : -1;
 }
 
 inline bool verify_checksum(int checksum_type,
