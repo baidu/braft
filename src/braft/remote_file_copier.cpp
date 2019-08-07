@@ -130,7 +130,7 @@ RemoteFileCopier::start_to_copy_to_file(
                       const std::string& dest_path,
                       const CopyOptions* options) {
     butil::File::Error e;
-    FileAdaptor* file = _fs->open(dest_path, O_TRUNC | O_WRONLY | O_CREAT | O_CLOEXEC, NULL, &e);
+    FileAdaptor* file = _fs->open(dest_path, O_SYNC | O_TRUNC | O_WRONLY | O_CREAT | O_CLOEXEC, NULL, &e);
     
     if (!file) {
         LOG(ERROR) << "Fail to open " << dest_path 
