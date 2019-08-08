@@ -11,15 +11,40 @@ It's widely used inside Baidu to build highly-available systems, such as:
 
 # Getting Started
 
-* Build [brpc](https://github.com/brpc/brpc/blob/master/docs/cn/getting_started.md) which is the main dependency of braft.
+1. braft mainly depends on brpc, which depends on openssl, protobuffer,
+	leveldb, gflags and glog, make sure you have all the dependencies installed
+	before building braft
 
-* Compile braft with cmake
+2. Build [brpc](https://github.com/brpc/brpc/blob/master/docs/cn/getting_started.md),
+	once brpc built successfully you are just one small step away from building
+	braft successfully
 
-  ```shell
-  $ mkdir bld && cd bld && cmake .. && make
-  ```
+3. Compile braft with cmake, **remember to change paths to deps respectively**,
+	the build result is in folder named `output`
 
-* Play braft with [examples](./example).
+	```shell
+	$ mkdir build-dir && cd build-dir
+	$ cmake .. \
+		-DOPENSSL_ROOT_DIR:PATH=path/to/openssl \
+		-DPROTOBUF_INCLUDE_PATH:PATH=path/to/protobuffer/include/ \
+		-DPROTOBUF_LIB:PATH=path/to/protobuffer/lib/libprotobuf.a \
+		-DLEVELDB_INCLUDE_PATH:PATH=path/to/leveldb/include \
+		-DLEVELDB_LIB:PATH=path/to/leveldb/libs/libleveldb.a \
+		-DGFLAGS_INCLUDE_PATH:PATH=path/to/gflags/include \
+		-DGFLAGS_LIB:PATH=path/to/gflags/libs/libgflags.a \
+		-DBRPC_INCLUDE_PATH:PATH=path/to/brpc/include \
+		-DBRPC_LIB:PATH=path/to/brpc/lib/libbrpc.a \
+		-DBRPC_WITH_GLOG=ON \
+		-DGLOG_INCLUDE_PATH:PATH=path/to/glog/include \
+		-DGLOG_LIB:PATH=path/to/glog/libs/libglog.a
+	```
+
+	in which:
+	* glog is optional, but it's no harm to build with it
+	* If there is any confusion about openssl, check [this issue](https://github.com/apache/incubator-brpc/pull/770)
+		for more detail
+
+4. Play braft with [examples](./example).
 
 # Docs
 
