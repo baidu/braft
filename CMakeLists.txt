@@ -28,6 +28,7 @@ find_library(PROTOBUF_LIB NAMES libprotobuf.a protobuf)
 if ((NOT PROTOBUF_INCLUDE_PATH) OR (NOT PROTOBUF_LIB))
     message(FATAL_ERROR "Fail to find protobuf")
 endif()
+include(FindProtobuf)
 
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     # require at least gcc 4.8
