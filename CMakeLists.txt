@@ -28,6 +28,8 @@ find_library(PROTOBUF_LIB NAMES libprotobuf.a protobuf)
 if ((NOT PROTOBUF_INCLUDE_PATH) OR (NOT PROTOBUF_LIB))
     message(FATAL_ERROR "Fail to find protobuf")
 endif()
+set(Protobuf_INCLUDE_DIR PROTOBUF_INCLUDE_PATH)
+get_filename_component(Protobuf_LIBRARIES PROTOBUF_LIB DIRECTORY)
 include(FindProtobuf)
 
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
