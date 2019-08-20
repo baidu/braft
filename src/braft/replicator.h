@@ -141,7 +141,7 @@ private:
 
     int _prepare_entry(int offset, EntryMeta* em, butil::IOBuf* data);
     void _wait_more_entries();
-    void _send_empty_entries(bool is_hearbeat);
+    void _send_empty_entries(bool is_heartbeat);
     void _send_entries();
     void _notify_on_caught_up(int error_code, bool);
     int _fill_common_fields(AppendEntriesRequest* request, int64_t prev_log_index,
