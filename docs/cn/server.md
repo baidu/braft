@@ -26,7 +26,7 @@ int add_service(brpc::Server* server, const char* const butil::EndPoint& listen_
 - **调用这些接口之前不要启动server， 否则相关的Service将无法加入到这个server中. 导致调用失败.**
 - **启动这个server的端口需要和add_service传入的端口一致， 不然会导致这个节点无法正常收发RPC请求.**
 
-#实现业务状态机
+# 实现业务状态机
 
 你需要继承braft::StateMachine并且实现里面的接口
 
@@ -201,11 +201,11 @@ class Node {
   * LogStorage, 用来存放用户提交的WAL
   * SnapshotStorage, 用来存放用户的Snapshot以及元信息.
 
-  用三个不同的uri来表示, 并且提供了基于本地文件系统的默认实现， type为local, 比如 local://data 就是存放到当前文件夹的data目录， local:///home/disk1/data 就是存放在 /home/disk1/data中。libraft中有默认的local://实现，用户可以根据需要继承实现相应的Storage。
+  用三个不同的uri来表示, 并且提供了基于本地文件系统的默认实现，type为local, 比如 local://data 就是存放到当前文件夹的data目录，local:///home/disk1/data 就是存放在 /home/disk1/data中。libraft中有默认的local://实现，用户可以根据需要继承实现相应的Storage。
 
 # 将操作提交到复制组
 
-你需要将你的操作序列化成[IOBuf](https://github.com/brpc/brpc/blob/master/src/butil/iobuf.h), 这是一个非连续零拷贝的缓存结构. 构造一个Task, 并且向braft::Node提价
+你需要将你的操作序列化成[IOBuf](https://github.com/brpc/brpc/blob/master/src/butil/iobuf.h), 这是一个非连续零拷贝的缓存结构。构造一个Task, 并且向braft::Node提交
 
 ```cpp
 #include <braft/raft.h>

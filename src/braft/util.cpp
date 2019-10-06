@@ -16,13 +16,235 @@
 //          Wang,Yao(wangyao02@baidu.com)
 
 #include "braft/util.h"
-
+#include <gflags/gflags.h>
 #include <stdlib.h>
 #include <butil/macros.h>
 #include <butil/raw_pack.h>                     // butil::RawPacker
 #include <butil/file_util.h>
-
 #include "braft/raft.h"
+
+namespace bvar {
+
+// Reloading following gflags does not change names of the corresponding bvars.
+// Avoid reloading in practice.
+DEFINE_int32(bvar_counter_p1, 80, "First counter percentile");
+DEFINE_int32(bvar_counter_p2, 90, "Second counter percentile");
+DEFINE_int32(bvar_counter_p3, 99, "Third counter percentile");
+
+static bool valid_percentile(const char*, int32_t v) {
+    return v > 0 && v < 100;
+}
+
+const bool ALLOW_UNUSED dummy_bvar_counter_p1 = GFLAGS_NS::RegisterFlagValidator(
+    &FLAGS_bvar_counter_p1, valid_percentile);
+const bool ALLOW_UNUSED dummy_bvar_counter_p2 = GFLAGS_NS::RegisterFlagValidator(
+    &FLAGS_bvar_counter_p2, valid_percentile);
+const bool ALLOW_UNUSED dummy_bvar_counter_p3 = GFLAGS_NS::RegisterFlagValidator(
+    &FLAGS_bvar_counter_p3, valid_percentile);
+
+namespace detail {
+
+typedef PercentileSamples<1022> CombinedPercentileSamples;
+
+static int64_t get_window_recorder_qps(void* arg) {
+    detail::Sample<Stat> s;
+    static_cast<RecorderWindow*>(arg)->get_span(1, &s);
+    // Use floating point to avoid overflow.
+    if (s.time_us <= 0) {
+        return 0;
+    }
+    return static_cast<int64_t>(round(s.data.num * 1000000.0 / s.time_us));
+}
+
+static int64_t get_recorder_count(void* arg) {
+    return static_cast<IntRecorder*>(arg)->get_value().num;
+}
+
+// Caller is responsible for deleting the return value.
+static CombinedPercentileSamples* combine(PercentileWindow* w) {
+    CombinedPercentileSamples* cb = new CombinedPercentileSamples;
+    std::vector<GlobalPercentileSamples> buckets;
+    w->get_samples(&buckets);
+    cb->combine_of(buckets.begin(), buckets.end());
+    return cb;
+}
+
+template <int64_t numerator, int64_t denominator>
+static int64_t get_counter_percetile(void* arg) {
+    return ((CounterRecorder*)arg)->counter_percentile(
+            (double)numerator / double(denominator));
+}
+
+static int64_t get_p1_counter(void* arg) {
+    CounterRecorder* cr = static_cast<CounterRecorder*>(arg);
+    return cr->counter_percentile(FLAGS_bvar_counter_p1 / 100.0);
+}
+static int64_t get_p2_counter(void* arg) {
+    CounterRecorder* cr = static_cast<CounterRecorder*>(arg);
+    return cr->counter_percentile(FLAGS_bvar_counter_p2 / 100.0);
+}
+static int64_t get_p3_counter(void* arg) {
+    CounterRecorder* cr = static_cast<CounterRecorder*>(arg);
+    return cr->counter_percentile(FLAGS_bvar_counter_p3 / 100.0);
+}
+
+static Vector<int64_t, 4> get_counters(void *arg) {
+    std::unique_ptr<CombinedPercentileSamples> cb(
+        combine((PercentileWindow*)arg));
+    // NOTE: We don't show 99.99% since it's often significantly larger than
+    // other values and make other curves on the plotted graph small and
+    // hard to read.ggggnnn
+    Vector<int64_t, 4> result;
+    result[0] = cb->get_number(FLAGS_bvar_counter_p1 / 100.0);
+    result[1] = cb->get_number(FLAGS_bvar_counter_p2 / 100.0);
+    result[2] = cb->get_number(FLAGS_bvar_counter_p3 / 100.0);
+    result[3] = cb->get_number(0.999);
+    return result;
+}
+
+CounterRecorderBase::CounterRecorderBase(time_t window_size)
+    : _max_counter()
+    , _avg_counter_window(&_avg_counter, window_size)
+    , _max_counter_window(&_max_counter, window_size)
+    , _counter_percentile_window(&_counter_percentile, window_size)
+    , _total_times(get_recorder_count, &_avg_counter)
+    , _qps(get_window_recorder_qps, &_avg_counter_window)
+    , _counter_p1(get_p1_counter, this)
+    , _counter_p2(get_p2_counter, this)
+    , _counter_p3(get_p3_counter, this)
+    , _counter_999(get_counter_percetile<999, 1000>, this)
+    , _counter_9999(get_counter_percetile<9999, 10000>, this)
+    , _counter_cdf(&_counter_percentile_window)
+    , _counter_percentiles(get_counters, &_counter_percentile_window)
+{}
+
+}  // namespace detail
+
+// CounterRecorder
+Vector<int64_t, 4> CounterRecorder::counter_percentiles() const {
+    // const_cast here is just to adapt parameter type and safe.
+    return detail::get_counters(
+        const_cast<detail::PercentileWindow*>(&_counter_percentile_window));
+}
+
+int64_t CounterRecorder::qps(time_t window_size) const {
+    detail::Sample<Stat> s;
+    _avg_counter_window.get_span(window_size, &s);
+    // Use floating point to avoid overflow.
+    if (s.time_us <= 0) {
+        return 0;
+    }
+    return static_cast<int64_t>(round(s.data.num * 1000000.0 / s.time_us));
+}
+
+int CounterRecorder::expose(const butil::StringPiece& prefix1,
+                            const butil::StringPiece& prefix2) {
+    if (prefix2.empty()) {
+        LOG(ERROR) << "Parameter[prefix2] is empty";
+        return -1;
+    }
+    butil::StringPiece prefix = prefix2;
+    // User may add "_counter" as the suffix, remove it.
+    if (prefix.ends_with("counter") || prefix.ends_with("Counter")) {
+        prefix.remove_suffix(7);
+        if (prefix.empty()) {
+            LOG(ERROR) << "Invalid prefix2=" << prefix2;
+            return -1;
+        }
+    }
+    std::string tmp;
+    if (!prefix1.empty()) {
+        tmp.reserve(prefix1.size() + prefix.size() + 1);
+        tmp.append(prefix1.data(), prefix1.size());
+        tmp.push_back('_'); // prefix1 ending with _ is good.
+        tmp.append(prefix.data(), prefix.size());
+        prefix = tmp;
+    }
+
+    // set debug names for printing helpful error log.
+    _avg_counter.set_debug_name(prefix);
+    _counter_percentile.set_debug_name(prefix);
+
+    if (_avg_counter_window.expose_as(prefix, "avg_counter") != 0) {
+        return -1;
+    }
+    if (_max_counter_window.expose_as(prefix, "max_counter") != 0) {
+        return -1;
+    }
+    if (_total_times.expose_as(prefix, "total_times") != 0) {
+        return -1;
+    }
+    if (_qps.expose_as(prefix, "qps") != 0) {
+        return -1;
+    }
+    char namebuf[32];
+    snprintf(namebuf, sizeof(namebuf), "counter_%d", (int)FLAGS_bvar_counter_p1);
+    if (_counter_p1.expose_as(prefix, namebuf, DISPLAY_ON_PLAIN_TEXT) != 0) {
+        return -1;
+    }
+    snprintf(namebuf, sizeof(namebuf), "counter_%d", (int)FLAGS_bvar_counter_p2);
+    if (_counter_p2.expose_as(prefix, namebuf, DISPLAY_ON_PLAIN_TEXT) != 0) {
+        return -1;
+    }
+    snprintf(namebuf, sizeof(namebuf), "counter_%u", (int)FLAGS_bvar_counter_p3);
+    if (_counter_p3.expose_as(prefix, namebuf, DISPLAY_ON_PLAIN_TEXT) != 0) {
+        return -1;
+    }
+    if (_counter_999.expose_as(prefix, "counter_999", DISPLAY_ON_PLAIN_TEXT) != 0) {
+        return -1;
+    }
+    if (_counter_9999.expose_as(prefix, "counter_9999") != 0) {
+        return -1;
+    }
+    if (_counter_cdf.expose_as(prefix, "counter_cdf", DISPLAY_ON_HTML) != 0) {
+        return -1;
+    }
+    if (_counter_percentiles.expose_as(prefix, "counter_percentiles", DISPLAY_ON_HTML) != 0) {
+        return -1;
+    }
+    snprintf(namebuf, sizeof(namebuf), "%d%%,%d%%,%d%%,99.9%%",
+             (int)FLAGS_bvar_counter_p1, (int)FLAGS_bvar_counter_p2,
+             (int)FLAGS_bvar_counter_p3);
+    CHECK_EQ(0, _counter_percentiles.set_vector_names(namebuf));
+    return 0;
+}
+
+int64_t CounterRecorder::counter_percentile(double ratio) const {
+    std::unique_ptr<detail::CombinedPercentileSamples> cb(
+        combine((detail::PercentileWindow*)&_counter_percentile_window));
+    return cb->get_number(ratio);
+}
+
+void CounterRecorder::hide() {
+    _avg_counter_window.hide();
+    _max_counter_window.hide();
+    _total_times.hide();
+    _qps.hide();
+    _counter_p1.hide();
+    _counter_p2.hide();
+    _counter_p3.hide();
+    _counter_999.hide();
+    _counter_9999.hide();
+    _counter_cdf.hide();
+    _counter_percentiles.hide();
+}
+
+CounterRecorder& CounterRecorder::operator<<(int64_t count_num) {
+    _avg_counter << count_num;
+    _max_counter << count_num;
+    _counter_percentile << count_num;
+    return *this;
+}
+
+std::ostream& operator<<(std::ostream& os, const CounterRecorder& rec) {
+    return os << "{avg=" << rec.avg_counter()
+              << " max" << rec.window_size() << '=' << rec.max_counter()
+              << " qps=" << rec.qps()
+              << " count=" << rec.total_times() << '}';
+}
+
+}  // namespace bvar
+
 
 namespace braft {
 

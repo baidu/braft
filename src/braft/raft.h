@@ -25,6 +25,7 @@
 #include <butil/logging.h>
 #include <butil/iobuf.h>
 #include <butil/status.h>
+#include <brpc/callback.h>
 #include "braft/configuration.h"
 #include "braft/enum.pb.h"
 #include "braft/errno.pb.h"
@@ -43,6 +44,7 @@ class SnapshotHook;
 class LeaderChangeContext;
 class FileSystemAdaptor;
 class SnapshotThrottle;
+class LogStorage;
 
 const PeerId ANY_PEER(butil::EndPoint(butil::IP_ANY, 0), 0);
 
@@ -241,12 +243,13 @@ public:
 
     // Invoked when a configuration has been committed to the group
     virtual void on_configuration_committed(const ::braft::Configuration& conf);
+    virtual void on_configuration_committed(const ::braft::Configuration& conf, int64_t index);
 
     // this method is called when a follower stops following a leader and its leader_id becomes NULL,
     // situations including: 
     // 1. handle election_timeout and start pre_vote 
     // 2. receive requests with higher term such as vote_request from a candidate
-    // or append_entires_request from a new leader
+    // or append_entries_request from a new leader
     // 3. receive timeout_now_request from current leader and start request_vote
     // the parameter stop_following_context gives the information(leader_id, term and status) about the
     // very leader whom the follower followed before.
@@ -352,6 +355,84 @@ inline std::ostream& operator<<(std::ostream& os, const UserLog& user_log) {
     return os;
 }
 
+// Status of a peer
+struct PeerStatus {
+    PeerStatus()
+        : valid(false), installing_snapshot(false), next_index(0)
+        , last_rpc_send_timestamp(0), flying_append_entries_size(0)
+        , readonly_index(0), consecutive_error_times(0)
+    {}
+
+    bool    valid;
+    bool    installing_snapshot;
+    int64_t next_index;
+    int64_t last_rpc_send_timestamp;
+    int64_t flying_append_entries_size;
+    int64_t readonly_index;
+    int     consecutive_error_times;
+};
+
+// Status of Node
+class NodeStatus {
+friend class NodeImpl;
+public:
+    typedef std::map<PeerId, PeerStatus> PeerStatusMap;
+
+    NodeStatus()
+        : state(STATE_END), readonly(false), term(0), committed_index(0), known_applied_index(0)
+        , pending_index(0), pending_queue_size(0), applying_index(0), first_index(0)
+        , last_index(-1), disk_index(0)
+    {}
+
+    State state;
+    PeerId peer_id;
+    PeerId leader_id;
+    bool readonly;
+    int64_t term;
+    int64_t committed_index;
+    int64_t known_applied_index;
+
+    // The start index of the logs waiting to be committed.
+    // If the value is 0, means no pending logs.
+    // 
+    // WARNING: if this value is not 0, and keep the same in a long time,
+    // means something happend to prevent the node to commit logs in a
+    // large probability, and users should check carefully to find out
+    // the reasons.
+    int64_t pending_index;
+
+    // How many pending logs waiting to be committed.
+    // 
+    // WARNING: too many pending logs, means the processing rate can't catup with
+    // the writing rate. Users can consider to slow down the writing rate to avoid
+    // exhaustion of resources.
+    int64_t pending_queue_size;
+
+    // The current applying index. If the value is 0, means no applying log.
+    //
+    // WARNING: if this value is not 0, and keep the same in a long time, means
+    // the apply thread hung, users should check if a deadlock happend, or some
+    // time-consuming operations is handling in place.
+    int64_t applying_index;
+
+    // The first log of the node, including the logs in memory and disk.
+    int64_t first_index;
+
+    // The last log of the node, including the logs in memory and disk.
+    int64_t last_index;
+
+    // The max log in disk.
+    int64_t disk_index;
+
+    // Stable followers are peers in current configuration.
+    // If the node is not leader, this map is empty.
+    PeerStatusMap stable_followers;
+
+    // Unstable followers are peers not in current configurations. For example,
+    // if a new peer is added and not catchup now, it's in this map.
+    PeerStatusMap unstable_followers;
+};
+
 struct NodeOptions {
     // A follower would become a candidate if it doesn't receive any message 
     // from the leader in |election_timeout_ms| milliseconds
@@ -372,7 +453,7 @@ struct NodeOptions {
     // Default: 1000
     int catchup_margin;
 
-    // If node is starting from a empty environment (both LogStorage and
+    // If node is starting from an empty environment (both LogStorage and
     // SnapshotStorage are empty), it would use |initial_conf| as the
     // configuration of the group, otherwise it would load configuration from
     // the existing environment.
@@ -389,6 +470,18 @@ struct NodeOptions {
     //
     // Default: false
     bool node_owns_fsm;
+
+    // If |node_owns_log_storage| is true. |log_storage| would be destroyed when the backing
+    // Node is no longer referenced.
+    //
+    // Default: true
+    bool node_owns_log_storage;
+
+    // The specific LogStorage implemented at the bussiness layer, which should be a valid
+    // instance, otherwise use SegmentLogStorage by default.
+    //
+    // Default: null
+    LogStorage* log_storage;
 
     // Run the user callbacks and user closures in pthread rather than bthread
     // 
@@ -432,6 +525,8 @@ inline NodeOptions::NodeOptions()
     , catchup_margin(1000)
     , fsm(NULL)
     , node_owns_fsm(false)
+    , node_owns_log_storage(true)
+    , log_storage(NULL)
     , usercode_in_pthread(false)
     , filter_before_copy_remote(false)
     , snapshot_file_system_adaptor(NULL)
@@ -509,6 +604,11 @@ public:
     // when the snapshot finishes, describing the detailed result.
     void snapshot(Closure* done);
 
+    // user trigger vote
+    // reset election_timeout, suggest some peer to become the leader in a
+    // higher probability
+    void vote(int election_timeout);
+
     // reset the election_timeout for the very node
     void reset_election_timeout_ms(int election_timeout_ms);
 
@@ -528,6 +628,37 @@ public:
     // [NOTE] in consideration of safety, we use last_applied_index instead of last_committed_index 
     // in code implementation.
     butil::Status read_committed_user_log(const int64_t index, UserLog* user_log);
+
+    // Get the internal status of this node, the information is mostly the same as we
+    // see from the website.
+    void get_status(NodeStatus* status);
+
+    // Make this node enter readonly mode.
+    // Readonly mode should only be used to protect the system in some extreme cases.
+    // For exampe, in a storage system, too many write requests flood into the system
+    // unexpectly, and the system is in the danger of exhaust capacity. There's not enough
+    // time to add new machines, and wait for capacity balance. Once many disks become
+    // full, quorum dead happen to raft groups. One choice in this example is readonly
+    // mode, to let leader reject new write requests, but still handle reads request,
+    // and configuration changes.
+    // If a follower become readonly, the leader stop replicate new logs to it. This
+    // may cause the data far behind the leader, in the case that the leader is still
+    // writable. After the follower exit readonly mode, the leader will resume to
+    // replicate missing logs.
+    // A leader is readonly, if the node itself is readonly, or writable nodes (nodes that
+    // are not marked as readonly) in the group is less than majority. Once a leader become
+    // readonly, no new users logs will be acceptted.
+    void enter_readonly_mode();
+
+    // Node leave readonly node.
+    void leave_readonly_mode();
+
+    // Check if this node is readonly.
+    // There are two situations that if a node is readonly:
+    //      - This node is marked as readonly, by calling enter_readonly_mode();
+    //      - This node is a leader, and the count of writable nodes in the group
+    //        is less than the majority.
+    bool readonly();
 
 private:
     NodeImpl* _impl;
@@ -577,7 +708,7 @@ struct BootstrapOptions {
 int bootstrap(const BootstrapOptions& options);
 
 // Attach raft services to |server|, this makes the raft services share the same
-// listen address with the user services.
+// listening address with the user services.
 //
 // NOTE: Now we only allow the backing Server to be started with a specific
 // listen address, if the Server is going to be started from a range of ports, 

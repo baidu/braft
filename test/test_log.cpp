@@ -12,8 +12,10 @@
 #include <butil/file_util.h>
 #include <butil/files/file_path.h>
 #include <butil/files/file_enumerator.h>
+#include <butil/files/dir_reader_posix.h>
 #include <butil/string_printf.h>
 #include <butil/logging.h>
+#include "braft/util.h"
 #include "braft/log.h"
 
 class LogStorageTest : public testing::Test {
@@ -216,7 +218,8 @@ TEST_F(LogStorageTest, closed_segment) {
         snprintf(data_buf, sizeof(data_buf), "HELLO, WORLD: %d", i + 6);
         entry->data.append(data_buf);
 
-        ASSERT_NE(0, seg1->append(entry));
+        // become open segment again
+        ASSERT_EQ(0, seg1->append(entry));
 
         entry->Release();
     }
@@ -227,8 +230,6 @@ TEST_F(LogStorageTest, closed_segment) {
             snprintf(data_buf, sizeof(data_buf), "hello, world: %d", i + 1);
         } else {
             snprintf(data_buf, sizeof(data_buf), "HELLO, WORLD: %d", i + 1);
-            ASSERT_TRUE(entry == NULL);
-            continue;
         }
         ASSERT_EQ(entry->id.term, 1);
         ASSERT_EQ(entry->type, braft::ENTRY_TYPE_DATA);
@@ -480,6 +481,191 @@ TEST_F(LogStorageTest, append_close_load_append) {
 
     delete storage;
     delete configuration_manager;
+}
+
+ssize_t file_size(const char* filename) {
+    struct stat st;
+    stat(filename, &st);
+    return st.st_size;
+}
+
+int truncate_uninterrupted(const char* filename, off_t length) {
+    int rc = 0;
+    do {
+        rc = truncate(filename, length);
+    } while (rc == -1 && errno == EINTR);
+    return rc;
+}
+
+TEST_F(LogStorageTest, data_lost) {
+    ::system("rm -rf data");
+    braft::LogStorage* storage = new braft::SegmentLogStorage("./data");
+    braft::ConfigurationManager* configuration_manager = new braft::ConfigurationManager;
+    ASSERT_EQ(0, storage->init(configuration_manager));
+
+    // append entry
+    for (int i = 0; i < 100000; i++) {
+        std::vector<braft::LogEntry*> entries;
+        for (int j = 0; j < 5; j++) {
+            int64_t index = 5*i + j + 1;
+            braft::LogEntry* entry = new braft::LogEntry();
+            entry->type = braft::ENTRY_TYPE_DATA;
+            entry->id.term = 1;
+            entry->id.index = index;
+
+            char data_buf[128];
+            snprintf(data_buf, sizeof(data_buf), "hello, world: %ld", index);
+            entry->data.append(data_buf);
+            entries.push_back(entry);
+        }
+
+        ASSERT_EQ(5, storage->append_entries(entries));
+
+        for (size_t j = 0; j < entries.size(); j++) {
+            delete entries[j];
+        }
+    }
+
+    delete storage;
+    delete configuration_manager;
+
+    // reinit 
+    storage = new braft::SegmentLogStorage("./data");
+    configuration_manager = new braft::ConfigurationManager;
+    ASSERT_EQ(0, storage->init(configuration_manager));
+
+    ASSERT_EQ(storage->first_log_index(), 1);
+    ASSERT_EQ(storage->last_log_index(), 100000*5);
+
+    delete storage;
+    delete configuration_manager;
+
+    // last segment lost data
+    butil::DirReaderPosix dir_reader1("./data");
+    ASSERT_TRUE(dir_reader1.IsValid());
+    while (dir_reader1.Next()) {
+        int64_t first_index = 0;
+        int match = sscanf(dir_reader1.name(), "log_inprogress_%020ld", 
+                           &first_index);
+        std::string path;
+        butil::string_appendf(&path, "./data/%s", dir_reader1.name());
+        if (match == 1) {
+            ASSERT_EQ(truncate_uninterrupted(path.c_str(), file_size(path.c_str()) - 1), 0);
+        }
+    }
+
+    storage = new braft::SegmentLogStorage("./data");
+    configuration_manager = new braft::ConfigurationManager;
+    ASSERT_EQ(0, storage->init(configuration_manager));
+
+    ASSERT_EQ(storage->first_log_index(), 1);
+    ASSERT_EQ(storage->last_log_index(), 100000*5 - 1);
+
+    delete storage;
+    delete configuration_manager;
+
+    // middle segment lost data
+    butil::DirReaderPosix dir_reader2("./data");
+    ASSERT_TRUE(dir_reader2.IsValid());
+    while (dir_reader2.Next()) {
+        int64_t first_index = 0;
+        int64_t last_index = 0;
+        int match = sscanf(dir_reader2.name(), "log_%020ld_%020ld", 
+                           &first_index, &last_index);
+        std::string path;
+        butil::string_appendf(&path, "./data/%s", dir_reader2.name());
+        if (match == 2) {
+            ASSERT_EQ(truncate_uninterrupted(path.c_str(), file_size(path.c_str()) - 1), 0);
+        }
+    }
+
+    storage = new braft::SegmentLogStorage("./data");
+    configuration_manager = new braft::ConfigurationManager;
+    ASSERT_NE(0, storage->init(configuration_manager));
+
+    delete storage;
+    delete configuration_manager;
+}
+
+TEST_F(LogStorageTest, full_segment_has_garbage) {
+    ::system("rm -rf data");
+    braft::LogStorage* storage = new braft::SegmentLogStorage("./data");
+    braft::ConfigurationManager* configuration_manager = new braft::ConfigurationManager;
+    ASSERT_EQ(0, storage->init(configuration_manager));
+
+    // append entry
+    for (int i = 0; i < 100000; i++) {
+        std::vector<braft::LogEntry*> entries;
+        for (int j = 0; j < 5; j++) {
+            int64_t index = 5*i + j + 1;
+            braft::LogEntry* entry = new braft::LogEntry();
+            entry->type = braft::ENTRY_TYPE_DATA;
+            entry->id.term = 1;
+            entry->id.index = index;
+
+            char data_buf[128];
+            snprintf(data_buf, sizeof(data_buf), "hello, world: %ld", index);
+            entry->data.append(data_buf);
+            entries.push_back(entry);
+        }
+
+        ASSERT_EQ(5, storage->append_entries(entries));
+
+        for (size_t j = 0; j < entries.size(); j++) {
+            delete entries[j];
+        }
+    }
+
+    delete storage;
+    delete configuration_manager;
+
+    // generate garbage entries
+    butil::DirReaderPosix dir_reader("./data");
+    std::string first_segment;
+    std::string second_segment;
+    while (dir_reader.IsValid()) {
+        dir_reader.Next();
+        int64_t first_index = 0;
+        int64_t last_index = 0;
+        int match = sscanf(dir_reader.name(), "log_%020ld_%020ld", 
+                           &first_index, &last_index);
+        if (match != 2) {
+            continue;
+        }
+        if (first_segment.empty()) {
+            butil::string_appendf(&first_segment, "./data/%s", dir_reader.name());
+        } else {
+            butil::string_appendf(&second_segment, "./data/%s", dir_reader.name());
+            break;
+        }
+    }
+
+    int fd1 = open(first_segment.c_str(), O_RDWR);
+    int fd2 = open(second_segment.c_str(), O_RDWR);
+    int off1 = 0;
+    int off2 = 0;
+    ASSERT_TRUE(fd1 >= 0);
+    ASSERT_TRUE(fd2 >= 0);
+    struct stat st_buf;
+    ASSERT_EQ(fstat(fd1, &st_buf), 0);
+    off1 = st_buf.st_size;
+    for (;;) {
+        butil::IOPortal buf;
+        ssize_t ret = braft::file_pread(&buf, fd2, off2, 8192);
+        ASSERT_TRUE(ret >= 0);
+        if (ret == 0) {
+            break;
+        }
+        ASSERT_EQ(buf.size(), braft::file_pwrite(buf, fd1, off1));
+        off1 += buf.size();
+        off2 += buf.size();
+    }
+    close(fd1);
+    close(fd2);
+
+    storage = new braft::SegmentLogStorage("./data");
+    configuration_manager = new braft::ConfigurationManager;
+    ASSERT_NE(0, storage->init(configuration_manager));
 }
 
 TEST_F(LogStorageTest, append_read_badcase) {

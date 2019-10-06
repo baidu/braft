@@ -83,7 +83,7 @@ int get(const int64_t id) {
             continue;
         }
         // make jepsen parse output of get easily
-        printf("%"PRI64d"\n", response.old_value());
+        printf("%" PRId64"\n", response.old_value());
         break;
     }
 

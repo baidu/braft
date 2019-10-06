@@ -14,7 +14,6 @@
 
 // Authors: Zhangyi Chen(chenzhangyi01@baidu.com)
 
-#include <bvar/bvar.h>
 #include "braft/log_entry.h"
 #include "braft/local_storage.pb.h"
 

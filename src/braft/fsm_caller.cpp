@@ -31,6 +31,9 @@
 
 namespace braft {
 
+static bvar::CounterRecorder g_commit_tasks_batch_counter(
+        "raft_commit_tasks_batch_counter");
+
 FSMCaller::FSMCaller()
     : _log_manager(NULL)
     , _fsm(NULL)
@@ -41,6 +44,7 @@ FSMCaller::FSMCaller()
     , _node(NULL)
     , _cur_task(IDLE)
     , _applying_index(0)
+    , _queue_started(false)
 {
 }
 
@@ -55,16 +59,20 @@ int FSMCaller::run(void* meta, bthread::TaskIterator<ApplyTask>& iter) {
         return 0;
     }
     int64_t max_committed_index = -1;
+    int64_t counter = 0;
     for (; iter; ++iter) {
         if (iter->type == COMMITTED) {
             if (iter->committed_index > max_committed_index) {
                 max_committed_index = iter->committed_index;
+                counter++;
             }
         } else {
             if (max_committed_index >= 0) {
                 caller->_cur_task = COMMITTED;
                 caller->do_committed(max_committed_index);
                 max_committed_index = -1;
+                g_commit_tasks_batch_counter << counter;
+                counter = 0;
             }
             switch (iter->type) {
             case COMMITTED:
@@ -115,6 +123,8 @@ int FSMCaller::run(void* meta, bthread::TaskIterator<ApplyTask>& iter) {
     if (max_committed_index >= 0) {
         caller->_cur_task = COMMITTED;
         caller->do_committed(max_committed_index);
+        g_commit_tasks_batch_counter << counter;
+        counter = 0;
     }
     caller->_cur_task = IDLE;
     return 0;
@@ -155,15 +165,22 @@ int FSMCaller::init(const FSMCallerOptions &options) {
     execq_opt.bthread_attr = options.usercode_in_pthread 
                              ? BTHREAD_ATTR_PTHREAD
                              : BTHREAD_ATTR_NORMAL;
-    bthread::execution_queue_start(&_queue_id,
+    if (bthread::execution_queue_start(&_queue_id,
                                    &execq_opt,
                                    FSMCaller::run,
-                                   this);
+                                   this) != 0) {
+        LOG(ERROR) << "fsm fail to start execution_queue";
+        return -1;
+    }
+    _queue_started = true;
     return 0;
 }
 
 int FSMCaller::shutdown() {
-    return bthread::execution_queue_stop(_queue_id);
+    if (_queue_started) {
+        return bthread::execution_queue_stop(_queue_id);
+    }
+    return 0;
 }
 
 void FSMCaller::do_shutdown() {
@@ -257,7 +274,8 @@ void FSMCaller::do_committed(int64_t committed_index) {
                 if (iter_impl.entry()->old_peers == NULL) {
                     // Joint stage is not supposed to be noticeable by end users.
                     _fsm->on_configuration_committed(
-                            Configuration(*iter_impl.entry()->peers));
+                            Configuration(*iter_impl.entry()->peers),
+                            iter_impl.entry()->id.index);
                 }
             }
             // For other entries, we have nothing to do besides flush the
@@ -271,8 +289,9 @@ void FSMCaller::do_committed(int64_t committed_index) {
         }
         Iterator iter(&iter_impl);
         _fsm->on_apply(iter);
-        LOG_IF(ERROR, iter.valid()) 
-                << "Iterator is still valid, did you return before iterator "
+        LOG_IF(ERROR, iter.valid())
+                << "Node " << _node->node_id() 
+                << " Iterator is still valid, did you return before iterator "
                    " reached the end?";
         // Try move to next in case that we pass the same log twice.
         iter.next();
@@ -390,7 +409,7 @@ void FSMCaller::do_snapshot_load(LoadSnapshotClosure* done) {
         for (int i = 0; i < meta.peers_size(); ++i) {
             conf.add_peer(meta.peers(i));
         }
-        _fsm->on_configuration_committed(conf);
+        _fsm->on_configuration_committed(conf, meta.last_included_index());
     }
 
     _last_applied_index.store(meta.last_included_index(),
@@ -498,8 +517,20 @@ void FSMCaller::describe(std::ostream &os, bool use_html) {
     os << newline;
 }
 
+int64_t FSMCaller::applying_index() const {
+    TaskType cur_task = _cur_task;
+    if (cur_task != COMMITTED) {
+        return 0;
+    } else {
+        return _applying_index.load(butil::memory_order_relaxed);
+    }
+}
+
 void FSMCaller::join() {
-    bthread::execution_queue_join(_queue_id);
+    if (_queue_started) {
+        bthread::execution_queue_join(_queue_id);
+        _queue_started = false;
+    }
 }
 
 IteratorImpl::IteratorImpl(StateMachine* sm, LogManager* lm,

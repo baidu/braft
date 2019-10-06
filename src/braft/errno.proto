@@ -30,5 +30,7 @@ enum RaftError {
     ELOGDELETED = 10014;
     // No available user log to read
     ENOMOREUSERLOG = 10015;
+    // Raft node in readonly mode
+    EREADONLY = 10016;
 };
 

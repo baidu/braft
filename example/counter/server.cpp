@@ -350,13 +350,14 @@ private:
 
 int main(int argc, char* argv[]) {
     GFLAGS_NS::ParseCommandLineFlags(&argc, &argv, true);
+    butil::AtExitManager exit_manager;
 
     // Generally you only need one Server.
     brpc::Server server;
     example::Counter counter;
     example::CounterServiceImpl service(&counter);
 
-    // Add your service into RPC rerver
+    // Add your service into RPC server
     if (server.AddService(&service, 
                           brpc::SERVER_DOESNT_OWN_SERVICE) != 0) {
         LOG(ERROR) << "Fail to add service";

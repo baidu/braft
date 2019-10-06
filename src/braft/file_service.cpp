@@ -46,9 +46,9 @@ void FileServiceImpl::get_file(::google::protobuf::RpcController* controller,
     // Don't touch iter ever after
     reader = iter->second;
     lck.unlock();
-    BRAFT_VLOG << "get_file from " << cntl->remote_side() << " path=" << reader->path() 
-         << " filename=" << request->filename()
-         << " offset=" << request->offset() << " count=" << request->count();
+    BRAFT_VLOG << "get_file for " << cntl->remote_side() << " path=" << reader->path()
+               << " filename=" << request->filename()
+               << " offset=" << request->offset() << " count=" << request->count();
 
     if (request->count() <= 0 || request->offset() < 0) {
         cntl->SetFailed(brpc::EREQUEST, "Invalid request=%s",

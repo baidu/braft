@@ -15,7 +15,6 @@
 #include <fstream>
 #include <bthread/bthread.h>
 #include <gflags/gflags.h>
-#include <glog/logging.h>
 #include <butil/containers/flat_map.h>
 #include <butil/logging.h>
 #include <bthread/bthread.h>
@@ -469,7 +468,7 @@ private:
 
 int main(int argc, char* argv[]) {
     GFLAGS_NS::ParseCommandLineFlags(&argc, &argv, true);
-    google::InitGoogleLogging(argv[0]);
+    butil::AtExitManager exit_manager;
 
     // Generally you only need one Server.
     brpc::Server server;
