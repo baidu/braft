@@ -183,7 +183,7 @@ RAFT采用协同一致性的方式来解决节点的变更，先提交一个包�
 其实上面的流程可以简化，每次只增删一个节点，这样就不会出现两个多数集合，不会造成决议冲突的情况。按照如下规则进行处理：
 
 1. Leader收到AddPeer/RemovePeer的时候就进行处理，而不是等到committed，这样马上就可以使用新的peer set进行复制AddPeer/RemovePeer请求。
-2. Leader启动的时候就发送NO_OP请求，将上一个AddPeer/RemovePeer变为committed。
+2. Leader启动的时候就发送NO_OP请求，将上一个AddPeer/RemovePeer变为committed, 并使未复制到当前Leader的AddPeer/RemovePeer失效。直等到NO_OP请求committed之后, 可以安全地创建一个新的configuration并开始复制它。
 3. Leader在删除自身节点的时候，会在RemovePeer被Committed之后，进行关闭。
 
 按照上面的规则，可以实现安全的动态节点增删，因为节点动态调整跟Leader选举是两个并行的过程，节点需要一些宽松的检查来保证选主和AppendEntries的多数集合：
