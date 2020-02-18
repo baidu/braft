@@ -30,10 +30,11 @@ class LeaseTest : public testing::Test {
 protected:
     void SetUp() {
         ::system("rm -rf data");
-        logging::FLAGS_v = 90;
+        //logging::FLAGS_v = 90;
         braft::FLAGS_raft_sync = false;
         braft::FLAGS_raft_enable_leader_lease = true;
         braft::FLAGS_raft_election_heartbeat_factor = 3;
+        g_dont_print_apply_log = true;
     }
     void TearDown() {
         ::system("rm -rf data");
@@ -94,7 +95,7 @@ void* check_lease_in_thread(void* arg) {
     Cluster* cluster = static_cast<Cluster*>(arg);
     int round = 0;
     while (!g_check_lease_in_thread_stop) {
-        LOG(NOTICE) << "check stale lease, round: " << round++;
+        BRAFT_VLOG << "check stale lease, round: " << round++;
         usleep(10 * 1000);
         CHECK_NO_STALE_LEADER(cluster);
     }
@@ -134,7 +135,7 @@ TEST_F(LeaseTest, triple_node) {
     int64_t start_ms = butil::monotonic_time_ms();
     while (lease_status.state == braft::LEASE_NOT_READY ||
            butil::monotonic_time_ms() - start_ms < 1000) {
-        LOG(NOTICE) << "waiting lease become valid";
+        BRAFT_VLOG << "waiting lease become valid";
         bthread_usleep(100 * 1000);
         leader->get_leader_lease_status(&lease_status);
     }
@@ -591,7 +592,7 @@ TEST_F(LeaseTest, chaos) {
         braft::Node* target_node = NULL;
         switch (type) {
             case NODE_START: {
-                LOG(NOTICE) << "chaos round " << i << ", node start";
+                BRAFT_VLOG << "chaos round " << i << ", node start";
                 std::vector<braft::PeerId> tmp_nodes;
                 size_t j = butil::fast_rand() % stopped_nodes.size();
                 for (size_t t = 0; t < stopped_nodes.size(); ++t) {
@@ -606,7 +607,7 @@ TEST_F(LeaseTest, chaos) {
                 break;
             }
             case NODE_STOP: {
-                LOG(NOTICE) << "chaos round " << i << ", node stop";
+                BRAFT_VLOG << "chaos round " << i << ", node stop";
                 std::vector<braft::PeerId> tmp_nodes;
                 size_t j = butil::fast_rand() % started_nodes.size();
                 for (size_t t = 0; t < started_nodes.size(); ++t) {
@@ -621,7 +622,7 @@ TEST_F(LeaseTest, chaos) {
                 break;
             }
             case TRANSFER_LEADER: {
-                LOG(NOTICE) << "chaos round " << i << ", transfer leader";
+                BRAFT_VLOG << "chaos round " << i << ", transfer leader";
                 cluster.wait_leader();
                 braft::Node* leader = cluster.leader();
                 braft::PeerId target;
@@ -634,14 +635,14 @@ TEST_F(LeaseTest, chaos) {
                 break;
             }
             case VOTE: {
-                LOG(NOTICE) << "chaos round " << i << ", vote";
+                BRAFT_VLOG << "chaos round " << i << ", vote";
                 braft::PeerId target = started_nodes[butil::fast_rand() % started_nodes.size()];
                 target_node = cluster.find_node(target);
                 target_node->vote(50);
                 break;
             }
             case RESET_ELECTION_TIMEOUT: {
-                LOG(NOTICE) << "chaos round " << i << ", vote";
+                BRAFT_VLOG << "chaos round " << i << ", vote";
                 braft::PeerId target = started_nodes[butil::fast_rand() % started_nodes.size()];
                 target_node = cluster.find_node(target);
                 target_node->reset_election_timeout_ms(butil::fast_rand_in(50, 500));
