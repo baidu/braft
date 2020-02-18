@@ -27,6 +27,7 @@ class LogStorageTest : public testing::Test {
 protected:
     void SetUp() {
         braft::FLAGS_raft_sync = false;
+        GFLAGS_NS::SetCommandLineOption("minloglevel", "3");
     }
     void TearDown() {}
 };

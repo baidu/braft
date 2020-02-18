@@ -39,6 +39,7 @@ protected:
     void SetUp() {
         g_dont_print_apply_log = false;
         //logging::FLAGS_v = 90;
+        GFLAGS_NS::SetCommandLineOption("minloglevel", "1");
         GFLAGS_NS::SetCommandLineOption("crash_on_fatal_log", "true");
         if (GetParam() == std::string("NoReplication")) {
             braft::FLAGS_raft_max_parallel_append_entries_rpc_num = 1;
@@ -2814,7 +2815,7 @@ TEST_P(NodeTest, change_peers_chaos_without_snapshot) {
     std::cout << "Stopping cluster" << std::endl;
     cluster.stop_all();
     GFLAGS_NS::SetCommandLineOption("raft_sync", "true");
-    GFLAGS_NS::SetCommandLineOption("minloglevel", "0");
+    GFLAGS_NS::SetCommandLineOption("minloglevel", "1");
 }
 
 class AppendEntriesSyncClosure : public google::protobuf::Closure {
