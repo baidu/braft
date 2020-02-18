@@ -82,7 +82,8 @@ public:
         for (; iter.valid(); iter.next()) {
             LOG_IF(TRACE, !g_dont_print_apply_log) << "addr " << address 
                                                    << " apply " << iter.index()
-                                                   << " data " << iter.data();
+                                                   << " data_size " << iter.data().size();
+            BRAFT_VLOG << "data " << iter.data();
             ::brpc::ClosureGuard guard(iter.done());
             lock();
             logs.push_back(iter.data());

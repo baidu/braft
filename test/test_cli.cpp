@@ -134,7 +134,7 @@ TEST_F(CliTest, set_peer) {
     st = braft::cli::reset_peer("test", node1.peer_id(), conf2,
                              braft::cli::CliOptions());
     ASSERT_TRUE(st.ok());
-    usleep(2 * 1000 * 1000);
+    usleep(4 * 1000 * 1000);
     ASSERT_TRUE(node1._node->is_leader());
 }
 
@@ -156,7 +156,7 @@ TEST_F(CliTest, change_peers) {
     st = braft::cli::reset_peer("test", node1.peer_id(), conf2,
                              braft::cli::CliOptions());
     ASSERT_TRUE(st.ok());
-    usleep(2 * 1000 * 1000);
+    usleep(4 * 1000 * 1000);
     ASSERT_TRUE(node1._node->is_leader());
 }
 
