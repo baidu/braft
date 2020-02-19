@@ -230,7 +230,8 @@ public:
     }
 
     int start(const butil::EndPoint& listen_addr, bool empty_peers = false,
-              int snapshot_interval_s = 30) {
+              int snapshot_interval_s = 30,
+              braft::Closure* leader_start_closure = NULL) {
         if (_server_map[listen_addr] == NULL) {
             brpc::Server* server = new brpc::Server();
             if (braft::add_service(server, listen_addr) != 0 
@@ -250,6 +251,9 @@ public:
             options.initial_conf = braft::Configuration(_peers);
         }
         MockFSM* fsm = new MockFSM(listen_addr);
+        if (leader_start_closure) {
+            fsm->set_on_leader_start_closure(leader_start_closure);
+        }
         options.fsm = fsm;
         options.node_owns_fsm = true;
         butil::string_printf(&options.log_uri, "local://./data/%s/log",
