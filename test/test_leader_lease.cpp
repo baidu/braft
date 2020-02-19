@@ -477,12 +477,12 @@ public:
 
     void Run() {
         while (hung) {
-            usleep(10 * 1000);
+            bthread_usleep(10 * 1000);
         }
         braft::SynchronizedClosure::Run();
     }
 
-   volatile bool hung;
+    butil::atomic<bool> hung;
 };
 
 TEST_F(LeaseTest, apply_thread_hung) {
@@ -502,21 +502,23 @@ TEST_F(LeaseTest, apply_thread_hung) {
     // start cluster
     Cluster cluster("unittest", peers, 500, 10);
     for (size_t i = 0; i < peers.size(); i++) {
-        ASSERT_EQ(0, cluster.start(peers[i].addr));
+        ASSERT_EQ(0, cluster.start(peers[i].addr, false, 30, on_leader_start_closures[i]));
     }
 
-    std::vector<braft::Node*> nodes;
+    /*
     cluster.all_nodes(&nodes);
     for (size_t i = 0; i < nodes.size(); ++i) {
         static_cast<MockFSM*>(nodes[i]->_impl->_options.fsm)
             ->set_on_leader_start_closure(on_leader_start_closures[i]);
     }
+    */
 
     // elect leader
     cluster.wait_leader();
     braft::Node* leader = cluster.leader();
     ASSERT_TRUE(leader != NULL);
     LOG(WARNING) << "leader is " << leader->node_id();
+    std::vector<braft::Node*> nodes;
     cluster.followers(&nodes);
     braft::PeerId target = nodes[0]->node_id().peer_id;
 
@@ -534,11 +536,12 @@ TEST_F(LeaseTest, apply_thread_hung) {
         on_leader_start_closures[i]->hung = false;
     }
 
-    usleep(100 * 1000);
-
-    // lease status should be valid
-    leader->get_leader_lease_status(&lease_status);
-    ASSERT_EQ(lease_status.state, braft::LEASE_VALID);
+    for (int i = 0; i < 10; ++i) {
+        usleep(100 * 1000);
+        // lease status should be valid
+        leader->get_leader_lease_status(&lease_status);
+        ASSERT_EQ(lease_status.state, braft::LEASE_VALID);
+    }
 
     cluster.stop_all();
 
