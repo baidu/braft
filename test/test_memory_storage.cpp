@@ -41,7 +41,7 @@ TEST_F(MemStorageTest, entry_operation) {
     entry->type = braft::ENTRY_TYPE_DATA;
     std::vector<braft::LogEntry*> entries;
     entries.push_back(entry);
-    ASSERT_EQ(1u, log_storage->append_entries(entries));
+    ASSERT_EQ(1u, log_storage->append_entries(entries, NULL));
 
     ASSERT_EQ(1, log_storage->first_log_index());
     ASSERT_EQ(1, log_storage->last_log_index());
@@ -81,7 +81,7 @@ TEST_F(MemStorageTest, trunk_operation) {
     entry2->id = braft::LogId(3, 1);
     entry2->type = braft::ENTRY_TYPE_DATA;
     entries.push_back(entry2);
-    ASSERT_EQ(3u, log_storage->append_entries(entries));
+    ASSERT_EQ(3u, log_storage->append_entries(entries, NULL));
 
     size_t ret = log_storage->truncate_suffix(2);
     ASSERT_EQ(0, ret);

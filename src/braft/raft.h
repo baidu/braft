@@ -373,9 +373,7 @@ struct PeerStatus {
 };
 
 // Status of Node
-class NodeStatus {
-friend class NodeImpl;
-public:
+struct NodeStatus {
     typedef std::map<PeerId, PeerStatus> PeerStatusMap;
 
     NodeStatus()
@@ -433,11 +431,58 @@ public:
     PeerStatusMap unstable_followers;
 };
 
+// State of a lease. Following is a typical lease state change diagram:
+// 
+// event:                 become leader                 become follower
+//                        ^           on leader start   ^   on leader stop
+//                        |           ^                 |   ^
+// time:        ----------|-----------|-----------------|---|-------
+// lease state:   EXPIRED | NOT_READY |      VALID      |  EXPIRED  
+// 
+enum LeaseState {
+    // Lease is disabled, this state will only be returned when
+    // |raft_enable_leader_lease == false|.
+    LEASE_DISABLED = 1,
+
+    // Lease is expired, this node is not leader any more.
+    LEASE_EXPIRED = 2,
+
+    // This node is leader, but we are not sure the data is up to date. This state
+    // continue until |on_leader_start| or the leader step down.
+    LEASE_NOT_READY = 3,
+
+    // Lease is valid.
+    LEASE_VALID = 4,
+};
+
+// Status of a leader lease.
+struct LeaderLeaseStatus {
+    LeaderLeaseStatus()
+        : state(LEASE_DISABLED), term(0), lease_epoch(0)
+    {}
+
+    LeaseState state;
+
+    // These followering fields are only meaningful when |state == LEASE_VALID|.
+    
+    // The term of this lease
+    int64_t term;
+
+    // A specific term may have more than one lease, when transfer leader timeout
+    // happen. Lease epoch will be guranteed to be monotinically increase, in the
+    // life cycle of a node.
+    int64_t lease_epoch;
+};
+
 struct NodeOptions {
     // A follower would become a candidate if it doesn't receive any message 
     // from the leader in |election_timeout_ms| milliseconds
     // Default: 1000 (1s)
     int election_timeout_ms; //follower to candidate timeout
+
+    // Max clock drift time. It will be used to keep the safety of leader lease.
+    // Default: 1000 (1s)
+    int max_clock_drift_ms;
 
     // A snapshot saving would be triggered every |snapshot_interval_s| seconds
     // if this was reset as a positive number
@@ -461,6 +506,11 @@ struct NodeOptions {
     // Default: A empty group
     Configuration initial_conf;
 
+    // Run the user callbacks and user closures in pthread rather than bthread
+    // 
+    // Default: false
+    bool usercode_in_pthread;
+
     // The specific StateMachine implemented your business logic, which must be
     // a valid instance.
     StateMachine* fsm;
@@ -471,27 +521,45 @@ struct NodeOptions {
     // Default: false
     bool node_owns_fsm;
 
-    // If |node_owns_log_storage| is true. |log_storage| would be destroyed when the backing
-    // Node is no longer referenced.
-    //
-    // Default: true
-    bool node_owns_log_storage;
-
     // The specific LogStorage implemented at the bussiness layer, which should be a valid
     // instance, otherwise use SegmentLogStorage by default.
     //
     // Default: null
     LogStorage* log_storage;
 
-    // Run the user callbacks and user closures in pthread rather than bthread
-    // 
-    // Default: false
-    bool usercode_in_pthread;
+    // If |node_owns_log_storage| is true. |log_storage| would be destroyed when
+    // the backing Node is no longer referenced.
+    //
+    // Default: true
+    bool node_owns_log_storage;
 
     // Describe a specific LogStorage in format ${type}://${parameters}
+    // It's valid iff |log_storage| is null
     std::string log_uri;
 
     // Describe a specific RaftMetaStorage in format ${type}://${parameters}
+    // Three types are provided up till now:
+    // 1. type=local
+    //     FileBasedSingleMetaStorage(old name is LocalRaftMetaStorage) will be
+    //     used, which is based on protobuf file and manages stable meta of
+    //     only one Node
+    //     typical format: local://${node_path}
+    // 2. type=local-merged
+    //     KVBasedMergedMetaStorage will be used, whose under layer is based
+    //     on KV storage and manages a batch of Nodes one the same disk. It's 
+    //     designed to solve performance problems caused by lots of small
+    //     synchronous IO during leader electing, when there are huge number of
+    //     Nodes in Multi-raft situation.
+    //     typical format: local-merged://${disk_path}
+    // 3. type=local-mixed
+    //     MixedMetaStorage will be used, which will double write the above
+    //     two types of meta storages when upgrade an downgrade.
+    //     typical format:
+    //     local-mixed://merged_path=${disk_path}&&single_path=${node_path}
+    // 
+    // Upgrade and Downgrade steps:
+    //     upgrade from Single to Merged: local -> mixed -> merged
+    //     downgrade from Merged to Single: merged -> mixed -> local
     std::string raft_meta_uri;
 
     // Describe a specific SnapshotStorage in format ${type}://${parameters}
@@ -507,7 +575,7 @@ struct NodeOptions {
     // Default: NULL
     scoped_refptr<FileSystemAdaptor>* snapshot_file_system_adaptor;    
     
-    // If non-null, we will pass this throughput_snapshot_throttle to SnapshotExecutor
+    // If non-null, we will pass this snapshot_throttle to SnapshotExecutor
     // Default: NULL
     scoped_refptr<SnapshotThrottle>* snapshot_throttle;
 
@@ -521,13 +589,14 @@ struct NodeOptions {
 
 inline NodeOptions::NodeOptions() 
     : election_timeout_ms(1000)
+    , max_clock_drift_ms(1000)
     , snapshot_interval_s(3600)
     , catchup_margin(1000)
+    , usercode_in_pthread(false)
     , fsm(NULL)
     , node_owns_fsm(false)
-    , node_owns_log_storage(true)
     , log_storage(NULL)
-    , usercode_in_pthread(false)
+    , node_owns_log_storage(true)
     , filter_before_copy_remote(false)
     , snapshot_file_system_adaptor(NULL)
     , snapshot_throttle(NULL)
@@ -548,6 +617,18 @@ public:
 
     // Return true if this is the leader of the belonging group
     bool is_leader();
+
+    // Return true if this is the leader, and leader lease is valid. It's always
+    // false when |raft_enable_leader_lease == false|.
+    // In the follwing situations, the returned true is unbeleivable:
+    //    -  Not all nodes in the raft group set |raft_enable_leader_lease| to true,
+    //       and tranfer leader/vote interfaces are used;
+    //    -  In the raft group, the value of |election_timeout_ms| in one node is larger
+    //       than |election_timeout_ms + max_clock_drift_ms| in another peer.
+    bool is_leader_lease_valid();
+
+    // Get leader lease status for more complex checking
+    void get_leader_lease_status(LeaderLeaseStatus* status);
 
     // init node
     int init(const NodeOptions& options);
@@ -607,10 +688,31 @@ public:
     // user trigger vote
     // reset election_timeout, suggest some peer to become the leader in a
     // higher probability
-    void vote(int election_timeout);
+    butil::Status vote(int election_timeout);
 
-    // reset the election_timeout for the very node
-    void reset_election_timeout_ms(int election_timeout_ms);
+    // Reset the |election_timeout_ms| for the very node, the |max_clock_drift_ms|
+    // is also adjusted to keep the sum of |election_timeout_ms| and |the max_clock_drift_ms|
+    // unchanged.
+    butil::Status reset_election_timeout_ms(int election_timeout_ms);
+
+    // Forcely reset |election_timeout_ms| and |max_clock_drift_ms|. It may break
+    // leader lease safety, should be careful.
+    // Following are suggestions for you to change |election_timeout_ms| safely.
+    // 1. Three steps to safely upgrade |election_timeout_ms| to a larger one:
+    //     - Enlarge |max_clock_drift_ms| in all peers to make sure
+    //       |old election_timeout_ms + new max_clock_drift_ms| larger than
+    //       |new election_timeout_ms + old max_clock_drift_ms|.
+    //     - Wait at least |old election_timeout_ms + new max_clock_drift_ms| times to make
+    //       sure all previous elections complete.
+    //     - Upgrade |election_timeout_ms| to new one, meanwhiles |max_clock_drift_ms|
+    //       can set back to the old value.
+    // 2. Three steps to safely upgrade |election_timeout_ms| to a smaller one:
+    //     - Adjust |election_timeout_ms| and |max_clock_drift_ms| at the same time,
+    //       to make the sum of |election_timeout_ms + max_clock_drift_ms| unchanged.
+    //     - Wait at least |election_timeout_ms + max_clock_drift_ms| times to make
+    //       sure all previous elections complete.
+    //     - Upgrade |max_clock_drift_ms| back to the old value.
+    void reset_election_timeout_ms(int election_timeout_ms, int max_clock_drift_ms);
 
     // Try transferring leadership to |peer|.
     // If peer is ANY_PEER, a proper follower will be chosen as the leader for
@@ -635,7 +737,7 @@ public:
 
     // Make this node enter readonly mode.
     // Readonly mode should only be used to protect the system in some extreme cases.
-    // For exampe, in a storage system, too many write requests flood into the system
+    // For example, in a storage system, too many write requests flood into the system
     // unexpectly, and the system is in the danger of exhaust capacity. There's not enough
     // time to add new machines, and wait for capacity balance. Once many disks become
     // full, quorum dead happen to raft groups. One choice in this example is readonly
@@ -717,6 +819,26 @@ int bootstrap(const BootstrapOptions& options);
 int add_service(brpc::Server* server, const butil::EndPoint& listen_addr);
 int add_service(brpc::Server* server, int port);
 int add_service(brpc::Server* server, const char* listen_ip_and_port);
+
+// GC
+struct GCOptions {
+    // Versioned-groupid of this raft instance. 
+    // Version is necessary because instance with the same groupid may be created 
+    // again very soon after destroyed.
+    VersionedGroupId vgid;
+    std::string log_uri;
+    std::string raft_meta_uri;
+    std::string snapshot_uri;
+};
+
+// TODO What if a disk is dropped and added again without released from 
+// global_mss_manager? It seems ok because all the instance on that disk would
+// be destroyed before dropping the disk itself, so there would be no garbage. 
+// 
+// GC the data of a raft instance when destroying the instance by some reason.
+//
+// Returns 0 on success, -1 otherwise.
+int gc_raft_data(const GCOptions& gc_options);
 
 }  //  namespace braft
 

@@ -98,7 +98,8 @@ int FSMCaller::run(void* meta, bthread::TaskIterator<ApplyTask>& iter) {
                 delete iter->status;
                 break;
             case LEADER_START:
-                caller->do_leader_start(iter->term);
+                caller->do_leader_start(*(iter->leader_start_context));
+                delete iter->leader_start_context;
                 break;
             case START_FOLLOWING:
                 caller->_cur_task = START_FOLLOWING;
@@ -430,19 +431,26 @@ int FSMCaller::on_leader_stop(const butil::Status& status) {
     return 0;
 }
 
-int FSMCaller::on_leader_start(int64_t term) {
+int FSMCaller::on_leader_start(int64_t term, int64_t lease_epoch) {
     ApplyTask task;
     task.type = LEADER_START;
-    task.term = term;
-    return bthread::execution_queue_execute(_queue_id, task);
+    LeaderStartContext* on_leader_start_context =
+        new LeaderStartContext(term, lease_epoch);
+    task.leader_start_context = on_leader_start_context;
+    if (bthread::execution_queue_execute(_queue_id, task) != 0) {
+        delete on_leader_start_context;
+        return -1;
+    }
+    return 0;
 }
 
 void FSMCaller::do_leader_stop(const butil::Status& status) {
     _fsm->on_leader_stop(status);
 }
 
-void FSMCaller::do_leader_start(int64_t term) {
-    _fsm->on_leader_start(term);
+void FSMCaller::do_leader_start(const LeaderStartContext& leader_start_context) {
+    _node->leader_lease_start(leader_start_context.lease_epoch);
+    _fsm->on_leader_start(leader_start_context.term);
 }
 
 int FSMCaller::on_start_following(const LeaderChangeContext& start_following_context) {

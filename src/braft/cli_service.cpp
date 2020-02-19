@@ -198,7 +198,6 @@ void CliServiceImpl::get_leader(::google::protobuf::RpcController* controller,
     brpc::Controller* cntl = (brpc::Controller*)controller;
     brpc::ClosureGuard done_guard(done);
     std::vector<scoped_refptr<NodeImpl> > nodes;
-    NodeManager* const nm = NodeManager::GetInstance();
     if (request->has_peer_id()) {
         PeerId peer;
         if (peer.parse(request->peer_id()) != 0) {
@@ -206,12 +205,13 @@ void CliServiceImpl::get_leader(::google::protobuf::RpcController* controller,
                                     request->peer_id().c_str());
             return;
         }
-        scoped_refptr<NodeImpl> node = nm->get(request->group_id(), peer);
+        scoped_refptr<NodeImpl> node = 
+                            global_node_manager->get(request->group_id(), peer);
         if (node) {
             nodes.push_back(node);
         }
     } else {
-        nm->get_nodes_by_group_id(request->group_id(), &nodes);
+        global_node_manager->get_nodes_by_group_id(request->group_id(), &nodes);
     }
     if (nodes.empty()) {
         cntl->SetFailed(ENOENT, "No nodes in group %s",
@@ -232,9 +232,8 @@ void CliServiceImpl::get_leader(::google::protobuf::RpcController* controller,
 butil::Status CliServiceImpl::get_node(scoped_refptr<NodeImpl>* node,
                                       const GroupId& group_id,
                                       const std::string& peer_id) {
-    NodeManager* const nm = NodeManager::GetInstance();
     if (!peer_id.empty()) {
-        *node = nm->get(group_id, peer_id);
+        *node = global_node_manager->get(group_id, peer_id);
         if (!(*node)) {
             return butil::Status(ENOENT, "Fail to find node %s in group %s",
                                          peer_id.c_str(),
@@ -242,7 +241,7 @@ butil::Status CliServiceImpl::get_node(scoped_refptr<NodeImpl>* node,
         }
     } else {
         std::vector<scoped_refptr<NodeImpl> > nodes;
-        nm->get_nodes_by_group_id(group_id, &nodes);
+        global_node_manager->get_nodes_by_group_id(group_id, &nodes);
         if (nodes.empty()) {
             return butil::Status(ENOENT, "Fail to find node in group %s",
                                          group_id.c_str());

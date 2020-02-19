@@ -82,6 +82,8 @@ private:
     std::set<butil::EndPoint> _addr_set;
 };
 
+#define global_node_manager NodeManager::GetInstance()
+
 }   //  namespace braft
 
 #endif  // BRAFT_NODE_MANAGER_H

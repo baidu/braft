@@ -14,7 +14,7 @@
 
 // Authors: Wang,Yao(wangyao02@baidu.com)
 //          Zhangyi Chen(chenzhangyi01@baidu.com)
-//          Xiong,Kai(xionkai@baidu.com)
+//          Xiong,Kai(xiongkai@baidu.com)
 
 #include <bthread/unstable.h>
 #include <brpc/errno.pb.h>
@@ -53,6 +53,14 @@ DEFINE_int32(raft_max_append_entries_cache_size, 8,
             "the max size of out-of-order append entries cache");
 BRPC_VALIDATE_GFLAG(raft_max_append_entries_cache_size, ::brpc::PositiveInteger);
 
+DEFINE_int64(raft_append_entry_high_lat_us, 1000 * 1000,
+             "append entry high latency us");
+BRPC_VALIDATE_GFLAG(raft_append_entry_high_lat_us, brpc::PositiveInteger);
+
+DEFINE_bool(raft_trace_append_entry_latency, false,
+             "trace append entry latency");
+BRPC_VALIDATE_GFLAG(raft_trace_append_entry_latency, brpc::PassValidate);
+
 #ifndef UNIT_TEST
 static bvar::Adder<int64_t> g_num_nodes("raft_node_count");
 #else
@@ -80,6 +88,7 @@ public:
         if (status().ok()) {
             _node->on_configuration_change_done(_term);
             if (_leader_start) {
+                _node->leader_lease_start(_lease_epoch);
                 _node->_options.fsm->on_leader_start(_term);
             }
         }
@@ -87,10 +96,11 @@ public:
     }
 private:
     ConfigurationChangeDone(
-            NodeImpl* node, int64_t term, bool leader_start)
+            NodeImpl* node, int64_t term, bool leader_start, int64_t lease_epoch)
         : _node(node)
         , _term(term)
         , _leader_start(leader_start)
+        , _lease_epoch(lease_epoch)
     {
         _node->AddRef();
     }
@@ -102,6 +112,7 @@ friend class NodeImpl;
     NodeImpl* _node;
     int64_t _term;
     bool _leader_start;
+    int64_t _lease_epoch;
 };
 
 inline int random_timeout(int timeout_ms) {
@@ -119,6 +130,7 @@ NodeImpl::NodeImpl(const GroupId& group_id, const PeerId& peer_id)
     , _current_term(0)
     , _last_leader_timestamp(butil::monotonic_time_ms())
     , _group_id(group_id)
+    , _server_id(peer_id)
     , _conf_ctx(this)
     , _log_storage(NULL)
     , _meta_storage(NULL)
@@ -135,7 +147,7 @@ NodeImpl::NodeImpl(const GroupId& group_id, const PeerId& peer_id)
     , _append_entries_cache_version(0)
     , _node_readonly(false)
     , _majority_nodes_readonly(false) {
-    _server_id = peer_id;
+    butil::string_printf(&_v_group_id, "%s_%d", _group_id.c_str(), _server_id.idx);
     AddRef();
     g_num_nodes << 1;
 }
@@ -145,6 +157,7 @@ NodeImpl::NodeImpl()
     , _current_term(0)
     , _last_leader_timestamp(butil::monotonic_time_ms())
     , _group_id()
+    , _server_id()
     , _conf_ctx(this)
     , _log_storage(NULL)
     , _meta_storage(NULL)
@@ -156,8 +169,13 @@ NodeImpl::NodeImpl()
     , _snapshot_executor(NULL)
     , _stop_transfer_arg(NULL)
     , _vote_triggered(false)
-    , _waking_candidate(0) {
-        AddRef();
+    , _waking_candidate(0)
+    , _append_entries_cache(NULL)
+    , _append_entries_cache_version(0)
+    , _node_readonly(false)
+    , _majority_nodes_readonly(false) {
+    butil::string_printf(&_v_group_id, "%s_%d", _group_id.c_str(), _server_id.idx);
+    AddRef();
     g_num_nodes << 1;
 }
 
@@ -185,16 +203,15 @@ NodeImpl::~NodeImpl() {
         delete _ballot_box;
         _ballot_box = NULL;
     }
-
+    if (_closure_queue) {
+        delete _closure_queue;
+        _closure_queue = NULL;
+    }
     if (_options.node_owns_log_storage) {
         if (_log_storage) {
             delete _log_storage;
             _log_storage = NULL;
         }
-    }
-    if (_closure_queue) {
-        delete _closure_queue;
-        _closure_queue = NULL;
     }
     if (_meta_storage) {
         delete _meta_storage;
@@ -257,36 +274,37 @@ int NodeImpl::init_log_storage() {
 }
 
 int NodeImpl::init_meta_storage() {
-    int ret = 0;
+    // create stable storage
+    _meta_storage = RaftMetaStorage::create(_options.raft_meta_uri);
+    if (!_meta_storage) {
+        LOG(WARNING) << "node " << _group_id << ":" << _server_id
+                     << " failed to create meta storage, uri " 
+                     << _options.raft_meta_uri; 
+        return ENOENT;
+    }
 
-    do {
-        _meta_storage = RaftMetaStorage::create(_options.raft_meta_uri);
-        if (!_meta_storage) {
-            LOG(WARNING) << "node " << _group_id << ":" << _server_id
-                << " find meta storage failed, uri " << _options.raft_meta_uri;
-            ret = ENOENT;
-            break;
-        }
+    // check init
+    butil::Status status = _meta_storage->init();
+    if (!status.ok()) {
+        LOG(WARNING) << "node " << _group_id << ":" << _server_id
+                     << " failed to init meta storage, uri " 
+                     << _options.raft_meta_uri 
+                     << ", error " << status;
+        return status.error_code();
+    }
+    
+    // get term and votedfor
+    status = _meta_storage->
+                get_term_and_votedfor(&_current_term, &_voted_id, _v_group_id);
+    if (!status.ok()) {
+        LOG(WARNING) << "node " << _group_id << ":" << _server_id
+                     << " failed to get term and voted_id when init meta storage,"
+                     << " uri " << _options.raft_meta_uri 
+                     << ", error " << status;
+        return status.error_code();
+    }
 
-        ret = _meta_storage->init();
-        if (ret != 0) {
-            LOG(WARNING) << "node " << _group_id << ":" << _server_id
-                         << " init meta storage failed, uri " << _options.raft_meta_uri
-                         << " ret " << ret;
-            break;
-        }
-
-        _current_term = _meta_storage->get_term();
-        ret = _meta_storage->get_votedfor(&_voted_id);
-        if (ret != 0) {
-            LOG(WARNING) << "node " << _group_id << ":" << _server_id
-                         << " meta storage get_votedfor failed, uri " 
-                         << _options.raft_meta_uri << " ret " << ret;
-            break;
-        }
-    } while (0);
-
-    return ret;
+    return 0;
 }
 
 void NodeImpl::handle_snapshot_timeout() {
@@ -378,8 +396,12 @@ int NodeImpl::bootstrap(const BootstrapOptions& options) {
     }
     if (_current_term == 0) {
         _current_term = 1;
-        if (_meta_storage->set_term_and_votedfor(1, PeerId()) != 0) {
-            LOG(ERROR) << "Fail to set term";
+        butil::Status status = _meta_storage->
+                                set_term_and_votedfor(1, PeerId(), _v_group_id);
+        if (!status.ok()) {
+            // TODO add group_id 
+            LOG(ERROR) << "Fail to set term and votedfor when bootstrap,"
+                          " error: " << status;
             return -1;
         }
         return -1;
@@ -438,14 +460,14 @@ int NodeImpl::init(const NodeOptions& options) {
         return -1;
     }
 
-    if (!NodeManager::GetInstance()->server_exists(_server_id.addr)) {
+    if (!global_node_manager->server_exists(_server_id.addr)) {
         LOG(ERROR) << "Group " << _group_id
                    << " No RPC Server attached to " << _server_id.addr
                    << ", did you forget to call braft::add_service()?";
         return -1;
     }
 
-    CHECK_EQ(0, _vote_timer.init(this, options.election_timeout_ms));
+    CHECK_EQ(0, _vote_timer.init(this, options.election_timeout_ms + options.max_clock_drift_ms));
     CHECK_EQ(0, _election_timer.init(this, options.election_timeout_ms));
     CHECK_EQ(0, _stepdown_timer.init(this, options.election_timeout_ms));
     CHECK_EQ(0, _snapshot_timer.init(this, options.snapshot_interval_s * 1000));
@@ -468,6 +490,9 @@ int NodeImpl::init(const NodeOptions& options) {
 
     // Create _fsm_caller first as log_manager needs it to report error
     _fsm_caller = new FSMCaller();
+
+    _leader_lease.init(options.election_timeout_ms);
+    _follower_lease.init(options.election_timeout_ms, options.max_clock_drift_ms);
 
     // log storage and log manager init
     if (init_log_storage() != 0) {
@@ -561,7 +586,7 @@ int NodeImpl::init(const NodeOptions& options) {
     }
 
     // add node to NodeManager
-    if (!NodeManager::GetInstance()->add(this)) {
+    if (!global_node_manager->add(this)) {
         LOG(ERROR) << "NodeManager add " << _group_id 
                    << ":" << _server_id << " failed";
         return -1;
@@ -686,7 +711,7 @@ void NodeImpl::on_caughtup(const PeerId& peer, int64_t term,
     // Retry if this peer is still alive
     if (st.error_code() == ETIMEDOUT 
             && (butil::monotonic_time_ms()
-                -  _replicator_group.last_rpc_send_timestamp(peer))
+                - _replicator_group.last_rpc_send_timestamp(peer))
                     <= _options.election_timeout_ms) {
 
         LOG(INFO) << "node " << _group_id << ":" << _server_id
@@ -902,7 +927,7 @@ void NodeImpl::shutdown(Closure* done) {
         if (_state < STATE_SHUTTING) {  // Got the right to shut
             // Remove node from NodeManager and |this| would not be accessed by
             // the coming RPCs
-            NodeManager::GetInstance()->remove(this);
+            global_node_manager->remove(this);
             // if it is leader, set the wakeup_a_candidate with true,
             // if it is follower, call on_stop_following in step_down
             if (_state <= STATE_FOLLOWER) {
@@ -976,10 +1001,9 @@ void NodeImpl::handle_election_timeout() {
         return;
     }
 
-    // check timestamp, skip one cycle check when trigger vote
-    if (!_vote_triggered &&
-            (butil::monotonic_time_ms() - _last_leader_timestamp) 
-            < _options.election_timeout_ms) {
+    // Trigger vote manually, or wait until follower lease expire.
+    if (!_vote_triggered && !_follower_lease.expired()) {
+
         return;
     }
     _vote_triggered = false;
@@ -1079,7 +1103,8 @@ void NodeImpl::handle_transfer_timeout(int64_t term, const PeerId& peer) {
     if (term == _current_term) {
         _replicator_group.stop_transfer_leadership(peer);
         if (_state == STATE_TRANSFERRING) {
-            _fsm_caller->on_leader_start(term);
+            _leader_lease.on_leader_start(term);
+            _fsm_caller->on_leader_start(term, _leader_lease.lease_epoch());
             _state = STATE_LEADER;
             _stop_transfer_arg = NULL;
         }
@@ -1145,6 +1170,7 @@ int NodeImpl::transfer_leadership_to(const PeerId& peer) {
     butil::Status status;
     status.set_error(ETRANSFERLEADERSHIP, "Raft leader is transferring "
             "leadership to %s", peer_id.to_string().c_str());
+    _leader_lease.on_leader_stop();
     _fsm_caller->on_leader_stop(status);
     LOG(INFO) << "node " << _group_id << ":" << _server_id
               << " starts to transfer leadership to " << peer_id;
@@ -1160,33 +1186,73 @@ int NodeImpl::transfer_leadership_to(const PeerId& peer) {
     return 0;
 }
 
-void NodeImpl::vote(int election_timeout) {
+butil::Status NodeImpl::vote(int election_timeout_ms) {
     std::unique_lock<raft_mutex_t> lck(_mutex);
-    _options.election_timeout_ms = election_timeout;
-    _replicator_group.reset_heartbeat_interval(
-            heartbeat_timeout(_options.election_timeout_ms));
-    _replicator_group.reset_election_timeout_interval(_options.election_timeout_ms);
     if (_state != STATE_FOLLOWER) {
-        return;
+        return butil::Status(EPERM, "is not follower");
     }
+    int max_election_timeout_ms = _options.max_clock_drift_ms + _options.election_timeout_ms;
+    if (election_timeout_ms > max_election_timeout_ms) {
+        return butil::Status(EINVAL, "election_timeout_ms larger than safety threshold");
+    }
+    election_timeout_ms = std::min(election_timeout_ms, max_election_timeout_ms);
+    int max_clock_drift_ms = max_election_timeout_ms - election_timeout_ms;
+    unsafe_reset_election_timeout_ms(election_timeout_ms, max_clock_drift_ms);
     _vote_triggered = true;
+    const int64_t saved_current_term = _current_term;
+    const State saved_state = _state;
+    lck.unlock();
+
     LOG(INFO) << "node " << _group_id << ":" << _server_id << " trigger-vote,"
-        " current_term " << _current_term << " state " << state2str(_state) <<
-        " election_timeout " << election_timeout;
-    _election_timer.reset(election_timeout);
+        " current_term " << saved_current_term << " state " << state2str(saved_state) <<
+        " election_timeout " << election_timeout_ms;
+    return butil::Status();
 }
 
-void NodeImpl::reset_election_timeout_ms(int election_timeout_ms) {
+butil::Status NodeImpl::reset_election_timeout_ms(int election_timeout_ms) {
     std::unique_lock<raft_mutex_t> lck(_mutex);
+    int max_election_timeout_ms = _options.max_clock_drift_ms + _options.election_timeout_ms;
+    if (election_timeout_ms > max_election_timeout_ms) {
+        return butil::Status(EINVAL, "election_timeout_ms larger than safety threshold");
+    }
+    election_timeout_ms = std::min(election_timeout_ms, max_election_timeout_ms);
+    int max_clock_drift_ms = max_election_timeout_ms - election_timeout_ms;
+    unsafe_reset_election_timeout_ms(election_timeout_ms, max_clock_drift_ms);
+    const int64_t saved_current_term = _current_term;
+    const State saved_state = _state;
+    lck.unlock();
+
+    LOG(INFO) << "node " << _group_id << ":" << _server_id << " reset_election_timeout,"
+        " current_term " << saved_current_term << " state " << state2str(saved_state) <<
+        " new election_timeout " << election_timeout_ms << " new clock_drift_ms " <<
+        max_clock_drift_ms;
+    return butil::Status();
+}
+
+void NodeImpl::reset_election_timeout_ms(int election_timeout_ms,
+                                         int max_clock_drift_ms) {
+    std::unique_lock<raft_mutex_t> lck(_mutex);
+    unsafe_reset_election_timeout_ms(election_timeout_ms, max_clock_drift_ms);
+    const int64_t saved_current_term = _current_term;
+    const State saved_state = _state;
+    lck.unlock();
+
+   LOG(INFO) << "node " << _group_id << ":" << _server_id << " reset_election_timeout,"
+        " current_term " << saved_current_term << " state " << state2str(saved_state) <<
+        " new election_timeout " << election_timeout_ms << " new clock_drift_ms " <<
+        max_clock_drift_ms;
+}
+
+void NodeImpl::unsafe_reset_election_timeout_ms(int election_timeout_ms,
+                                                int max_clock_drift_ms) {
     _options.election_timeout_ms = election_timeout_ms;
+    _options.max_clock_drift_ms = max_clock_drift_ms;
     _replicator_group.reset_heartbeat_interval(
             heartbeat_timeout(_options.election_timeout_ms));
     _replicator_group.reset_election_timeout_interval(_options.election_timeout_ms);
-    LOG(INFO) << "node " << _group_id << ":" << _server_id << " reset_election_timeout,"
-        " current_term " << _current_term << " state " << state2str(_state) <<
-        " new election_timeout " << election_timeout_ms;
-
     _election_timer.reset(election_timeout_ms);
+    _leader_lease.reset_election_timeout_ms(election_timeout_ms);
+    _follower_lease.reset_election_timeout_ms(election_timeout_ms, _options.max_clock_drift_ms);
 }
 
 void NodeImpl::on_error(const Error& e) {
@@ -1236,8 +1302,17 @@ void NodeImpl::handle_vote_timeout() {
 }
 
 void NodeImpl::handle_request_vote_response(const PeerId& peer_id, const int64_t term,
+                                            const int64_t ctx_version,
                                             const RequestVoteResponse& response) {
     BAIDU_SCOPED_LOCK(_mutex);
+
+    if (ctx_version != _vote_ctx.version()) {
+        LOG(WARNING) << "node " << _group_id << ":" << _server_id
+                     << " received invalid RequestVoteResponse from " << peer_id
+                     << " ctx_version " << ctx_version
+                     << " current_ctx_version " << _vote_ctx.version();
+        return;
+    }
 
     // check state
     if (_state != STATE_CANDIDATE) {
@@ -1271,6 +1346,10 @@ void NodeImpl::handle_request_vote_response(const PeerId& peer_id, const int64_t
     // check if the quorum granted
     if (response.granted()) {
         _vote_ctx.grant(peer_id);
+        if (peer_id == _follower_lease.last_leader()) {
+            _vote_ctx.grant(_server_id);
+            _vote_ctx.stop_grant_self_timer(this);
+        }
         if (_vote_ctx.granted()) {
             become_leader();
         }
@@ -1278,9 +1357,10 @@ void NodeImpl::handle_request_vote_response(const PeerId& peer_id, const int64_t
 }
 
 struct OnRequestVoteRPCDone : public google::protobuf::Closure {
-    OnRequestVoteRPCDone(const PeerId& peer_id_, const int64_t term_, NodeImpl* node_)
-        : peer(peer_id_), term(term_), node(node_) {
-            node->AddRef();
+    OnRequestVoteRPCDone(const PeerId& peer_id_, const int64_t term_,
+                         const int64_t ctx_version_, NodeImpl* node_)
+        : peer(peer_id_), term(term_), ctx_version(ctx_version_), node(node_) {
+        node->AddRef();
     }
     virtual ~OnRequestVoteRPCDone() {
         node->Release();
@@ -1294,13 +1374,14 @@ struct OnRequestVoteRPCDone : public google::protobuf::Closure {
 	                         << " error: " << cntl.ErrorText();
                 break;
             }
-            node->handle_request_vote_response(peer, term, response);
+            node->handle_request_vote_response(peer, term, ctx_version, response);
         } while (0);
         delete this;
     }
 
     PeerId peer;
     int64_t term;
+    int64_t ctx_version;
     RequestVoteRequest request;
     RequestVoteResponse response;
     brpc::Controller cntl;
@@ -1308,8 +1389,17 @@ struct OnRequestVoteRPCDone : public google::protobuf::Closure {
 };
 
 void NodeImpl::handle_pre_vote_response(const PeerId& peer_id, const int64_t term,
-                                            const RequestVoteResponse& response) {
+                                        const int64_t ctx_version,
+                                        const RequestVoteResponse& response) {
     std::unique_lock<raft_mutex_t> lck(_mutex);
+
+    if (ctx_version != _pre_vote_ctx.version()) {
+        LOG(WARNING) << "node " << _group_id << ":" << _server_id
+                     << " received invalid PreVoteResponse from " << peer_id
+                     << " ctx_version " << ctx_version
+                     << "current_ctx_version " << _pre_vote_ctx.version();
+        return;
+    }
 
     // check state
     if (_state != STATE_FOLLOWER) {
@@ -1343,6 +1433,10 @@ void NodeImpl::handle_pre_vote_response(const PeerId& peer_id, const int64_t ter
     // check if the quorum granted
     if (response.granted()) {
         _pre_vote_ctx.grant(peer_id);
+        if (peer_id == _follower_lease.last_leader()) {
+            _pre_vote_ctx.grant(_server_id);
+            _pre_vote_ctx.stop_grant_self_timer(this);
+        }
         if (_pre_vote_ctx.granted()) {
             elect_self(&lck);
         }
@@ -1350,9 +1444,10 @@ void NodeImpl::handle_pre_vote_response(const PeerId& peer_id, const int64_t ter
 }
 
 struct OnPreVoteRPCDone : public google::protobuf::Closure {
-    OnPreVoteRPCDone(const PeerId& peer_id_, const int64_t term_, NodeImpl* node_)
-        : peer(peer_id_), term(term_), node(node_) {
-            node->AddRef();
+    OnPreVoteRPCDone(const PeerId& peer_id_, const int64_t term_,
+                     const int64_t ctx_version_, NodeImpl* node_)
+        : peer(peer_id_), term(term_), ctx_version(ctx_version_), node(node_) {
+        node->AddRef();
     }
     virtual ~OnPreVoteRPCDone() {
         node->Release();
@@ -1366,13 +1461,14 @@ struct OnPreVoteRPCDone : public google::protobuf::Closure {
                              << " error: " << cntl.ErrorText();
                 break;
             }
-            node->handle_pre_vote_response(peer, term, response);
+            node->handle_pre_vote_response(peer, term, ctx_version, response);
         } while (0);
         delete this;
     }
 
     PeerId peer;
     int64_t term;
+    int64_t ctx_version;
     RequestVoteRequest request;
     RequestVoteResponse response;
     brpc::Controller cntl;
@@ -1407,9 +1503,10 @@ void NodeImpl::pre_vote(std::unique_lock<raft_mutex_t>* lck) {
         return;
     }
 
-    _pre_vote_ctx.init(_conf.conf, _conf.stable() ? NULL : &_conf.old_conf);
+    _pre_vote_ctx.init(this);
     std::set<PeerId> peers;
     _conf.list_peers(&peers);
+
     for (std::set<PeerId>::const_iterator
             iter = peers.begin(); iter != peers.end(); ++iter) {
         if (*iter == _server_id) {
@@ -1425,7 +1522,8 @@ void NodeImpl::pre_vote(std::unique_lock<raft_mutex_t>* lck) {
             continue;
         }
 
-        OnPreVoteRPCDone* done = new OnPreVoteRPCDone(*iter, _current_term, this);
+        OnPreVoteRPCDone* done = new OnPreVoteRPCDone(
+                *iter, _current_term, _pre_vote_ctx.version(), this);
         done->cntl.set_timeout_ms(_options.election_timeout_ms);
         done->request.set_group_id(_group_id);
         done->request.set_server_id(_server_id.to_string());
@@ -1437,11 +1535,7 @@ void NodeImpl::pre_vote(std::unique_lock<raft_mutex_t>* lck) {
         RaftService_Stub stub(&channel);
         stub.pre_vote(&done->cntl, &done->request, &done->response, done);
     }
-    _pre_vote_ctx.grant(_server_id);
-
-    if (_pre_vote_ctx.granted()) {
-        elect_self(lck);
-    }
+    grant_self(&_pre_vote_ctx, lck);
 }
 
 // in lock
@@ -1462,9 +1556,8 @@ void NodeImpl::elect_self(std::unique_lock<raft_mutex_t>* lck) {
     // reset leader_id before vote
     PeerId empty_id;
     butil::Status status;
-    status.set_error(ERAFTTIMEDOUT,
-            "A follower's leader_id is reset to NULL "
-            "as it begins to request_vote.");
+    status.set_error(ERAFTTIMEDOUT, "A follower's leader_id is reset to NULL "
+                                    "as it begins to request_vote.");
     reset_leader_id(empty_id, status);
 
     _state = STATE_CANDIDATE;
@@ -1474,8 +1567,8 @@ void NodeImpl::elect_self(std::unique_lock<raft_mutex_t>* lck) {
     BRAFT_VLOG << "node " << _group_id << ":" << _server_id
                << " term " << _current_term << " start vote_timer";
     _vote_timer.start();
-
-    _vote_ctx.init(_conf.conf, _conf.stable() ? NULL : &_conf.old_conf);
+    _pre_vote_ctx.reset(this);
+    _vote_ctx.init(this);
 
     int64_t old_term = _current_term;
     // get last_log_id outof node mutex
@@ -1507,7 +1600,8 @@ void NodeImpl::elect_self(std::unique_lock<raft_mutex_t>* lck) {
             continue;
         }
 
-        OnRequestVoteRPCDone* done = new OnRequestVoteRPCDone(*iter, _current_term, this);
+        OnRequestVoteRPCDone* done =
+            new OnRequestVoteRPCDone(*iter, _current_term, _vote_ctx.version(), this);
         done->cntl.set_timeout_ms(_options.election_timeout_ms);
         done->request.set_group_id(_group_id);
         done->request.set_server_id(_server_id.to_string());
@@ -1521,11 +1615,17 @@ void NodeImpl::elect_self(std::unique_lock<raft_mutex_t>* lck) {
     }
 
     //TODO: outof lock
-    _meta_storage->set_term_and_votedfor(_current_term, _server_id);
-    _vote_ctx.grant(_server_id);
-    if (_vote_ctx.granted()) {
-        become_leader();
+    status = _meta_storage->
+                    set_term_and_votedfor(_current_term, _server_id, _v_group_id);
+    if (!status.ok()) {
+         LOG(ERROR) << "node " << _group_id << ":" << _server_id
+                   << " fail to set_term_and_votedfor itself when elect_self,"
+                      " error: " << status;
+         // reset _voted_id to avoid inconsistent cases
+         // return immediately without granting _vote_ctx
+         _voted_id.reset(); 
     }
+    grant_self(&_vote_ctx, lck);
 }
 
 // in lock
@@ -1543,13 +1643,16 @@ void NodeImpl::step_down(const int64_t term, bool wakeup_a_candidate,
     // delete timer and something else
     if (_state == STATE_CANDIDATE) {
         _vote_timer.stop();
+        _vote_ctx.reset(this);
+    } else if (_state == STATE_FOLLOWER) {
+        _pre_vote_ctx.reset(this);
     } else if (_state <= STATE_TRANSFERRING) {
         _stepdown_timer.stop();
-
         _ballot_box->clear_pending_tasks();
 
         // signal fsm leader stop immediately
-        if (_state  == STATE_LEADER) {
+        if (_state == STATE_LEADER) {
+            _leader_lease.on_leader_stop();
             _fsm_caller->on_leader_stop(status);
         }
     }
@@ -1562,7 +1665,6 @@ void NodeImpl::step_down(const int64_t term, bool wakeup_a_candidate,
     _state = STATE_FOLLOWER;
     // _conf_ctx.reset() will stop replicators of catching up nodes
     _conf_ctx.reset();
-    _last_leader_timestamp = butil::monotonic_time_ms();
     _majority_nodes_readonly = false;
 
     clear_append_entries_cache();
@@ -1576,7 +1678,14 @@ void NodeImpl::step_down(const int64_t term, bool wakeup_a_candidate,
         _current_term = term;
         _voted_id.reset();
         //TODO: outof lock
-        _meta_storage->set_term_and_votedfor(term, _voted_id);
+        butil::Status status = _meta_storage->
+                    set_term_and_votedfor(term, _voted_id, _v_group_id);
+        if (!status.ok()) {
+            LOG(ERROR) << "node " << _group_id << ":" << _server_id
+                       << " fail to set_term_and_votedfor when step_down, error: "
+                       << status;
+            // TODO report error
+        }
     }
 
     // stop stagging new node
@@ -1615,6 +1724,7 @@ void NodeImpl::reset_leader_id(const PeerId& new_leader_id,
         _leader_id.reset();
     } else {
         if (_leader_id.is_empty()) {
+            _pre_vote_ctx.reset(this);
             LeaderChangeContext start_following_context(new_leader_id, 
                     _current_term, status);
             _fsm_caller->on_start_following(start_following_context);
@@ -1645,6 +1755,21 @@ void NodeImpl::check_step_down(const int64_t request_term, const PeerId& server_
     }
 }
 
+class LeaderStartClosure : public Closure {
+public:
+    LeaderStartClosure(StateMachine* fsm, int64_t term) : _fsm(fsm), _term(term) {}
+    ~LeaderStartClosure() {}
+    void Run() {
+        if (status().ok()) {
+            _fsm->on_leader_start(_term);
+        }
+        delete this;
+    }
+private:
+    StateMachine* _fsm;
+    int64_t _term;
+};
+
 // in lock
 void NodeImpl::become_leader() {
     CHECK(_state == STATE_CANDIDATE);
@@ -1654,11 +1779,14 @@ void NodeImpl::become_leader() {
               << " " << _conf.old_conf;
     // cancel candidate vote timer
     _vote_timer.stop();
+    _vote_ctx.reset(this);
 
     _state = STATE_LEADER;
     _leader_id = _server_id;
 
     _replicator_group.reset_term(_current_term);
+    _follower_lease.reset();
+    _leader_lease.on_leader_start(_current_term);
 
     std::set<PeerId> peers;
     _conf.list_peers(&peers);
@@ -1712,6 +1840,18 @@ void LeaderStableClosure::Run() {
             // ballot_box check quorum ok, will call fsm_caller
             _ballot_box->commit_at(
                     _first_log_index, _first_log_index + _nentries - 1, _node_id.peer_id);
+        }
+        int64_t now = butil::cpuwide_time_us();
+        if (FLAGS_raft_trace_append_entry_latency && 
+            now - metric.start_time_us > (int64_t)FLAGS_raft_append_entry_high_lat_us) {
+            LOG(WARNING) << "leader append entry latency us " << (now - metric.start_time_us) 
+                         << " greater than " 
+                         << FLAGS_raft_append_entry_high_lat_us
+                         << metric
+                         << " node " << _node_id
+                         << " log_index [" << _first_log_index 
+                         << ", " << _first_log_index + _nentries - 1
+                         << "]";
         }
     } else {
         LOG(ERROR) << "node " << _node_id << " append [" << _first_log_index << ", "
@@ -1792,7 +1932,7 @@ void NodeImpl::unsafe_apply_configuration(const Configuration& new_conf,
         old_conf->list_peers(entry->old_peers);
     }
     ConfigurationChangeDone* configuration_change_done =
-            new ConfigurationChangeDone(this, _current_term, leader_start);
+            new ConfigurationChangeDone(this, _current_term, leader_start, _leader_lease.lease_epoch());
     // Use the new_conf to deal the quorum of this very log
     _ballot_box->append_pending_task(new_conf, old_conf, configuration_change_done);
 
@@ -1830,12 +1970,14 @@ int NodeImpl::handle_pre_vote_request(const RequestVoteRequest* request,
 
     bool granted = false;
     do {
-        if (request->term() < _current_term) {
+        int64_t votable_time = _follower_lease.votable_time_from_now();
+        if (request->term() < _current_term || votable_time > 0) {
             // ignore older term
             LOG(INFO) << "node " << _group_id << ":" << _server_id
                       << " ignore PreVote from " << request->server_id()
                       << " in term " << request->term()
-                      << " current_term " << _current_term;
+                      << " current_term " << _current_term
+                      << " votable_time_from_now " << votable_time;
             break;
         }
 
@@ -1886,7 +2028,8 @@ int NodeImpl::handle_request_vote_request(const RequestVoteRequest* request,
 
     do {
         // check term
-        if (request->term() >= _current_term) {
+        int64_t votable_time = _follower_lease.votable_time_from_now();
+        if (request->term() >= _current_term && votable_time == 0) {
             LOG(INFO) << "node " << _group_id << ":" << _server_id
                       << " received RequestVote from " << request->server_id()
                       << " in term " << request->term()
@@ -1903,7 +2046,8 @@ int NodeImpl::handle_request_vote_request(const RequestVoteRequest* request,
             LOG(INFO) << "node " << _group_id << ":" << _server_id
                       << " ignore RequestVote from " << request->server_id()
                       << " in term " << request->term()
-                      << " current_term " << _current_term;
+                      << " current_term " << _current_term
+                      << " votable_time_from_now " << votable_time;
             break;
         }
 
@@ -1928,7 +2072,16 @@ int NodeImpl::handle_request_vote_request(const RequestVoteRequest* request,
             step_down(request->term(), false, status);
             _voted_id = candidate_id;
             //TODO: outof lock
-            _meta_storage->set_votedfor(candidate_id);
+            status = _meta_storage->
+                    set_term_and_votedfor(_current_term, candidate_id, _v_group_id);
+            if (!status.ok()) {
+                LOG(ERROR) << "node " << _group_id << ":" << _server_id
+                           << " refuse to vote for " << request->server_id()
+                           << " because failed to set_votedfor it, error: "
+                           << status;
+                // reset _voted_id to response set_granted(false)
+                _voted_id.reset(); 
+            }
         }
     } while (0);
 
@@ -2009,8 +2162,20 @@ private:
                          // untrustable so we can't commit them even if their
                          // indexes are less than request->committed_index()
                         );
-        //_ballot_box is thread safe and tolerats disorder.
+        //_ballot_box is thread safe and tolerates disorder.
         _node->_ballot_box->set_last_committed_index(committed_index);
+        int64_t now = butil::cpuwide_time_us();
+        if (FLAGS_raft_trace_append_entry_latency && now - metric.start_time_us > 
+                (int64_t)FLAGS_raft_append_entry_high_lat_us) {
+            LOG(WARNING) << "follower append entry latency us " << (now - metric.start_time_us) 
+                         << " greater than " 
+                         << FLAGS_raft_append_entry_high_lat_us
+                         << metric
+                         << " node " << _node->node_id()
+                         << " log_index [" << _request->prev_log_index() + 1 
+                         << ", " << _request->prev_log_index() + _request->entries_size() - 1
+                         << "]";
+        }
     }
 
     brpc::Controller* _cntl;
@@ -2090,7 +2255,7 @@ void NodeImpl::handle_append_entries_request(brpc::Controller* cntl,
 
     if (!from_append_entries_cache) {
         // Requests from cache already updated timestamp
-        _last_leader_timestamp = butil::monotonic_time_ms();
+        _follower_lease.renew(_leader_id);
     }
 
     if (request->entries_size() > 0 &&
@@ -3056,6 +3221,198 @@ void NodeImpl::check_majority_nodes_readonly(const Configuration& conf) {
                   << " majority readonly change from " << (prev_readonly ? "enable" : "disable")
                   << " to " << (_majority_nodes_readonly ? " enable" : "disable");
     }
+}
+
+bool NodeImpl::is_leader_lease_valid() {
+    LeaderLeaseStatus lease_status;
+    get_leader_lease_status(&lease_status);
+    return lease_status.state == LEASE_VALID;
+}
+
+void NodeImpl::get_leader_lease_status(LeaderLeaseStatus* lease_status) {
+    // Fast path for leader to lease check
+    LeaderLease::LeaseInfo internal_info;
+    _leader_lease.get_lease_info(&internal_info);
+    switch (internal_info.state) {
+        case LeaderLease::DISABLED:
+            lease_status->state = LEASE_DISABLED;
+            return;
+        case LeaderLease::EXPIRED:
+            lease_status->state = LEASE_EXPIRED;
+            return;
+        case LeaderLease::NOT_READY:
+            lease_status->state = LEASE_NOT_READY;
+            return;
+        case LeaderLease::VALID:
+            lease_status->term = internal_info.term;
+            lease_status->lease_epoch = internal_info.lease_epoch;
+            lease_status->state = LEASE_VALID;
+            return;
+        case LeaderLease::SUSPECT:
+            // Need do heavy check to judge if a lease still valid.
+            break;
+    }
+
+    BAIDU_SCOPED_LOCK(_mutex);
+    if (_state != STATE_LEADER) {
+        lease_status->state = LEASE_EXPIRED;
+        return;
+    }
+    int64_t last_active_timestamp = last_leader_active_timestamp();
+    _leader_lease.renew(last_active_timestamp);
+    _leader_lease.get_lease_info(&internal_info);
+    if (internal_info.state != LeaderLease::VALID && internal_info.state != LeaderLease::DISABLED) {
+        butil::Status status;
+        status.set_error(ERAFTTIMEDOUT, "Leader lease expired");
+        step_down(_current_term, false, status);
+        lease_status->state = LEASE_EXPIRED;
+    } else if (internal_info.state == LeaderLease::VALID) {
+        lease_status->term = internal_info.term;
+        lease_status->lease_epoch = internal_info.lease_epoch;
+        lease_status->state = LEASE_VALID;
+    } else {
+        lease_status->state = LEASE_DISABLED;
+    }
+}
+
+void NodeImpl::VoteBallotCtx::init(NodeImpl* node) {
+    ++_version;
+    _ballot.init(node->_conf.conf, node->_conf.stable() ? NULL : &(node->_conf.old_conf));
+    stop_grant_self_timer(node);
+}
+
+void NodeImpl::VoteBallotCtx::start_grant_self_timer(int64_t wait_ms, NodeImpl* node) {
+    timespec duetime = butil::milliseconds_from_now(wait_ms);
+    GrantSelfArg* timer_arg = new GrantSelfArg;
+    timer_arg->node = node;
+    timer_arg->vote_ctx_version = _version;
+    timer_arg->vote_ctx = this;
+    node->AddRef();
+    _grant_self_arg = timer_arg;
+    if (bthread_timer_add(
+                &_timer, duetime, NodeImpl::on_grant_self_timedout,
+                timer_arg) != 0) {
+        LOG(ERROR) << "Fail to add timer";
+        delete timer_arg;
+        _grant_self_arg = NULL;
+        node->Release();
+    }
+}
+
+void NodeImpl::VoteBallotCtx::stop_grant_self_timer(NodeImpl* node) {
+    if (_timer == bthread_timer_t()) {
+        return;
+    }
+    if (bthread_timer_del(_timer) == 0) {
+        node->Release();
+        delete _grant_self_arg;
+        _grant_self_arg = NULL;
+        _timer = bthread_timer_t();
+    }
+}
+
+void NodeImpl::VoteBallotCtx::reset(NodeImpl* node) {
+    stop_grant_self_timer(node);
+    ++_version;
+}
+
+void NodeImpl::grant_self(VoteBallotCtx* vote_ctx, std::unique_lock<raft_mutex_t>* lck) {
+    // If follower lease expired, we can safely grant self. Otherwise, we wait util:
+    // 1. last active leader vote the node, and we grant two votes together;
+    // 2. follower lease expire.
+    int64_t wait_ms = _follower_lease.votable_time_from_now();
+    if (wait_ms == 0) {
+        vote_ctx->grant(_server_id);
+        if (!vote_ctx->granted()) {
+            return;
+        }
+        if (vote_ctx == &_pre_vote_ctx) {
+            elect_self(lck);
+        } else {
+            become_leader();
+        }
+        return;
+    }
+    vote_ctx->start_grant_self_timer(wait_ms, this);
+}
+
+void NodeImpl::on_grant_self_timedout(void* arg) {
+    bthread_t tid;
+    if (bthread_start_background(
+                &tid, NULL, NodeImpl::handle_grant_self_timedout,
+                arg) != 0) {
+        PLOG(ERROR) << "Fail to start bthread";
+        NodeImpl::handle_grant_self_timedout(arg);
+    }
+}
+
+void* NodeImpl::handle_grant_self_timedout(void* arg) {
+    GrantSelfArg*  grant_arg = (GrantSelfArg*)arg;
+    NodeImpl*      node = grant_arg->node;
+    VoteBallotCtx* vote_ctx = grant_arg->vote_ctx;
+    int64_t        vote_ctx_version = grant_arg->vote_ctx_version;
+
+    delete grant_arg;
+
+    std::unique_lock<raft_mutex_t> lck(node->_mutex);
+    if (!is_active_state(node->_state) ||
+        vote_ctx->version() != vote_ctx_version) {
+        lck.unlock();
+        node->Release();
+        return NULL;
+    }
+    node->grant_self(vote_ctx, &lck);
+    lck.unlock();
+    node->Release();
+    return NULL;
+}
+
+void NodeImpl::leader_lease_start(int64_t lease_epoch) {
+    BAIDU_SCOPED_LOCK(_mutex);
+    if (_state == STATE_LEADER) {
+        _leader_lease.on_lease_start(
+                lease_epoch, last_leader_active_timestamp());
+    }
+}
+
+int64_t NodeImpl::last_leader_active_timestamp() {
+    int64_t timestamp = last_leader_active_timestamp(_conf.conf);
+    if (!_conf.old_conf.empty()) {
+        timestamp = std::min(timestamp, last_leader_active_timestamp(_conf.old_conf));
+    }
+    return timestamp;
+}
+
+struct LastActiveTimestampCompare {
+    bool operator()(const int64_t& a, const int64_t& b) {
+        return a > b;
+    }
+};
+
+int64_t NodeImpl::last_leader_active_timestamp(const Configuration& conf) {
+    std::vector<PeerId> peers;
+    conf.list_peers(&peers);
+    std::vector<int64_t> last_rpc_send_timestamps;
+    LastActiveTimestampCompare compare;
+    for (size_t i = 0; i < peers.size(); i++) {
+        if (peers[i] == _server_id) {
+            continue;
+        }
+
+        int64_t timestamp = _replicator_group.last_rpc_send_timestamp(peers[i]);
+        last_rpc_send_timestamps.push_back(timestamp);
+        std::push_heap(last_rpc_send_timestamps.begin(), last_rpc_send_timestamps.end(), compare);
+        if (last_rpc_send_timestamps.size() > peers.size() / 2) {
+            std::pop_heap(last_rpc_send_timestamps.begin(), last_rpc_send_timestamps.end(), compare);
+            last_rpc_send_timestamps.pop_back();
+        }
+    }
+    // Only one peer in the group.
+    if (last_rpc_send_timestamps.empty()) {
+        return butil::monotonic_time_ms();
+    }
+    std::pop_heap(last_rpc_send_timestamps.begin(), last_rpc_send_timestamps.end(), compare);
+    return last_rpc_send_timestamps.back();
 }
 
 // Timers

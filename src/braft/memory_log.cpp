@@ -71,7 +71,8 @@ int MemoryLogStorage::append_entry(const LogEntry* input_entry) {
     return 0;
 }
 
-int MemoryLogStorage::append_entries(const std::vector<LogEntry*>& entries) {
+int MemoryLogStorage::append_entries(const std::vector<LogEntry*>& entries, 
+                                     IOMetric* metric) {
     if (entries.empty()) {
         return 0;
     }
@@ -156,6 +157,10 @@ int MemoryLogStorage::reset(const int64_t next_log_index) {
 
 LogStorage* MemoryLogStorage::new_instance(const std::string& uri) const {
     return new MemoryLogStorage(uri);
+}
+
+butil::Status MemoryLogStorage::gc_instance(const std::string& uri) const {
+    return butil::Status::OK();
 }
 
 } //  namespace braft

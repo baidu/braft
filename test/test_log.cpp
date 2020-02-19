@@ -17,11 +17,17 @@
 #include <butil/logging.h>
 #include "braft/util.h"
 #include "braft/log.h"
+#include "braft/storage.h"
+
+namespace braft {
+DECLARE_bool(raft_trace_append_entry_latency);
+}
 
 class LogStorageTest : public testing::Test {
 protected:
     void SetUp() {
         braft::FLAGS_raft_sync = false;
+        GFLAGS_NS::SetCommandLineOption("minloglevel", "3");
     }
     void TearDown() {}
 };
@@ -268,7 +274,7 @@ TEST_F(LogStorageTest, multi_segment_and_segment_logstorage) {
             entries.push_back(entry);
         }
 
-        ASSERT_EQ(5, storage->append_entries(entries));
+        ASSERT_EQ(5, storage->append_entries(entries, NULL));
 
         for (size_t j = 0; j < entries.size(); j++) {
             entries[j]->Release();
@@ -343,7 +349,7 @@ TEST_F(LogStorageTest, multi_segment_and_segment_logstorage) {
             entries.push_back(entry);
         }
 
-        ASSERT_EQ(5, storage->append_entries(entries));
+        ASSERT_EQ(5, storage->append_entries(entries, NULL));
 
         for (size_t j = 0; j < entries.size(); j++) {
             delete entries[j];
@@ -420,7 +426,7 @@ TEST_F(LogStorageTest, append_close_load_append) {
             entries.push_back(entry);
         }
 
-        ASSERT_EQ(5, storage->append_entries(entries));
+        ASSERT_EQ(5, storage->append_entries(entries, NULL));
 
         for (size_t j = 0; j < entries.size(); j++) {
             delete entries[j];
@@ -451,7 +457,7 @@ TEST_F(LogStorageTest, append_close_load_append) {
             entries.push_back(entry);
         }
 
-        ASSERT_EQ(5, storage->append_entries(entries));
+        ASSERT_EQ(5, storage->append_entries(entries, NULL));
 
         for (size_t j = 0; j < entries.size(); j++) {
             delete entries[j];
@@ -519,7 +525,7 @@ TEST_F(LogStorageTest, data_lost) {
             entries.push_back(entry);
         }
 
-        ASSERT_EQ(5, storage->append_entries(entries));
+        ASSERT_EQ(5, storage->append_entries(entries, NULL));
 
         for (size_t j = 0; j < entries.size(); j++) {
             delete entries[j];
@@ -609,7 +615,7 @@ TEST_F(LogStorageTest, full_segment_has_garbage) {
             entries.push_back(entry);
         }
 
-        ASSERT_EQ(5, storage->append_entries(entries));
+        ASSERT_EQ(5, storage->append_entries(entries, NULL));
 
         for (size_t j = 0; j < entries.size(); j++) {
             delete entries[j];
@@ -690,7 +696,7 @@ TEST_F(LogStorageTest, append_read_badcase) {
             entries.push_back(entry);
         }
 
-        ASSERT_EQ(5, storage->append_entries(entries));
+        ASSERT_EQ(5, storage->append_entries(entries, NULL));
 
         for (size_t j = 0; j < entries.size(); j++) {
             delete entries[j];
@@ -817,7 +823,7 @@ TEST_F(LogStorageTest, configuration) {
             entry->data.append(data_buf);
             entries.push_back(entry);
         }
-        ASSERT_EQ(5, storage->append_entries(entries));
+        ASSERT_EQ(5, storage->append_entries(entries, NULL));
 
         for (size_t j = 0; j < entries.size(); j++) {
             delete entries[j];
@@ -1171,3 +1177,95 @@ TEST_F(LogStorageTest, joint_configuration) {
     }
 }
 
+TEST_F(LogStorageTest, append_close_load_append_with_io_metric) {
+    ::system("rm -rf data");
+    braft::IOMetric metric;
+    braft::FLAGS_raft_trace_append_entry_latency = true;
+    braft::LogStorage* storage = new braft::SegmentLogStorage("./data");
+    braft::ConfigurationManager* configuration_manager = new braft::ConfigurationManager;
+    ASSERT_EQ(0, storage->init(configuration_manager));
+
+    // append entry
+    for (int i = 0; i < 100000; i++) {
+        std::vector<braft::LogEntry*> entries;
+        for (int j = 0; j < 5; j++) {
+            int64_t index = 5*i + j + 1;
+            braft::LogEntry* entry = new braft::LogEntry();
+            entry->type = braft::ENTRY_TYPE_DATA;
+            entry->id.term = 1;
+            entry->id.index = index;
+
+            char data_buf[128];
+            snprintf(data_buf, sizeof(data_buf), "hello, world: %ld", index);
+            entry->data.append(data_buf);
+            entries.push_back(entry);
+        }
+
+        ASSERT_EQ(5, storage->append_entries(entries, &metric));
+
+        for (size_t j = 0; j < entries.size(); j++) {
+            delete entries[j];
+        }
+    }
+
+    ASSERT_NE(0, metric.open_segment_time_us);
+    ASSERT_NE(0, metric.append_entry_time_us);
+    ASSERT_NE(0, metric.sync_segment_time_us);
+
+    LOG(NOTICE) << metric;
+
+    delete storage;
+    delete configuration_manager;
+
+    // reinit 
+    storage = new braft::SegmentLogStorage("./data");
+    configuration_manager = new braft::ConfigurationManager;
+    ASSERT_EQ(0, storage->init(configuration_manager));
+
+    // append entry
+    for (int i = 100000; i < 200000; i++) {
+        std::vector<braft::LogEntry*> entries;
+        for (int j = 0; j < 5; j++) {
+            int64_t index = 5*i + j + 1;
+            braft::LogEntry* entry = new braft::LogEntry();
+            entry->type = braft::ENTRY_TYPE_DATA;
+            entry->id.term = 2;
+            entry->id.index = index;
+
+            char data_buf[128];
+            snprintf(data_buf, sizeof(data_buf), "hello, world: %ld", index);
+            entry->data.append(data_buf);
+            entries.push_back(entry);
+        }
+
+        ASSERT_EQ(5, storage->append_entries(entries, &metric));
+
+        for (size_t j = 0; j < entries.size(); j++) {
+            delete entries[j];
+        }
+    }
+
+    // check and read
+    ASSERT_EQ(storage->first_log_index(), 1);
+    ASSERT_EQ(storage->last_log_index(), 200000*5);
+
+    for (int i = 0; i < 200000*5; i++) {
+        int64_t index = i + 1;
+        braft::LogEntry* entry = storage->get_entry(index);
+        if (i < 100000*5) {
+            ASSERT_EQ(entry->id.term, 1);
+        } else {
+            ASSERT_EQ(entry->id.term, 2);
+        }
+        ASSERT_EQ(entry->type, braft::ENTRY_TYPE_DATA);
+        ASSERT_EQ(entry->id.index, index);
+
+        char data_buf[128];
+        snprintf(data_buf, sizeof(data_buf), "hello, world: %ld", index);
+        ASSERT_EQ(data_buf, entry->data.to_string());
+        entry->Release();
+    }
+
+    delete storage;
+    delete configuration_manager;
+}

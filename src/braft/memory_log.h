@@ -63,8 +63,8 @@ public:
     // append entries to log
     virtual int append_entry(const LogEntry* entry);
 
-    // append entries to log, return append success number
-    virtual int append_entries(const std::vector<LogEntry*>& entries);
+    // append entries to log and update IOMetric, return append success number 
+    virtual int append_entries(const std::vector<LogEntry*>& entries, IOMetric* metric);
 
     // delete logs from storage's head, [first_log_index, first_index_kept) will be discarded
     virtual int truncate_prefix(const int64_t first_index_kept);
@@ -80,6 +80,10 @@ public:
     // in |uri|
     // Return the address referenced to the instance on success, NULL otherwise.
     virtual LogStorage* new_instance(const std::string& uri) const;
+
+    // GC an instance of this kind of LogStorage with the parameters encoded
+    // in |uri|
+    virtual butil::Status gc_instance(const std::string& uri) const;
 
 private:
     std::string _path;

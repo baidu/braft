@@ -44,12 +44,17 @@ namespace braft {
 using ::butil::RawPacker;
 using ::butil::RawUnpacker;
 
+DECLARE_bool(raft_trace_append_entry_latency);
 DEFINE_int32(raft_max_segment_size, 8 * 1024 * 1024 /*8M*/, 
              "Max size of one segment file");
 BRPC_VALIDATE_GFLAG(raft_max_segment_size, brpc::PositiveInteger);
 
 DEFINE_bool(raft_sync_segments, false, "call fsync when a segment is closed");
 BRPC_VALIDATE_GFLAG(raft_sync_segments, ::brpc::PassValidate);
+
+static bvar::LatencyRecorder g_open_segment_latency("raft_open_segment");
+static bvar::LatencyRecorder g_segment_append_entry_latency("raft_segment_append_entry");
+static bvar::LatencyRecorder g_sync_segment_latency("raft_sync_segment");
 
 int ftruncate_uninterrupted(int fd, off_t length) {
     int rc = 0;
@@ -701,7 +706,7 @@ int64_t SegmentLogStorage::last_log_index() {
     return _last_log_index.load(butil::memory_order_acquire);
 }
 
-int SegmentLogStorage::append_entries(const std::vector<LogEntry*>& entries) {
+int SegmentLogStorage::append_entries(const std::vector<LogEntry*>& entries, IOMetric* metric) {
     if (entries.empty()) {
         return 0;
     }
@@ -712,10 +717,18 @@ int SegmentLogStorage::append_entries(const std::vector<LogEntry*>& entries) {
         return -1;
     }
     scoped_refptr<Segment> last_segment = NULL;
+    int64_t now = 0;
+    int64_t delta_time_us = 0;
     for (size_t i = 0; i < entries.size(); i++) {
+        now = butil::cpuwide_time_us();
         LogEntry* entry = entries[i];
-
+        
         scoped_refptr<Segment> segment = open_segment();
+        if (FLAGS_raft_trace_append_entry_latency && metric) {
+            delta_time_us = butil::cpuwide_time_us() - now;
+            metric->open_segment_time_us += delta_time_us;
+            g_open_segment_latency << delta_time_us;
+        }
         if (NULL == segment) {
             return i;
         }
@@ -723,10 +736,21 @@ int SegmentLogStorage::append_entries(const std::vector<LogEntry*>& entries) {
         if (0 != ret) {
             return i;
         }
+        if (FLAGS_raft_trace_append_entry_latency && metric) {
+            delta_time_us = butil::cpuwide_time_us() - now;
+            metric->append_entry_time_us += delta_time_us;
+            g_segment_append_entry_latency << delta_time_us;
+        }
         _last_log_index.fetch_add(1, butil::memory_order_release);
         last_segment = segment;
     }
+    now = butil::cpuwide_time_us();
     last_segment->sync(_enable_sync);
+    if (FLAGS_raft_trace_append_entry_latency && metric) {
+        delta_time_us = butil::cpuwide_time_us() - now;
+        metric->sync_segment_time_us += delta_time_us;
+        g_sync_segment_latency << delta_time_us; 
+    }
     return entries.size();
 }
 
@@ -1227,6 +1251,18 @@ void SegmentLogStorage::sync() {
 
 LogStorage* SegmentLogStorage::new_instance(const std::string& uri) const {
     return new SegmentLogStorage(uri);
+}
+
+butil::Status SegmentLogStorage::gc_instance(const std::string& uri) const {
+    butil::Status status;
+    if (gc_dir(uri) != 0) {
+        LOG(WARNING) << "Failed to gc log storage from path " << _path;
+        status.set_error(EINVAL, "Failed to gc log storage from path %s", 
+                         uri.c_str());
+        return status;
+    }
+    LOG(INFO) << "Succeed to gc log storage from path " << uri;
+    return status;
 }
 
 }

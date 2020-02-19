@@ -14,7 +14,7 @@
 
 // Authors: Wang,Yao(wangyao02@baidu.com)
 //          Zhangyi Chen(chenzhangyi01@baidu.com)
-//          Xiong,Kai(xionkai@baidu.com)
+//          Xiong,Kai(xiongkai@baidu.com)
 
 #ifndef BRAFT_RAFT_NODE_H
 #define BRAFT_RAFT_NODE_H
@@ -91,6 +91,7 @@ friend class RaftServiceImpl;
 friend class RaftStatImpl;
 friend class FollowerStableClosure;
 friend class ConfigurationChangeDone;
+friend class VoteBallotCtx;
 public:
     NodeImpl(const GroupId& group_id, const PeerId& peer_id);
     NodeImpl();
@@ -145,10 +146,11 @@ public:
     void snapshot(Closure* done);
 
     // trigger vote
-    void vote(int election_timeout);
+    butil::Status vote(int election_timeout);
 
     // reset the election_timeout for the very node
-    void reset_election_timeout_ms(int election_timeout_ms);
+    butil::Status reset_election_timeout_ms(int election_timeout_ms);
+    void reset_election_timeout_ms(int election_timeout_ms, int max_clock_drift_ms);
 
     // rpc request proc func
     //
@@ -186,8 +188,10 @@ public:
     // Closure call func
     //
     void handle_pre_vote_response(const PeerId& peer_id, const int64_t term,
-                                      const RequestVoteResponse& response);
+                                  const int64_t ctx_version,
+                                  const RequestVoteResponse& response);
     void handle_request_vote_response(const PeerId& peer_id, const int64_t term,
+                                      const int64_t ctx_version,
                                       const RequestVoteResponse& response);
     void on_caughtup(const PeerId& peer, int64_t term, 
                      int64_t version, const butil::Status& st);
@@ -195,6 +199,9 @@ public:
     //
     // called when leader change configuration done, ref with FSMCaller
     void on_configuration_change_done(int64_t term);
+
+    // Called when leader lease is safe to start.
+    void leader_lease_start(int64_t lease_epoch);
 
     // called when leader recv greater term in AppendEntriesResponse, ref with Replicator
     int increase_term_to(int64_t new_term, const butil::Status& status);
@@ -215,6 +222,10 @@ public:
     int change_readonly_config(int64_t term, const PeerId& peer_id, bool readonly);
     void check_majority_nodes_readonly();
     void check_majority_nodes_readonly(const Configuration& conf);
+
+    // Lease func
+    bool is_leader_lease_valid();
+    void get_leader_lease_status(LeaderLeaseStatus* status);
 
     // Call on_error when some error happens, after this is called.
     // After this point:
@@ -269,6 +280,12 @@ friend class butil::RefCountedThreadSafe<NodeImpl>;
     // elect self to candidate
     void elect_self(std::unique_lock<raft_mutex_t>* lck);
 
+    // grant self a vote
+    class VoteBallotCtx;
+    void grant_self(VoteBallotCtx* vote_ctx, std::unique_lock<raft_mutex_t>* lck);
+    static void on_grant_self_timedout(void* arg);
+    static void* handle_grant_self_timedout(void* arg);
+
     // leader async apply configuration
     void unsafe_apply_configuration(const Configuration& new_conf,
                                     const Configuration* old_conf,
@@ -297,6 +314,11 @@ friend class butil::RefCountedThreadSafe<NodeImpl>;
     static void* handle_append_entries_from_cache(void* arg);
     static void on_append_entries_cache_timedout(void* arg);
     static void* handle_append_entries_cache_timedout(void* arg);
+
+    int64_t last_leader_active_timestamp();
+    int64_t last_leader_active_timestamp(const Configuration& conf);
+    void unsafe_reset_election_timeout_ms(int election_timeout_ms,
+                                          int max_clock_drift_ms);
 
 private:
 
@@ -408,16 +430,51 @@ private:
         int64_t _timer_version;
     };
 
+    // A versioned ballot for vote and prevote
+    struct GrantSelfArg;
+    class VoteBallotCtx {
+    public:
+        VoteBallotCtx() : _timer(bthread_timer_t()), _version(0), _grant_self_arg(NULL) {
+        }
+        void init(NodeImpl* node);
+        void grant(const PeerId& peer) {
+            _ballot.grant(peer);
+        }
+        bool granted() {
+            return _ballot.granted();
+        }
+        int64_t version() {
+            return _version;
+        }
+        void start_grant_self_timer(int64_t wait_ms, NodeImpl* node);
+        void stop_grant_self_timer(NodeImpl* node);
+        void reset(NodeImpl* node);
+    private:
+        bthread_timer_t _timer;
+        Ballot _ballot;
+        // Each time the vote ctx restarted, increase the version to avoid
+        // ABA problem.
+        int64_t _version;
+        GrantSelfArg* _grant_self_arg;
+    };
+
+    struct GrantSelfArg {
+        NodeImpl* node;
+        int64_t vote_ctx_version;
+        VoteBallotCtx* vote_ctx;
+    };
+
     State _state;
     int64_t _current_term;
     int64_t _last_leader_timestamp;
     PeerId _leader_id;
     PeerId _voted_id;
-    Ballot _vote_ctx;
-    Ballot _pre_vote_ctx;
+    VoteBallotCtx _vote_ctx; // candidate vote ctx
+    VoteBallotCtx _pre_vote_ctx; // prevote ctx
     ConfigurationEntry _conf;
 
     GroupId _group_id;
+    VersionedGroupId _v_group_id;
     PeerId _server_id;
     NodeOptions _options;
 
@@ -449,6 +506,9 @@ private:
     // for readonly mode
     bool _node_readonly;
     bool _majority_nodes_readonly;
+
+    LeaderLease _leader_lease;
+    FollowerLease _follower_lease;
 };
 
 }

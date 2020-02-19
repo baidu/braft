@@ -200,6 +200,8 @@ public:
     virtual int set_snapshot_throttle(SnapshotThrottle* snapshot_throttle);
 
     SnapshotStorage* new_instance(const std::string& uri) const;
+    butil::Status gc_instance(const std::string& uri) const;
+    
     void set_server_addr(butil::EndPoint server_addr) { _addr = server_addr; }
     bool has_server_addr() { return _addr != butil::EndPoint(); }
 private:

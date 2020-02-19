@@ -26,6 +26,7 @@
 #include "braft/closure_queue.h"
 #include "braft/macros.h"
 #include "braft/log_entry.h"
+#include "braft/lease.h"
 
 namespace braft {
 
@@ -112,7 +113,7 @@ public:
     BRAFT_MOCK int on_snapshot_load(LoadSnapshotClosure* done);
     BRAFT_MOCK int on_snapshot_save(SaveSnapshotClosure* done);
     int on_leader_stop(const butil::Status& status);
-    int on_leader_start(int64_t term);
+    int on_leader_start(int64_t term, int64_t lease_epoch);
     int on_start_following(const LeaderChangeContext& start_following_context);
     int on_stop_following(const LeaderChangeContext& stop_following_context);
     BRAFT_MOCK int on_error(const Error& e);
@@ -138,6 +139,15 @@ friend class IteratorImpl;
         ERROR,
     };
 
+    struct LeaderStartContext {
+        LeaderStartContext(int64_t term_, int64_t lease_epoch_)
+            : term(term_), lease_epoch(lease_epoch_)
+        {}
+
+        int64_t term;
+        int64_t lease_epoch;
+    };
+
     struct ApplyTask {
         TaskType type;
         union {
@@ -145,7 +155,7 @@ friend class IteratorImpl;
             int64_t committed_index;
             
             // For on_leader_start
-            int64_t term;
+            LeaderStartContext* leader_start_context;
             
             // For on_leader_stop
             butil::Status* status;    
@@ -167,7 +177,7 @@ friend class IteratorImpl;
     void do_snapshot_load(LoadSnapshotClosure* done);
     void do_on_error(OnErrorClousre* done);
     void do_leader_stop(const butil::Status& status);
-    void do_leader_start(int64_t term);
+    void do_leader_start(const LeaderStartContext& leader_start_context);
     void do_start_following(const LeaderChangeContext& start_following_context);
     void do_stop_following(const LeaderChangeContext& stop_following_context);
     void set_error(const Error& e);

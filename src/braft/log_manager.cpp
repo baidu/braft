@@ -48,6 +48,12 @@ static bvar::LatencyRecorder g_nomralized_append_entries_latency(
 static bvar::CounterRecorder g_storage_flush_batch_counter(
                                         "raft_storage_flush_batch_counter");
 
+void LogManager::StableClosure::update_metric(IOMetric* m) {
+    metric.open_segment_time_us = m->open_segment_time_us;
+    metric.append_entry_time_us = m->append_entry_time_us;
+    metric.sync_segment_time_us = m->sync_segment_time_us;
+}
+
 LogManagerOptions::LogManagerOptions()
     : log_storage(NULL)
     , configuration_manager(NULL)
@@ -84,6 +90,8 @@ int LogManager::init(const LogManagerOptions &options) {
     _first_log_index = _log_storage->first_log_index();
     _last_log_index = _log_storage->last_log_index();
     _disk_id.index = _last_log_index;
+    // Term will be 0 if the node has no logs, and we will correct the value
+    // after snapshot load finish.
     _disk_id.term = _log_storage->get_term(_last_log_index);
     _fsm_caller = options.fsm_caller;
     return 0;
@@ -436,7 +444,7 @@ void LogManager::append_entries(
 }
 
 void LogManager::append_to_storage(std::vector<LogEntry*>* to_append, 
-                                   LogId* last_id) {
+                                   LogId* last_id, IOMetric* metric) {
     if (!_has_error.load(butil::memory_order_relaxed)) {
         size_t written_size = 0;
         for (size_t i = 0; i < to_append->size(); ++i) {
@@ -444,7 +452,7 @@ void LogManager::append_to_storage(std::vector<LogEntry*>* to_append,
         }
         butil::Timer timer;
         timer.start();
-        int nappent = _log_storage->append_entries(*to_append);
+        int nappent = _log_storage->append_entries(*to_append, metric);
         timer.stop();
         if (nappent != (int)to_append->size()) {
             // FIXME
@@ -487,7 +495,8 @@ public:
 
     void flush() {
         if (_size > 0) {
-            _lm->append_to_storage(&_to_append, _last_id);
+            IOMetric metric;
+            _lm->append_to_storage(&_to_append, _last_id, &metric);
             g_storage_flush_batch_counter << _size;
             for (size_t i = 0; i < _size; ++i) {
                 _storage[i]->_entries.clear();
@@ -495,6 +504,7 @@ public:
                     _storage[i]->status().set_error(
                             EIO, "Corrupted LogStorage");
                 }
+                _storage[i]->update_metric(&metric);
                 _storage[i]->Run();
             }
             _to_append.clear();
@@ -541,6 +551,8 @@ int LogManager::disk_thread(void* meta,
                 // ^^^ Must iterate to the end to release to corresponding
                 //     even if some error has occurred
         StableClosure* done = *iter;
+        done->metric.bthread_queue_time_us = butil::cpuwide_time_us() - 
+                                            done->metric.start_time_us;
         if (!done->_entries.empty()) {
             ab.append(done);
         } else {
@@ -630,6 +642,9 @@ void LogManager::set_snapshot(const SnapshotMeta* meta) {
     _last_snapshot_id.term = meta->last_included_term();
     if (_last_snapshot_id > _applied_id) {
         _applied_id = _last_snapshot_id;
+    }
+    if (_last_snapshot_id > _disk_id) {
+        _disk_id = _last_snapshot_id;
     }
     if (term == 0) {
         // last_included_index is larger than last_index

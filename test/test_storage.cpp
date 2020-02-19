@@ -34,7 +34,7 @@ TEST_F(StorageTest, sanity) {
     braft::RaftMetaStorage* meta_storage 
             = braft::RaftMetaStorage::create("local://data/raft_meta");
     ASSERT_TRUE(meta_storage);
-    ASSERT_EQ(0, meta_storage->init());
+    ASSERT_TRUE(meta_storage->init().ok());
     ASSERT_FALSE(braft::RaftMetaStorage::create("hdfs://data/raft_meta"));
     ASSERT_FALSE(braft::RaftMetaStorage::create("://data/raft_meta"));
     ASSERT_FALSE(braft::RaftMetaStorage::create("data/raft_meta"));
@@ -64,7 +64,7 @@ TEST_F(StorageTest, extra_space_should_be_trimmed) {
     entry->type = braft::ENTRY_TYPE_DATA;
     std::vector<braft::LogEntry*> entries;
     entries.push_back(entry);
-    ASSERT_EQ(1u, log_storage->append_entries(entries));
+    ASSERT_EQ(1u, log_storage->append_entries(entries, NULL));
     entry->Release();
     delete log_storage;
 
