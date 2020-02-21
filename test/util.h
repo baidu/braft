@@ -386,7 +386,7 @@ public:
                 nodes.push_back(_nodes[i]);
             }
         }
-        for (size_t i = 0; i < _nodes.size(); ++i) {
+        for (size_t i = 0; i < nodes.size(); ++i) {
             braft::NodeStatus status;
             nodes[i]->get_status(&status);
             if (nodes[i]->is_leader()) {
