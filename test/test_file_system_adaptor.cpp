@@ -176,3 +176,89 @@ TEST_F(TestFileSystemAdaptorSuits, create_sub_directory) {
     ASSERT_FALSE(braft::create_sub_directory(parent_path, "../sub4/sub5", fs, NULL));
     ::system("rm -rf test_dir");
 }
+
+class TestFileReadAdaptor : public braft::BufferedSequentialReadFileAdaptor {
+public:
+    TestFileReadAdaptor(int bytes, int align_size) {
+        for (int i = 0; i < bytes; ++i) {
+            char c = butil::fast_rand() % 26 + 'a';
+            _buf.append(&c, 1);
+        }
+        _error = 0;
+        _align_size = align_size;
+    }
+    butil::IOBuf& data() { return _buf; }
+    void inject_error(int error) { _error = error; }
+
+protected:
+    virtual int do_read(butil::IOPortal* portal, size_t need_count, size_t* nread) {
+        if (_error == 0) {
+            need_count = (need_count + _align_size - 1) / _align_size * _align_size;
+            *nread = std::min(need_count, _buf.size());
+            _buf.cutn(portal, *nread);
+        }
+        int e = _error;
+        _error = 0;
+        return e;
+    }
+
+private:
+    butil::IOBuf _buf;
+    int _error;
+    int _align_size;
+};
+
+TEST_F(TestFileSystemAdaptorSuits, test_buffered_sequential_read_file_adaptor_success) {
+    int read_size[]  = { 1, 1, 10, 10, 13, 13, 201,         201, 1024, 1024 };
+    int align_size[] = { 1, 4,  1, 11,  1, 20,   1, 1024 * 1024,    1, 1024 * 1024 + 1 };
+    int index = 0;
+    for (auto& rs : read_size) {
+        TestFileReadAdaptor* file = new TestFileReadAdaptor(1 * 1024 * 1024, align_size[index++]);
+        butil::IOBuf expected_data = file->data();
+        butil::IOBuf read_data;
+        size_t remain_size = expected_data.size();
+        off_t offset = 0;
+        while (remain_size > 0) {
+            butil::IOPortal portal;
+            ssize_t nread = file->read(&portal, offset, rs);
+            ASSERT_TRUE(nread >= 0);
+            ASSERT_TRUE(nread <= rs);
+            ASSERT_TRUE(nread <= (ssize_t)remain_size);
+            remain_size -= nread;
+            offset += nread;
+            read_data.append(portal);
+            
+            if (base::fast_rand() % 3 != 0) {
+                // Random repeated read
+                off_t tmp_offset = base::fast_rand() % rs + offset;
+                int   tmp_rs     = base::fast_rand() % (2 * rs);
+                ssize_t nread = file->read(&portal, tmp_offset, tmp_rs);
+                ASSERT_TRUE(nread >= 0);
+            }
+        }
+        ASSERT_EQ(expected_data, read_data);
+        delete file;
+    }
+}
+
+TEST_F(TestFileSystemAdaptorSuits, test_buffered_sequential_read_file_adaptor_fail) {
+    int rs = 1024;
+    TestFileReadAdaptor* file = new TestFileReadAdaptor(1 * 1024 * 1024, 1);
+    butil::IOPortal portal;
+    ssize_t nread = file->read(&portal, 0, rs);
+    ASSERT_TRUE(nread == rs);
+    nread = file->read(&portal, rs, rs);
+    ASSERT_TRUE(nread == rs);
+    nread = file->read(&portal, 0, rs);
+    ASSERT_TRUE(nread < 0);
+    file->inject_error(EIO);
+    nread = file->read(&portal, rs, rs);
+    ASSERT_TRUE(nread == rs);
+    nread = file->read(&portal, 2 * rs, rs);
+    ASSERT_TRUE(nread < 0);
+    nread = file->read(&portal, 2 * rs, rs);
+    ASSERT_TRUE(nread < 0);
+    nread = file->read(&portal, 3 * rs, rs);
+    ASSERT_TRUE(nread < 0);
+    delete file;
+}

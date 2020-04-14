@@ -349,7 +349,7 @@ void RemoteFileCopier::Session::on_timer(void* arg) {
 void RemoteFileCopier::Session::on_finished() {
     if (!_finished) {
         if (_file) {
-            if (!_file->close()) {
+            if (!_file->sync() || !_file->close()) {
                 _st.set_error(EIO, "%s", berror(EIO));
             }
             delete _file;

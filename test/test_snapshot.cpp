@@ -27,9 +27,54 @@ protected:
     void TearDown() {}
 };
 
+class ReadFileAdaptor : public braft::BufferedSequentialReadFileAdaptor {
+public:
+    ReadFileAdaptor(braft::FileAdaptor* file)
+        : _file(file), _offset(0)
+    {}
+    ~ReadFileAdaptor() {
+        if (_file) {
+            _file->close();
+            delete _file;
+        }
+    }
+    virtual int do_read(butil::IOPortal* portal, size_t need_count, size_t* nread) {
+        ssize_t r = _file->read(portal, _offset, need_count);
+        if (r >= 0) {
+            _offset += r;
+            *nread = r;
+            return 0;
+        }
+        errno = (errno != 0) ? errno : EIO;
+        return -1;
+    }
+
+private:
+    braft::FileAdaptor *_file;
+    off_t _offset;
+};
+
+class SequentialReadFileSystemAdaptor : public braft::PosixFileSystemAdaptor {
+public:
+    SequentialReadFileSystemAdaptor() {}
+
+    virtual braft::FileAdaptor* open(const std::string& path, int oflag, 
+                                    const ::google::protobuf::Message* file_meta,
+                                    butil::File::Error* e) {
+        braft::FileAdaptor* file =
+            braft::PosixFileSystemAdaptor::open(path, oflag, file_meta, e);
+        if (file && (oflag & O_RDONLY)) {
+            return new ReadFileAdaptor(file);
+        } else {
+            return file;
+        }
+    }
+};
+
 #define FOR_EACH_FILE_SYSTEM_ADAPTOR_BEGIN(fs)                                   \
     braft::FileSystemAdaptor* file_system_adaptors[] = {                          \
-        NULL, new braft::PosixFileSystemAdaptor, new MemoryFileSystemAdaptor \
+        NULL, new braft::PosixFileSystemAdaptor, new MemoryFileSystemAdaptor,     \
+        new SequentialReadFileSystemAdaptor,                                     \
     };                                                                           \
     for (size_t fs_index = 0; fs_index != sizeof(file_system_adaptors)           \
          / sizeof(file_system_adaptors[0]); ++fs_index) {                        \

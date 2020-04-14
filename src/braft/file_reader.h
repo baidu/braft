@@ -23,6 +23,7 @@
 #include <set>                              // std::set
 #include <butil/memory/ref_counted.h>        // butil::RefCountedThreadsafe
 #include <butil/iobuf.h>                     // butil::IOBuf
+#include "braft/macros.h"
 #include "braft/file_system_adaptor.h"
 
 namespace braft {
@@ -57,7 +58,7 @@ protected:
 class LocalDirReader : public FileReader {
 public:
     LocalDirReader(FileSystemAdaptor* fs, const std::string& path) 
-        : _path(path), _fs(fs)
+        : _path(path), _fs(fs), _current_file(NULL), _is_reading(false), _eof_reached(true)
     {}
     virtual ~LocalDirReader();
 
@@ -90,8 +91,13 @@ protected:
     const scoped_refptr<FileSystemAdaptor>& file_system() const { return _fs; }
 
 private:
+    mutable raft_mutex_t _mutex;
     std::string _path;
     scoped_refptr<FileSystemAdaptor> _fs;
+    mutable FileAdaptor* _current_file;
+    mutable std::string _current_filename;
+    mutable bool _is_reading;
+    mutable bool _eof_reached;
 };
 
 }  //  namespace braft

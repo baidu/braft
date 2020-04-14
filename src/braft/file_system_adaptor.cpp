@@ -65,6 +65,45 @@ bool PosixFileAdaptor::close() {
     return true;
 }
 
+ssize_t BufferedSequentialReadFileAdaptor::read(butil::IOPortal* portal, off_t offset, size_t size) {
+    if (_error) {
+        errno = _error;
+        return -1;
+    }
+    if (offset < _buffer_offset || offset > off_t(_buffer_offset + _buffer_size)) {
+        errno = EINVAL;
+        return -1;
+    }
+    if (offset > _buffer_offset) {
+        _buffer.pop_front(std::min(size_t(offset - _buffer_offset), _buffer.size()));
+        _buffer_size -= (offset - _buffer_offset);
+        _buffer_offset = offset;
+    }
+    off_t end_offset = offset + size;
+    if (!_reach_file_eof && end_offset > off_t(_buffer_offset + _buffer_size)) {
+        butil::IOPortal tmp_portal;
+        size_t need_count = end_offset - _buffer_offset - _buffer_size;
+        size_t read_count = 0;
+        int rc = do_read(&tmp_portal, need_count, &read_count);
+        if (rc < 0) {
+            _error = ((errno != 0) ? errno : EIO);
+            errno = _error;
+            return -1;
+        }
+        _reach_file_eof = (read_count < need_count);
+        if (!tmp_portal.empty()) {
+            _buffer.resize(_buffer_size);
+            _buffer.append(tmp_portal);
+        }
+        _buffer_size += read_count;
+    }
+    ssize_t nread = std::min(_buffer_size, size);
+    if (!_buffer.empty()) {
+        _buffer.append_to(portal, std::min(_buffer.size(), size_t(nread)));
+    }
+    return nread;
+}
+
 static pthread_once_t s_check_cloexec_once = PTHREAD_ONCE_INIT;
 static bool s_support_cloexec_on_open = false;
 

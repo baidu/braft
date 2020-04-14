@@ -186,6 +186,44 @@ private:
     int _fd;
 };
 
+class BufferedSequentialReadFileAdaptor : public FileAdaptor {
+public:
+    virtual ~BufferedSequentialReadFileAdaptor() {}
+
+    virtual ssize_t write(const butil::IOBuf& data, off_t offset) {
+        CHECK(false);
+        return -1;
+    }
+    virtual ssize_t read(butil::IOPortal* portal, off_t offset, size_t size);
+    virtual bool sync() {
+        CHECK(false);
+        return false;
+    }
+    virtual bool close() {
+        return true;
+    }
+    virtual ssize_t size() {
+        return _reach_file_eof ? (_buffer_offset + _buffer_size) : SSIZE_MAX;
+    }
+
+protected:
+    BufferedSequentialReadFileAdaptor()
+        : _buffer_offset(0), _buffer_size(0), _reach_file_eof(false), _error(0)
+    {}
+
+    // The |need_count| here is just a suggestion, |nread| can be larger than |need_count|
+    // actually, if needed. This is useful for some special cases, in which data must be
+    // read atomically. If |nread| < |need_count|, the wrapper think eof is reached.
+    virtual int do_read(butil::IOPortal* portal, size_t need_count, size_t* nread) = 0;
+
+private:
+    butil::IOBuf _buffer;
+    off_t       _buffer_offset;
+    size_t      _buffer_size;
+    bool        _reach_file_eof;
+    int         _error;
+};
+
 class PosixFileSystemAdaptor : public FileSystemAdaptor {
 public:
     PosixFileSystemAdaptor() {}
