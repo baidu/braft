@@ -70,6 +70,7 @@ public:
 
     void init(int64_t election_timeout_ms, int64_t max_clock_drift_ms);
     void renew(const PeerId& leader_id);
+    int64_t last_msg_to_now();
     int64_t votable_time_from_now();
     const PeerId& last_leader();
     bool expired();

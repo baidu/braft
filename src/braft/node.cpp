@@ -128,7 +128,6 @@ static inline int heartbeat_timeout(int election_timeout) {
 NodeImpl::NodeImpl(const GroupId& group_id, const PeerId& peer_id)
     : _state(STATE_UNINITIALIZED)
     , _current_term(0)
-    , _last_leader_timestamp(butil::monotonic_time_ms())
     , _group_id(group_id)
     , _server_id(peer_id)
     , _conf_ctx(this)
@@ -155,7 +154,6 @@ NodeImpl::NodeImpl(const GroupId& group_id, const PeerId& peer_id)
 NodeImpl::NodeImpl()
     : _state(STATE_UNINITIALIZED)
     , _current_term(0)
-    , _last_leader_timestamp(butil::monotonic_time_ms())
     , _group_id()
     , _server_id()
     , _conf_ctx(this)
@@ -2537,7 +2535,6 @@ void NodeImpl::describe(std::ostream& os, bool use_html) {
 
     // No replicator attached to nodes that are not leader;
     _replicator_group.list_replicators(&replicators);
-    const int64_t leader_timestamp = _last_leader_timestamp;
     const bool readonly = (_node_readonly || _majority_nodes_readonly);
     lck.unlock();
     const char *newline = use_html ? "<br>" : "\r\n";
@@ -2606,7 +2603,7 @@ void NodeImpl::describe(std::ostream& os, bool use_html) {
             os << leader;
         }
         os << newline;
-        os << "last_msg_to_now: " << butil::monotonic_time_ms() - leader_timestamp 
+        os << "last_msg_to_now: " << _follower_lease.last_msg_to_now()
            << newline;
     }
 
