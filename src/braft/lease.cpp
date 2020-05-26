@@ -104,6 +104,10 @@ void FollowerLease::renew(const PeerId& leader_id) {
     _last_leader_timestamp = butil::monotonic_time_ms();
 }
 
+int64_t FollowerLease::last_leader_timestamp() {
+    return _last_leader_timestamp;
+}
+
 int64_t FollowerLease::votable_time_from_now() {
     if (!FLAGS_raft_enable_leader_lease) {
         return 0;
