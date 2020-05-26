@@ -143,11 +143,12 @@ friend class scoped_refptr<KVBasedMergedMetaStorageImpl>;
 
 public:
     explicit KVBasedMergedMetaStorageImpl(const std::string& path)
-        : _is_inited(false), _path(path) {}
+        : _is_inited(false), _path(path), _db(nullptr) {}
     KVBasedMergedMetaStorageImpl() {}
     virtual ~KVBasedMergedMetaStorageImpl() {
         if (_db) {
             delete _db;
+            _db = nullptr;
         }
     }
     

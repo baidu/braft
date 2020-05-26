@@ -106,7 +106,7 @@ private:
     typedef butil::DoublyBufferedData<MetaStorageMap> DoublyBufferedMetaStorageMap;
     
     static size_t _add(MetaStorageMap& m, const std::string& path, 
-                       const scoped_refptr<KVBasedMergedMetaStorageImpl> mss) {
+                       const scoped_refptr<KVBasedMergedMetaStorageImpl>& mss) {
         std::pair<MetaStorageMap::const_iterator, bool> iter = 
                                         m.insert(std::make_pair(path, mss));
         if (iter.second) {
