@@ -75,6 +75,7 @@ public:
     bool expired();
     void reset();
     void reset_election_timeout_ms(int64_t election_timeout_ms, int64_t max_clock_drift_ms);
+    int64_t last_leader_timestamp();
 
 private:
     int64_t _election_timeout_ms;
