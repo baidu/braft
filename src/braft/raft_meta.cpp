@@ -214,7 +214,7 @@ butil::Status MixedMetaStorage::init() {
     }
 
     _is_inited = true;
-    LOG(NOTICE) << "Succeed to init MixedMetaStorage, path: " << _path;
+    LOG(INFO) << "Succeed to init MixedMetaStorage, path: " << _path;
     return status;
 }
 
@@ -322,7 +322,7 @@ butil::Status MixedMetaStorage::get_term_and_votedfor(int64_t* term, PeerId* pee
                 << ", error: " << status.error_cstr();
             return status;
         }
-        LOG(NOTICE) << "node " << group 
+        LOG(INFO) << "node " << group 
             << " merged stable storage succeed to set term " << *term
             << " and vote for peer " << *peer_id
             << " when catch up data, path " << _path;
@@ -339,7 +339,7 @@ butil::Status MixedMetaStorage::get_term_and_votedfor(int64_t* term, PeerId* pee
                 << ", error: " << status.error_cstr();
             return status;
         } 
-        LOG(NOTICE) << "node " << group 
+        LOG(INFO) << "node " << group 
             << " single stable storage succeed to set term " << *term
             << " and vote for peer " << *peer_id
             << " when catch up data, path " << _path;
@@ -681,7 +681,7 @@ butil::Status KVBasedMergedMetaStorageImpl::get_term_and_votedfor(int64_t* term,
                      << ", error " << status.error_cstr();
             return status;
         }
-        LOG(NOTICE) << "node " << group
+        LOG(INFO) << "node " << group
                  << " succeed to set initial term and votedfor when first time init"
                  << ", path " << _path;
         return status;

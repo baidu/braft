@@ -113,8 +113,8 @@ inline int gc_dir(const std::string& path) {
             return -1;
         }
     } else {
-        LOG(NOTICE) << "Target path not exist, so no need to gc, path: " 
-                    << target_path.value();
+        LOG(INFO) << "Target path not exist, so no need to gc, path: " 
+                  << target_path.value();
     }
     return 0; 
 }

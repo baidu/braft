@@ -101,7 +101,7 @@ public:
         file_path.append("/data");
         brpc::ClosureGuard done_guard(done);
 
-        LOG(NOTICE) << "on_snapshot_save to " << file_path;
+        LOG(INFO) << "on_snapshot_save to " << file_path;
 
         int fd = ::creat(file_path.c_str(), 0644);
         if (fd < 0) {
@@ -275,7 +275,7 @@ public:
             delete node;
             return ret;
         } else {
-            LOG(NOTICE) << "init node " << listen_addr;
+            LOG(INFO) << "init node " << listen_addr;
         }
 
         {
