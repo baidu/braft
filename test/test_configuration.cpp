@@ -35,22 +35,22 @@ TEST_F(TestUsageSuits, PeerId) {
     ASSERT_TRUE(id1.is_empty());
 
     ASSERT_EQ(0, id1.parse("1.1.1.1:1000:"));
-    LOG(NOTICE) << "id:" << id1.to_string();
-    LOG(NOTICE) << "id:" << id1;
+    LOG(INFO) << "id:" << id1.to_string();
+    LOG(INFO) << "id:" << id1;
 
     ASSERT_EQ(0, id1.parse("1.1.1.1:1000:0"));
-    LOG(NOTICE) << "id:" << id1.to_string();
-    LOG(NOTICE) << "id:" << id1;
+    LOG(INFO) << "id:" << id1.to_string();
+    LOG(INFO) << "id:" << id1;
 
     ASSERT_EQ(0, id1.parse("1.1.1.1:1000"));
-    LOG(NOTICE) << "id:" << id1.to_string();
-    LOG(NOTICE) << "id:" << id1;
+    LOG(INFO) << "id:" << id1.to_string();
+    LOG(INFO) << "id:" << id1;
 
     braft::PeerId id2(id1);
-    LOG(NOTICE) << "id:" << id2;
+    LOG(INFO) << "id:" << id2;
 
     braft::PeerId id3("1.2.3.4:1000:0");
-    LOG(NOTICE) << "id:" << id3;
+    LOG(INFO) << "id:" << id3;
 }
 
 TEST_F(TestUsageSuits, Configuration) {
@@ -61,7 +61,7 @@ TEST_F(TestUsageSuits, Configuration) {
     peers.push_back(braft::PeerId("1.1.1.1:1000:1"));
     peers.push_back(braft::PeerId("1.1.1.1:1000:2"));
     conf1 = peers;
-    LOG(NOTICE) << conf1;
+    LOG(INFO) << conf1;
 
     ASSERT_TRUE(conf1.contains(braft::PeerId("1.1.1.1:1000:0")));
     ASSERT_FALSE(conf1.contains(braft::PeerId("1.1.1.1:2000:0")));
