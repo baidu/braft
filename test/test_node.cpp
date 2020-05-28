@@ -16,7 +16,7 @@
 #include <brpc/closure_guard.h>
 #include <bthread/bthread.h>
 #include <bthread/countdown_event.h>
-#include "braft/test/util.h"
+#include "../test/util.h"
 
 namespace braft {
 extern bvar::Adder<int64_t> g_num_nodes;
@@ -2549,6 +2549,7 @@ TEST_P(NodeTest, change_peers) {
         done.wait();
         ASSERT_TRUE(done.status().ok()) << done.status();
     }
+    cluster.wait_leader();
     ASSERT_TRUE(cluster.ensure_same());
 }
 
@@ -2757,7 +2758,7 @@ TEST_P(NodeTest, change_peers_chaos_with_snapshot) {
     arg.stop = true;
     pthread_join(tid, NULL);
     GFLAGS_NS::SetCommandLineOption("raft_sync", "true");
-    GFLAGS_NS::SetCommandLineOption("minloglevel", "3");
+    GFLAGS_NS::SetCommandLineOption("minloglevel", "1");
 }
 
 TEST_P(NodeTest, change_peers_chaos_without_snapshot) {
@@ -2769,7 +2770,7 @@ TEST_P(NodeTest, change_peers_chaos_without_snapshot) {
     // start cluster
     peers.push_back(braft::PeerId("127.0.0.1:5006"));
     Cluster cluster("unittest", peers, 2000);
-    cluster.start(peers.front().addr, false, 100000);
+    cluster.start(peers.front().addr, false, 10000);
     for (int i = 1; i < 10; ++i) {
         peers.push_back("127.0.0.1:" + std::to_string(5006 + i));
         cluster.start(peers.back().addr, true, 10000);
@@ -2781,7 +2782,7 @@ TEST_P(NodeTest, change_peers_chaos_without_snapshot) {
     arg.dont_remove_first_peer = true;
     pthread_t tid;
     ASSERT_EQ(0, pthread_create(&tid, NULL, change_routine, &arg));
-    for (int i = 0; i < 100000;) {
+    for (int i = 0; i < 10000;) {
         cluster.wait_leader();
         braft::Node* leader = cluster.leader();
         if (!leader) {

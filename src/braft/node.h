@@ -25,7 +25,6 @@
 #include <butil/iobuf.h>
 #include <bthread/execution_queue.h>
 #include <brpc/server.h>
-
 #include "braft/raft.h"
 #include "braft/log_manager.h"
 #include "braft/ballot_box.h"

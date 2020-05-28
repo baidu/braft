@@ -542,14 +542,14 @@ int LogManager::disk_thread(void* meta,
     }
 
     LogManager* log_manager = static_cast<LogManager*>(meta);
-    // FXIME(chenzhangyi01): it's buggy
+    // FIXME(chenzhangyi01): it's buggy
     LogId last_id = log_manager->_disk_id;
     StableClosure* storage[256];
     AppendBatcher ab(storage, ARRAY_SIZE(storage), &last_id, log_manager);
     
     for (; iter; ++iter) {
                 // ^^^ Must iterate to the end to release to corresponding
-                //     even if some error has ocurred
+                //     even if some error has occurred
         StableClosure* done = *iter;
         done->metric.bthread_queue_time_us = butil::cpuwide_time_us() - 
                                             done->metric.start_time_us;
@@ -654,7 +654,7 @@ void LogManager::set_snapshot(const SnapshotMeta* meta) {
         return;
     } else if (term == meta->last_included_term()) {
         // Truncating log to the index of the last snapshot.
-        // We don't truncate log before the lastest snapshot immediately since
+        // We don't truncate log before the latest snapshot immediately since
         // some log around last_snapshot_index is probably needed by some
         // followers
         if (last_but_one_snapshot_id.index > 0) {

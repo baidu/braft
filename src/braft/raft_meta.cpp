@@ -28,13 +28,20 @@
 
 namespace braft {
 
+DEFINE_int32(raft_meta_write_batch, 128, 
+             "Max number of tasks that can be written into db in a single batch");
+BRPC_VALIDATE_GFLAG(raft_meta_write_batch, brpc::PositiveInteger);
+
 static bvar::LatencyRecorder g_load_pb_raft_meta("raft_load_pb_raft_meta");
 static bvar::LatencyRecorder g_save_pb_raft_meta("raft_save_pb_raft_meta");
 static bvar::LatencyRecorder g_load_kv_raft_meta("raft_load_kv_raft_meta");
 static bvar::LatencyRecorder g_save_kv_raft_meta("raft_save_kv_raft_meta");
 static bvar::LatencyRecorder g_delete_kv_raft_meta("raft_delete_kv_raft_meta");
 
-const char* FileBasedSingleMetaStorage::_s_raft_meta = "stable_meta";
+static bvar::CounterRecorder g_save_kv_raft_meta_batch_counter(
+                                    "raft_save_kv_raft_meta_batch_counter");
+
+const char* FileBasedSingleMetaStorage::_s_raft_meta = "raft_meta";
 
 // MetaStorageManager
 //
@@ -99,7 +106,7 @@ private:
     typedef butil::DoublyBufferedData<MetaStorageMap> DoublyBufferedMetaStorageMap;
     
     static size_t _add(MetaStorageMap& m, const std::string& path, 
-                       const scoped_refptr<KVBasedMergedMetaStorageImpl> mss) {
+                       const scoped_refptr<KVBasedMergedMetaStorageImpl>& mss) {
         std::pair<MetaStorageMap::const_iterator, bool> iter = 
                                         m.insert(std::make_pair(path, mss));
         if (iter.second) {
@@ -218,6 +225,48 @@ butil::Status MixedMetaStorage::init() {
     return status;
 }
 
+class StableMetaClosure : public Closure {
+public:
+    StableMetaClosure(const int64_t term, const PeerId& votedfor, 
+                      const VersionedGroupId& vgid, const std::string& path) 
+        : _term(term)
+        , _votedfor(votedfor)
+        , _vgid(vgid)
+        , _path(path)
+        , _start_time_us(butil::cpuwide_time_us()) 
+    {}
+
+    ~StableMetaClosure() {}
+
+    void Run() {
+        if (!status().ok()) {
+            LOG(ERROR) << "Failed to write stable meta into db, group " << _vgid
+                       << " term " << _term << " vote for " << _votedfor
+                       << ", path: " << _path << ", error: " << status();
+        } else {
+            int64_t u_elapsed = butil::cpuwide_time_us() - _start_time_us;
+            g_save_kv_raft_meta << u_elapsed;
+            LOG(INFO) << "Saved merged stable meta, path " << _path
+                      << " group " << _vgid
+                      << " term " << _term
+                      << " votedfor " << _votedfor
+                      << " time: " << u_elapsed;  
+        }
+        
+        _sync.Run();
+    }
+
+    void wait() { _sync.wait(); }
+
+private:
+    int64_t _term;
+    PeerId _votedfor;
+    VersionedGroupId _vgid;
+    std::string _path;
+    int64_t _start_time_us;
+    SynchronizedClosure _sync;
+};
+
 butil::Status MixedMetaStorage::set_term_and_votedfor(const int64_t term, 
                         const PeerId& peer_id, const VersionedGroupId& group) {
     butil::Status status;
@@ -236,14 +285,10 @@ butil::Status MixedMetaStorage::set_term_and_votedfor(const int64_t term,
         return status;
     }
 
-    status = _merged_impl->set_term_and_votedfor(term, peer_id, group);
-    if (!status.ok()) {
-        LOG(WARNING) << "node " << group 
-            << " merged stable storage failed to set_term_and_votedfor, path: "
-            << _path;
-        return status;
-    }
-    return status;
+    StableMetaClosure done(term, peer_id, group, _path);
+    _merged_impl->set_term_and_votedfor(term, peer_id, group, &done);
+    done.wait();
+    return done.status();
 }
 
 // [NOTICE] Conflict cases may occur in this mode, it's important to ensure consistency
@@ -313,7 +358,10 @@ butil::Status MixedMetaStorage::get_term_and_votedfor(int64_t* term, PeerId* pee
     if (single_newer_than_merged) {
         *term = term_1;
         *peer_id = peer_id_1;
-        status = _merged_impl->set_term_and_votedfor(*term, *peer_id, group);
+        StableMetaClosure done(*term, *peer_id, group, _path);
+        _merged_impl->set_term_and_votedfor(*term, *peer_id, group, &done);
+        done.wait();
+        status = done.status();
         if (!status.ok()) {
             LOG(WARNING) << "node " << group 
                 << " merged stable storage failed to set term " << *term
@@ -539,7 +587,11 @@ butil::Status KVBasedMergedMetaStorage::init() {
 
 butil::Status KVBasedMergedMetaStorage::set_term_and_votedfor(const int64_t term, 
             const PeerId& peer_id, const VersionedGroupId& group) {
-    return _merged_impl->set_term_and_votedfor(term, peer_id, group);
+    StableMetaClosure done(term, peer_id, group, "");
+    _merged_impl->set_term_and_votedfor(term, peer_id, group, &done);
+    done.wait();
+    
+    return done.status();
 };
 
 butil::Status KVBasedMergedMetaStorage::get_term_and_votedfor(int64_t* term, 
@@ -605,53 +657,111 @@ butil::Status KVBasedMergedMetaStorageImpl::init() {
         return status;
     }   
 
+    // start execution_queue
+    bthread::ExecutionQueueOptions execq_opt;
+    execq_opt.bthread_attr = BTHREAD_ATTR_NORMAL;
+    //execq_opt.max_tasks_size = 256;
+    if (bthread::execution_queue_start(&_queue_id,
+                                       &execq_opt,
+                                       KVBasedMergedMetaStorageImpl::run,
+                                       this) != 0) {
+        status.set_error(EINVAL, "Fail to start execution_queue, path: %s", 
+                         _path.c_str());
+        return status;
+    }    
+
     _is_inited = true;
     return status;
 }
 
-butil::Status KVBasedMergedMetaStorageImpl::set_term_and_votedfor(
-        const int64_t term, const PeerId& peer_id, const VersionedGroupId& group) {
-    butil::Status status;
-    if (!_is_inited) {
-        status.set_error(EINVAL, "MergedMetaStorage of group %s not init"
-                         ", path: %s", group.c_str(), _path.c_str());
-        return status;
-    }
     
-    butil::Timer timer;
-    timer.start();
+void KVBasedMergedMetaStorageImpl::run_tasks(leveldb::WriteBatch& updates, 
+                                               Closure* dones[], size_t size) {
+    g_save_kv_raft_meta_batch_counter << size; 
+    
     leveldb::WriteOptions options;
-    options.sync = raft_sync_meta();
-    
-    // TODO replace pb
-    StablePBMeta meta;
-    meta.set_term(term);
-    meta.set_votedfor(peer_id.to_string());
-    std::string meta_string;
-    meta.SerializeToString(&meta_string);
-    leveldb::Slice value(meta_string.data(), meta_string.size());
-    
-    leveldb::Slice key(group.data(), group.size()); 
-    leveldb::Status st = _db->Put(options, key, value);
+    options.sync = raft_sync_meta(); 
+    leveldb::Status st = _db->Write(options, &updates);
     if (!st.ok()) {
-        LOG(ERROR) << "Fail to put vote info into db, group " << group
-                   << " term " << term << " vote for " << peer_id
-                   << ", path: " << _path << ", error: " << st.ToString();
-        status.set_error(EIO, "MergedMetaStorage of group %s failed"
-                "to put value(term %ld, votedfor %s), path: %s, error: %s", 
-                group.c_str(), term, peer_id.to_string().c_str(), 
-                _path.c_str(), st.ToString().c_str());
-        return status;
+        LOG(ERROR) << "Fail to write batch into db, path: " << _path
+                   << ", error: " << st.ToString();
+        butil::Status status;
+        status.set_error(EIO, "MergedMetaStorage failed to write batch"
+                              ", path: %s, error: %s", 
+                              _path.c_str(), st.ToString().c_str());
+        for (size_t i = 0; i < size; ++i) {
+            dones[i]->status() = status; 
+            run_closure_in_bthread_nosig(dones[i]);
+        }
+    } else {
+        for (size_t i = 0; i < size; ++i) {
+            run_closure_in_bthread_nosig(dones[i]);
+        } 
+    }
+    bthread_flush();
+}
+
+int KVBasedMergedMetaStorageImpl::run(void* meta, 
+                                bthread::TaskIterator<WriteTask>& iter) {
+    if (iter.is_queue_stopped()) {
+        return 0;
     }
 
-    timer.stop();
-    g_save_kv_raft_meta << timer.u_elapsed();
-    LOG(INFO) << "Saved merged stable meta, path " << _path
-              << " group " << group
-              << " term " << term
-              << " votedfor " << peer_id.to_string() 
-              << " time: " << timer.u_elapsed();
-    return status;
+    KVBasedMergedMetaStorageImpl* mss = (KVBasedMergedMetaStorageImpl*)meta;
+    const size_t batch_size = FLAGS_raft_meta_write_batch;
+    size_t cur_size = 0;
+    leveldb::WriteBatch updates;
+    DEFINE_SMALL_ARRAY(Closure*, dones, batch_size, 256);
+
+    for (; iter; ++iter) {
+        if (cur_size == batch_size) {
+            mss->run_tasks(updates, dones, cur_size); 
+            updates.Clear();
+            cur_size = 0;
+        }
+
+        const int64_t term = iter->term;
+        const PeerId votedfor = iter->votedfor;
+        const VersionedGroupId vgid = iter->vgid;
+        Closure* done = iter->done; 
+        // get key and value 
+        leveldb::Slice key(vgid.data(), vgid.size());  
+        StablePBMeta meta;
+        meta.set_term(term);
+        meta.set_votedfor(votedfor.to_string());
+        std::string meta_string;
+        meta.SerializeToString(&meta_string);
+        leveldb::Slice value(meta_string.data(), meta_string.size());
+
+        updates.Put(key, value);
+        dones[cur_size++] = done;
+    }
+    if (cur_size > 0) {
+        mss->run_tasks(updates, dones, cur_size);
+        updates.Clear();
+        cur_size = 0;
+    }
+    return 0;
+}
+
+void KVBasedMergedMetaStorageImpl::set_term_and_votedfor(
+                                const int64_t term, const PeerId& peer_id, 
+                                const VersionedGroupId& group, Closure* done) {
+    if (!_is_inited) {
+        done->status().set_error(EINVAL, "MergedMetaStorage of group %s not"
+                                 " init, path: %s", group.c_str(), _path.c_str());
+        return run_closure_in_bthread(done);
+    }
+    
+    WriteTask task;
+    task.term = term;
+    task.votedfor = peer_id;
+    task.vgid = group;
+    task.done = done;
+    if (bthread::execution_queue_execute(_queue_id, task) != 0) {
+        task.done->status().set_error(EIO, "Failed to put task into queue");
+        return run_closure_in_bthread(task.done);
+    }
 }
 
 butil::Status KVBasedMergedMetaStorageImpl::get_term_and_votedfor(int64_t* term, 
@@ -665,7 +775,6 @@ butil::Status KVBasedMergedMetaStorageImpl::get_term_and_votedfor(int64_t* term,
     
     butil::Timer timer;
     timer.start();
-    
     leveldb::Slice key(group.data(), group.size());
     std::string value;
     leveldb::Status st = _db->Get(leveldb::ReadOptions(), key, &value);
@@ -673,7 +782,10 @@ butil::Status KVBasedMergedMetaStorageImpl::get_term_and_votedfor(int64_t* term,
         // Not exist in db, set initial term 1 and votedfor 0.0.0.0:0:0
         *term = 1;
         *peer_id = ANY_PEER;
-        status = set_term_and_votedfor(*term, *peer_id, group);
+        StableMetaClosure done(*term, *peer_id, group, _path);
+        set_term_and_votedfor(*term, *peer_id, group, &done);
+        done.wait();
+        status = done.status();
         if (!status.ok()) {
             LOG(ERROR) << "node " << group
                      << " failed to set initial term and votedfor when first time init"

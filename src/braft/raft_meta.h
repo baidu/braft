@@ -15,11 +15,13 @@
 // Authors: Wang,Yao(wangyao02@baidu.com)
 //          Xiong,Kai(xiongkai@baidu.com)
 
-#ifndef BRAFT_STABLE_H
-#define BRAFT_STABLE_H
+#ifndef BRAFT_RAFT_META_H
+#define BRAFT_RAFT_META_H
 
 #include <butil/memory/ref_counted.h>
 #include <leveldb/db.h>
+#include <leveldb/write_batch.h>
+#include <bthread/execution_queue.h>
 #include "braft/storage.h"
 
 namespace braft {
@@ -77,8 +79,8 @@ public:
     virtual butil::Status init();
     
     // set term and votedfor information
-    virtual butil::Status set_term_and_votedfor(const int64_t term, 
-                const PeerId& peer_id, const VersionedGroupId& group);
+    virtual butil::Status set_term_and_votedfor(const int64_t term, const PeerId& peer_id, 
+                                       const VersionedGroupId& group);
     
     // get term and votedfor information
     virtual butil::Status get_term_and_votedfor(int64_t* term, PeerId* peer_id, 
@@ -141,22 +143,30 @@ friend class scoped_refptr<KVBasedMergedMetaStorageImpl>;
 
 public:
     explicit KVBasedMergedMetaStorageImpl(const std::string& path)
-        : _is_inited(false), _path(path) {}
+        : _is_inited(false), _path(path), _db(nullptr) {}
     KVBasedMergedMetaStorageImpl() {}
     virtual ~KVBasedMergedMetaStorageImpl() {
         if (_db) {
             delete _db;
+            _db = nullptr;
         }
     }
+    
+    struct WriteTask {
+        //TaskType type;
+        int64_t term;
+        PeerId votedfor;
+        VersionedGroupId vgid;
+        Closure* done;
+    };
 
     // init stable storage
     virtual butil::Status init();
     
     // set term and votedfor information
-    virtual butil::Status set_term_and_votedfor(const int64_t term, 
-                                                const PeerId& peer_id, 
-                                                const VersionedGroupId& group);
-
+    virtual void set_term_and_votedfor(const int64_t term, const PeerId& peer_id, 
+                                const VersionedGroupId& group, Closure* done);
+    
     // get term and votedfor information
     // [NOTICE] If some new instance init stable storage for the first time,
     // no record would be found from db, in which case initial term and votedfor
@@ -171,6 +181,12 @@ public:
 private:
     friend class butil::RefCountedThreadSafe<KVBasedMergedMetaStorageImpl>;
    
+    static int run(void* meta, bthread::TaskIterator<WriteTask>& iter);
+
+    void run_tasks(leveldb::WriteBatch& updates, Closure* dones[], size_t size);
+
+    bthread::ExecutionQueueId<WriteTask> _queue_id;
+
     raft_mutex_t _mutex;
     bool _is_inited;
     std::string _path;
@@ -179,4 +195,4 @@ private:
 
 }
 
-#endif //~BRAFT_STABLE_H
+#endif //~BRAFT_RAFT_META_H

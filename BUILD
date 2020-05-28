@@ -9,11 +9,9 @@ cc_library(
     srcs = glob([
         "src/braft/*.cpp",
     ]),
-
     hdrs = glob([
         "src/braft/*.h",
     ]),
-
     includes = [
         "src",
     ],
@@ -29,7 +27,6 @@ cc_library(
         "-momit-leaf-frame-pointer",
         "-msse4.2",
         "-pthread",
-        "-Werror",
         "-Wsign-compare",
         "-Wno-unused-parameter",
         "-Wno-unused-variable",
@@ -37,17 +34,17 @@ cc_library(
         "-Wnon-virtual-dtor",
         "-Wno-missing-field-initializers",
         "-std=c++11",
+        "-DGFLAGS_NS=google",
     ],
     linkopts = [
         "-lm",
         "-lpthread",
     ],
     deps = [
-#        "//external:gflags",
-#        "//external:glog",
-#        "//external:gtest",
-        "//external:brpc",
-        "//external:protobuf",
+        "@com_github_brpc_brpc//:brpc",
+        "@com_github_gflags_gflags//:gflags",
+        "@com_github_google_glog//:glog",
+        "@com_google_protobuf//:protobuf",        
         ":cc_braft_internal_proto",
     ],
     visibility = ["//visibility:public"],
@@ -61,4 +58,3 @@ braft_proto_library(
     include = "src",
     visibility = ["//visibility:public"],
 )
-

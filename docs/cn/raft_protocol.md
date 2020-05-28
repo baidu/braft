@@ -34,7 +34,7 @@ RAFT的选主过程中，每个Candidate节点先将本地的Current Term加一�
 2. 如果req.term < currentTerm，忽略请求。
 3. 如果req.term > currentTerm，设置req.term到currentTerm中，如果是Leader和Candidate转为Follower。
 4. 如果req.term == currentTerm，并且本地voteFor记录为空或者是与vote请求中term和CandidateId一致，req.lastLogIndex > lastLogIndex，即Candidate数据新于本地则同意选主请求。
-5. 如果req.term == currentTerm，如果本地voteFor记录非空或者是与vote请求中term一致CandidateId不一致，则拒绝选主请求。
+5. 如果req.term == currentTerm，如果本地voteFor记录非空并且是与vote请求中term一致CandidateId不一致，则拒绝选主请求。
 6. 如果lastLogTerm > req.lastLogTerm，本地最后一条Log的Term大于请求中的lastLogTerm，说明candidate上数据比本地旧，拒绝选主请求。
 
 上面的选主请求处理，符合Paxos的"少数服从多数，后者认同前者"的原则。按照上面的规则，选举出来的Leader，一定是多数节点中Log数据最新的节点。下面来分析一下选主的时间和活锁问题，设定Follower检测Leader Lease超时为HeartbeatTimeout，Leader定期发送心跳的时间间隔将小于HeartbeatTimeout，避免Leader Lease超时，通常设置为小于 HeartbeatTimeout/2。当选举出现冲突，即存在两个或多个节点同时进行选主，且都没有拿到多数节点的应答，就需要重新进行选举，这就是常见的选主活锁问题。RAFT中引入随机超时时间机制，有效规避活锁问题。
@@ -183,7 +183,7 @@ RAFT采用协同一致性的方式来解决节点的变更，先提交一个包�
 其实上面的流程可以简化，每次只增删一个节点，这样就不会出现两个多数集合，不会造成决议冲突的情况。按照如下规则进行处理：
 
 1. Leader收到AddPeer/RemovePeer的时候就进行处理，而不是等到committed，这样马上就可以使用新的peer set进行复制AddPeer/RemovePeer请求。
-2. Leader启动的时候就发送NO_OP请求，将上一个AddPeer/RemovePeer变为committed。
+2. Leader启动的时候就发送NO_OP请求，将上一个AddPeer/RemovePeer变为committed, 并使未复制到当前Leader的AddPeer/RemovePeer失效。直等到NO_OP请求committed之后, 可以安全地创建一个新的configuration并开始复制它。
 3. Leader在删除自身节点的时候，会在RemovePeer被Committed之后，进行关闭。
 
 按照上面的规则，可以实现安全的动态节点增删，因为节点动态调整跟Leader选举是两个并行的过程，节点需要一些宽松的检查来保证选主和AppendEntries的多数集合：

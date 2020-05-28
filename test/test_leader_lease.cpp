@@ -19,7 +19,7 @@
 #include "braft/util.h"
 #include "braft/node.h"
 #include "braft/lease.h"
-#include "braft/test/util.h"
+#include "../test/util.h"
 
 namespace braft {
 DECLARE_bool(raft_enable_leader_lease);
