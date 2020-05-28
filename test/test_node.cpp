@@ -919,6 +919,88 @@ TEST_P(NodeTest, RemoveLeader) {
     cluster.ensure_same();
 }
 
+TEST_P(NodeTest, restart_without_stable_meta) {
+    std::vector<braft::PeerId> peers;
+    for (int i = 0; i < 3; i++) {
+        braft::PeerId peer;
+        peer.addr.ip = base::get_host_ip();
+        peer.addr.port = 5006 + i;
+        peer.idx = 0;
+
+        peers.push_back(peer);
+    }
+
+    // start cluster
+    Cluster cluster("unittest", peers);
+    for (size_t i = 0; i < peers.size(); i++) {
+        ASSERT_EQ(0, cluster.start(peers[i].addr));
+    }
+
+    // elect leader
+    cluster.wait_leader();
+    braft::Node* leader = cluster.leader();
+    ASSERT_TRUE(leader != NULL);
+    LOG(WARNING) << "leader is " << leader->node_id();
+
+    // apply something
+    bthread::CountdownEvent cond(10);
+    for (int i = 0; i < 10; i++) {
+        base::IOBuf data;
+        char data_buf[128];
+        snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
+        data.append(data_buf);
+
+        braft::Task task;
+        task.data = &data;
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
+        leader->apply(task);
+    }
+    cond.wait();
+
+    cluster.ensure_same();
+
+    std::vector<braft::Node*> nodes;
+    cluster.followers(&nodes);
+    ASSERT_EQ(2, nodes.size());
+
+    // stop follower
+    LOG(WARNING) << "stop follower";
+    base::EndPoint follower_addr = nodes[0]->node_id().peer_id.addr;
+    cluster.stop(follower_addr);
+
+    ::system(base::string_printf("rm -rf ./data/%s/stable/*",
+                                 base::endpoint2str(follower_addr).c_str()).c_str());
+
+    LOG(INFO) << "restart follower";
+    ASSERT_EQ(0, cluster.start(follower_addr));
+
+    bthread_usleep(1000*1000);
+    cluster.wait_leader();
+    leader = cluster.leader();
+    ASSERT_TRUE(leader != NULL);
+    LOG(INFO) << "leader is " << leader->node_id();
+
+    // apply something
+    cond.reset(10);
+    for (int i = 0; i < 10; i++) {
+        base::IOBuf data;
+        char data_buf[128];
+        snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
+        data.append(data_buf);
+
+        braft::Task task;
+        task.data = &data;
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
+        leader->apply(task);
+    }
+    cond.wait();
+
+    cluster.ensure_same();
+
+    LOG(WARNING) << "cluster stop";
+    cluster.stop_all();
+}
+
 TEST_P(NodeTest, PreVote) {
     std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {

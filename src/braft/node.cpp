@@ -547,6 +547,13 @@ int NodeImpl::init(const NodeOptions& options) {
     } else {
         _conf.conf = _options.initial_conf;
     }
+    
+    // init stable meta and check term
+    if (init_meta_storage() != 0) {
+        LOG(ERROR) << "node " << _group_id << ":" << _server_id
+                   << " init_meta_storage failed";
+        return -1;
+    }
 
     // init replicator
     ReplicatorGroupOptions rg_options;
