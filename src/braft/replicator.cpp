@@ -74,7 +74,6 @@ Replicator::Replicator()
     , _consecutive_error_times(0)
     , _has_succeeded(false)
     , _timeout_now_index(0)
-    , _last_rpc_send_timestamp(0)
     , _heartbeat_counter(0)
     , _append_entries_counter(0)
     , _install_snapshot_counter(0)
@@ -98,6 +97,7 @@ Replicator::~Replicator() {
         _options.node->Release();
         _options.node = NULL;
     }
+    _options.replicator_status->Release();
 }
 
 int Replicator::start(const ReplicatorOptions& options, ReplicatorId *id) {
@@ -117,10 +117,6 @@ int Replicator::start(const ReplicatorOptions& options, ReplicatorId *id) {
         return -1;
     }
 
-    // bind lifecycle with node, AddRef
-    // Replicator stop is async
-    options.node->AddRef();
-
     r->_options = options;
     r->_next_index = r->_options.log_manager->last_log_index() + 1;
     if (bthread_id_create(&r->_id, r, _on_error) != 0) {
@@ -129,6 +125,12 @@ int Replicator::start(const ReplicatorOptions& options, ReplicatorId *id) {
         delete r;
         return -1;
     }
+
+    // bind lifecycle with node, AddRef
+    // Replicator stop is async
+    options.node->AddRef();
+    options.replicator_status->AddRef();
+
     bthread_id_lock(r->_id, NULL);
     if (id) {
         *id = r->_id.value;
@@ -136,7 +138,7 @@ int Replicator::start(const ReplicatorOptions& options, ReplicatorId *id) {
     LOG(INFO) << "Replicator=" << r->_id << "@" << r->_options.peer_id << " is started"
               << ", group " << r->_options.group_id;
     r->_catchup_closure = NULL;
-    r->_last_rpc_send_timestamp = butil::monotonic_time_ms();
+    r->_update_last_rpc_send_timestamp(butil::monotonic_time_ms());
     r->_start_heartbeat_timer(butil::gettimeofday_us());
     // Note: r->_id is unlock in _send_empty_entries, don't touch r ever after
     r->_send_empty_entries(false);
@@ -159,18 +161,6 @@ int Replicator::stop(ReplicatorId id) {
 int Replicator::join(ReplicatorId id) {
     bthread_id_t dummy_id = { id };
     return bthread_id_join(dummy_id);
-}
-
-int64_t Replicator::last_rpc_send_timestamp(ReplicatorId id) {
-    bthread_id_t dummy_id = { id };
-    Replicator* r = NULL;
-    if (bthread_id_lock(dummy_id, (void**)&r) != 0) {
-        return 0;
-    }
-    int64_t timestamp = r->_last_rpc_send_timestamp;
-    CHECK_EQ(0, bthread_id_unlock(dummy_id))
-        << "Fail to unlock " << dummy_id;
-    return timestamp;
 }
 
 void Replicator::wait_for_caught_up(ReplicatorId id, 
@@ -332,9 +322,7 @@ void Replicator::_on_heartbeat_returned(
 
     bool readonly = response->has_readonly() && response->readonly();
     BRAFT_VLOG << ss.str() << " readonly " << readonly;
-    if (rpc_send_time > r->_last_rpc_send_timestamp) {
-        r->_last_rpc_send_timestamp = rpc_send_time; 
-    }
+    r->_update_last_rpc_send_timestamp(rpc_send_time);
     r->_start_heartbeat_timer(start_time_us);
     NodeImpl* node_impl = NULL;
     // Check if readonly config changed
@@ -437,9 +425,7 @@ void Replicator::_on_rpc_returned(ReplicatorId id, brpc::Controller* cntl,
            << " local next_index " << r->_next_index 
            << " rpc prev_log_index " << request->prev_log_index();
         BRAFT_VLOG << ss.str();
-        if (rpc_send_time > r->_last_rpc_send_timestamp) {
-            r->_last_rpc_send_timestamp = rpc_send_time; 
-        }
+        r->_update_last_rpc_send_timestamp(rpc_send_time);
         // prev_log_index and prev_log_term doesn't match
         r->_reset_next_index();
         if (response->last_log_index() + 1 < r->_next_index) {
@@ -478,9 +464,7 @@ void Replicator::_on_rpc_returned(ReplicatorId id, brpc::Controller* cntl,
         CHECK_EQ(0, bthread_id_unlock(r->_id)) << "Fail to unlock " << r->_id;
         return;
     }
-    if (rpc_send_time > r->_last_rpc_send_timestamp) {
-        r->_last_rpc_send_timestamp = rpc_send_time; 
-    }
+    r->_update_last_rpc_send_timestamp(rpc_send_time);
     const int entries_size = request->entries_size();
     const int64_t rpc_last_log_index = request->prev_log_index() + entries_size;
     BRAFT_VLOG_IF(entries_size > 0) << "Group " << r->_options.group_id
@@ -1295,7 +1279,7 @@ void Replicator::_get_status(PeerStatus* status) {
     status->installing_snapshot = (_st.st == INSTALLING_SNAPSHOT);
     status->next_index = _next_index;
     status->flying_append_entries_size = _flying_append_entries_size;
-    status->last_rpc_send_timestamp = _last_rpc_send_timestamp;
+    status->last_rpc_send_timestamp = _last_rpc_send_timestamp();
     status->consecutive_error_times = _consecutive_error_times;
     status->readonly_index = _readonly_index;
     CHECK_EQ(0, bthread_id_unlock(_id));
@@ -1367,6 +1351,7 @@ int ReplicatorGroup::init(const NodeId& node_id, const ReplicatorGroupOptions& o
     _common_options.server_id = node_id.peer_id;
     _common_options.snapshot_storage = options.snapshot_storage;
     _common_options.snapshot_throttle = options.snapshot_throttle;
+    _common_options.replicator_status = NULL;
     return 0;
 }
 
@@ -1377,43 +1362,44 @@ int ReplicatorGroup::add_replicator(const PeerId& peer) {
     }
     ReplicatorOptions options = _common_options;
     options.peer_id = peer;
+    options.replicator_status = new ReplicatorStatus;
     ReplicatorId rid;
     if (Replicator::start(options, &rid) != 0) {
         LOG(ERROR) << "Group " << options.group_id
                    << " Fail to start replicator to peer=" << peer;
+        delete options.replicator_status;
         return -1;
     }
-    _rmap[peer] = rid;
+    _rmap[peer] = { rid, options.replicator_status };
     return 0;
 }
 
 int ReplicatorGroup::wait_caughtup(const PeerId& peer, 
                                    int64_t max_margin, const timespec* due_time,
                                    CatchupClosure* done) {
-    std::map<PeerId, ReplicatorId>::iterator iter = _rmap.find(peer);
+    std::map<PeerId, ReplicatorIdAndStatus>::iterator iter = _rmap.find(peer);
     if (iter == _rmap.end()) {
         return -1;
     }
-    ReplicatorId rid = iter->second;
+    ReplicatorId rid = iter->second.id;
     Replicator::wait_for_caught_up(rid, max_margin, due_time, done);
     return 0;
 }
 
 int64_t ReplicatorGroup::last_rpc_send_timestamp(const PeerId& peer) {
-    std::map<PeerId, ReplicatorId>::iterator iter = _rmap.find(peer);
+    std::map<PeerId, ReplicatorIdAndStatus>::iterator iter = _rmap.find(peer);
     if (iter == _rmap.end()) {
         return 0;
     }
-    ReplicatorId rid = iter->second;
-    return Replicator::last_rpc_send_timestamp(rid);
+    return iter->second.status->last_rpc_send_timestamp.load(butil::memory_order_relaxed);
 }
 
 int ReplicatorGroup::stop_replicator(const PeerId &peer) {
-    std::map<PeerId, ReplicatorId>::iterator iter = _rmap.find(peer);
+    std::map<PeerId, ReplicatorIdAndStatus>::iterator iter = _rmap.find(peer);
     if (iter == _rmap.end()) {
         return -1;
     }
-    ReplicatorId rid = iter->second;
+    ReplicatorId rid = iter->second.id;
     // Calling ReplicatorId::stop might lead to calling stop_replicator again, 
     // erase iter first to avoid race condition
     _rmap.erase(iter);
@@ -1423,9 +1409,9 @@ int ReplicatorGroup::stop_replicator(const PeerId &peer) {
 int ReplicatorGroup::stop_all() {
     std::vector<ReplicatorId> rids;
     rids.reserve(_rmap.size());
-    for (std::map<PeerId, ReplicatorId>::const_iterator 
+    for (std::map<PeerId, ReplicatorIdAndStatus>::const_iterator 
             iter = _rmap.begin(); iter != _rmap.end(); ++iter) {
-        rids.push_back(iter->second);
+        rids.push_back(iter->second.id);
     }
     _rmap.clear();
     for (size_t i = 0; i < rids.size(); ++i) {
@@ -1459,20 +1445,20 @@ int ReplicatorGroup::reset_election_timeout_interval(int new_interval_ms) {
 
 int ReplicatorGroup::transfer_leadership_to(
         const PeerId& peer, int64_t log_index) {
-    std::map<PeerId, ReplicatorId>::const_iterator iter = _rmap.find(peer);
+    std::map<PeerId, ReplicatorIdAndStatus>::const_iterator iter = _rmap.find(peer);
     if (iter == _rmap.end()) {
         return -1;
     }
-    ReplicatorId rid = iter->second;
+    ReplicatorId rid = iter->second.id;
     return Replicator::transfer_leadership(rid, log_index);
 }
 
 int ReplicatorGroup::stop_transfer_leadership(const PeerId& peer) {
-    std::map<PeerId, ReplicatorId>::const_iterator iter = _rmap.find(peer);
+    std::map<PeerId, ReplicatorIdAndStatus>::const_iterator iter = _rmap.find(peer);
     if (iter == _rmap.end()) {
         return -1;
     }
-    ReplicatorId rid = iter->second;
+    ReplicatorId rid = iter->second.id;
     return Replicator::stop_transfer_leadership(rid);
 }
 
@@ -1484,15 +1470,15 @@ int ReplicatorGroup::stop_all_and_find_the_next_candidate(
     if (rc == 0) {
         LOG(INFO) << "Group " << _common_options.group_id
                   << " Found " << candidate_id << " as the next candidate";
-        *candidate = _rmap[candidate_id];
+        *candidate = _rmap[candidate_id].id;
     } else {
         LOG(INFO) << "Group " << _common_options.group_id
                   << " Fail to find the next candidate";
     }
-    for (std::map<PeerId, ReplicatorId>::const_iterator
+    for (std::map<PeerId, ReplicatorIdAndStatus>::const_iterator
             iter = _rmap.begin();  iter != _rmap.end(); ++iter) {
-        if (iter->second != *candidate) {
-            Replicator::stop(iter->second);
+        if (iter->second.id != *candidate) {
+            Replicator::stop(iter->second.id);
         }
     }
     _rmap.clear();
@@ -1502,12 +1488,12 @@ int ReplicatorGroup::stop_all_and_find_the_next_candidate(
 int ReplicatorGroup::find_the_next_candidate(
         PeerId* peer_id, const ConfigurationEntry& conf) {
     int64_t max_index =  0;
-    for (std::map<PeerId, ReplicatorId>::const_iterator
+    for (std::map<PeerId, ReplicatorIdAndStatus>::const_iterator
             iter = _rmap.begin();  iter != _rmap.end(); ++iter) {
         if (!conf.contains(iter->first)) {
             continue;
         }
-        const int64_t next_index = Replicator::get_next_index(iter->second);
+        const int64_t next_index = Replicator::get_next_index(iter->second.id);
         if (next_index > max_index) {
             max_index = next_index;
             if (peer_id) {
@@ -1524,9 +1510,9 @@ int ReplicatorGroup::find_the_next_candidate(
 void ReplicatorGroup::list_replicators(std::vector<ReplicatorId>* out) const {
     out->clear();
     out->reserve(_rmap.size());
-    for (std::map<PeerId, ReplicatorId>::const_iterator
+    for (std::map<PeerId, ReplicatorIdAndStatus>::const_iterator
             iter = _rmap.begin();  iter != _rmap.end(); ++iter) {
-        out->push_back(iter->second);
+        out->push_back(iter->second.id);
     }
 }
 
@@ -1534,27 +1520,27 @@ void ReplicatorGroup::list_replicators(
         std::vector<std::pair<PeerId, ReplicatorId> >* out) const {
     out->clear();
     out->reserve(_rmap.size());
-    for (std::map<PeerId, ReplicatorId>::const_iterator
+    for (std::map<PeerId, ReplicatorIdAndStatus>::const_iterator
             iter = _rmap.begin();  iter != _rmap.end(); ++iter) {
-        out->push_back(*iter);
+        out->push_back(std::make_pair(iter->first, iter->second.id));
     }
 }
  
 int ReplicatorGroup::change_readonly_config(const PeerId& peer, bool readonly) {
-    std::map<PeerId, ReplicatorId>::const_iterator iter = _rmap.find(peer);
+    std::map<PeerId, ReplicatorIdAndStatus>::const_iterator iter = _rmap.find(peer);
     if (iter == _rmap.end()) {
         return -1;
     }
-    ReplicatorId rid = iter->second;
+    ReplicatorId rid = iter->second.id;
     return Replicator::change_readonly_config(rid, readonly);
 }
 
 bool ReplicatorGroup::readonly(const PeerId& peer) const {
-    std::map<PeerId, ReplicatorId>::const_iterator iter = _rmap.find(peer);
+    std::map<PeerId, ReplicatorIdAndStatus>::const_iterator iter = _rmap.find(peer);
     if (iter == _rmap.end()) {
         return false;
     }
-    ReplicatorId rid = iter->second;
+    ReplicatorId rid = iter->second.id;
     return Replicator::readonly(rid);
 }
 
