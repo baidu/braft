@@ -77,10 +77,10 @@ void check_if_stale_leader_exist(Cluster* cluster, int line) {
             continue;
         }
         if (lease_valid_num == 0) {
-            LOG(NOTICE) << "no leader";
+            LOG(INFO) << "no leader";
             return;
         } else {
-            LOG(NOTICE) << "leader with lease: " << leader_node->node_id();
+            LOG(INFO) << "leader with lease: " << leader_node->node_id();
             return;
         }
     }
@@ -183,7 +183,7 @@ TEST_F(LeaseTest, triple_node) {
     braft::FLAGS_raft_enable_leader_lease = true;
 
     // stop a follower, lease still valid
-    LOG(NOTICE) << "stop a follower";
+    LOG(INFO) << "stop a follower";
     cluster.stop(followers[0]->node_id().peer_id.addr);
 
     leader->get_leader_lease_status(&lease_status);
@@ -201,7 +201,7 @@ TEST_F(LeaseTest, triple_node) {
     ASSERT_TRUE(leader->is_leader_lease_valid());
 
     // stop all follwers, lease expired
-    LOG(NOTICE) << "stop a another";
+    LOG(INFO) << "stop a another";
     cluster.stop(followers[1]->node_id().peer_id.addr);
 
     leader->get_leader_lease_status(&lease_status);
@@ -231,7 +231,7 @@ TEST_F(LeaseTest, change_peers) {
     peers.push_back(peer0);
     Cluster cluster("unittest", peers, 500, 10);
     ASSERT_EQ(0, cluster.start(peer0.addr));
-    LOG(NOTICE) << "start single cluster " << peer0;
+    LOG(INFO) << "start single cluster " << peer0;
 
     // start a thread to check leader lease
     g_check_lease_in_thread_stop = false;
@@ -241,14 +241,14 @@ TEST_F(LeaseTest, change_peers) {
     cluster.wait_leader();
 
     for (int i = 1; i < 10; ++i) {
-        LOG(NOTICE) << "start peer " << i;
+        LOG(INFO) << "start peer " << i;
         braft::PeerId peer = peer0;
         peer.addr.port += i;
         ASSERT_EQ(0, cluster.start(peer.addr, true));
     }
 
     for (int i = 1; i < 10; ++i) {
-        LOG(NOTICE) << "add peer " << i;
+        LOG(INFO) << "add peer " << i;
         cluster.wait_leader();
         braft::Node* leader = cluster.leader();
         braft::PeerId peer = peer0;
@@ -261,7 +261,7 @@ TEST_F(LeaseTest, change_peers) {
     }
 
     for (int i = 1; i < 10; ++i) {
-        LOG(NOTICE) << "remove peer " << i;
+        LOG(INFO) << "remove peer " << i;
         cluster.wait_leader();
         braft::Node* leader = cluster.leader();
         braft::PeerId peer = peer0;
