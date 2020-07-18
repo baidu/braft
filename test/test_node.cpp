@@ -923,7 +923,7 @@ TEST_P(NodeTest, restart_without_stable_meta) {
     std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
         braft::PeerId peer;
-        peer.addr.ip = base::get_host_ip();
+        peer.addr.ip = butil::my_ip();
         peer.addr.port = 5006 + i;
         peer.idx = 0;
 
@@ -945,7 +945,7 @@ TEST_P(NodeTest, restart_without_stable_meta) {
     // apply something
     bthread::CountdownEvent cond(10);
     for (int i = 0; i < 10; i++) {
-        base::IOBuf data;
+        butil::IOBuf data;
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
         data.append(data_buf);
@@ -965,11 +965,11 @@ TEST_P(NodeTest, restart_without_stable_meta) {
 
     // stop follower
     LOG(WARNING) << "stop follower";
-    base::EndPoint follower_addr = nodes[0]->node_id().peer_id.addr;
+    butil::EndPoint follower_addr = nodes[0]->node_id().peer_id.addr;
     cluster.stop(follower_addr);
 
-    ::system(base::string_printf("rm -rf ./data/%s/stable/*",
-                                 base::endpoint2str(follower_addr).c_str()).c_str());
+    ::system(butil::string_printf("rm -rf ./data/%s/stable/*",
+                                 butil::endpoint2str(follower_addr).c_str()).c_str());
 
     LOG(INFO) << "restart follower";
     ASSERT_EQ(0, cluster.start(follower_addr));
@@ -983,7 +983,7 @@ TEST_P(NodeTest, restart_without_stable_meta) {
     // apply something
     cond.reset(10);
     for (int i = 0; i < 10; i++) {
-        base::IOBuf data;
+        butil::IOBuf data;
         char data_buf[128];
         snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
         data.append(data_buf);

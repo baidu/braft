@@ -221,20 +221,19 @@ TEST_F(TestFileSystemAdaptorSuits, test_buffered_sequential_read_file_adaptor_su
         while (remain_size > 0) {
             butil::IOPortal portal;
             ssize_t nread = file->read(&portal, offset, rs);
+
+            if (nread < 0) {
+                LOG(INFO) << "readsize: " << rs << ", offset: " << offset
+                    << ", align_size: " << align_size[index]
+                    << ", nread: " << nread << ", remain_size: " << remain_size;
+            }
             ASSERT_TRUE(nread >= 0);
             ASSERT_TRUE(nread <= rs);
             ASSERT_TRUE(nread <= (ssize_t)remain_size);
             remain_size -= nread;
-            offset += nread;
             read_data.append(portal);
+            offset += nread;
             
-            if (base::fast_rand() % 3 != 0) {
-                // Random repeated read
-                off_t tmp_offset = base::fast_rand() % rs + offset;
-                int   tmp_rs     = base::fast_rand() % (2 * rs);
-                ssize_t nread = file->read(&portal, tmp_offset, tmp_rs);
-                ASSERT_TRUE(nread >= 0);
-            }
         }
         ASSERT_EQ(expected_data, read_data);
         delete file;
@@ -261,4 +260,220 @@ TEST_F(TestFileSystemAdaptorSuits, test_buffered_sequential_read_file_adaptor_fa
     nread = file->read(&portal, 3 * rs, rs);
     ASSERT_TRUE(nread < 0);
     delete file;
+}
+
+// align each write to `_align_size'
+class TestFileWriteAdapor : public braft::BufferedSequentialWriteFileAdaptor {
+public:
+    TestFileWriteAdapor(butil::IOPortal& portal, int align_size) {
+        _portal = portal;
+        _align_size = align_size;
+        _error = 0;
+    }
+    butil::IOPortal& data() { return _portal; }
+    void inject_error(int error) { _error = error; }
+
+protected:
+   
+    virtual int do_write(const butil::IOBuf& data, size_t* nwrite) {
+        butil::IOBuf piece_data(data);
+        ssize_t left = piece_data.size();
+        if (_error == 0) {
+            while (left >= (size_t)_align_size) {
+                BRAFT_VLOG << "current data size: " << left
+                          << " align_size: " << _align_size
+                          << " error: " << _error;
+                size_t cut_size = piece_data.cutn(&_portal, _align_size);
+                CHECK_EQ(cut_size, _align_size);
+                *nwrite += cut_size;
+                left -= cut_size;
+            }
+        }
+        int e = _error;
+        _error = 0;
+        return e;
+    }
+
+private:
+    butil::IOPortal _portal;
+    int _error;
+    int _align_size;
+};
+
+TEST_F(TestFileSystemAdaptorSuits, test_buffered_sequential_write_file_adaptor) {
+    const int align_size = 8;
+    butil::IOPortal target_file;
+    TestFileWriteAdapor* file = new TestFileWriteAdapor(target_file, align_size);
+    ASSERT_TRUE(file != NULL);
+    butil::IOBuf src_file;
+    for (int i = 0; i < 1024; i++) {
+        char c = butil::fast_rand() % 26 + 'a';
+        src_file.append(&c, 1);
+    }
+    std::string src_string = src_file.to_string(); 
+    int offset = 0;
+    size_t remain_size = src_file.size();
+    int times = 0;
+    butil::IOBuf tmp_buf;
+    while (remain_size > 0) {
+        ++times;
+        tmp_buf.clear();
+        int rc = src_file.cutn(&tmp_buf, align_size/2);        
+        ASSERT_EQ(rc, align_size/2);
+        remain_size -= align_size/2;
+        
+        ssize_t nwrite = file->write(tmp_buf, offset);
+        BRAFT_VLOG << "write into adaptor No_" << times << ", offset: " << offset
+                  << ", size: " << tmp_buf.size()
+                  << ", data: " << tmp_buf
+                  << ", nwrite: " << nwrite;
+        ASSERT_EQ(nwrite, align_size/2);
+        offset += nwrite;
+        if (times % 2 == 0) {
+            ASSERT_EQ(file->data().size(), times * (align_size/2)); 
+        } else {
+            ASSERT_EQ(file->data().size(), (times - 1) * (align_size/2)); 
+        } 
+    }
+    ASSERT_EQ(src_string, file->data().to_string());
+    delete file;
+}
+
+class TestFileReadAdaptorWithHole : public braft::BufferedSequentialReadFileAdaptor {
+public:
+    TestFileReadAdaptorWithHole(const std::string& path, int align_size) 
+        : _path(path)
+        , _align_size(align_size)
+    {
+        _fd = ::open(_path.c_str(), O_RDONLY | O_CLOEXEC, 0644);
+        _error = 0;
+    }
+    void inject_error(int error) { _error = error; }
+
+protected:
+    virtual int do_read(butil::IOPortal* portal, size_t need_count, size_t* nread) {
+        if (_error == 0) {
+            need_count = (need_count + _align_size - 1) / _align_size * _align_size;
+            *nread = portal->append_from_file_descriptor(_fd, need_count);
+            LOG(INFO) << "do_read need_count: " << need_count << ", nread: " << *nread
+                      << ", portal size: " << portal->size()
+                      << ", portal data: " << *portal;
+        }
+        int e = _error;
+        _error = 0;
+        return e;
+    }
+
+private:
+    std::string _path;
+    int _fd;
+    int _error;
+    int _align_size;
+};
+
+class TestFileWriteAdaptorWithHole : public braft::BufferedSequentialWriteFileAdaptor {
+public:
+    TestFileWriteAdaptorWithHole(const std::string& path, int align_size) 
+        : _path(path) 
+        , _align_size(align_size)
+    {
+        _fd = open(_path.c_str(), O_TRUNC | O_WRONLY | O_CREAT | O_CLOEXEC, 0644);
+        _error = 0;
+    }
+    void inject_error(int error) { _error = error; }
+
+protected:
+   
+    virtual int do_write(const butil::IOBuf& data, size_t* nwrite) {
+        butil::IOBuf piece_data(data);
+        size_t left = piece_data.size();
+        if (_error == 0) {
+            while (left >= (size_t)_align_size) {
+                LOG(INFO) << "do_write current data size: " << left
+                          << " align_size: " << _align_size
+                          << " error: " << _error;
+                ssize_t write_size = piece_data.cut_into_file_descriptor(_fd, _align_size);
+                CHECK_EQ(write_size, _align_size);
+                *nwrite += (size_t)write_size;
+                left -= (size_t)write_size;
+            }
+        }
+        int e = _error;
+        _error = 0;
+        return e;
+    }
+
+    virtual void seek(off_t offset) {
+        ::ftruncate(_fd, offset); 
+        off_t ret_off = ::lseek(_fd, 0, SEEK_END);
+        if (ret_off < 0) {
+            LOG(ERROR) << "Fail to lseek fd= " << _fd << " to offset= " << offset
+                      << ", path: " << _path;
+        }
+        LOG(INFO) << "Succeed to lseek fd= " << _fd << " to offset= " << offset
+                  << ", path: " << _path;
+        _buffer_offset = offset;
+    }
+
+private:
+    std::string _path;
+    int _fd;
+    int _align_size;
+    int _error;
+};
+
+TEST_F(TestFileSystemAdaptorSuits, test_buffered_sequential_writer_with_hole) {
+    ::system("rm -rf test_reader_with_hole");
+    ::system("rm -rf test_writer_with_hole");
+    const std::string reader_path = "test_reader_with_hole";
+    int fd = open(reader_path.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0644);
+    char tmp_buf[9];
+    snprintf(tmp_buf, sizeof(tmp_buf), "hello000");
+    ssize_t nwritten = pwrite(fd, tmp_buf, strlen(tmp_buf), 0);
+    ASSERT_EQ((size_t)nwritten, strlen(tmp_buf));
+    snprintf(tmp_buf, sizeof(tmp_buf), "hello111");
+    nwritten = pwrite(fd, tmp_buf, strlen(tmp_buf), 16);
+    ASSERT_EQ((size_t)nwritten, strlen(tmp_buf)); 
+    
+    const int align_size = 8;
+    TestFileReadAdaptorWithHole* reader = new TestFileReadAdaptorWithHole(reader_path, align_size);
+    ASSERT_TRUE(reader != NULL);
+
+    const std::string writer_path = "test_writer_with_hole";
+    TestFileWriteAdaptorWithHole* writer = new TestFileWriteAdaptorWithHole(writer_path, align_size);
+    ASSERT_TRUE(writer != NULL);
+   
+    { 
+        butil::IOPortal buf; 
+        off_t offset = 0;
+        bool is_eof = false;
+        const size_t per_rpc_size = 8;
+        while (!is_eof) {
+            // read
+            ssize_t nread = reader->read(&buf, offset, per_rpc_size);
+            ASSERT_TRUE(nread >= 0); 
+            if ((size_t)nread < per_rpc_size) {
+                is_eof = true;
+            } else {
+                ssize_t file_size = reader->size();
+                ASSERT_TRUE(file_size >= 0);
+                if ((size_t)file_size == offset + (size_t)per_rpc_size) {
+                    is_eof = true;
+                }
+            }
+            if (!braft::is_zero(buf.to_string().c_str(), buf.size())) {
+                // write
+                ssize_t nwrite = writer->write(buf, offset);
+                ASSERT_TRUE(nwrite >= 0);
+            }
+            
+            buf.clear();
+            offset += nread;
+        }
+    }
+    // check data, including hole
+    int ret = system("diff -a test_reader_with_hole test_writer_with_hole");
+    ASSERT_EQ(0, ret);
+    delete reader;
+    delete writer;
 }
