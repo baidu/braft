@@ -35,6 +35,14 @@ class BallotBox;
 class NodeImpl;
 class SnapshotThrottle;
 
+// A shared structure to store some high-frequency replicator statuses, for reducing
+// the lock contention between Replicator and NodeImpl.
+struct ReplicatorStatus : public butil::RefCountedThreadSafe<ReplicatorStatus> {
+    butil::atomic<int64_t> last_rpc_send_timestamp;
+
+    ReplicatorStatus() : last_rpc_send_timestamp(0) {}
+};
+
 struct ReplicatorOptions {
     ReplicatorOptions();
     int* dynamic_heartbeat_timeout_ms;
@@ -48,6 +56,7 @@ struct ReplicatorOptions {
     int64_t term;
     SnapshotStorage* snapshot_storage;
     SnapshotThrottle* snapshot_throttle;
+    ReplicatorStatus* replicator_status;
 };
 
 typedef uint64_t ReplicatorId;
@@ -81,8 +90,6 @@ public:
     static int stop(ReplicatorId);
 
     static int join(ReplicatorId);
-
-    static int64_t last_rpc_send_timestamp(ReplicatorId id);
 
     // Wait until the margin between |last_log_index| from leader and the peer
     // is less than |max_margin| or error occurs. 
@@ -206,6 +213,15 @@ private:
         return true;
     }
     void _close_reader();
+    int64_t _last_rpc_send_timestamp() {
+        return _options.replicator_status->last_rpc_send_timestamp.load(butil::memory_order_relaxed);
+    }
+    void _update_last_rpc_send_timestamp(int64_t new_timestamp) {
+        if (new_timestamp > _last_rpc_send_timestamp()) {
+            _options.replicator_status->last_rpc_send_timestamp
+                .store(new_timestamp, butil::memory_order_relaxed);
+        }
+    }
 
 private:
     struct FlyingAppendEntriesRpc {
@@ -222,8 +238,6 @@ private:
     int _consecutive_error_times;
     bool _has_succeeded;
     int64_t _timeout_now_index;
-    // the sending time of last successful RPC
-    int64_t _last_rpc_send_timestamp;
     int64_t _heartbeat_counter;
     int64_t _append_entries_counter;
     int64_t _install_snapshot_counter;
@@ -344,7 +358,12 @@ private:
 
     int _add_replicator(const PeerId& peer, ReplicatorId *rid);
 
-    std::map<PeerId, ReplicatorId> _rmap;
+    struct ReplicatorIdAndStatus {
+        ReplicatorId id;
+        scoped_refptr<ReplicatorStatus> status;
+    };
+
+    std::map<PeerId, ReplicatorIdAndStatus> _rmap;
     ReplicatorOptions _common_options;
     int _dynamic_timeout_ms;
     int _election_timeout_ms;

@@ -986,6 +986,18 @@ TEST_F(LogStorageTest, multi_read_single_modify_thread_safe) {
     braft::FLAGS_raft_max_segment_size = saved_max_segment_size;
 }
 
+TEST_F(LogStorageTest, max_segment_size_illegal) {
+    int32_t saved_max_segment_size = braft::FLAGS_raft_max_segment_size;
+    braft::FLAGS_raft_max_segment_size = -1;
+    system("rm -rf ./data");
+    braft::SegmentLogStorage* storage = new braft::SegmentLogStorage("./data");
+    braft::ConfigurationManager* configuration_manager = new braft::ConfigurationManager;
+    ASSERT_EQ(-1, storage->init(configuration_manager));
+    delete configuration_manager;
+    delete storage;
+    braft::FLAGS_raft_max_segment_size = saved_max_segment_size;
+}
+
 TEST_F(LogStorageTest, large_entry) {
     system("rm -rf ./data");
     braft::SegmentLogStorage* storage = new braft::SegmentLogStorage("./data");

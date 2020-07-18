@@ -41,12 +41,15 @@ static bvar::PerSecond<bvar::Adder<int64_t> > g_read_term_from_storage_second
             ("raft_read_term_from_storage_second", &g_read_term_from_storage);
 
 static bvar::LatencyRecorder g_storage_append_entries_latency(
-                                        "raft_storage_append_entries");
+                                    "raft_storage_append_entries");
 static bvar::LatencyRecorder g_nomralized_append_entries_latency(
-                                        "raft_storage_append_entries_normalized");
+                                    "raft_storage_append_entries_normalized");
+static bvar::Adder<int64_t> g_storage_append_entries_concurrency(
+                                    "raft_storage_append_entries_concurrency");
 
 static bvar::CounterRecorder g_storage_flush_batch_counter(
                                         "raft_storage_flush_batch_counter");
+
 
 void LogManager::StableClosure::update_metric(IOMetric* m) {
     metric.open_segment_time_us = m->open_segment_time_us;
@@ -452,7 +455,9 @@ void LogManager::append_to_storage(std::vector<LogEntry*>* to_append,
         }
         butil::Timer timer;
         timer.start();
+        g_storage_append_entries_concurrency << 1;
         int nappent = _log_storage->append_entries(*to_append, metric);
+        g_storage_append_entries_concurrency << -1;
         timer.stop();
         if (nappent != (int)to_append->size()) {
             // FIXME
@@ -643,9 +648,11 @@ void LogManager::set_snapshot(const SnapshotMeta* meta) {
     if (_last_snapshot_id > _applied_id) {
         _applied_id = _last_snapshot_id;
     }
-    if (_last_snapshot_id > _disk_id) {
-        _disk_id = _last_snapshot_id;
-    }
+    // NOTICE: not to update disk_id here as we are not sure if this node really
+    // has these logs on disk storage. Just leave disk_id as it was, which can keep
+    // these logs in memory all the time until they are flushed to disk. By this 
+    // way we can avoid some corner cases which failed to get logs.
+    
     if (term == 0) {
         // last_included_index is larger than last_index
         // FIXME: what if last_included_index is less than first_index?

@@ -65,6 +65,96 @@ bool PosixFileAdaptor::close() {
     return true;
 }
 
+ssize_t BufferedSequentialReadFileAdaptor::read(butil::IOPortal* portal, off_t offset, size_t size) {
+    if (_error) {
+        errno = _error;
+        return -1;
+    }
+    
+    BRAFT_VLOG << "begin read offset " << offset << " count " << size
+              << ", buffer_offset " << _buffer_offset
+              << " buffer_size " << _buffer_size;
+    if (offset < _buffer_offset || offset > off_t(_buffer_offset + _buffer_size)) {
+        LOG(WARNING) << "Fail to read from buffered file adaptor with invalid range"
+            << ", buffer_offset: " << _buffer_offset
+            << ", buffer_size: " << _buffer_size
+            << ", read offset: " << offset
+            << ", read size: " << size;
+        errno = EINVAL;
+        return -1;
+    }
+    if (offset > _buffer_offset) {
+        _buffer.pop_front(std::min(size_t(offset - _buffer_offset), _buffer.size()));
+        _buffer_size -= (offset - _buffer_offset);
+        _buffer_offset = offset;
+    }
+    off_t end_offset = offset + size;
+    if (!_reach_file_eof && end_offset > off_t(_buffer_offset + _buffer_size)) {
+        butil::IOPortal tmp_portal;
+        size_t need_count = end_offset - _buffer_offset - _buffer_size;
+        size_t read_count = 0;
+        int rc = do_read(&tmp_portal, need_count, &read_count);
+        if (rc != 0) {
+            _error = ((errno != 0) ? errno : EIO);
+            errno = _error;
+            return -1;
+        }
+        _reach_file_eof = (read_count < need_count);
+        if (!tmp_portal.empty()) {
+            _buffer.resize(_buffer_size);
+            _buffer.append(tmp_portal);
+        }
+        _buffer_size += read_count;
+    }
+    ssize_t nread = std::min(_buffer_size, size);
+    if (!_buffer.empty()) {
+        _buffer.append_to(portal, std::min(_buffer.size(), size_t(nread)));
+    }
+    return nread;
+}
+
+ssize_t BufferedSequentialWriteFileAdaptor::write(const butil::IOBuf& data, off_t offset) {
+    if (_error) {
+        errno = _error;
+        return -1;
+    }
+    
+    BRAFT_VLOG << "begin write offset " << offset << ", data_size " << data.size()
+              << ", buffer_offset " << _buffer_offset 
+              << ", buffer_size " << _buffer_size;
+    if (offset < _buffer_offset + _buffer_size) {
+        LOG(WARNING) << "Fail to write into buffered file adaptor with invalid range"
+                     << ", offset: " << offset
+                     << ", data_size: " << data.size()
+                     << ", buffer_offset: " << _buffer_offset
+                     << ", buffer_size: " << _buffer_size;
+        errno = EINVAL;
+        return -1;
+    } else if (offset > _buffer_offset + _buffer_size) {
+        // passby hole
+        CHECK(_buffer_size == 0);
+        BRAFT_VLOG << "seek to new offset " << offset << " as there is hole";
+        seek(offset);
+    }
+    const size_t saved_size = data.size();
+    _buffer.append(data);
+    _buffer_size = _buffer.size();
+    if (_buffer.size() > 0) {
+        size_t write_count = 0;
+        int rc = do_write(_buffer, &write_count);
+        if (rc < 0) {
+            _error = ((errno != 0) ? errno : EIO);
+            errno = _error;
+            return -1;
+        }
+        _buffer_offset += write_count; 
+        _buffer_size -= write_count;
+        _buffer.pop_front(write_count);
+        CHECK_EQ(_buffer_size, _buffer.size());
+    }
+    return saved_size;
+}
+
 static pthread_once_t s_check_cloexec_once = PTHREAD_ONCE_INIT;
 static bool s_support_cloexec_on_open = false;
 

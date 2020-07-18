@@ -186,6 +186,88 @@ private:
     int _fd;
 };
 
+class BufferedSequentialReadFileAdaptor : public FileAdaptor {
+public:
+    virtual ~BufferedSequentialReadFileAdaptor() {}
+
+    virtual ssize_t write(const butil::IOBuf& data, off_t offset) {
+        CHECK(false);
+        return -1;
+    }
+    virtual ssize_t read(butil::IOPortal* portal, off_t offset, size_t size);
+    virtual bool sync() {
+        CHECK(false);
+        return false;
+    }
+    virtual bool close() {
+        return true;
+    }
+    virtual ssize_t size() {
+        return _reach_file_eof ? (_buffer_offset + _buffer_size) : SSIZE_MAX;
+    }
+
+protected:
+    BufferedSequentialReadFileAdaptor()
+        : _buffer_offset(0), _buffer_size(0), _reach_file_eof(false), _error(0)
+    {}
+
+    // The |need_count| here is just a suggestion, |nread| can be larger than |need_count|
+    // actually, if needed. This is useful for some special cases, in which data must be
+    // read atomically. If |nread| < |need_count|, the wrapper think eof is reached.
+    virtual int do_read(butil::IOPortal* portal, size_t need_count, size_t* nread) = 0;
+
+private:
+    butil::IOBuf _buffer;
+    off_t       _buffer_offset;
+    size_t      _buffer_size;
+    bool        _reach_file_eof;
+    int         _error;
+};
+
+class BufferedSequentialWriteFileAdaptor : public FileAdaptor {
+public:
+    virtual ~BufferedSequentialWriteFileAdaptor() {}
+
+    virtual ssize_t write(const butil::IOBuf& data, off_t offset);
+    virtual ssize_t read(butil::IOPortal* portal, off_t offset, size_t size) {
+        CHECK(false);
+        return -1; 
+    }
+    virtual bool sync() {
+        CHECK(false);
+        return false;
+    }
+    virtual bool close() {
+        // All data should be written into underlayer device
+        return _buffer.size() == 0;
+    }
+    virtual ssize_t size() {
+        CHECK(false);
+        return -1; 
+    }
+
+protected:
+    BufferedSequentialWriteFileAdaptor()
+        : _buffer_offset(0), _buffer_size(0),  _error(0)
+    {}
+    
+    // Write |data| into underlayer device with its current offset, |nwrite|
+    // is set to the number of written bytes
+    // Return 0 on success
+    virtual int do_write(const butil::IOBuf& data, size_t* nwrite) = 0;
+    
+    // Seek to a given offset when there is hole
+    // NOTICE: Only seek to bigger offset
+    virtual void seek(off_t offset) {
+        _buffer_offset = offset;
+    }
+
+    butil::IOBuf _buffer;
+    off_t       _buffer_offset;
+    size_t      _buffer_size;
+    int         _error;
+};
+
 class PosixFileSystemAdaptor : public FileSystemAdaptor {
 public:
     PosixFileSystemAdaptor() {}
