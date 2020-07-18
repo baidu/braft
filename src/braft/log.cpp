@@ -656,6 +656,11 @@ int Segment::truncate(const int64_t last_index_kept) {
 }
 
 int SegmentLogStorage::init(ConfigurationManager* configuration_manager) {
+    if (FLAGS_raft_max_segment_size < 0) {
+        LOG(FATAL) << "FLAGS_raft_max_segment_size " << FLAGS_raft_max_segment_size  
+                   << " must be greater than or equal to 0 ";
+        return -1; 
+    }
     butil::FilePath dir_path(_path);
     butil::File::Error e;
     if (!butil::CreateDirectoryAndGetError(
