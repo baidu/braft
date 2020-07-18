@@ -648,9 +648,11 @@ void LogManager::set_snapshot(const SnapshotMeta* meta) {
     if (_last_snapshot_id > _applied_id) {
         _applied_id = _last_snapshot_id;
     }
-    if (_last_snapshot_id > _disk_id) {
-        _disk_id = _last_snapshot_id;
-    }
+    // NOTICE: not to update disk_id here as we are not sure if this node really
+    // has these logs on disk storage. Just leave disk_id as it was, which can keep
+    // these logs in memory all the time until they are flushed to disk. By this 
+    // way we can avoid some corner cases which failed to get logs.
+    
     if (term == 0) {
         // last_included_index is larger than last_index
         // FIXME: what if last_included_index is less than first_index?
