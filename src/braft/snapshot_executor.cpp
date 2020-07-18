@@ -22,6 +22,11 @@
 
 namespace braft {
 
+DEFINE_int32(raft_do_snapshot_min_index_gap, 1, 
+             "Will do snapshot only when actual gap between applied_index and"
+             " last_snapshot_index is equal to or larger than this value");
+BRPC_VALIDATE_GFLAG(raft_do_snapshot_min_index_gap, brpc::PositiveInteger);
+
 class SaveSnapshotDone : public SaveSnapshotClosure {
 public:
     SaveSnapshotDone(SnapshotExecutor* node, SnapshotWriter* writer, Closure* done);
@@ -137,22 +142,27 @@ void SnapshotExecutor::do_snapshot(Closure* done) {
         }
         return;
     }
-    if (_fsm_caller->last_applied_index() == _last_snapshot_index) {
+    int64_t saved_fsm_applied_index = _fsm_caller->last_applied_index();
+    if (saved_fsm_applied_index - _last_snapshot_index < 
+                                        FLAGS_raft_do_snapshot_min_index_gap) {
         // There might be false positive as the last_applied_index() is being
         // updated. But it's fine since we will do next snapshot saving in a
         // predictable time.
         lck.unlock();
-        LOG_IF(INFO, _node != NULL) << "node " << _node->node_id()
-            << " has no applied logs since last snapshot, "
-            << " last_snapshot_index " << saved_last_snapshot_index
-            << " last_snapshot_term " << saved_last_snapshot_term
-            << ", will clear bufferred log and return success";
+
         _log_manager->clear_bufferred_logs();
+        LOG_IF(INFO, _node != NULL) << "node " << _node->node_id()
+            << " the gap between fsm applied index " << saved_fsm_applied_index
+            << " and last_snapshot_index " << saved_last_snapshot_index
+            << " is less than " << FLAGS_raft_do_snapshot_min_index_gap
+            << ", will clear bufferred logs and return success";
+
         if (done) {
             run_closure_in_bthread(done, _usercode_in_pthread);
         }
         return;
     }
+    
     SnapshotWriter* writer = _snapshot_storage->create();
     if (!writer) {
         lck.unlock();
