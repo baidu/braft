@@ -287,7 +287,7 @@ public:
     // NOTE: when calling this function, the replicatos starts to work
     // immediately, annd might call node->step_down which might have race with
     // the caller, you should deal with this situation.
-    int add_replicator(const PeerId &peer);
+    int add_replicator(const PeerId& peer);
     
     // wait the very peer catchup
     int wait_caughtup(const PeerId& peer, int64_t max_margin,

@@ -416,7 +416,6 @@ void Replicator::_on_rpc_returned(ReplicatorId id, brpc::Controller* cntl,
             butil::Status status;
             status.set_error(EHIGHERTERMRESPONSE, "Leader receives higher term "
                     "%s from peer:%s", response->GetTypeName().c_str(), r->_options.peer_id.to_string().c_str());
-            r->_destroy();
             node_impl->increase_term_to(response->term(), status);
             node_impl->Release();
             return;
