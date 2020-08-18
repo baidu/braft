@@ -49,6 +49,7 @@ export TCMALLOC_SAMPLE_PARAMETER=524288
 
 ${VALGRIND} ./atomic_client \
         --add_percentage=${FLAGS_add_percentage} \
+        --defer_close_second=1 \
         --bthread_concurrency=${FLAGS_bthread_concurrency} \
         --conf="${raft_peers}" \
         --log_each_request=${FLAGS_log_each_request} \

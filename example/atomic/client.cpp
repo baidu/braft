@@ -134,16 +134,20 @@ int main(int argc, char* argv[]) {
     }
 
     std::vector<bthread_t> tids;
+    std::vector<pthread_t> pids;
+
     std::vector<SendArg> args;
     for (int i = 1; i <= FLAGS_thread_num; ++i) {
         SendArg arg = { i };
         args.push_back(arg);
     }
+
     tids.resize(FLAGS_thread_num);
+    pids.resize(FLAGS_thread_num);
     if (!FLAGS_use_bthread) {
         for (int i = 0; i < FLAGS_thread_num; ++i) {
             if (pthread_create(
-                        &tids[i], NULL, sender, &args[i]) != 0) {
+                        &pids[i], NULL, sender, &args[i]) != 0) {
                 LOG(ERROR) << "Fail to create pthread";
                 return -1;
             }
@@ -170,7 +174,7 @@ int main(int argc, char* argv[]) {
     LOG(INFO) << "Counter client is going to quit";
     for (int i = 0; i < FLAGS_thread_num; ++i) {
         if (!FLAGS_use_bthread) {
-            pthread_join(tids[i], NULL);
+            pthread_join(pids[i], NULL);
         } else {
             bthread_join(tids[i], NULL);
         }
