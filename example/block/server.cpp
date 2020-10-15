@@ -26,7 +26,7 @@
 
 #ifdef __APPLE__
 #define fdatasync fsync
-#define fread_unlocked freed
+#define fread_unlocked fread
 #endif
 
 
