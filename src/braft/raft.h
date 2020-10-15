@@ -251,8 +251,8 @@ public:
     // 2. receive requests with higher term such as vote_request from a candidate
     // or append_entries_request from a new leader
     // 3. receive timeout_now_request from current leader and start request_vote
-    // the parameter stop_following_context gives the information(leader_id, term and status) about the
-    // very leader whom the follower followed before.
+    // the parameter ctx gives the information(leader_id, term and status) about
+    // the very leader whom the follower followed before.
     // User can reset the node's information as it stops following some leader.
     virtual void on_stop_following(const ::braft::LeaderChangeContext& ctx);
 
@@ -261,7 +261,7 @@ public:
     // situations including:
     // 1. a candidate receives append_entries from a leader
     // 2. a follower(without leader) receives append_entries from a leader
-    // the parameter start_following_context gives the information(leader_id, term and status) about 
+    // the parameter ctx gives the information(leader_id, term and status) about
     // the very leader whom the follower starts to follow.
     // User can reset the node's information as it starts to follow some leader.
     virtual void on_start_following(const ::braft::LeaderChangeContext& ctx);
