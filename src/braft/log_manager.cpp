@@ -64,6 +64,7 @@ LogManager::LogManager()
     : _log_storage(NULL)
     , _config_manager(NULL)
     , _stopped(false)
+    , _shutdown(false)
     , _has_error(false)
     , _next_wait_id(0)
     , _first_log_index(0)
@@ -243,6 +244,13 @@ public:
     int64_t next_log_index() const { return _next_log_index; }
 private:
     int64_t _next_log_index;
+};
+
+class ShutdownClosure : public LogManager::StableClosure {
+public:
+    void Run() {
+        delete this;
+    }
 };
 
 int LogManager::truncate_prefix(const int64_t first_index_kept,
@@ -505,7 +513,18 @@ public:
                             EIO, "Corrupted LogStorage");
                 }
                 _storage[i]->update_metric(&metric);
-                _storage[i]->Run();
+                if (BAIDU_UNLIKELY(_lm->_shutdown)) {
+                    // Run closure in bthread after the log manager shutdown,
+                    // to avoid a corner case. In this case, the closure holds the
+                    // last reference of NodeImpl, and done->Run() triggers the
+                    // the destructor of NodeImpl. In the destructor, NodeImpl
+                    // joins the disk thread to terminate, but the done->Run()
+                    // itself is excuted in the disk thread. The disk thread can
+                    // never be terminated!
+                    run_closure_in_bthread(_storage[i]);
+                } else {
+                    _storage[i]->Run();
+                }
             }
             _to_append.clear();
         }
@@ -598,6 +617,11 @@ int LogManager::disk_thread(void* meta,
                     LOG(INFO) << "Reseting storage to next_log_index="
                               << rc->next_log_index();
                     ret = log_manager->_log_storage->reset(rc->next_log_index());
+                    break;
+                }
+                ShutdownClosure* sc = dynamic_cast<ShutdownClosure*>(done);
+                if (sc) {
+                    ret = log_manager->_shutdown = true;
                     break;
                 }
             } while (0);
@@ -816,6 +840,7 @@ void LogManager::set_applied_id(const LogId& applied_id) {
 void LogManager::shutdown() {
     std::unique_lock<raft_mutex_t> lck(_mutex);
     _stopped = true;
+    CHECK_EQ(0, bthread::execution_queue_execute(_disk_queue, new ShutdownClosure));
     wakeup_all_waiter(lck);
 }
 
