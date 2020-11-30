@@ -37,7 +37,7 @@
 namespace braft {
 
 DEFINE_int32(raft_max_election_delay_ms, 1000, 
-                     "Max election delay time allowed by user");
+             "Max election delay time allowed by user");
 BRPC_VALIDATE_GFLAG(raft_max_election_delay_ms, brpc::PositiveInteger);
 
 DEFINE_bool(raft_step_down_when_vote_timedout, true, 
@@ -50,7 +50,7 @@ DEFINE_bool(raft_enable_append_entries_cache, false,
 BRPC_VALIDATE_GFLAG(raft_enable_append_entries_cache, ::brpc::PassValidate);
 
 DEFINE_int32(raft_max_append_entries_cache_size, 8,
-            "the max size of out-of-order append entries cache");
+             "the max size of out-of-order append entries cache");
 BRPC_VALIDATE_GFLAG(raft_max_append_entries_cache_size, ::brpc::PositiveInteger);
 
 DEFINE_int64(raft_append_entry_high_lat_us, 1000 * 1000,
@@ -58,7 +58,7 @@ DEFINE_int64(raft_append_entry_high_lat_us, 1000 * 1000,
 BRPC_VALIDATE_GFLAG(raft_append_entry_high_lat_us, brpc::PositiveInteger);
 
 DEFINE_bool(raft_trace_append_entry_latency, false,
-             "trace append entry latency");
+            "trace append entry latency");
 BRPC_VALIDATE_GFLAG(raft_trace_append_entry_latency, brpc::PassValidate);
 
 #ifndef UNIT_TEST
