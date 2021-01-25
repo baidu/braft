@@ -724,7 +724,7 @@ void NodeImpl::on_caughtup(const PeerId& peer, int64_t term,
 
         OnCaughtUp* caught_up = new OnCaughtUp(this, _current_term, peer, version);
         timespec due_time = butil::milliseconds_from_now(
-                _options.election_timeout_ms);
+                _options.get_catchup_timeout_ms());
 
         if (0 == _replicator_group.wait_caughtup(
                     peer, _options.catchup_margin, &due_time, caught_up)) {
@@ -3040,7 +3040,7 @@ void NodeImpl::ConfigurationCtx::start(const Configuration& old_conf,
         OnCaughtUp* caught_up = new OnCaughtUp(
                 _node, _node->_current_term, *iter, _version);
         timespec due_time = butil::milliseconds_from_now(
-                _node->_options.election_timeout_ms);
+                _node->_options.get_catchup_timeout_ms());
         if (_node->_replicator_group.wait_caughtup(
             *iter, _node->_options.catchup_margin, &due_time, caught_up) != 0) {
             LOG(WARNING) << "node " << _node->node_id()
