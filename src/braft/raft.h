@@ -480,6 +480,11 @@ struct NodeOptions {
     // Default: 1000 (1s)
     int election_timeout_ms; //follower to candidate timeout
 
+    // wait new peer to catchup log in |catchup_timeout_ms| milliseconds
+    // if set to 0, it will same as election_timeout_ms
+    // Default: 0
+    int catchup_timeout_ms;
+
     // Max clock drift time. It will be used to keep the safety of leader lease.
     // Default: 1000 (1s)
     int max_clock_drift_ms;
@@ -585,10 +590,13 @@ struct NodeOptions {
 
     // Construct a default instance
     NodeOptions();
+
+    int get_catchup_timeout_ms();
 };
 
 inline NodeOptions::NodeOptions() 
     : election_timeout_ms(1000)
+    , catchup_timeout_ms(0)
     , max_clock_drift_ms(1000)
     , snapshot_interval_s(3600)
     , catchup_margin(1000)
@@ -602,6 +610,10 @@ inline NodeOptions::NodeOptions()
     , snapshot_throttle(NULL)
     , disable_cli(false)
 {}
+
+inline int NodeOptions::get_catchup_timeout_ms() {
+    return (catchup_timeout_ms == 0) ? election_timeout_ms : catchup_timeout_ms;
+}
 
 class NodeImpl;
 class Node {
