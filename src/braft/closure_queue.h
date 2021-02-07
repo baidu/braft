@@ -1,11 +1,11 @@
 // Copyright (c) 2016 Baidu.com, Inc. All Rights Reserved
-// 
+//
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
-// 
+//
 //     http://www.apache.org/licenses/LICENSE-2.0
-// 
+//
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -40,9 +40,9 @@ public:
     void append_pending_closure(Closure* c);
 
     // Pop all the closure until |index| (included) into out in the same order
-    // of thier indexes, |out_first_index| would be assigned the index of out[0] if
-    // out is not empyt, index + 1 otherwise.
-    int pop_closure_until(int64_t index, 
+    // of their indexes, |out_first_index| would be assigned the index of out[0] if
+    // out is not empty, index + 1 otherwise.
+    int pop_closure_until(int64_t index,
                           std::vector<Closure*> *out, int64_t *out_first_index);
 private:
     // TODO: a spsc lock-free queue would help
