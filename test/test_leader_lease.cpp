@@ -26,7 +26,7 @@ DECLARE_bool(raft_enable_leader_lease);
 DECLARE_int32(raft_election_heartbeat_factor);
 }
 
-class LeaseTest : public testing::Test {
+class BaseLeaseTest : public testing::Test {
 protected:
     void SetUp() {
         ::system("rm -rf data");
@@ -39,6 +39,23 @@ protected:
     void TearDown() {
         ::system("rm -rf data");
     }
+};
+
+class ExtendLeaseTest : public testing::TestWithParam<int> {
+protected:
+    void SetUp() {
+        ::system("rm -rf data");
+        //logging::FLAGS_v = 90;
+        braft::FLAGS_raft_sync = false;
+        braft::FLAGS_raft_enable_leader_lease = true;
+        braft::FLAGS_raft_election_heartbeat_factor = 3;
+        peer_num = GetParam();
+    }
+    void TearDown() {
+        ::system("rm -rf data");
+    }
+
+    int peer_num;
 };
 
 void check_if_stale_leader_exist(Cluster* cluster, int line) {
@@ -102,7 +119,7 @@ void* check_lease_in_thread(void* arg) {
     return NULL;
 }
 
-TEST_F(LeaseTest, triple_node) {
+TEST_F(BaseLeaseTest, triple_node) {
     ::system("rm -rf data");
     std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {
@@ -219,7 +236,7 @@ TEST_F(LeaseTest, triple_node) {
     cluster.stop_all();
 }
 
-TEST_F(LeaseTest, change_peers) {
+TEST_F(BaseLeaseTest, change_peers) {
     ::system("rm -rf data");
     std::vector<braft::PeerId> peers;
     braft::PeerId peer0;
@@ -279,10 +296,10 @@ TEST_F(LeaseTest, change_peers) {
     cluster.stop_all();
 }
 
-TEST_F(LeaseTest, transfer_leadership_success) {
+TEST_P(ExtendLeaseTest, transfer_leadership_success) {
     ::system("rm -rf data");
     std::vector<braft::PeerId> peers;
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < peer_num; i++) {
         braft::PeerId peer;
         peer.addr.ip = butil::my_ip();
         peer.addr.port = 5006 + i;
@@ -329,10 +346,10 @@ TEST_F(LeaseTest, transfer_leadership_success) {
     cluster.stop_all();
 }
 
-TEST_F(LeaseTest, transfer_leadership_timeout) {
+TEST_P(ExtendLeaseTest, transfer_leadership_timeout) {
     ::system("rm -rf data");
     std::vector<braft::PeerId> peers;
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < peer_num; i++) {
         braft::PeerId peer;
         peer.addr.ip = butil::my_ip();
         peer.addr.port = 5006 + i;
@@ -375,10 +392,10 @@ TEST_F(LeaseTest, transfer_leadership_timeout) {
     cluster.stop_all();
 }
 
-TEST_F(LeaseTest, vote) {
+TEST_P(ExtendLeaseTest, vote) {
     ::system("rm -rf data");
     std::vector<braft::PeerId> peers;
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < peer_num; i++) {
         braft::PeerId peer;
         peer.addr.ip = butil::my_ip();
         peer.addr.port = 5006 + i;
@@ -431,10 +448,10 @@ TEST_F(LeaseTest, vote) {
     cluster.stop_all();
 }
 
-TEST_F(LeaseTest, leader_step_down) {
+TEST_P(ExtendLeaseTest, leader_step_down) {
     ::system("rm -rf data");
     std::vector<braft::PeerId> peers;
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < peer_num; i++) {
         braft::PeerId peer;
         peer.addr.ip = butil::my_ip();
         peer.addr.port = 5006 + i;
@@ -456,8 +473,9 @@ TEST_F(LeaseTest, leader_step_down) {
     cluster.followers(&nodes);
 
     braft::SynchronizedClosure done;
-    static_cast<MockFSM*>(nodes[0]->_impl->_options.fsm)->set_on_leader_start_closure(&done);
-    static_cast<MockFSM*>(nodes[1]->_impl->_options.fsm)->set_on_leader_start_closure(&done);
+    for (int i = 0; i < peer_num - 1; ++i) {
+        static_cast<MockFSM*>(nodes[i]->_impl->_options.fsm)->set_on_leader_start_closure(&done);
+    }
 
     int64_t begin_ms = butil::monotonic_time_ms();
     cluster.stop(leader->node_id().peer_id.addr);
@@ -492,12 +510,12 @@ public:
     butil::atomic<bool> running;
 };
 
-TEST_F(LeaseTest, apply_thread_hung) {
+TEST_P(ExtendLeaseTest, apply_thread_hung) {
     ::system("rm -rf data");
     braft::LeaderLeaseStatus lease_status;
     std::vector<braft::PeerId> peers;
     std::vector<OnLeaderStartHungClosure*> on_leader_start_closures;
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < peer_num; i++) {
         braft::PeerId peer;
         peer.addr.ip = butil::my_ip();
         peer.addr.port = 5006 + i;
@@ -557,10 +575,10 @@ TEST_F(LeaseTest, apply_thread_hung) {
     }
 }
 
-TEST_F(LeaseTest, chaos) {
+TEST_P(ExtendLeaseTest, chaos) {
     ::system("rm -rf data");
     std::vector<braft::PeerId> started_nodes;
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < peer_num; i++) {
         braft::PeerId peer;
         peer.addr.ip = butil::my_ip();
         peer.addr.port = 5006 + i;
@@ -588,7 +606,7 @@ TEST_F(LeaseTest, chaos) {
     };
 
     std::vector<braft::PeerId> stopped_nodes;
-    for (size_t i = 0; i < 500; ++i) {
+    for (size_t i = 0; i < 100; ++i) {
         OpType type = static_cast<OpType>(butil::fast_rand() % OP_END);
         if (type == NODE_START) {
             if (stopped_nodes.empty()) {
@@ -673,3 +691,5 @@ TEST_F(LeaseTest, chaos) {
 
     cluster.stop_all();
 }
+
+INSTANTIATE_TEST_CASE_P(ExtendLeaseTest, ExtendLeaseTest, ::testing::Values(3, 5));

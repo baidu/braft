@@ -16,6 +16,11 @@ message EntryMeta {
     repeated string old_peers = 5;
 };
 
+message TermLeader {
+    required string peer_id = 1;
+    required int64 term = 2;
+};
+
 message RequestVoteRequest {
     required string group_id = 1;
     required string server_id = 2;
@@ -23,11 +28,15 @@ message RequestVoteRequest {
     required int64 term = 4;
     required int64 last_log_term = 5;
     required int64 last_log_index = 6;
+    optional TermLeader disrupted_leader = 7;
 };
 
 message RequestVoteResponse {
     required int64 term = 1;
     required bool granted = 2;
+    optional bool disrupted = 3;
+    optional int64 previous_term = 4;
+    optional bool rejected_by_lease = 5;
 };
 
 message AppendEntriesRequest {
