@@ -274,7 +274,7 @@ friend class butil::RefCountedThreadSafe<NodeImpl>;
     void check_step_down(const int64_t term, const PeerId& server_id);
 
     // pre vote before elect_self
-    void pre_vote(std::unique_lock<raft_mutex_t>* lck);
+    void pre_vote(std::unique_lock<raft_mutex_t>* lck, bool triggered);
 
     // elect self to candidate
     void elect_self(std::unique_lock<raft_mutex_t>* lck);
@@ -318,6 +318,10 @@ friend class butil::RefCountedThreadSafe<NodeImpl>;
     int64_t last_leader_active_timestamp(const Configuration& conf);
     void unsafe_reset_election_timeout_ms(int election_timeout_ms,
                                           int max_clock_drift_ms);
+    void retry_vote_on_reserved_peers();
+    struct DisruptedLeader;
+    void request_peers_to_vote(const std::set<PeerId>& peers,
+                               const DisruptedLeader* disrupted_leader);
 
 private:
 
@@ -429,13 +433,21 @@ private:
         int64_t _timer_version;
     };
 
+    struct DisruptedLeader {
+        DisruptedLeader() : term(-1) {}
+        DisruptedLeader(const PeerId& p, int64_t t) : peer_id(p), term(t) {}
+        PeerId peer_id;
+        int64_t term;
+    };
+
     // A versioned ballot for vote and prevote
     struct GrantSelfArg;
     class VoteBallotCtx {
     public:
-        VoteBallotCtx() : _timer(bthread_timer_t()), _version(0), _grant_self_arg(NULL) {
+        VoteBallotCtx() : _timer(bthread_timer_t()), _version(0)
+                        , _grant_self_arg(NULL), _triggered(false) {
         }
-        void init(NodeImpl* node);
+        void init(NodeImpl* node, bool triggered);
         void grant(const PeerId& peer) {
             _ballot.grant(peer);
         }
@@ -448,6 +460,13 @@ private:
         void start_grant_self_timer(int64_t wait_ms, NodeImpl* node);
         void stop_grant_self_timer(NodeImpl* node);
         void reset(NodeImpl* node);
+        bool triggered() { return _triggered; }
+        void reserve(const PeerId& peer);
+        void set_disrupted_leader(const DisruptedLeader& peer);
+        const DisruptedLeader& disrupted_leader() const;
+        void pop_grantable_peers(std::set<PeerId>* peers);
+        void set_last_log_id(const LogId& log_id);
+        const LogId& last_log_id() const;
     private:
         bthread_timer_t _timer;
         Ballot _ballot;
@@ -455,6 +474,10 @@ private:
         // ABA problem.
         int64_t _version;
         GrantSelfArg* _grant_self_arg;
+        bool _triggered;
+        std::set<PeerId> _reserved_peers;
+        DisruptedLeader _disrupted_leader;
+        LogId _last_log_id;
     };
 
     struct GrantSelfArg {

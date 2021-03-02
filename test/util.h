@@ -68,7 +68,9 @@ public:
     void on_leader_start(int64_t term) {
         _leader_term = term;
         if (_on_leader_start_closure) {
+            LOG(NOTICE) << "addr " << address << " before leader start closure";
             _on_leader_start_closure->Run();
+            LOG(NOTICE) << "addr " << address << " after leader start closure";
             _on_leader_start_closure = NULL;
         }
     }

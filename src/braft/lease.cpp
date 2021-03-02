@@ -136,6 +136,10 @@ void FollowerLease::reset() {
     _last_leader_timestamp = 0;
 }
 
+void FollowerLease::expire() {
+    _last_leader_timestamp = 0;
+}
+
 void FollowerLease::reset_election_timeout_ms(int64_t election_timeout_ms,
                                               int64_t max_clock_drift_ms) {
     _election_timeout_ms = election_timeout_ms;
