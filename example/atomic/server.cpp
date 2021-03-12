@@ -23,6 +23,7 @@
 #include <braft/raft.h>
 #include <braft/util.h>
 #include <braft/storage.h>
+#include <butil/endpoint.h>
 
 #include "atomic.pb.h"
 
