@@ -93,13 +93,13 @@ public:
 
     // Starts this node
     int start() {
-        const char *ip;
+        butil::ip_t ip;
         if (!FLAGS_ip.empty()) {
-            ip = FLAGS_ip.c_str();
+            butil::str2ip(FLAGS_ip.c_str(), &ip);
         } else {
-            ip = butil::my_ip_cstr();
+            ip = butil::my_ip();
         }
-        butil::EndPoint addr(butil::my_ip(), FLAGS_port);
+        butil::EndPoint addr(ip, FLAGS_port);
         braft::NodeOptions node_options;
         if (node_options.initial_conf.parse_from(FLAGS_conf) != 0) {
             LOG(ERROR) << "Fail to parse configuration `" << FLAGS_conf << '\'';
