@@ -545,7 +545,7 @@ void Replicator::_send_empty_entries(bool is_heartbeat) {
     std::unique_ptr<AppendEntriesRequest> request(new AppendEntriesRequest);
     std::unique_ptr<AppendEntriesResponse> response(new AppendEntriesResponse);
     if (_fill_common_fields(
-                request.get(), _next_index - 1, is_heartbeat) != 0) {
+                request.get(), _next_index - _flying_append_entries_size - 1, is_heartbeat) != 0) {
         CHECK(!is_heartbeat);
         // _id is unlock in _install_snapshot
         return _install_snapshot();
