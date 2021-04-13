@@ -556,6 +556,10 @@ int NodeImpl::init(const NodeOptions& options) {
                    << " init_meta_storage failed";
         return -1;
     }
+    // first start, we can vote directly
+    if (_current_term == 1 && _voted_id.is_empty()) {
+        _follower_lease.reset();
+    }
 
     // init replicator
     ReplicatorGroupOptions rg_options;
