@@ -184,6 +184,7 @@ butil::Status refresh_leader(const GroupId& group, int timeout_ms) {
                                          saved_et.c_str(),
                                          iter->to_string().c_str());
             }
+            continue;
         }
         brpc::Controller cntl;
         cntl.set_timeout_ms(timeout_ms);
