@@ -463,7 +463,7 @@ struct LeaderLeaseStatus {
 
     LeaseState state;
 
-    // These followering fields are only meaningful when |state == LEASE_VALID|.
+    // These following fields are only meaningful when |state == LEASE_VALID|.
     
     // The term of this lease
     int64_t term;
@@ -632,7 +632,7 @@ public:
 
     // Return true if this is the leader, and leader lease is valid. It's always
     // false when |raft_enable_leader_lease == false|.
-    // In the follwing situations, the returned true is unbeleivable:
+    // In the following situations, the returned true is unbeleivable:
     //    -  Not all nodes in the raft group set |raft_enable_leader_lease| to true,
     //       and tranfer leader/vote interfaces are used;
     //    -  In the raft group, the value of |election_timeout_ms| in one node is larger
