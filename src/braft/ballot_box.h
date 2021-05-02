@@ -80,7 +80,7 @@ public:
                             Closure* closure);
 
     // Called by follower, otherwise the behavior is undefined.
-    // Set commited index received from leader
+    // Set committed index received from leader
     int set_last_committed_index(int64_t last_committed_index);
 
     int64_t last_committed_index() 
