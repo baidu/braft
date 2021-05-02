@@ -68,7 +68,7 @@ public:
     
     // Called when a candidate becomes the new leader, otherwise the behavior is
     // undefined.
-    // According the the raft algorithm, the logs from pervious terms can't be 
+    // According the raft algorithm, the logs from pervious terms can't be 
     // committed until a log at the new term becomes committed, so 
     // |new_pending_index| should be |last_log_index| + 1.
     int reset_pending_index(int64_t new_pending_index);
