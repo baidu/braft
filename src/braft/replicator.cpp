@@ -523,7 +523,7 @@ int Replicator::_fill_common_fields(AppendEntriesRequest* request,
             return -1;
         } else {
             // The log at prev_log_index has been compacted, which indicates 
-            // we is or is going to install snapshot to the follower. So we let 
+            // we are or are going to install snapshot to the follower. So we let 
             // both prev_log_index and prev_log_term be 0 in the heartbeat 
             // request so that follower would do nothing besides updating its 
             // leader timestamp.
