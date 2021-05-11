@@ -3216,7 +3216,7 @@ void NodeImpl::ConfigurationCtx::next_stage() {
             return _node->unsafe_apply_configuration(
                     Configuration(_new_peers), &old_conf, false);
         }
-        // Skip joint consensus since only one peers has been changed here. Make
+        // Skip joint consensus since only one peer has been changed here. Make
         // it a one-stage change to be compitible with the legacy
         // implementation.
     case STAGE_JOINT:
