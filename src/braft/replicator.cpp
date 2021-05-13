@@ -1041,7 +1041,7 @@ int Replicator::stop_transfer_leadership(ReplicatorId id) {
 }
 
 int Replicator::_transfer_leadership(int64_t log_index) {
-    // peer might be dead, stop transfer leadership
+    // peer might be dead, stop to transfer leadership
     if (_consecutive_error_times != 0) { 
         CHECK_EQ(0, bthread_id_unlock(_id)) << "Fail to unlock " << _id;
         return -2;
