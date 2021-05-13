@@ -1855,12 +1855,13 @@ TEST_P(NodeTest, leader_transfer_before_log_is_compleleted) {
     task.done = NEW_APPLYCLOSURE(&cond, 0);
     leader->apply(task);
     cond.wait();
+    braft::Node* saved_leader = leader;
     cluster.start(target.addr);
     usleep(5000 * 1000);
     LOG(INFO) << "here";
     cluster.wait_leader();
     leader = cluster.leader();
-    ASSERT_EQ(target, leader->node_id().peer_id);
+    ASSERT_EQ(saved_leader->node_id().peer_id, leader->node_id().peer_id);
     ASSERT_TRUE(cluster.ensure_same(5));
     cluster.stop_all();
 }
