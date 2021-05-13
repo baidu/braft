@@ -1180,6 +1180,12 @@ int NodeImpl::transfer_leadership_to(const PeerId& peer) {
     const int64_t last_log_index = _log_manager->last_log_index();
     const int rc = _replicator_group.transfer_leadership_to(peer_id, last_log_index);
     if (rc != 0) {
+        if (rc == -2) {
+            LOG(WARNING) << "peer: " << peer_id
+                    << " _consecutive_error_times not 0"
+                    << " peer maybe dead";
+            return EFAULT;
+        }
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
                      << " fail to transfer leadership, no such peer=" << peer_id;
         return EINVAL;

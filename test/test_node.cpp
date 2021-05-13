@@ -1846,13 +1846,13 @@ TEST_P(NodeTest, leader_transfer_before_log_is_compleleted) {
         leader->apply(task);
     }
     cond.wait();
-    ASSERT_EQ(0, leader->transfer_leadership_to(target));
+    ASSERT_EQ(EFAULT, leader->transfer_leadership_to(target));
     cond.reset(1);
     braft::Task task;
     butil::IOBuf data;
     data.resize(5, 'a');
     task.data = &data;
-    task.done = NEW_APPLYCLOSURE(&cond, EBUSY);
+    task.done = NEW_APPLYCLOSURE(&cond, 0);
     leader->apply(task);
     cond.wait();
     cluster.start(target.addr);
@@ -1903,14 +1903,14 @@ TEST_P(NodeTest, leader_transfer_resume_on_failure) {
         leader->apply(task);
     }
     cond.wait();
-    ASSERT_EQ(0, leader->transfer_leadership_to(target));
+    ASSERT_EQ(EFAULT, leader->transfer_leadership_to(target));
     braft::Node* saved_leader = leader;
     cond.reset(1);
     braft::Task task;
     butil::IOBuf data;
     data.resize(5, 'a');
     task.data = &data;
-    task.done = NEW_APPLYCLOSURE(&cond, EBUSY);
+    task.done = NEW_APPLYCLOSURE(&cond, 0);
     leader->apply(task);
     cond.wait();
     //cluster.start(target.addr);
