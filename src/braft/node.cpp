@@ -1177,15 +1177,16 @@ int NodeImpl::transfer_leadership_to(const PeerId& peer) {
                      << " which doesn't belong to " << _conf.conf;
         return EINVAL;
     }
+    const int consecutive_error_times = _replicator_group.get_consecutive_error_times(peer_id);
+    if (consecutive_error_times > 0) {
+        LOG(WARNING) << "node " << _group_id << ":" << _server_id
+                     << " refused to transfer leadership to a possibly dead peer " << peer_id
+                     << " whose _consecutive_error_times is " << consecutive_error_times;
+        return -1;
+    }
     const int64_t last_log_index = _log_manager->last_log_index();
     const int rc = _replicator_group.transfer_leadership_to(peer_id, last_log_index);
     if (rc != 0) {
-        if (rc == -2) {
-            LOG(WARNING) << "peer: " << peer_id
-                    << " _consecutive_error_times not 0"
-                    << " peer maybe dead";
-            return EFAULT;
-        }
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
                      << " fail to transfer leadership, no such peer=" << peer_id;
         return EINVAL;

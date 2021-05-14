@@ -112,6 +112,10 @@ public:
     // Return the correct value on success, 0 otherwise.
     static int64_t get_next_index(ReplicatorId id);
 
+    // Get the consecutive error times of this Replica
+    // Return the correct value on success, -1 otherwise.
+    static int get_consecutive_error_times(ReplicatorId id);
+
     static void describe(ReplicatorId id, std::ostream& os, bool use_html);
 
     // Get replicator internal status.
@@ -321,6 +325,10 @@ public:
 
     // Transfer leadership to the given |peer|
     int transfer_leadership_to(const PeerId& peer, int64_t log_index);
+
+    // Get consecutive error times of the given |peer|
+    // Return the correct value on success, -1 otherwise
+    int get_consecutive_error_times(const PeerId& peer);
 
     // Stop transferring leadership to the given |peer|
     int stop_transfer_leadership(const PeerId& peer);
