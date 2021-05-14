@@ -1188,7 +1188,7 @@ int Replicator::get_consecutive_error_times(ReplicatorId id) {
     if (bthread_id_lock(dummy_id, (void**)&r) != 0) {
         return -1;
     }
-    int64_t consecutive_error_times = r->_consecutive_error_times;
+    int consecutive_error_times = r->_consecutive_error_times;
     CHECK_EQ(0, bthread_id_unlock(dummy_id)) << "Fail to unlock " << dummy_id;
     return consecutive_error_times;
 }
