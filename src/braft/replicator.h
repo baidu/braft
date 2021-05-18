@@ -326,10 +326,6 @@ public:
     // Transfer leadership to the given |peer|
     int transfer_leadership_to(const PeerId& peer, int64_t log_index);
 
-    // Get consecutive error times of the given |peer|
-    // Return the correct value on success, -1 otherwise
-    int get_consecutive_error_times(const PeerId& peer);
-
     // Stop transferring leadership to the given |peer|
     int stop_transfer_leadership(const PeerId& peer);
 

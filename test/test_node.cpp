@@ -1846,7 +1846,7 @@ TEST_P(NodeTest, leader_transfer_before_log_is_compleleted) {
         leader->apply(task);
     }
     cond.wait();
-    ASSERT_EQ(-1, leader->transfer_leadership_to(target));
+    ASSERT_EQ(EHOSTUNREACH, leader->transfer_leadership_to(target));
     cond.reset(1);
     braft::Task task;
     butil::IOBuf data;
@@ -1904,7 +1904,7 @@ TEST_P(NodeTest, leader_transfer_resume_on_failure) {
         leader->apply(task);
     }
     cond.wait();
-    ASSERT_EQ(-1, leader->transfer_leadership_to(target));
+    ASSERT_EQ(EHOSTUNREACH, leader->transfer_leadership_to(target));
     braft::Node* saved_leader = leader;
     cond.reset(1);
     braft::Task task;

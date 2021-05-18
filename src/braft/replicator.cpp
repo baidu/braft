@@ -1458,19 +1458,14 @@ int ReplicatorGroup::transfer_leadership_to(
         const PeerId& peer, int64_t log_index) {
     std::map<PeerId, ReplicatorIdAndStatus>::const_iterator iter = _rmap.find(peer);
     if (iter == _rmap.end()) {
-        return -1;
+        return EINVAL;
     }
     ReplicatorId rid = iter->second.id;
+    const int consecutive_error_times = Replicator::get_consecutive_error_times(rid);
+    if (consecutive_error_times > 0) {
+        return EHOSTUNREACH;
+    }
     return Replicator::transfer_leadership(rid, log_index);
-}
-
-int ReplicatorGroup::get_consecutive_error_times(const PeerId& peer) {
-    std::map<PeerId, ReplicatorIdAndStatus>::const_iterator iter = _rmap.find(peer);
-    if (iter == _rmap.end()) {
-        return -1;
-    }
-    ReplicatorId rid = iter->second.id;
-    return Replicator::get_consecutive_error_times(rid);
 }
 
 int ReplicatorGroup::stop_transfer_leadership(const PeerId& peer) {
