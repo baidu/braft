@@ -123,8 +123,13 @@ inline int random_timeout(int timeout_ms) {
 }
 
 DEFINE_int32(raft_election_heartbeat_factor, 10, "raft election:heartbeat timeout factor");
-BRPC_VALIDATE_GFLAG(raft_election_heartbeat_factor, brpc::PositiveInteger);
 static inline int heartbeat_timeout(int election_timeout) {
+    if (FLAGS_raft_election_heartbeat_factor <= 0){
+        LOG(WARNING) << "raft_election_heartbeat_factor flag must be greater than 1"
+                     << ", but get "<< FLAGS_raft_election_heartbeat_factor
+                     << ", it will be set to default value 10.";
+        FLAGS_raft_election_heartbeat_factor = 10;
+    }
     return std::max(election_timeout / FLAGS_raft_election_heartbeat_factor, 10);
 }
 
