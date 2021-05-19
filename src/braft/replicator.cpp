@@ -1182,6 +1182,17 @@ int64_t Replicator::get_next_index(ReplicatorId id) {
     return next_index;
 }
 
+int Replicator::get_consecutive_error_times(ReplicatorId id) {
+    Replicator *r = NULL;
+    bthread_id_t dummy_id = { id };
+    if (bthread_id_lock(dummy_id, (void**)&r) != 0) {
+        return -1;
+    }
+    int consecutive_error_times = r->_consecutive_error_times;
+    CHECK_EQ(0, bthread_id_unlock(dummy_id)) << "Fail to unlock " << dummy_id;
+    return consecutive_error_times;
+}
+
 int Replicator::change_readonly_config(ReplicatorId id, bool readonly) {
     Replicator *r = NULL;
     bthread_id_t dummy_id = { id };
@@ -1447,9 +1458,13 @@ int ReplicatorGroup::transfer_leadership_to(
         const PeerId& peer, int64_t log_index) {
     std::map<PeerId, ReplicatorIdAndStatus>::const_iterator iter = _rmap.find(peer);
     if (iter == _rmap.end()) {
-        return -1;
+        return EINVAL;
     }
     ReplicatorId rid = iter->second.id;
+    const int consecutive_error_times = Replicator::get_consecutive_error_times(rid);
+    if (consecutive_error_times > 0) {
+        return EHOSTUNREACH;
+    }
     return Replicator::transfer_leadership(rid, log_index);
 }
 
@@ -1494,7 +1509,8 @@ int ReplicatorGroup::find_the_next_candidate(
             continue;
         }
         const int64_t next_index = Replicator::get_next_index(iter->second.id);
-        if (next_index > max_index) {
+        const int consecutive_error_times = Replicator::get_consecutive_error_times(iter->second.id);
+        if (consecutive_error_times == 0 && next_index > max_index) {
             max_index = next_index;
             if (peer_id) {
                 *peer_id = iter->first;

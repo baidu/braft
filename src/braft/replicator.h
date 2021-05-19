@@ -112,6 +112,10 @@ public:
     // Return the correct value on success, 0 otherwise.
     static int64_t get_next_index(ReplicatorId id);
 
+    // Get the consecutive error times of this Replica
+    // Return the correct value on success, -1 otherwise.
+    static int get_consecutive_error_times(ReplicatorId id);
+
     static void describe(ReplicatorId id, std::ostream& os, bool use_html);
 
     // Get replicator internal status.

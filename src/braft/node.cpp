@@ -1180,9 +1180,19 @@ int NodeImpl::transfer_leadership_to(const PeerId& peer) {
     const int64_t last_log_index = _log_manager->last_log_index();
     const int rc = _replicator_group.transfer_leadership_to(peer_id, last_log_index);
     if (rc != 0) {
-        LOG(WARNING) << "node " << _group_id << ":" << _server_id
+        if (rc == EINVAL) {
+            LOG(WARNING) << "node " << _group_id << ":" << _server_id
                      << " fail to transfer leadership, no such peer=" << peer_id;
-        return EINVAL;
+        } else if (rc == EHOSTUNREACH) {
+            LOG(WARNING) << "node " << _group_id << ":" << _server_id
+                     << " fail to transfer leadership, peer=" << peer_id
+                     << " whose consecutive_error_times not 0.";
+        } else {
+            LOG(WARNING) << "node " << _group_id << ":" << _server_id
+                     << " fail to transfer leadership, peer=" << peer_id
+                     << " err: " << berror(rc);
+        }
+        return rc;
     }
     _state = STATE_TRANSFERRING;
     butil::Status status;
