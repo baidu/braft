@@ -209,7 +209,7 @@ private:
             int64_t first_index_kept, 
             std::vector<scoped_refptr<Segment> >* poped);
     void pop_segments_from_back(
-            const int64_t first_index_kept,
+            const int64_t last_index_kept,
             std::vector<scoped_refptr<Segment> >* popped,
             scoped_refptr<Segment>* last_segment);
 
