@@ -927,6 +927,7 @@ int SegmentLogStorage::truncate_suffix(const int64_t last_index_kept) {
         if (ret == 0 && closed && last_segment->is_open()) {
             BAIDU_SCOPED_LOCK(_mutex);
             CHECK(!_open_segment);
+            _segments.erase(last_segment->first_index());
             _open_segment.swap(last_segment);
         }
     }
