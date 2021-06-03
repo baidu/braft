@@ -22,6 +22,14 @@ endif()
 set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake)
 
 include(FindThreads)
+
+find_path(PROTOBUF_INCLUDE_PATH NAMES google/protobuf/message.h)
+find_library(PROTOBUF_LIB NAMES libprotobuf.a protobuf)
+if ((NOT PROTOBUF_INCLUDE_PATH) OR (NOT PROTOBUF_LIB))
+    message(FATAL_ERROR "Fail to find protobuf")
+endif()
+set(Protobuf_INCLUDE_DIR PROTOBUF_INCLUDE_PATH)
+get_filename_component(Protobuf_LIBRARIES PROTOBUF_LIB DIRECTORY)
 include(FindProtobuf)
 
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
@@ -73,57 +81,51 @@ if ((NOT BRPC_INCLUDE_PATH) OR (NOT BRPC_LIB))
 endif()
 
 if (NOT PROTOBUF_PROTOC_EXECUTABLE)
-    get_filename_component(PROTO_LIB_DIR ${PROTOBUF_LIBRARY} DIRECTORY)
+    get_filename_component(PROTO_LIB_DIR ${PROTOBUF_LIB} DIRECTORY)
     set (PROTOBUF_PROTOC_EXECUTABLE "${PROTO_LIB_DIR}/../bin/protoc")
 endif()
 
+# the default openssl installation path differs between mac and linux
 if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
-    set(OPENSSL_ROOT_DIR
-        "/usr/local/opt/openssl"    # Homebrew installed OpenSSL
-        )
+    if (NOT OPENSSL_ROOT_DIR)
+        set(OPENSSL_ROOT_DIR
+            "/usr/local/opt/openssl" # Homebrew installed OpenSSL
+            )
+    endif()
 endif()
 
 include(FindOpenSSL)
 
 include_directories(
         ${GFLAGS_INCLUDE_PATH}
-        ${PROTOBUF_INCLUDE_DIRS}
+        ${PROTOBUF_INCLUDE_PATH}
         ${LEVELDB_INCLUDE_PATH}
         ${BRPC_INCLUDE_PATH}
         ${OPENSSL_INCLUDE_DIR}
         )
 
+set(DYNAMIC_LIB
+    ${BRPC_LIB}
+    ${GFLAGS_LIB}
+    ${PROTOBUF_LIB}
+    ${LEVELDB_LIB}
+    ${CMAKE_THREAD_LIBS_INIT}
+    ${OPENSSL_LIBRARIES}
+    ${OPENSSL_CRYPTO_LIBRARY}
+    dl
+    z
+)
+
 if(BRPC_WITH_GLOG)
-    set(DYNAMIC_LIB
-        ${BRPC_LIB}
-        ${GFLAGS_LIB}
+    set(DYNAMIC_LIB ${DYNAMIC_LIB}
         ${GLOG_LIB}
-        ${PROTOBUF_LIBRARY}
-        ${LEVELDB_LIB}
-        ${CMAKE_THREAD_LIBS_INIT}
-        ${OPENSSL_LIBRARIES}
-        ${OPENSSL_CRYPTO_LIBRARY}
-        dl
-        z
         )
-else()
-    set(DYNAMIC_LIB
-        ${BRPC_LIB}
-        ${GFLAGS_LIB}
-        ${PROTOBUF_LIBRARY}
-        ${LEVELDB_LIB}
-        ${CMAKE_THREAD_LIBS_INIT}
-        ${OPENSSL_LIBRARIES}
-        ${OPENSSL_CRYPTO_LIBRARY}
-        dl
-        z
-	)
 endif()
 
 if(LEVELDB_WITH_SNAPPY)
     set(DYNAMIC_LIB ${DYNAMIC_LIB}
         ${SNAPPY_LIB}
-	)
+        )
 endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
@@ -157,7 +159,7 @@ foreach(PROTO ${BRAFT_PROTOS})
     execute_process(
         COMMAND ${PROTOBUF_PROTOC_EXECUTABLE} ${PROTO_FLAGS}
         --cpp_out=${CMAKE_CURRENT_BINARY_DIR}
-        --proto_path=${PROTOBUF_INCLUDE_DIR}
+        --proto_path=${PROTOBUF_INCLUDE_PATH}
         --proto_path=${CMAKE_CURRENT_SOURCE_DIR}/src
         --proto_path=${CMAKE_CURRENT_SOURCE_DIR}/src/braft/ ${PROTO}
         WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
