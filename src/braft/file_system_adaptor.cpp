@@ -232,6 +232,8 @@ int file_error_to_os_error(butil::File::Error e) {
     switch (e) {
         case butil::File::FILE_OK: 
             return 0;
+        case butil::File::FILE_ERROR_IN_USE:
+            return EAGAIN;
         case butil::File::FILE_ERROR_ACCESS_DENIED:
             return EACCES;
         case butil::File::FILE_ERROR_EXISTS:
