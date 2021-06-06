@@ -1272,7 +1272,7 @@ void Replicator::_describe(std::ostream& os, bool use_html) {
         os << "idle";
         break;
     case BLOCKING:
-        os << "blocking consecutive_error_times=" << consecutive_error_times;
+        os << "blocking";
         break;
     case APPENDING_ENTRIES:
         os << "appending [" << st.first_log_index << ", " << st.last_log_index << ']';
@@ -1281,6 +1281,9 @@ void Replicator::_describe(std::ostream& os, bool use_html) {
         os << "installing snapshot {" << st.last_log_included
            << ", " << st.last_term_included  << '}';
         break;
+    }
+    if (consecutive_error_times != 0) {
+        os << " consecutive_error_times=" << consecutive_error_times;
     }
     os << " hc=" << heartbeat_counter << " ac=" << append_entries_counter << " ic=" << install_snapshot_counter << new_line;
 }
