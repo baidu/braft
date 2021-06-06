@@ -2431,16 +2431,18 @@ void NodeImpl::handle_append_entries_request(brpc::Controller* cntl,
         response->set_term(_current_term);
         response->set_last_log_index(last_index);
         lck.unlock();
-        LOG(WARNING) << "node " << _group_id << ":" << _server_id
-                     << " reject term_unmatched AppendEntries from " 
-                     << request->server_id()
-                     << " in term " << request->term()
-                     << " prev_log_index " << request->prev_log_index()
-                     << " prev_log_term " << request->prev_log_term()
-                     << " local_prev_log_term " << local_prev_log_term
-                     << " last_log_index " << last_index
-                     << " entries_size " << request->entries_size()
-                     << " from_append_entries_cache: " << from_append_entries_cache;
+        if (local_prev_log_term != 0) {
+            LOG(WARNING) << "node " << _group_id << ":" << _server_id
+                         << " reject term_unmatched AppendEntries from " 
+                         << request->server_id()
+                         << " in term " << request->term()
+                         << " prev_log_index " << request->prev_log_index()
+                         << " prev_log_term " << request->prev_log_term()
+                         << " local_prev_log_term " << local_prev_log_term
+                         << " last_log_index " << last_index
+                         << " entries_size " << request->entries_size()
+                         << " from_append_entries_cache: " << from_append_entries_cache;
+        }
         return;
     }
 
