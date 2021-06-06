@@ -427,10 +427,19 @@ TEST_P(ExtendLeaseTest, vote) {
     braft::SynchronizedClosure done;
     static_cast<MockFSM*>(nodes[0]->_impl->_options.fsm)->set_on_leader_start_closure(&done);
 
-    int64_t vote_begin_ms = butil::monotonic_time_ms();
-    nodes[0]->vote(50);
-    done.wait();
-    ASSERT_LT(butil::monotonic_time_ms() - vote_begin_ms, 500);
+    // There isOnLeaderStartHungClosure( little chance that when we want to vote, the heartbeat from
+    // old leader interrupt us.
+    for (int i = 0; i < 3; ++ i) {
+        int64_t vote_begin_ms = butil::monotonic_time_ms();
+        nodes[0]->vote(50);
+        usleep(100 * 1000);
+        leader->get_leader_lease_status(&old_leader_lease);
+        if (old_leader_lease.state == braft::LEASE_VALID) {
+            continue;
+        }
+        done.wait();
+        ASSERT_LT(butil::monotonic_time_ms() - vote_begin_ms, 500);
+    }
 
     leader->get_leader_lease_status(&old_leader_lease);
     nodes[0]->get_leader_lease_status(&new_leader_lease);
