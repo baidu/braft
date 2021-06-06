@@ -16,14 +16,12 @@
 //          Wang,Yao(wangyao02@baidu.com)
 //          Xiong,Kai(xiongkai@baidu.com)
 
-#include "braft/replicator.h"
-
 #include <gflags/gflags.h>                       // DEFINE_int32
 #include <butil/unique_ptr.h>                    // std::unique_ptr
 #include <butil/time.h>                          // butil::gettimeofday_us
 #include <brpc/controller.h>                     // brpc::Controller
 #include <brpc/reloadable_flags.h>               // BRPC_VALIDATE_GFLAG
-
+#include "braft/replicator.h"
 #include "braft/node.h"                          // NodeImpl
 #include "braft/ballot_box.h"                    // BallotBox 
 #include "braft/log_entry.h"                     // LogEntry
@@ -1073,7 +1071,7 @@ void Replicator::_reset_next_index() {
     }
 }
 
-void Replicator::_send_timeout_now(bool unlock_id, bool stop_after_finish,
+void Replicator::_send_timeout_now(bool unlock_id, bool old_leader_stepped_down,
                                    int timeout_ms) {
     TimeoutNowRequest* request = new TimeoutNowRequest;
     TimeoutNowResponse* response = new TimeoutNowResponse;
@@ -1081,8 +1079,9 @@ void Replicator::_send_timeout_now(bool unlock_id, bool stop_after_finish,
     request->set_group_id(_options.group_id);
     request->set_server_id(_options.server_id.to_string());
     request->set_peer_id(_options.peer_id.to_string());
+    request->set_old_leader_stepped_down(old_leader_stepped_down);
     brpc::Controller* cntl = new brpc::Controller;
-    if (!stop_after_finish) {
+    if (!old_leader_stepped_down) {
         // This RPC is issued by transfer_leadership, save this call_id so that
         // the RPC can be cancelled by stop.
         _timeout_now_in_fly = cntl->call_id();
@@ -1094,7 +1093,7 @@ void Replicator::_send_timeout_now(bool unlock_id, bool stop_after_finish,
     RaftService_Stub stub(&_sending_channel);
     ::google::protobuf::Closure* done = brpc::NewCallback(
             _on_timeout_now_returned, _id.value, cntl, request, response,
-            stop_after_finish);
+            old_leader_stepped_down);
     stub.timeout_now(cntl, request, response, done);
     if (unlock_id) {
         CHECK_EQ(0, bthread_id_unlock(_id));
@@ -1105,7 +1104,7 @@ void Replicator::_on_timeout_now_returned(
                 ReplicatorId id, brpc::Controller* cntl,
                 TimeoutNowRequest* request, 
                 TimeoutNowResponse* response,
-                bool stop_after_finish) {
+                bool old_leader_stepped_down) {
     std::unique_ptr<brpc::Controller> cntl_guard(cntl);
     std::unique_ptr<TimeoutNowRequest>  req_guard(request);
     std::unique_ptr<TimeoutNowResponse> res_guard(response);
@@ -1124,7 +1123,7 @@ void Replicator::_on_timeout_now_returned(
         ss << " fail : " << cntl->ErrorText();
         BRAFT_VLOG << ss.str();
 
-        if (stop_after_finish) {
+        if (old_leader_stepped_down) {
             r->_notify_on_caught_up(ESTOP, true);
             r->_destroy();
         } else {
@@ -1149,7 +1148,7 @@ void Replicator::_on_timeout_now_returned(
         node_impl->Release();
         return;
     }
-    if (stop_after_finish) {
+    if (old_leader_stepped_down) {
         r->_notify_on_caught_up(ESTOP, true);
         r->_destroy();
     } else {

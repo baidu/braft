@@ -83,6 +83,7 @@ message TimeoutNowRequest {
     required string server_id = 2;
     required string peer_id = 3;
     required int64 term = 4;
+    optional bool old_leader_stepped_down = 5;
 }
 
 message TimeoutNowResponse {

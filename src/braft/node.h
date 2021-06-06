@@ -277,7 +277,10 @@ friend class butil::RefCountedThreadSafe<NodeImpl>;
     void pre_vote(std::unique_lock<raft_mutex_t>* lck, bool triggered);
 
     // elect self to candidate
-    void elect_self(std::unique_lock<raft_mutex_t>* lck);
+    // If old leader has already stepped down, the candidate can vote without 
+    // taking account of leader lease
+    void elect_self(std::unique_lock<raft_mutex_t>* lck, 
+                    bool old_leader_stepped_down = false);
 
     // grant self a vote
     class VoteBallotCtx;
@@ -321,7 +324,7 @@ friend class butil::RefCountedThreadSafe<NodeImpl>;
     void retry_vote_on_reserved_peers();
     struct DisruptedLeader;
     void request_peers_to_vote(const std::set<PeerId>& peers,
-                               const DisruptedLeader* disrupted_leader);
+                               const DisruptedLeader& disrupted_leader);
 
 private:
 
