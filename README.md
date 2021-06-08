@@ -2,6 +2,7 @@
 
 ---
 
+# Overview
 An industrial-grade C++ implementation of [RAFT consensus algorithm](https://raft.github.io/) and [replicated state machine](https://en.wikipedia.org/wiki/State_machine_replication) based on [brpc](https://github.com/brpc/brpc). braft is designed and implemented for scenarios demanding for high workload and low overhead of latency, with the consideration for easy-to-understand concepts so that engineers inside Baidu can build their own distributed systems individually and correctly.
 
 It's widely used inside Baidu to build highly-available systems, such as:
@@ -14,7 +15,7 @@ It's widely used inside Baidu to build highly-available systems, such as:
 * Build [brpc](https://github.com/brpc/brpc/blob/master/docs/cn/getting_started.md) which is the main dependency of braft.
 
 * Compile braft with cmake
-
+  
   ```shell
   $ mkdir bld && cd bld && cmake .. && make
   ```
@@ -35,3 +36,6 @@ It's widely used inside Baidu to build highly-available systems, such as:
   * [ZAB](./docs/cn/zab_protocol.md)
   * [QJM](./docs/cn/qjm.md)
 
+# Discussion
+
+* Add Weixin id ***zhengpf__87*** or ***xiongk_2049*** with a verification message '**braft**', then you will be invited into the discussion group. 

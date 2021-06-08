@@ -1054,8 +1054,7 @@ void NodeImpl::handle_timeout_now_request(brpc::Controller* controller,
         response->set_success(false);
         lck.unlock();
         LOG(INFO) << "node " << _group_id << ":" << _server_id
-                  << " received handle_timeout_now_request "
-                     "while _current_term="
+                  << " received handle_timeout_now_request while _current_term="
                   << saved_current_term << " didn't match request_term="
                   << request->term();
         return;
@@ -1067,9 +1066,8 @@ void NodeImpl::handle_timeout_now_request(brpc::Controller* controller,
         response->set_success(false);
         lck.unlock();
         LOG(INFO) << "node " << _group_id << ":" << _server_id
-                  << " received handle_timeout_now_request "
-                     "while state is " << state2str(saved_state)
-                  << " at term=" << saved_term;
+                  << " received handle_timeout_now_request while state is " 
+                  << state2str(saved_state) << " at term=" << saved_term;
         return;
     }
     const butil::EndPoint remote_side = controller->remote_side();
@@ -1085,7 +1083,7 @@ void NodeImpl::handle_timeout_now_request(brpc::Controller* controller,
     response->set_success(true);
     // Parallelize Response and election
     run_closure_in_bthread(done_guard.release());
-    elect_self(&lck);
+    elect_self(&lck, request->old_leader_stepped_down());
     // Don't touch any mutable field after this point, it's likely out of the
     // critical section
     if (lck.owns_lock()) {
@@ -1409,7 +1407,7 @@ void NodeImpl::retry_vote_on_reserved_peers() {
     if (peers.empty()) {
         return;
     }
-    request_peers_to_vote(peers, &_vote_ctx.disrupted_leader());
+    request_peers_to_vote(peers, _vote_ctx.disrupted_leader());
 }
 
 struct OnRequestVoteRPCDone : public google::protobuf::Closure {
@@ -1621,7 +1619,8 @@ void NodeImpl::pre_vote(std::unique_lock<raft_mutex_t>* lck, bool triggered) {
 }
 
 // in lock
-void NodeImpl::elect_self(std::unique_lock<raft_mutex_t>* lck) {
+void NodeImpl::elect_self(std::unique_lock<raft_mutex_t>* lck, 
+                          bool old_leader_stepped_down) {
     LOG(INFO) << "node " << _group_id << ":" << _server_id
               << " term " << _current_term << " start vote and grant vote self";
     if (!_conf.contains(_server_id)) {
@@ -1636,6 +1635,8 @@ void NodeImpl::elect_self(std::unique_lock<raft_mutex_t>* lck) {
         _election_timer.stop();
     }
     // reset leader_id before vote
+    const PeerId old_leader = _leader_id;
+    const int64_t leader_term = _current_term;
     PeerId empty_id;
     butil::Status status;
     status.set_error(ERAFTTIMEDOUT, "A follower's leader_id is reset to NULL "
@@ -1651,6 +1652,10 @@ void NodeImpl::elect_self(std::unique_lock<raft_mutex_t>* lck) {
     _vote_timer.start();
     _pre_vote_ctx.reset(this);
     _vote_ctx.init(this, false);
+    if (old_leader_stepped_down) {
+        _vote_ctx.set_disrupted_leader(DisruptedLeader(old_leader, leader_term));
+        _follower_lease.expire();
+    }
 
     int64_t old_term = _current_term;
     // get last_log_id outof node mutex
@@ -1668,7 +1673,7 @@ void NodeImpl::elect_self(std::unique_lock<raft_mutex_t>* lck) {
 
     std::set<PeerId> peers;
     _conf.list_peers(&peers);
-    request_peers_to_vote(peers, NULL);
+    request_peers_to_vote(peers, _vote_ctx.disrupted_leader());
 
     //TODO: outof lock
     status = _meta_storage->
@@ -1686,7 +1691,7 @@ void NodeImpl::elect_self(std::unique_lock<raft_mutex_t>* lck) {
 }
 
 void NodeImpl::request_peers_to_vote(const std::set<PeerId>& peers,
-                                     const NodeImpl::DisruptedLeader* disrupted_leader) {
+                                     const DisruptedLeader& disrupted_leader) {
     for (std::set<PeerId>::const_iterator
         iter = peers.begin(); iter != peers.end(); ++iter) {
         if (*iter == _server_id) {
@@ -1712,11 +1717,11 @@ void NodeImpl::request_peers_to_vote(const std::set<PeerId>& peers,
         done->request.set_last_log_index(_vote_ctx.last_log_id().index);
         done->request.set_last_log_term(_vote_ctx.last_log_id().term);
 
-        if (disrupted_leader) {
+        if (disrupted_leader.peer_id != ANY_PEER) {
             done->request.mutable_disrupted_leader()
-                ->set_peer_id(disrupted_leader->peer_id.to_string());
+                ->set_peer_id(disrupted_leader.peer_id.to_string());
             done->request.mutable_disrupted_leader()
-                ->set_term(disrupted_leader->term);
+                ->set_term(disrupted_leader.term);
         }
 
         RaftService_Stub stub(&channel);
@@ -2431,16 +2436,18 @@ void NodeImpl::handle_append_entries_request(brpc::Controller* cntl,
         response->set_term(_current_term);
         response->set_last_log_index(last_index);
         lck.unlock();
-        LOG(WARNING) << "node " << _group_id << ":" << _server_id
-                     << " reject term_unmatched AppendEntries from " 
-                     << request->server_id()
-                     << " in term " << request->term()
-                     << " prev_log_index " << request->prev_log_index()
-                     << " prev_log_term " << request->prev_log_term()
-                     << " local_prev_log_term " << local_prev_log_term
-                     << " last_log_index " << last_index
-                     << " entries_size " << request->entries_size()
-                     << " from_append_entries_cache: " << from_append_entries_cache;
+        if (local_prev_log_term != 0) {
+            LOG(WARNING) << "node " << _group_id << ":" << _server_id
+                         << " reject term_unmatched AppendEntries from " 
+                         << request->server_id()
+                         << " in term " << request->term()
+                         << " prev_log_index " << request->prev_log_index()
+                         << " prev_log_term " << request->prev_log_term()
+                         << " local_prev_log_term " << local_prev_log_term
+                         << " last_log_index " << last_index
+                         << " entries_size " << request->entries_size()
+                         << " from_append_entries_cache: " << from_append_entries_cache;
+        }
         return;
     }
 

@@ -185,12 +185,14 @@ LocalSnapshotWriter::~LocalSnapshotWriter() {
 int LocalSnapshotWriter::init() {
     butil::File::Error e;
     if (!_fs->create_directory(_path, &e, false)) {
-        set_error(EIO, "CreateDirectory failed, path: %s", _path.c_str());
+        LOG(ERROR) << "Fail to create directory " << _path << ", " << e;
+        set_error(EIO, "CreateDirectory failed with path: %s", _path.c_str());
         return EIO;
     }
     std::string meta_path = _path + "/" BRAFT_SNAPSHOT_META_FILE;
     if (_fs->path_exists(meta_path) && 
                 _meta_table.load_from_file(_fs, meta_path) != 0) {
+        LOG(ERROR) << "Fail to load meta from " << meta_path;
         set_error(EIO, "Fail to load metatable from %s", meta_path.c_str());
         return EIO;
     }
@@ -198,29 +200,30 @@ int LocalSnapshotWriter::init() {
     // remove file if meta_path not exist or it's not in _meta_table 
     // to avoid dirty data
     {
-         std::vector<std::string> to_remove;
-         DirReader* dir_reader = _fs->directory_reader(_path);
-         if (!dir_reader->is_valid()) {
-             LOG(WARNING) << "directory reader failed, maybe NOEXIST or PERMISSION,"
-                 " path: " << _path;
-             delete dir_reader;
-             return EIO;
-         }
-         while (dir_reader->next()) {
-             std::string filename = dir_reader->name();
-             if (filename != BRAFT_SNAPSHOT_META_FILE) {
-                 if (get_file_meta(filename, NULL) != 0) {
-                     to_remove.push_back(filename);
-                 }
-             }
-         }
-         delete dir_reader;
-         for (size_t i = 0; i < to_remove.size(); ++i) {
-             std::string file_path = _path + "/" + to_remove[i];
-             _fs->delete_file(file_path, false);
-             LOG(WARNING) << "Snapshot file exist but meta not found so delete it,"
-                 " path: " << file_path;
-         }
+        std::vector<std::string> to_remove;
+        DirReader* dir_reader = _fs->directory_reader(_path);
+        if (!dir_reader->is_valid()) {
+            LOG(ERROR) << "Invalid directory reader, maybe NOEXIST or PERMISSION,"
+                       << " path: " << _path;
+            set_error(EIO, "Invalid directory reader in path: %s", _path.c_str());
+            delete dir_reader;
+            return EIO;
+        }
+        while (dir_reader->next()) {
+            std::string filename = dir_reader->name();
+            if (filename != BRAFT_SNAPSHOT_META_FILE) {
+                if (get_file_meta(filename, NULL) != 0) {
+                    to_remove.push_back(filename);
+                }
+            }
+        }
+        delete dir_reader;
+        for (size_t i = 0; i < to_remove.size(); ++i) {
+            std::string file_path = _path + "/" + to_remove[i];
+            _fs->delete_file(file_path, false);
+            LOG(WARNING) << "Snapshot file exist but meta not found so delete it,"
+                << " path: " << file_path;
+        }
     }
 
     return 0;
@@ -559,7 +562,8 @@ SnapshotWriter* LocalSnapshotStorage::create(bool from_empty) {
 
         writer = new LocalSnapshotWriter(snapshot_path, _fs.get());
         if (writer->init() != 0) {
-            LOG(ERROR) << "Fail to init writer, path: " << snapshot_path;
+            LOG(ERROR) << "Fail to init writer in path " << snapshot_path 
+                       << ", " << *writer;
             delete writer;
             writer = NULL;
             break;
