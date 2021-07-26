@@ -82,6 +82,10 @@ int FSMCaller::run(void* meta, bthread::TaskIterator<ApplyTask>& iter) {
             }
             switch (iter->type) {
             case COMMITTED:
+                if (iter->committed_index > max_committed_index) {
+                    max_committed_index = iter->committed_index;
+                    counter++;
+                }
                 break;
             case SNAPSHOT_SAVE:
                 caller->_cur_task = SNAPSHOT_SAVE;
