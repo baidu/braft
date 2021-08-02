@@ -22,7 +22,8 @@ if [[ ! -d "$mydir" ]]; then mydir="$PWD"; fi
 # define command-line flags
 DEFINE_string crash_on_fatal 'true' 'Crash on fatal log'
 DEFINE_integer bthread_concurrency '18' 'Number of worker pthreads'
-DEFINE_string sync 'true' 'fsync each time'
+DEFINE_string sync 'false' 'fsync each time'
+DEFINE_integer sync_interval_s 5 ''
 DEFINE_string valgrind 'false' 'Run in valgrind'
 DEFINE_integer max_segment_size '8388608' 'Max segment size'
 DEFINE_integer server_num '3' 'Number of servers'
@@ -37,7 +38,8 @@ eval set -- "${FLAGS_ARGV}"
 alias error=">&2 echo counter: "
 
 # hostname prefers ipv6
-IP=`hostname -i | awk '{print $NF}'`
+#IP=`hostname -i | awk '{print $NF}'`
+IP="127.0.0.1"
 
 if [ "$FLAGS_valgrind" == "true" ] && [ $(which valgrind) ] ; then
     VALGRIND="valgrind --tool=memcheck --leak-check=full"
@@ -63,6 +65,7 @@ for ((i=0; i<$FLAGS_server_num; ++i)); do
         -crash_on_fatal_log=${FLAGS_crash_on_fatal} \
         -raft_max_segment_size=${FLAGS_max_segment_size} \
         -raft_sync=${FLAGS_sync} \
+        -raft_sync_interval_s=${FLAGS_sync_interval_s} \
         -port=$((${FLAGS_port}+i)) -conf="${raft_peers}" > std.log 2>&1 &
     cd ../..
 done

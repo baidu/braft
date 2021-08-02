@@ -28,6 +28,7 @@
 #include "braft/log_entry.h"
 #include "braft/storage.h"
 #include "braft/util.h"
+#include "braft/repeated_timer_task.h"
 
 namespace braft {
 
@@ -94,6 +95,8 @@ public:
         return _last_index.load(butil::memory_order_consume);
     }
 
+    int get_fd() { return _fd;}
+
     std::string file_name();
 private:
 friend class butil::RefCountedThreadSafe<Segment>;
@@ -128,6 +131,24 @@ friend class butil::RefCountedThreadSafe<Segment>;
     std::vector<std::pair<int64_t/*offset*/, int64_t/*term*/> > _offset_and_term;
 };
 
+
+class SegmentLogStorage;
+class SegmentLogStorageTimer : public RepeatedTimerTask {
+public:
+    SegmentLogStorageTimer() : _log_storage(NULL) {}
+    virtual ~SegmentLogStorageTimer() {}
+    int init(SegmentLogStorage* _log_storage, int timeout_ms);
+    virtual void run() = 0;
+protected:
+    void on_destroy();
+    SegmentLogStorage* _log_storage;
+};
+
+class LogTimer : public SegmentLogStorageTimer {
+protected:
+    void run();
+};
+
 // LogStorage use segmented append-only file, all data in disk, all index in memory.
 // append one log entry, only cause one disk write, every disk write will call fsync().
 //
@@ -154,7 +175,9 @@ public:
         , _enable_sync(true)
     {}
 
-    virtual ~SegmentLogStorage() {}
+    virtual ~SegmentLogStorage() {
+        _log_timer.destroy();
+    }
 
     // init logstorage, check consistency and integrity
     virtual int init(ConfigurationManager* configuration_manager);
@@ -198,6 +221,7 @@ public:
     void list_files(std::vector<std::string>* seg_files);
 
     void sync();
+    void handle_log_sync_timeout();
 private:
     scoped_refptr<Segment> open_segment();
     int save_meta(const int64_t log_index);
@@ -222,6 +246,7 @@ private:
     scoped_refptr<Segment> _open_segment;
     int _checksum_type;
     bool _enable_sync;
+    LogTimer _log_timer;
 };
 
 }  //  namespace braft

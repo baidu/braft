@@ -52,6 +52,9 @@ BRPC_VALIDATE_GFLAG(raft_max_segment_size, brpc::PositiveInteger);
 DEFINE_bool(raft_sync_segments, false, "call fsync when a segment is closed");
 BRPC_VALIDATE_GFLAG(raft_sync_segments, ::brpc::PassValidate);
 
+DEFINE_int32(raft_sync_interval_s, 0, "");
+BRPC_VALIDATE_GFLAG(raft_sync_interval_s, brpc::PositiveInteger);
+
 static bvar::LatencyRecorder g_open_segment_latency("raft_open_segment");
 static bvar::LatencyRecorder g_segment_append_entry_latency("raft_segment_append_entry");
 static bvar::LatencyRecorder g_sync_segment_latency("raft_sync_segment");
@@ -677,6 +680,12 @@ int SegmentLogStorage::init(ConfigurationManager* configuration_manager) {
         LOG_ONCE(INFO) << "Use murmurhash32 as the checksum type of appending entries";
     }
 
+    if (FLAGS_raft_sync_interval_s > 0) {
+        CHECK_EQ(0, _log_timer.init(this, FLAGS_raft_sync_interval_s * 1000));
+        LOG(INFO) <<  "segment logstorage raft_sync_interval_s: " << FLAGS_raft_sync_interval_s;
+        _log_timer.start();
+    }
+
     int ret = 0;
     bool is_empty = false;
     do {
@@ -1268,6 +1277,30 @@ butil::Status SegmentLogStorage::gc_instance(const std::string& uri) const {
     }
     LOG(INFO) << "Succeed to gc log storage from path " << uri;
     return status;
+}
+
+void SegmentLogStorage::handle_log_sync_timeout() {
+    LOG(INFO) <<  "handle_log_sync_timeout ";
+    if (_open_segment) {
+        raft_fsync(_open_segment->get_fd());
+    }
+}
+
+// Timers
+int SegmentLogStorageTimer::init(SegmentLogStorage* log_storage, int timeout_ms) {
+    BRAFT_RETURN_IF(RepeatedTimerTask::init(timeout_ms) != 0, -1);
+    _log_storage = log_storage;
+    return 0;
+}
+
+void SegmentLogStorageTimer::on_destroy() {
+    if (_log_storage) {
+        _log_storage = NULL;
+    }
+}
+
+void LogTimer::run() {
+    _log_storage->handle_log_sync_timeout();
 }
 
 }
