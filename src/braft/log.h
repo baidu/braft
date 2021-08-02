@@ -176,6 +176,7 @@ public:
     {}
 
     virtual ~SegmentLogStorage() {
+        _log_timer.stop();
         _log_timer.destroy();
     }
 

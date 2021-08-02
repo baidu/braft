@@ -53,7 +53,6 @@ DEFINE_bool(raft_sync_segments, false, "call fsync when a segment is closed");
 BRPC_VALIDATE_GFLAG(raft_sync_segments, ::brpc::PassValidate);
 
 DEFINE_int32(raft_sync_interval_s, 0, "");
-BRPC_VALIDATE_GFLAG(raft_sync_interval_s, brpc::PositiveInteger);
 
 static bvar::LatencyRecorder g_open_segment_latency("raft_open_segment");
 static bvar::LatencyRecorder g_segment_append_entry_latency("raft_segment_append_entry");
@@ -1282,7 +1281,9 @@ butil::Status SegmentLogStorage::gc_instance(const std::string& uri) const {
 void SegmentLogStorage::handle_log_sync_timeout() {
     LOG(INFO) <<  "handle_log_sync_timeout ";
     if (_open_segment) {
+        _open_segment->AddRef();
         raft_fsync(_open_segment->get_fd());
+        _open_segment->Release();
     }
 }
 
