@@ -283,19 +283,19 @@ int NodeImpl::init_meta_storage() {
     // create stable storage
     _meta_storage = RaftMetaStorage::create(_options.raft_meta_uri);
     if (!_meta_storage) {
-        LOG(WARNING) << "node " << _group_id << ":" << _server_id
-                     << " failed to create meta storage, uri " 
-                     << _options.raft_meta_uri; 
+        LOG(ERROR) << "node " << _group_id << ":" << _server_id
+                   << " failed to create meta storage, uri " 
+                   << _options.raft_meta_uri; 
         return ENOENT;
     }
 
     // check init
     butil::Status status = _meta_storage->init();
     if (!status.ok()) {
-        LOG(WARNING) << "node " << _group_id << ":" << _server_id
-                     << " failed to init meta storage, uri " 
-                     << _options.raft_meta_uri 
-                     << ", error " << status;
+        LOG(ERROR) << "node " << _group_id << ":" << _server_id
+                   << " failed to init meta storage, uri " 
+                   << _options.raft_meta_uri 
+                   << ", error " << status;
         return status.error_code();
     }
     
@@ -303,11 +303,33 @@ int NodeImpl::init_meta_storage() {
     status = _meta_storage->
                 get_term_and_votedfor(&_current_term, &_voted_id, _v_group_id);
     if (!status.ok()) {
-        LOG(WARNING) << "node " << _group_id << ":" << _server_id
-                     << " failed to get term and voted_id when init meta storage,"
-                     << " uri " << _options.raft_meta_uri 
-                     << ", error " << status;
+        LOG(ERROR) << "node " << _group_id << ":" << _server_id
+                   << " failed to get term and voted_id when init meta storage,"
+                   << " uri " << _options.raft_meta_uri 
+                   << ", error " << status;
         return status.error_code();
+    }
+
+    // check term
+    const LogId last_log_id = _log_manager->last_log_id();
+    if (_current_term < last_log_id.term) {
+        // Please check when this bad case really happens!
+        LOG(WARNING) << "node " << _group_id << ":" << _server_id
+                     << " init with invalid term: current_term is " << _current_term 
+                     << " but last log term is " << last_log_id.term
+                     << ". Raft will use a newer term to avoid corner cases";
+        // Increase term by 1 is more safety although it may cause a working 
+        // Leader to stepdown
+        _current_term = last_log_id.term + 1;
+        _voted_id.reset();
+        butil::Status status = _meta_storage->
+                set_term_and_votedfor(_current_term, PeerId(), _v_group_id);
+        if (!status.ok()) {
+            LOG(ERROR) << "node " << _group_id << ":" << _server_id
+                       << " fail to set_term_and_votedfor when correct its term,"
+                          " error: " << status;
+            return status.error_code();
+        }
     }
 
     return 0;
@@ -507,13 +529,6 @@ int NodeImpl::init(const NodeOptions& options) {
         return -1;
     }
 
-    // meta init
-    if (init_meta_storage() != 0) {
-        LOG(ERROR) << "node " << _group_id << ":" << _server_id
-                   << " init_meta_storage failed";
-        return -1;
-    }
-
     if (init_fsm_caller(LogId(0, 0)) != 0) {
         LOG(ERROR) << "node " << _group_id << ":" << _server_id
                    << " init_fsm_caller failed";
@@ -556,12 +571,13 @@ int NodeImpl::init(const NodeOptions& options) {
         _conf.conf = _options.initial_conf;
     }
     
-    // init stable meta and check term
+    // init meta and check term
     if (init_meta_storage() != 0) {
         LOG(ERROR) << "node " << _group_id << ":" << _server_id
                    << " init_meta_storage failed";
         return -1;
     }
+
     // first start, we can vote directly
     if (_current_term == 1 && _voted_id.is_empty()) {
         _follower_lease.reset();
