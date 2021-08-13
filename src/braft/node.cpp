@@ -1197,7 +1197,8 @@ int NodeImpl::transfer_leadership_to(const PeerId& peer) {
                      << " which doesn't belong to " << _conf.conf;
         return EINVAL;
     }
-    const int64_t last_log_index = _log_manager->last_log_index();
+    // make sure all log entries persisted before changing leadership
+    const int64_t last_log_index = _log_manager->last_log_index(true);
     const int rc = _replicator_group.transfer_leadership_to(peer_id, last_log_index);
     if (rc != 0) {
         if (rc == EINVAL) {
