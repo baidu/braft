@@ -804,6 +804,10 @@ struct BootstrapOptions {
     // Default: false
     bool usercode_in_pthread;
 
+    // Set configuration to snapshot instead of adding configuration log
+    // Default: false
+    bool set_snapshot_configuration;
+
     // Describe a specific LogStorage in format ${type}://${parameters}
     std::string log_uri;
 

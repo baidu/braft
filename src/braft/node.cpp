@@ -398,8 +398,8 @@ int NodeImpl::bootstrap(const BootstrapOptions& options) {
     }
 
     // Term is not an option since changing it is very dangerous
-    const int64_t boostrap_log_term = options.last_log_index ? 1 : 0;
-    const LogId boostrap_id(options.last_log_index, boostrap_log_term);
+    const int64_t bootstrap_log_term = options.last_log_index ? 1 : 0;
+    const LogId bootstrap_id(options.last_log_index, bootstrap_log_term);
 
     _options.fsm = options.fsm;
     _options.node_owns_fsm = options.node_owns_fsm;
@@ -408,6 +408,15 @@ int NodeImpl::bootstrap(const BootstrapOptions& options) {
     _options.raft_meta_uri = options.raft_meta_uri;
     _options.snapshot_uri = options.snapshot_uri;
     _config_manager = new ConfigurationManager();
+
+    if (options.set_snapshot_configuration) {
+        ConfigurationEntry entry;
+        entry.id = bootstrap_id;
+        std::set<PeerId> peers;
+        options.group_conf.list_peers(&peers);
+        entry.conf = peers;
+        _config_manager->set_snapshot(entry);
+    }
 
     // Create _fsm_caller first as log_manager needs it to report error
     _fsm_caller = new FSMCaller();
@@ -435,7 +444,7 @@ int NodeImpl::bootstrap(const BootstrapOptions& options) {
         return -1;
     }
 
-    if (options.fsm && init_fsm_caller(boostrap_id) != 0) {
+    if (options.fsm && init_fsm_caller(bootstrap_id) != 0) {
         LOG(ERROR) << "Fail to init fsm_caller";
         return -1;
     }
@@ -457,6 +466,10 @@ int NodeImpl::bootstrap(const BootstrapOptions& options) {
     }
     CHECK_EQ(_log_manager->first_log_index(), options.last_log_index + 1);
     CHECK_EQ(_log_manager->last_log_index(), options.last_log_index);
+
+    if (options.set_snapshot_configuration) {
+        return 0;
+    }
 
     LogEntry* entry = new LogEntry();
     entry->AddRef();
