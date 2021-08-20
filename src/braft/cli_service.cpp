@@ -188,7 +188,7 @@ void CliServiceImpl::snapshot(::google::protobuf::RpcController* controller,
     }
     Closure* snapshot_done = NewCallback(snapshot_returned, cntl, node,
                                          done_guard.release());
-    return node->snapshot(snapshot_done);
+    return node->snapshot(snapshot_done, false);
 }
 
 void CliServiceImpl::get_leader(::google::protobuf::RpcController* controller,

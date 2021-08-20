@@ -345,7 +345,7 @@ void NodeImpl::handle_snapshot_timeout() {
 
     lck.unlock();
     // TODO: do_snapshot in another thread to avoid blocking the timer thread.
-    do_snapshot(NULL);
+    do_snapshot(NULL, false);
 
 }
 
@@ -363,6 +363,10 @@ int NodeImpl::init_fsm_caller(const LogId& bootstrap_id) {
     fsm_caller_options.closure_queue = _closure_queue;
     fsm_caller_options.node = this;
     fsm_caller_options.bootstrap_id = bootstrap_id;
+    if (_options.snapshot_trigger_type == LOG_INTERVAL) {
+        assert(_options.snapshot_log_interval > 0);
+        fsm_caller_options.snapshot_log_interval = _options.snapshot_log_interval;
+    }
     const int ret = _fsm_caller->init(fsm_caller_options);
     if (ret != 0) {
         delete fsm_caller_options.after_shutdown;
@@ -447,7 +451,7 @@ int NodeImpl::bootstrap(const BootstrapOptions& options) {
             return -1;
         }
         SynchronizedClosure done;
-        _snapshot_executor->do_snapshot(&done);
+        _snapshot_executor->do_snapshot(&done, false);
         done.wait();
         if (!done.status().ok()) {
             LOG(ERROR) << "Fail to save snapshot " << done.status()
@@ -498,7 +502,10 @@ int NodeImpl::init(const NodeOptions& options) {
     CHECK_EQ(0, _vote_timer.init(this, options.election_timeout_ms + options.max_clock_drift_ms));
     CHECK_EQ(0, _election_timer.init(this, options.election_timeout_ms));
     CHECK_EQ(0, _stepdown_timer.init(this, options.election_timeout_ms));
-    CHECK_EQ(0, _snapshot_timer.init(this, options.snapshot_interval_s * 1000));
+    if (options.snapshot_trigger_type == TIMER) {
+        assert(options.snapshot_interval_s > 0);
+        CHECK_EQ(0, _snapshot_timer.init(this, options.snapshot_interval_s * 1000));
+    }
 
     _config_manager = new ConfigurationManager();
 
@@ -608,7 +615,7 @@ int NodeImpl::init(const NodeOptions& options) {
               << " old_conf: " << _conf.old_conf;
 
     // start snapshot timer
-    if (_snapshot_executor && _options.snapshot_interval_s > 0) {
+    if (_snapshot_executor && options.snapshot_trigger_type == TIMER) {
         BRAFT_VLOG << "node " << _group_id << ":" << _server_id
                    << " term " << _current_term << " start snapshot_timer";
         _snapshot_timer.start();
@@ -931,15 +938,15 @@ butil::Status NodeImpl::reset_peers(const Configuration& new_peers) {
     return butil::Status::OK();
 }
 
-void NodeImpl::snapshot(Closure* done) {
-    do_snapshot(done);
+void NodeImpl::snapshot(Closure* done, bool in_place) {
+    do_snapshot(done, in_place);
 }
 
-void NodeImpl::do_snapshot(Closure* done) {
+void NodeImpl::do_snapshot(Closure* done, bool in_place) {
     LOG(INFO) << "node " << _group_id << ":" << _server_id 
               << " starts to do snapshot";
     if (_snapshot_executor) {
-        _snapshot_executor->do_snapshot(done);
+        _snapshot_executor->do_snapshot(done, in_place);
     } else {
         if (done) {
             done->status().set_error(EINVAL, "Snapshot is not supported");

@@ -474,13 +474,22 @@ struct LeaderLeaseStatus {
     int64_t lease_epoch;
 };
 
+enum SnapshotTriggerType{
+    // Not to trigger saving snapshot.
+    NONE = 1,
+    // Trigger saving snapshot according to timer.
+    TIMER = 2,
+    // Trigger saving snapshot according to log interval. 
+    LOG_INTERVAL = 3,
+};
+
 struct NodeOptions {
     // A follower would become a candidate if it doesn't receive any message 
     // from the leader in |election_timeout_ms| milliseconds
     // Default: 1000 (1s)
     int election_timeout_ms; //follower to candidate timeout
 
-    // wait new peer to catchup log in |catchup_timeout_ms| milliseconds
+    // Wait new peer to catchup log in |catchup_timeout_ms| milliseconds
     // if set to 0, it will same as election_timeout_ms
     // Default: 0
     int catchup_timeout_ms;
@@ -489,12 +498,29 @@ struct NodeOptions {
     // Default: 1000 (1s)
     int max_clock_drift_ms;
 
+    // Describe a specific trigger saving snapshot type.
+    // 1. type = NONE
+    //    Not to trigger saving snapshot automatically. 
+    // 2. type = TIMER
+    //    A snapshot saving would be triggered every |snapshot_interval_s| seconds.
+    // 3. type = LOG_INTERVAL
+    //    A snapshot saving would be triggered every |snapshot_log_interval| logs.
+    //
+    // Default: TIMER
+    SnapshotTriggerType snapshot_trigger_type;
+
     // A snapshot saving would be triggered every |snapshot_interval_s| seconds
-    // if this was reset as a positive number
-    // If |snapshot_interval_s| <= 0, the time based snapshot would be disabled.
+    // if snapshot_trigger_type reset as LOG_INTERVAL |snapshot_interval_s| > 0.
     //
     // Default: 3600 (1 hour)
     int snapshot_interval_s;
+
+
+    // A snapshot saving would be triggered every |snapshot_log_interval| logs
+    // if snapshot_trigger_type reset as LOG_INTERVAL and |snapshot_log_interval| > 0.
+    // 
+    // Default: 1000
+    int snapshot_log_interval;
 
     // We will regard a adding peer as caught up if the margin between the
     // last_log_index of this peer and the last_log_index of leader is less than
@@ -598,7 +624,9 @@ inline NodeOptions::NodeOptions()
     : election_timeout_ms(1000)
     , catchup_timeout_ms(0)
     , max_clock_drift_ms(1000)
+    , snapshot_trigger_type(TIMER)
     , snapshot_interval_s(3600)
+    , snapshot_log_interval(1000)
     , catchup_margin(1000)
     , usercode_in_pthread(false)
     , fsm(NULL)
