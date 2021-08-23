@@ -588,6 +588,8 @@ struct NodeOptions {
     // Default: false
     bool disable_cli;
 
+    bool arbiter;
+
     // Construct a default instance
     NodeOptions();
 
@@ -609,6 +611,7 @@ inline NodeOptions::NodeOptions()
     , snapshot_file_system_adaptor(NULL)
     , snapshot_throttle(NULL)
     , disable_cli(false)
+    , arbiter(false)
 {}
 
 inline int NodeOptions::get_catchup_timeout_ms() {

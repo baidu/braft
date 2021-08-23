@@ -354,6 +354,7 @@ public:
     }
 
     static butil::Status destroy(const std::string& uri);
+    bool dummy = false;
 };
 
 inline brpc::Extension<const LogStorage>* log_storage_extension() {

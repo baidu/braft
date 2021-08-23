@@ -364,6 +364,9 @@ int SnapshotExecutor::init(const SnapshotExecutorOptions& options) {
         _snapshot_throttle = options.snapshot_throttle;
         _snapshot_storage->set_snapshot_throttle(options.snapshot_throttle);
     }
+    if (_node->arbiter()) {
+        _snapshot_storage->dummy = true;
+    }
     if (_snapshot_storage->init() != 0) {
         LOG(ERROR) << "node " << _node->node_id() 
                    << " fail to init snapshot storage, uri " << options.uri;
