@@ -10,16 +10,22 @@ jobs:
       CI
       ${{ matrix.os }}
       ${{ matrix.compiler }}
+      ${{ matrix.build_tool}}
+      unittest ${{ matrix.with_test }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         compiler: [clang, gcc]
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest]
+        build_tool: [cmake, bazel]
+        with_test: [true, false]
         exclude:
-        # Not testing with GCC on macOS.
-        - os: macos-latest
-          compiler: gcc
+          # Not support test using bazel
+          - build_tool: bazel
+            with_test: true
+          - build_tool: cmake
+            with_test: false
         include:
         - compiler: clang
           CC: clang
@@ -43,27 +49,39 @@ jobs:
         sudo apt-get install -qq libgflags-dev \
             libprotobuf-dev libprotoc-dev protobuf-compiler \
             libleveldb-dev libgoogle-perftools-dev
-        sudo apt-get install libgtest-dev && cd /usr/src/gtest && sudo env "PATH=$PATH" cmake . && sudo make && sudo mv ./lib/libgtest* /usr/lib/ && cd - 
-    - name: Install dependencies on Macos 
-      if: ${{ runner.os == 'Macos' }}
-      working-directory: ${{ github.workspace }}
+        sudo apt-get install libgtest-dev && cd /usr/src/gtest && sudo env "PATH=$PATH" cmake . && sudo make && sudo mv ./lib/libgtest* /usr/lib/
+    - name: Install bazel
+      if: ${{ matrix.build_tool == 'bazel' }}
       run: |
-        brew install openssl git gnu-getopt coreutils
-        brew install gflags protobuf leveldb gperftools
-        mkdir -p thirdparty
-        git clone https://github.com/google/googletest thirdparty/googletest -b release-1.10.0 && cd thirdparty/googletest && mkdir build && cd build && cmake -DCMAKE_CXX_FLAGS="-std=c++11" .. && make -j4 && make install
+        sudo apt-get install python-dev
+        wget https://github.com/bazelbuild/bazel/releases/download/0.25.2/bazel-0.25.2-installer-linux-x86_64.sh
+        chmod a+x bazel-0.25.2-installer-linux-x86_64.sh
+        ./bazel-0.25.2-installer-linux-x86_64.sh --user
+        export PATH="$PATH:$HOME/bin"
     - name: Install brpc
       working-directory: ${{ github.workspace }}
+      if: ${{ matrix.build_tool == 'cmake' }}
       run: |
         mkdir -p thirdparty
         git clone https://github.com/brpc/brpc.git thirdparty/brpc && cd thirdparty/brpc && mkdir -p bld && cd bld && cmake .. && make -j4 && sudo make install
-    - name: Generate build config
-      run: >-
-        cmake -S "${{ github.workspace }}" -B "${{ env.CMAKE_BUILD_DIR }}" -DBUILD_UNIT_TESTS=ON 
-        -DCMAKE_INSTALL_PREFIX=${{ runner.temp }}/install_test/
-    - name: Build
-      run: >-
+    - name: Build with cmake
+      if: ${{ matrix.build_tool == 'cmake' }}
+      run: |
+        cmake -S "${{ github.workspace }}" -B "${{ env.CMAKE_BUILD_DIR }}" -DBUILD_UNIT_TESTS=ON
         cmake --build "${{ env.CMAKE_BUILD_DIR }}"
+    - name: Build with bazel
+      if: ${{ matrix.build_tool == 'bazel' }}
+      run: |
+        ~/.bazel/bin/bazel build -c opt --copt -DHAVE_ZLIB=1 //...
     - name: Run Tests
+      if: ${{ matrix.with_test }}
+      id: test-braft
       working-directory: ${{ github.workspace }}/bld/test
-      run: sh ../../test/run_tests.sh
+      run: |
+        ulimit -c unlimited -S
+        sh ../../test/run_tests.sh
+    - name: Collect failure info
+      if: ${{ steps.test-braft.conclusion == 'failure'}}
+      run: |
+        COREFILE=$(find . -maxdepth 1 -name "core*" | head -n 1)
+        gdb -c "$COREFILE" example -ex "thread apply all bt" -ex "set pagination 0" -batch

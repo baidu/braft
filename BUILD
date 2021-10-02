@@ -45,6 +45,7 @@ cc_library(
         "@com_github_gflags_gflags//:gflags",
         "@com_github_google_glog//:glog",
         "@com_google_protobuf//:protobuf",        
+        "@zlib//:zlib",
         ":cc_braft_internal_proto",
     ],
     visibility = ["//visibility:public"],
