@@ -39,7 +39,7 @@ protected:
     void SetUp() {
         g_dont_print_apply_log = false;
         //logging::FLAGS_v = 90;
-        GFLAGS_NS::SetCommandLineOption("minloglevel", "1");
+        GFLAGS_NS::SetCommandLineOption("minloglevel", "0");
         GFLAGS_NS::SetCommandLineOption("crash_on_fatal_log", "true");
         if (GetParam() == std::string("NoReplication")) {
             braft::FLAGS_raft_max_parallel_append_entries_rpc_num = 1;
@@ -1620,7 +1620,7 @@ TEST_P(NodeTest, NoSnapshot) {
     server.Join();
 }
 
-TEST_P(NodeTest, AutoSnapshot) {
+TEST_P(NodeTest, snapshot_trigger_by_timer) {
     brpc::Server server;
     brpc::ServerOptions server_options;
     int ret = braft::add_service(&server, "0.0.0.0:5006");
@@ -1666,6 +1666,94 @@ TEST_P(NodeTest, AutoSnapshot) {
 
     sleep(10);
     ASSERT_GT(static_cast<MockFSM*>(options.fsm)->snapshot_index, 0);
+
+    // shutdown
+    cond.reset(1);
+    node.shutdown(NEW_SHUTDOWNCLOSURE(&cond, 0));
+    cond.wait();
+
+    // stop
+    server.Stop(200);
+    server.Join();
+}
+
+TEST_P(NodeTest, snapshot_trigger_by_log_interval) {
+    brpc::Server server;
+    brpc::ServerOptions server_options;
+    int ret = braft::add_service(&server, "0.0.0.0:5006");
+    ASSERT_EQ(0, ret);
+    ASSERT_EQ(0, server.Start(5006, &server_options));
+
+    braft::PeerId peer;
+    peer.addr.ip = butil::my_ip();
+    peer.addr.port = 5006;
+    peer.idx = 0;
+    std::vector<braft::PeerId> peers;
+    peers.push_back(peer);
+
+    braft::NodeOptions options;
+    options.election_timeout_ms = 300;
+    options.initial_conf = braft::Configuration(peers);
+    options.fsm = new MockFSM(butil::EndPoint());
+    options.log_uri = "local://./data/log";
+    options.raft_meta_uri = "local://./data/raft_meta";
+    options.snapshot_uri = "local://./data/snapshot";
+    options.snapshot_trigger_type = SNAPSHOT_TRIGGER_BY_LOG_INTERVAL;
+    options.snapshot_log_interval = 10;
+
+    braft::Node node("unittest", peer);
+    ASSERT_EQ(0, node.init(options));
+
+    // wait node elect to leader
+    sleep(2);
+
+    NodeStatus status;
+    node.get_status(&status);
+    int last_appied_index = status.known_applied_index;
+
+    // apply something which task num is less than log interval
+    bthread::CountdownEvent cond(5);
+
+    for (int i = 0; i < 5; i++) {
+        butil::IOBuf data;
+        char data_buf[128];
+        snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
+        data.append(data_buf);
+
+        braft::Task task;
+        task.data = &data;
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
+        node.apply(task);
+    }
+    cond.wait();
+
+    sleep(10);
+    int applied_index = static_cast<MockFSM*>(options.fsm)->applied_index;
+    int snapshot_index = static_cast<MockFSM*>(options.fsm)->snapshot_index;
+    ASSERT_EQ(applied_index, last_appied_index + 5);
+    ASSERT_EQ(snapshot_index, applied_index - applied_index % 10);
+    last_appied_index = last_appied_index + 5;
+
+    // apply something which task num is greater than log interval
+    cond.reset(20);
+    for (int i = 5; i < 25; i++) {
+        butil::IOBuf data;
+        char data_buf[128];
+        snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
+        data.append(data_buf);
+
+        braft::Task task;
+        task.data = &data;
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
+        node.apply(task);
+    }
+    cond.wait();
+
+    sleep(10);
+    applied_index = static_cast<MockFSM*>(options.fsm)->applied_index;
+    snapshot_index = static_cast<MockFSM*>(options.fsm)->snapshot_index;
+    ASSERT_EQ(applied_index, last_appied_index + 20);
+    ASSERT_EQ(snapshot_index,  applied_index - applied_index % 10);
 
     // shutdown
     cond.reset(1);

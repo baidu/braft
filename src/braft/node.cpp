@@ -363,8 +363,8 @@ int NodeImpl::init_fsm_caller(const LogId& bootstrap_id) {
     fsm_caller_options.closure_queue = _closure_queue;
     fsm_caller_options.node = this;
     fsm_caller_options.bootstrap_id = bootstrap_id;
-    if (_options.snapshot_trigger_type == LOG_INTERVAL) {
-        assert(_options.snapshot_log_interval > 0);
+    if (_options.snapshot_trigger_type == SNAPSHOT_TRIGGER_BY_LOG_INTERVAL) {
+        CHECK(_options.snapshot_log_interval > 0);
         fsm_caller_options.snapshot_log_interval = _options.snapshot_log_interval;
     }
     const int ret = _fsm_caller->init(fsm_caller_options);
@@ -502,8 +502,8 @@ int NodeImpl::init(const NodeOptions& options) {
     CHECK_EQ(0, _vote_timer.init(this, options.election_timeout_ms + options.max_clock_drift_ms));
     CHECK_EQ(0, _election_timer.init(this, options.election_timeout_ms));
     CHECK_EQ(0, _stepdown_timer.init(this, options.election_timeout_ms));
-    if (options.snapshot_trigger_type == TIMER) {
-        assert(options.snapshot_interval_s > 0);
+    if (options.snapshot_trigger_type == SNAPSHOT_TRIGGER_BY_TIMER) {
+        CHECK(options.snapshot_interval_s > 0);
         CHECK_EQ(0, _snapshot_timer.init(this, options.snapshot_interval_s * 1000));
     }
 
@@ -615,7 +615,7 @@ int NodeImpl::init(const NodeOptions& options) {
               << " old_conf: " << _conf.old_conf;
 
     // start snapshot timer
-    if (_snapshot_executor && options.snapshot_trigger_type == TIMER) {
+    if (_snapshot_executor && options.snapshot_trigger_type == SNAPSHOT_TRIGGER_BY_TIMER) {
         BRAFT_VLOG << "node " << _group_id << ":" << _server_id
                    << " term " << _current_term << " start snapshot_timer";
         _snapshot_timer.start();

@@ -281,7 +281,7 @@ void FSMCaller::do_committed(int64_t committed_index) {
     if (_snapshot_log_interval > 0) {
         break_index = _last_snapshot_index + _snapshot_log_interval;
     }
-  
+    LOG(INFO)<<"break index"<<break_index<<" commit index "<<committed_index;
     IteratorImpl iter_impl(_fsm, _log_manager, &closure, first_closure_index,
                  last_applied_index, committed_index, break_index, &_applying_index);
     for (; iter_impl.is_good();) {
@@ -322,15 +322,17 @@ void FSMCaller::do_committed(int64_t committed_index) {
         const int64_t last_index = iter_impl.index() - 1;
         const int64_t last_term = _log_manager->get_term(last_index);
         LogId last_applied_id(last_index, last_term);
-        _last_applied_index.store(committed_index, butil::memory_order_release);
+        _last_applied_index.store(last_index, butil::memory_order_release);
         _last_applied_term = last_term;
         _log_manager->set_applied_id(last_applied_id);
-           
-        if(_snapshot_log_interval > 0 &&
-            last_index == break_index){
-            // Achieve break point to trigger snapshot.
-            _node->snapshot(NULL, true/* in_place*/);
-            break_index +=  _snapshot_log_interval;
+ 
+        if (_snapshot_log_interval > 0 && !iter_impl.has_error() &&
+            last_index == break_index) {
+            // Arrive at break point to trigger snapshot.
+            SynchronizedClosure done;
+            _node->snapshot(&done, true /* in_place*/);
+            done.wait();
+            break_index += _snapshot_log_interval;
             // Reset next break index for continue running.
             iter_impl.reset_break_index(break_index);
         }

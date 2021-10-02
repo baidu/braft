@@ -175,21 +175,16 @@ void SnapshotExecutor::do_snapshot(Closure* done, bool in_place) {
     }
     _saving_snapshot = true;
     SaveSnapshotDone* snapshot_save_done = new SaveSnapshotDone(this, writer, done);
-    
-    if (in_place){
-        _running_jobs.add_count(1);
-        _fsm_caller->on_snapshot_save(snapshot_save_done, in_place);
-        return;
-    } else {
-        if (_fsm_caller->on_snapshot_save(snapshot_save_done, in_place) != 0) {
+
+    _running_jobs.add_count(1);
+    if (_fsm_caller->on_snapshot_save(snapshot_save_done, in_place) != 0) {
+        if (done) {
             lck.unlock();
-            if (done) {
-                snapshot_save_done->status().set_error(EHOSTDOWN, "The raft node is down");
-                run_closure_in_bthread(snapshot_save_done, _usercode_in_pthread);
-            }
+            snapshot_save_done->status().set_error(EHOSTDOWN, "The raft node is down");
+            run_closure_in_bthread(snapshot_save_done, _usercode_in_pthread);
             return;
         }
-        _running_jobs.add_count(1);
+    _running_jobs.signal();
     }
 }
 

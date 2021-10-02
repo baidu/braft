@@ -474,13 +474,13 @@ struct LeaderLeaseStatus {
     int64_t lease_epoch;
 };
 
-enum SnapshotTriggerType{
+enum SnapshotTriggerType {
     // Not to trigger saving snapshot.
-    NONE = 1,
+    SANPSHOT_TRIGGER_NONE = 1,
     // Trigger saving snapshot according to timer.
-    TIMER = 2,
+    SNAPSHOT_TRIGGER_BY_TIMER = 2,
     // Trigger saving snapshot according to log interval. 
-    LOG_INTERVAL = 3,
+    SNAPSHOT_TRIGGER_BY_LOG_INTERVAL = 3,
 };
 
 struct NodeOptions {
@@ -501,23 +501,23 @@ struct NodeOptions {
     // Describe a specific trigger saving snapshot type.
     // 1. type = NONE
     //    Not to trigger saving snapshot automatically. 
-    // 2. type = TIMER
+    // 2. type = SNAPSHOT_TRIGGER_BY_TIMER
     //    A snapshot saving would be triggered every |snapshot_interval_s| seconds.
-    // 3. type = LOG_INTERVAL
+    // 3. type = SNAPSHOT_TRIGGER_BY_LOG_INTERVAL
     //    A snapshot saving would be triggered every |snapshot_log_interval| logs.
     //
-    // Default: TIMER
+    // Default: SNAPSHOT_TRIGGER_BY_TIMER
     SnapshotTriggerType snapshot_trigger_type;
 
     // A snapshot saving would be triggered every |snapshot_interval_s| seconds
-    // if snapshot_trigger_type reset as LOG_INTERVAL |snapshot_interval_s| > 0.
+    // if snapshot_trigger_type reset as SNAPSHOT_TRIGGER_BY_LOG_INTERVAL |snapshot_interval_s| > 0.
     //
     // Default: 3600 (1 hour)
     int snapshot_interval_s;
 
 
     // A snapshot saving would be triggered every |snapshot_log_interval| logs
-    // if snapshot_trigger_type reset as LOG_INTERVAL and |snapshot_log_interval| > 0.
+    // if snapshot_trigger_type reset as SNAPSHOT_TRIGGER_BY_LOG_INTERVAL and |snapshot_log_interval| > 0.
     // 
     // Default: 1000
     int snapshot_log_interval;
@@ -624,7 +624,7 @@ inline NodeOptions::NodeOptions()
     : election_timeout_ms(1000)
     , catchup_timeout_ms(0)
     , max_clock_drift_ms(1000)
-    , snapshot_trigger_type(TIMER)
+    , snapshot_trigger_type(SNAPSHOT_TRIGGER_BY_TIMER)
     , snapshot_interval_s(3600)
     , snapshot_log_interval(1000)
     , catchup_margin(1000)
