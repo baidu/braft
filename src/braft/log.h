@@ -191,7 +191,8 @@ public:
     
     butil::Status gc_instance(const std::string& uri) const;
 
-    SegmentMap& segments() {
+    SegmentMap segments() {
+        BAIDU_SCOPED_LOCK(_mutex);
         return _segments;
     }
 
