@@ -44,6 +44,7 @@ FSMCaller::FSMCaller()
     , _closure_queue(NULL)
     , _last_applied_index(0)
     , _last_applied_term(0)
+    , _last_snapshot_index(0)
     , _after_shutdown(NULL)
     , _node(NULL)
     , _cur_task(IDLE)
@@ -281,7 +282,6 @@ void FSMCaller::do_committed(int64_t committed_index) {
     if (_snapshot_log_interval > 0) {
         break_index = _last_snapshot_index + _snapshot_log_interval;
     }
-    LOG(INFO)<<"break index"<<break_index<<" commit index "<<committed_index;
     IteratorImpl iter_impl(_fsm, _log_manager, &closure, first_closure_index,
                  last_applied_index, committed_index, break_index, &_applying_index);
     for (; iter_impl.is_good();) {
