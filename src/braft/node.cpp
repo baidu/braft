@@ -2805,7 +2805,6 @@ void NodeImpl::get_status(NodeStatus* status) {
     status->readonly = (_node_readonly || _majority_nodes_readonly);
     _conf.conf.list_peers(&peers);
     _replicator_group.list_replicators(&replicators);
-    lck.unlock();
 
     if (status->state == STATE_LEADER ||
         status->state == STATE_TRANSFERRING) {
@@ -2813,6 +2812,8 @@ void NodeImpl::get_status(NodeStatus* status) {
     } else if (status->state == STATE_FOLLOWER) {
         status->leader_id = _leader_id;
     }
+
+    lck.unlock();
 
     LogManagerStatus log_manager_status;
     _log_manager->get_status(&log_manager_status);
