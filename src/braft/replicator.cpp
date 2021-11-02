@@ -63,6 +63,7 @@ ReplicatorOptions::ReplicatorOptions()
     , node(NULL)
     , term(0)
     , snapshot_storage(NULL)
+    , replicator_status(NULL)
 {
 }
 
@@ -95,7 +96,11 @@ Replicator::~Replicator() {
         _options.node->Release();
         _options.node = NULL;
     }
-    _options.replicator_status->Release();
+
+    if (_options.replicator_status) {
+        _options.replicator_status->Release();
+        _options.replicator_status = NULL;
+    }
 }
 
 int Replicator::start(const ReplicatorOptions& options, ReplicatorId *id) {
@@ -115,6 +120,10 @@ int Replicator::start(const ReplicatorOptions& options, ReplicatorId *id) {
         return -1;
     }
 
+    // bind lifecycle with node, AddRef
+    // Replicator stop is async
+    options.node->AddRef();
+    options.replicator_status->AddRef();
     r->_options = options;
     r->_next_index = r->_options.log_manager->last_log_index() + 1;
     if (bthread_id_create(&r->_id, r, _on_error) != 0) {
@@ -124,10 +133,6 @@ int Replicator::start(const ReplicatorOptions& options, ReplicatorId *id) {
         return -1;
     }
 
-    // bind lifecycle with node, AddRef
-    // Replicator stop is async
-    options.node->AddRef();
-    options.replicator_status->AddRef();
 
     bthread_id_lock(r->_id, NULL);
     if (id) {
