@@ -40,7 +40,7 @@ public:
             : _first_log_index(1),
             _last_log_index(0) {}
 
-    virtual ~MemoryLogStorage() {}
+    virtual ~MemoryLogStorage() { reset(1); }
 
     virtual int init(ConfigurationManager* configuration_manager);
 
