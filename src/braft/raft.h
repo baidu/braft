@@ -526,7 +526,7 @@ struct NodeOptions {
     // Default: false
     bool node_owns_fsm;
 
-    // The specific LogStorage implemented at the bussiness layer, which should be a valid
+    // The specific LogStorage implemented at the business layer, which should be a valid
     // instance, otherwise use SegmentLogStorage by default.
     //
     // Default: null
