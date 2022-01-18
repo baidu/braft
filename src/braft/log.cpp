@@ -434,12 +434,12 @@ int Segment::sync(bool will_sync) {
     if (_last_index > _first_index) {
         //CHECK(_is_open);
         if (will_sync) {
-          if (FLAGS_raft_sync) {
-            return raft_fsync(_fd);
-          }  else if (FLAGS_raft_sync_per_bytes < _unsynced_bytes)  {
-            _unsynced_bytes = 0;
-            return raft_fsync(_fd);
-          }
+            if (FLAGS_raft_sync) {
+                return raft_fsync(_fd);
+            } else if (FLAGS_raft_sync_per_bytes < _unsynced_bytes)  {
+                _unsynced_bytes = 0;
+                return raft_fsync(_fd);
+            }
         }
         return 0;
     } else {

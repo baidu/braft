@@ -35,14 +35,14 @@ class BAIDU_CACHELINE_ALIGNMENT Segment
         : public butil::RefCountedThreadSafe<Segment> {
 public:
     Segment(const std::string& path, const int64_t first_index, int checksum_type)
-        : _path(path), _bytes(0),_unsynced_bytes(0),
+        : _path(path), _bytes(0), _unsynced_bytes(0),
         _fd(-1), _is_open(true),
         _first_index(first_index), _last_index(first_index - 1),
         _checksum_type(checksum_type)
     {}
     Segment(const std::string& path, const int64_t first_index, const int64_t last_index,
             int checksum_type)
-        : _path(path), _bytes(0),_unsynced_bytes(0),
+        : _path(path), _bytes(0), _unsynced_bytes(0),
         _fd(-1), _is_open(false),
         _first_index(first_index), _last_index(last_index),
         _checksum_type(checksum_type)
