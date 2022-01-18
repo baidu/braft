@@ -425,6 +425,7 @@ int Segment::append(const LogEntry* entry) {
     _offset_and_term.push_back(std::make_pair(_bytes, entry->id.term));
     _last_index.fetch_add(1, butil::memory_order_relaxed);
     _bytes += to_write;
+    _unsynced_bytes += to_write;
 
     return 0;
 }
@@ -432,11 +433,15 @@ int Segment::append(const LogEntry* entry) {
 int Segment::sync(bool will_sync) {
     if (_last_index > _first_index) {
         //CHECK(_is_open);
-        if (FLAGS_raft_sync && will_sync) {
+        if (will_sync) {
+          if (FLAGS_raft_sync) {
             return raft_fsync(_fd);
-        } else {
-            return 0;
+          }  else if (FLAGS_raft_sync_per_bytes < _unsynced_bytes)  {
+            _unsynced_bytes = 0;
+            return raft_fsync(_fd);
+          }
         }
+        return 0;
     } else {
         return 0;
     }
