@@ -69,6 +69,11 @@ enum CheckSumType {
     CHECKSUM_CRC32 = 1,   
 };
 
+enum RaftSyncPolicy {
+    RAFT_SYNC_NOHTING = 0,
+    RAFT_SYNC_BY_BYTES = 1,
+};
+
 // Format of Header, all fields are in network order
 // | -------------------- term (64bits) -------------------------  |
 // | entry-type (8bits) | checksum_type (8bits) | reserved(16bits) |
@@ -431,20 +436,21 @@ int Segment::append(const LogEntry* entry) {
 }
 
 int Segment::sync(bool will_sync) {
-    if (_last_index > _first_index) {
-        //CHECK(_is_open);
-        if (will_sync) {
-            if (FLAGS_raft_sync) {
-                return raft_fsync(_fd);
-            } else if (FLAGS_raft_sync_per_bytes < _unsynced_bytes)  {
-                _unsynced_bytes = 0;
-                return raft_fsync(_fd);
-            }
-        }
-        return 0;
-    } else {
+    if (_last_index < _first_index) {
         return 0;
     }
+    //CHECK(_is_open);
+    if (will_sync) {
+        if (FLAGS_raft_sync) {
+            return raft_fsync(_fd);
+        }
+        if (FLAGS_raft_sync_policy == RaftSyncPolicy::RAFT_SYNC_BY_BYTES
+            && FLAGS_raft_sync_per_bytes < _unsynced_bytes) {
+            _unsynced_bytes = 0;
+            return raft_fsync(_fd);
+        }
+    }
+    return 0;
 }
 
 LogEntry* Segment::get(const int64_t index) const {
