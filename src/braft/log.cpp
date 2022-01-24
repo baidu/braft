@@ -70,9 +70,10 @@ enum CheckSumType {
 };
 
 enum RaftSyncPolicy {
-    RAFT_SYNC_NOHTING = 0,
+    RAFT_SYNC_NEVER = 0,
     RAFT_SYNC_BY_BYTES = 1,
 };
+
 
 // Format of Header, all fields are in network order
 // | -------------------- term (64bits) -------------------------  |

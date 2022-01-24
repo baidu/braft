@@ -551,3 +551,5 @@ raft中有很多flags配置项，运行中可以通过http://endpoint/flags 查�
 | raft_max_byte_count_per_rpc    | snapshot每次rpc下载大小          |
 | raft_apply_batch               | apply的时候最大batch数量          |
 | raft_election_heartbeat_factor | election超时与heartbeat超时的比例  |
+| raft_sync_policy               | raft_sync为false时的sync策略，0表示永远不主动进行sync，1表示每写入bytes进行sync |
+| raft_sync_per_bytes            | raft_sync_policy 为1 时生效,表示每写bytes进行sync |
