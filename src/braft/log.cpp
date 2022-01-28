@@ -70,7 +70,7 @@ enum CheckSumType {
 };
 
 // Format of Header, all fields are in network order
-// | -------------------- term (64bits) -------------------------  |
+// | -------------------- term (32bits) -------------------------  |
 // | entry-type (8bits) | checksum_type (8bits) | reserved(16bits) |
 // | ------------------ data len (32bits) -----------------------  |
 // | data_checksum (32bits) | header checksum (32bits)             |
