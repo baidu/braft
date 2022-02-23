@@ -442,14 +442,15 @@ int Segment::sync(bool will_sync) {
     }
     //CHECK(_is_open);
     if (will_sync) {
-        if (FLAGS_raft_sync) {
-            return raft_fsync(_fd);
+        if (!FLAGS_raft_sync) {
+            return 0;
         }
         if (FLAGS_raft_sync_policy == RaftSyncPolicy::RAFT_SYNC_BY_BYTES
-            && FLAGS_raft_sync_per_bytes < _unsynced_bytes) {
-            _unsynced_bytes = 0;
-            return raft_fsync(_fd);
+            && FLAGS_raft_sync_per_bytes > _unsynced_bytes) {
+            return 0;
         }
+        _unsynced_bytes = 0;
+        return raft_fsync(_fd);
     }
     return 0;
 }

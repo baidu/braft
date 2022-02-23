@@ -35,7 +35,7 @@ DEFINE_int32(raft_sync_per_bytes, INT32_MAX,
 DEFINE_bool(raft_create_parent_directories, true,
             "Create parent directories of the path in local storage if true");
 DEFINE_int32(raft_sync_policy, 0,
-             "raft sync policy when raft_sync set to false, 0 mean never sync, 1 mean sync by "
+             "raft sync policy when raft_sync set to true, 0 mean sync immediately, 1 mean sync by "
              "writed bytes");
 DEFINE_bool(raft_sync_meta, false, "sync log meta, snapshot meta and raft meta");
 BRPC_VALIDATE_GFLAG(raft_sync_meta, ::brpc::PassValidate);
