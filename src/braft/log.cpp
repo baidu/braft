@@ -70,7 +70,7 @@ enum CheckSumType {
 };
 
 enum RaftSyncPolicy {
-    RAFT_SYNC_NEVER = 0,
+    RAFT_SYNC_IMMEDIATELY = 0,
     RAFT_SYNC_BY_BYTES = 1,
 };
 
