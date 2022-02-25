@@ -38,6 +38,8 @@ namespace braft {
 
 DECLARE_bool(raft_sync);
 DECLARE_bool(raft_sync_meta);
+DECLARE_int32(raft_sync_per_bytes);
+DECLARE_int32(raft_sync_policy);
 DECLARE_bool(raft_create_parent_directories);
 
 struct LogEntry;
