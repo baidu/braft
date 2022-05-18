@@ -308,7 +308,7 @@ TEST_F(BaseLeaseTest, leader_remove_itself) {
     peers.push_back(peer0);
     Cluster cluster("unittest", peers, 500, 10);
     ASSERT_EQ(0, cluster.start(peer0.addr));
-    LOG(NOTICE) << "start single cluster " << peer0;
+    LOG(INFO) << "start single cluster " << peer0;
 
     // start a thread to check leader lease
     g_check_lease_in_thread_stop = false;
@@ -319,14 +319,14 @@ TEST_F(BaseLeaseTest, leader_remove_itself) {
     
     const int follower_num = 3;
     for (int i = 1; i <= follower_num; ++i) {
-        LOG(NOTICE) << "start peer " << i;
+        LOG(INFO) << "start peer " << i;
         braft::PeerId peer = peer0;
         peer.addr.port += i;
         ASSERT_EQ(0, cluster.start(peer.addr, true));
     }
 
     for (int i = 1; i <= follower_num; ++i) {
-        LOG(NOTICE) << "add peer " << i;
+        LOG(INFO) << "add peer " << i;
         cluster.wait_leader();
         braft::Node* leader = cluster.leader();
         braft::PeerId peer = peer0;
@@ -341,7 +341,7 @@ TEST_F(BaseLeaseTest, leader_remove_itself) {
     cluster.wait_leader();
     braft::Node* leader = cluster.leader();
     ASSERT_EQ(peer0, leader->node_id().peer_id);
-    LOG(NOTICE) << "remove leader " << peer0;
+    LOG(INFO) << "remove leader " << peer0;
     
     std::vector<braft::Node*> nodes;
     cluster.followers(&nodes);
@@ -360,7 +360,7 @@ TEST_F(BaseLeaseTest, leader_remove_itself) {
     ASSERT_LT(vote_time, 500);
     
     leader = cluster.leader();
-    LOG(NOTICE) << "new leader is " << leader->node_id().peer_id << " election time is " << vote_time;
+    LOG(INFO) << "new leader is " << leader->node_id().peer_id << " election time is " << vote_time;
 
     g_check_lease_in_thread_stop = true;
     pthread_join(tid, NULL);

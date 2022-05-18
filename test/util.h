@@ -68,9 +68,9 @@ public:
     void on_leader_start(int64_t term) {
         _leader_term = term;
         if (_on_leader_start_closure) {
-            LOG(NOTICE) << "addr " << address << " before leader start closure";
+            LOG(INFO) << "addr " << address << " before leader start closure";
             _on_leader_start_closure->Run();
-            LOG(NOTICE) << "addr " << address << " after leader start closure";
+            LOG(INFO) << "addr " << address << " after leader start closure";
             _on_leader_start_closure = NULL;
         }
     }
@@ -82,7 +82,7 @@ public:
 
     virtual void on_apply(braft::Iterator& iter) {
         for (; iter.valid(); iter.next()) {
-            LOG_IF(TRACE, !g_dont_print_apply_log) << "addr " << address 
+            LOG_IF(INFO, !g_dont_print_apply_log) << "addr " << address 
                                                    << " apply " << iter.index()
                                                    << " data_size " << iter.data().size();
             BRAFT_VLOG << "data " << iter.data();
@@ -95,7 +95,7 @@ public:
     }
 
     virtual void on_shutdown() {
-        LOG(TRACE) << "addr " << address << " shutdowned";
+        LOG(INFO) << "addr " << address << " shutdowned";
     }
 
     virtual void on_snapshot_save(braft::SnapshotWriter* writer, braft::Closure* done) {
@@ -158,19 +158,19 @@ public:
     }
 
     virtual void on_start_following(const braft::LeaderChangeContext& start_following_context) {
-        LOG(TRACE) << "address " << address << " start following new leader: " 
+        LOG(INFO) << "address " << address << " start following new leader: " 
                    <<  start_following_context;
         ++_on_start_following_times;
     }
 
     virtual void on_stop_following(const braft::LeaderChangeContext& stop_following_context) {
-        LOG(TRACE) << "address " << address << " stop following old leader: " 
+        LOG(INFO) << "address " << address << " stop following old leader: " 
                    <<  stop_following_context;
         ++_on_stop_following_times;
     }
 
     virtual void on_configuration_committed(const ::braft::Configuration& conf, int64_t index) {
-        LOG(TRACE) << "address " << address << " commit conf: " << conf << " at index " << index;
+        LOG(INFO) << "address " << address << " commit conf: " << conf << " at index " << index;
     }
 };
 
