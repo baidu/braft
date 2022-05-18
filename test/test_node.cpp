@@ -614,7 +614,7 @@ TEST_P(NodeTest, Leader_step_down_during_install_snapshot) {
     
     cluster.ensure_same();
     
-    LOG(TRACE) << "stop cluster";
+    LOG(INFO) << "stop cluster";
     cluster.stop_all();
 }
 
