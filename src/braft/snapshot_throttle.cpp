@@ -59,7 +59,7 @@ size_t ThroughputSnapshotThrottle::throttled_by_throughput(int64_t bytes) {
             1 * 1000 * 1000 / _check_cycle) {
             // if time interval is less than or equal to a cycle, read more data
             // to make full use of the throughput of current cycle.
-            available_size = limit_per_cycle - _cur_throughput_bytes;
+            available_size = limit_per_cycle > _cur_throughput_bytes ? limit_per_cycle - _cur_throughput_bytes : 0;
             _cur_throughput_bytes = limit_per_cycle;
         } else {
             // otherwise, read the data in the next cycle.

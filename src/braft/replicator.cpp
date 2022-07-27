@@ -16,14 +16,12 @@
 //          Wang,Yao(wangyao02@baidu.com)
 //          Xiong,Kai(xiongkai@baidu.com)
 
-#include "braft/replicator.h"
-
 #include <gflags/gflags.h>                       // DEFINE_int32
 #include <butil/unique_ptr.h>                    // std::unique_ptr
 #include <butil/time.h>                          // butil::gettimeofday_us
 #include <brpc/controller.h>                     // brpc::Controller
 #include <brpc/reloadable_flags.h>               // BRPC_VALIDATE_GFLAG
-
+#include "braft/replicator.h"
 #include "braft/node.h"                          // NodeImpl
 #include "braft/ballot_box.h"                    // BallotBox 
 #include "braft/log_entry.h"                     // LogEntry
@@ -65,6 +63,7 @@ ReplicatorOptions::ReplicatorOptions()
     , node(NULL)
     , term(0)
     , snapshot_storage(NULL)
+    , replicator_status(NULL)
 {
 }
 
@@ -97,7 +96,11 @@ Replicator::~Replicator() {
         _options.node->Release();
         _options.node = NULL;
     }
-    _options.replicator_status->Release();
+
+    if (_options.replicator_status) {
+        _options.replicator_status->Release();
+        _options.replicator_status = NULL;
+    }
 }
 
 int Replicator::start(const ReplicatorOptions& options, ReplicatorId *id) {
@@ -117,6 +120,10 @@ int Replicator::start(const ReplicatorOptions& options, ReplicatorId *id) {
         return -1;
     }
 
+    // bind lifecycle with node, AddRef
+    // Replicator stop is async
+    options.node->AddRef();
+    options.replicator_status->AddRef();
     r->_options = options;
     r->_next_index = r->_options.log_manager->last_log_index() + 1;
     if (bthread_id_create(&r->_id, r, _on_error) != 0) {
@@ -126,10 +133,6 @@ int Replicator::start(const ReplicatorOptions& options, ReplicatorId *id) {
         return -1;
     }
 
-    // bind lifecycle with node, AddRef
-    // Replicator stop is async
-    options.node->AddRef();
-    options.replicator_status->AddRef();
 
     bthread_id_lock(r->_id, NULL);
     if (id) {
@@ -523,7 +526,7 @@ int Replicator::_fill_common_fields(AppendEntriesRequest* request,
             return -1;
         } else {
             // The log at prev_log_index has been compacted, which indicates 
-            // we is or is going to install snapshot to the follower. So we let 
+            // we are or are going to install snapshot to the follower. So we let 
             // both prev_log_index and prev_log_term be 0 in the heartbeat 
             // request so that follower would do nothing besides updating its 
             // leader timestamp.
@@ -1073,7 +1076,7 @@ void Replicator::_reset_next_index() {
     }
 }
 
-void Replicator::_send_timeout_now(bool unlock_id, bool stop_after_finish,
+void Replicator::_send_timeout_now(bool unlock_id, bool old_leader_stepped_down,
                                    int timeout_ms) {
     TimeoutNowRequest* request = new TimeoutNowRequest;
     TimeoutNowResponse* response = new TimeoutNowResponse;
@@ -1081,8 +1084,9 @@ void Replicator::_send_timeout_now(bool unlock_id, bool stop_after_finish,
     request->set_group_id(_options.group_id);
     request->set_server_id(_options.server_id.to_string());
     request->set_peer_id(_options.peer_id.to_string());
+    request->set_old_leader_stepped_down(old_leader_stepped_down);
     brpc::Controller* cntl = new brpc::Controller;
-    if (!stop_after_finish) {
+    if (!old_leader_stepped_down) {
         // This RPC is issued by transfer_leadership, save this call_id so that
         // the RPC can be cancelled by stop.
         _timeout_now_in_fly = cntl->call_id();
@@ -1094,7 +1098,7 @@ void Replicator::_send_timeout_now(bool unlock_id, bool stop_after_finish,
     RaftService_Stub stub(&_sending_channel);
     ::google::protobuf::Closure* done = brpc::NewCallback(
             _on_timeout_now_returned, _id.value, cntl, request, response,
-            stop_after_finish);
+            old_leader_stepped_down);
     stub.timeout_now(cntl, request, response, done);
     if (unlock_id) {
         CHECK_EQ(0, bthread_id_unlock(_id));
@@ -1105,7 +1109,7 @@ void Replicator::_on_timeout_now_returned(
                 ReplicatorId id, brpc::Controller* cntl,
                 TimeoutNowRequest* request, 
                 TimeoutNowResponse* response,
-                bool stop_after_finish) {
+                bool old_leader_stepped_down) {
     std::unique_ptr<brpc::Controller> cntl_guard(cntl);
     std::unique_ptr<TimeoutNowRequest>  req_guard(request);
     std::unique_ptr<TimeoutNowResponse> res_guard(response);
@@ -1124,7 +1128,7 @@ void Replicator::_on_timeout_now_returned(
         ss << " fail : " << cntl->ErrorText();
         BRAFT_VLOG << ss.str();
 
-        if (stop_after_finish) {
+        if (old_leader_stepped_down) {
             r->_notify_on_caught_up(ESTOP, true);
             r->_destroy();
         } else {
@@ -1149,7 +1153,7 @@ void Replicator::_on_timeout_now_returned(
         node_impl->Release();
         return;
     }
-    if (stop_after_finish) {
+    if (old_leader_stepped_down) {
         r->_notify_on_caught_up(ESTOP, true);
         r->_destroy();
     } else {
@@ -1180,6 +1184,17 @@ int64_t Replicator::get_next_index(ReplicatorId id) {
     }
     CHECK_EQ(0, bthread_id_unlock(dummy_id)) << "Fail to unlock " << dummy_id;
     return next_index;
+}
+
+int Replicator::get_consecutive_error_times(ReplicatorId id) {
+    Replicator *r = NULL;
+    bthread_id_t dummy_id = { id };
+    if (bthread_id_lock(dummy_id, (void**)&r) != 0) {
+        return -1;
+    }
+    int consecutive_error_times = r->_consecutive_error_times;
+    CHECK_EQ(0, bthread_id_unlock(dummy_id)) << "Fail to unlock " << dummy_id;
+    return consecutive_error_times;
 }
 
 int Replicator::change_readonly_config(ReplicatorId id, bool readonly) {
@@ -1261,7 +1276,7 @@ void Replicator::_describe(std::ostream& os, bool use_html) {
         os << "idle";
         break;
     case BLOCKING:
-        os << "blocking consecutive_error_times=" << consecutive_error_times;
+        os << "blocking";
         break;
     case APPENDING_ENTRIES:
         os << "appending [" << st.first_log_index << ", " << st.last_log_index << ']';
@@ -1270,6 +1285,9 @@ void Replicator::_describe(std::ostream& os, bool use_html) {
         os << "installing snapshot {" << st.last_log_included
            << ", " << st.last_term_included  << '}';
         break;
+    }
+    if (consecutive_error_times != 0) {
+        os << " consecutive_error_times=" << consecutive_error_times;
     }
     os << " hc=" << heartbeat_counter << " ac=" << append_entries_counter << " ic=" << install_snapshot_counter << new_line;
 }
@@ -1447,9 +1465,13 @@ int ReplicatorGroup::transfer_leadership_to(
         const PeerId& peer, int64_t log_index) {
     std::map<PeerId, ReplicatorIdAndStatus>::const_iterator iter = _rmap.find(peer);
     if (iter == _rmap.end()) {
-        return -1;
+        return EINVAL;
     }
     ReplicatorId rid = iter->second.id;
+    const int consecutive_error_times = Replicator::get_consecutive_error_times(rid);
+    if (consecutive_error_times > 0) {
+        return EHOSTUNREACH;
+    }
     return Replicator::transfer_leadership(rid, log_index);
 }
 
@@ -1494,7 +1516,8 @@ int ReplicatorGroup::find_the_next_candidate(
             continue;
         }
         const int64_t next_index = Replicator::get_next_index(iter->second.id);
-        if (next_index > max_index) {
+        const int consecutive_error_times = Replicator::get_consecutive_error_times(iter->second.id);
+        if (consecutive_error_times == 0 && next_index > max_index) {
             max_index = next_index;
             if (peer_id) {
                 *peer_id = iter->first;

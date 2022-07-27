@@ -45,6 +45,24 @@ void *read_across_throttle(void* arg) {
     return NULL;
 }
 
+TEST_F(TestUsageSuits, test_throttled_by_throughput) {
+    int64_t check_cycle = 8;
+    int64_t throttle_throughput_bytes = 1024;
+    int sleep_us = 1000 * 1000 / 8 + 1;
+    braft::ThroughputSnapshotThrottle tt(throttle_throughput_bytes, check_cycle);
+    int64_t need_bytes = 64;
+    EXPECT_EQ(need_bytes, tt.throttled_by_throughput(need_bytes));
+    EXPECT_EQ(need_bytes, tt.throttled_by_throughput(need_bytes));
+    EXPECT_EQ(0, tt.throttled_by_throughput(need_bytes));
+    usleep(sleep_us);
+
+    EXPECT_EQ(need_bytes, tt.throttled_by_throughput(need_bytes));
+    need_bytes = 63;
+    EXPECT_EQ(need_bytes, tt.throttled_by_throughput(need_bytes));
+    EXPECT_EQ(1, tt.throttled_by_throughput(need_bytes));
+    EXPECT_EQ(0, tt.throttled_by_throughput(need_bytes));
+}
+
 TEST_F(TestUsageSuits, throttle_functioning) {
     // disk limit: 30M/s, cycles: 10 times/s
     int64_t limit = 30 * 1024 * 1024;

@@ -296,6 +296,78 @@ TEST_F(BaseLeaseTest, change_peers) {
     cluster.stop_all();
 }
 
+TEST_F(BaseLeaseTest, leader_remove_itself) {
+    ::system("rm -rf data");
+    std::vector<braft::PeerId> peers;
+    braft::PeerId peer0;
+    peer0.addr.ip = butil::my_ip();
+    peer0.addr.port = 5006;
+    peer0.idx = 0;
+
+    // start cluster
+    peers.push_back(peer0);
+    Cluster cluster("unittest", peers, 500, 10);
+    ASSERT_EQ(0, cluster.start(peer0.addr));
+    LOG(INFO) << "start single cluster " << peer0;
+
+    // start a thread to check leader lease
+    g_check_lease_in_thread_stop = false;
+    pthread_t tid;
+    ASSERT_EQ(0, pthread_create(&tid, NULL, check_lease_in_thread, &cluster));
+
+    cluster.wait_leader();
+    
+    const int follower_num = 3;
+    for (int i = 1; i <= follower_num; ++i) {
+        LOG(INFO) << "start peer " << i;
+        braft::PeerId peer = peer0;
+        peer.addr.port += i;
+        ASSERT_EQ(0, cluster.start(peer.addr, true));
+    }
+
+    for (int i = 1; i <= follower_num; ++i) {
+        LOG(INFO) << "add peer " << i;
+        cluster.wait_leader();
+        braft::Node* leader = cluster.leader();
+        braft::PeerId peer = peer0;
+        peer.addr.port += i;
+        braft::SynchronizedClosure done;
+        leader->add_peer(peer, &done);
+        usleep(50 * 1000);
+        done.wait();
+        ASSERT_TRUE(done.status().ok()) << done.status();
+    }
+    
+    cluster.wait_leader();
+    braft::Node* leader = cluster.leader();
+    ASSERT_EQ(peer0, leader->node_id().peer_id);
+    LOG(INFO) << "remove leader " << peer0;
+    
+    std::vector<braft::Node*> nodes;
+    cluster.followers(&nodes);
+    braft::SynchronizedClosure done;
+    for (int i = 0; i < follower_num; ++i) {
+        static_cast<MockFSM*>(nodes[i]->_impl->_options.fsm)->set_on_leader_start_closure(&done);
+    }
+    int64_t begin_ms = butil::monotonic_time_ms();
+    braft::SynchronizedClosure remove_done;
+    // leader remove itself, it's safe to expire leader lease
+    leader->remove_peer(peer0, &remove_done);
+    remove_done.wait();
+    ASSERT_TRUE(remove_done.status().ok()) << remove_done.status();
+    done.wait();
+    const int64_t vote_time = butil::monotonic_time_ms() - begin_ms;
+    ASSERT_LT(vote_time, 500);
+    
+    leader = cluster.leader();
+    LOG(INFO) << "new leader is " << leader->node_id().peer_id << " election time is " << vote_time;
+
+    g_check_lease_in_thread_stop = true;
+    pthread_join(tid, NULL);
+    
+    cluster.stop_all();
+}
+
 TEST_P(ExtendLeaseTest, transfer_leadership_success) {
     ::system("rm -rf data");
     std::vector<braft::PeerId> peers;
@@ -427,10 +499,19 @@ TEST_P(ExtendLeaseTest, vote) {
     braft::SynchronizedClosure done;
     static_cast<MockFSM*>(nodes[0]->_impl->_options.fsm)->set_on_leader_start_closure(&done);
 
-    int64_t vote_begin_ms = butil::monotonic_time_ms();
-    nodes[0]->vote(50);
-    done.wait();
-    ASSERT_LT(butil::monotonic_time_ms() - vote_begin_ms, 500);
+    // There isOnLeaderStartHungClosure( little chance that when we want to vote, the heartbeat from
+    // old leader interrupt us.
+    for (int i = 0; i < 3; ++ i) {
+        int64_t vote_begin_ms = butil::monotonic_time_ms();
+        nodes[0]->vote(50);
+        usleep(100 * 1000);
+        leader->get_leader_lease_status(&old_leader_lease);
+        if (old_leader_lease.state == braft::LEASE_VALID) {
+            continue;
+        }
+        done.wait();
+        ASSERT_LT(butil::monotonic_time_ms() - vote_begin_ms, 500);
+    }
 
     leader->get_leader_lease_status(&old_leader_lease);
     nodes[0]->get_leader_lease_status(&new_leader_lease);
@@ -480,7 +561,8 @@ TEST_P(ExtendLeaseTest, leader_step_down) {
     int64_t begin_ms = butil::monotonic_time_ms();
     cluster.stop(leader->node_id().peer_id.addr);
     done.wait();
-    ASSERT_GT(butil::monotonic_time_ms() - begin_ms, 500 / 2 + 1000);
+    // old leader has already stepped down, it's safe to expire leader lease
+    ASSERT_LT(butil::monotonic_time_ms() - begin_ms, 500);
 
     leader = cluster.leader();
     braft::LeaderLeaseStatus lease_status;

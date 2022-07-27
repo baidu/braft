@@ -614,7 +614,7 @@ TEST_P(NodeTest, Leader_step_down_during_install_snapshot) {
     
     cluster.ensure_same();
     
-    LOG(TRACE) << "stop cluster";
+    LOG(INFO) << "stop cluster";
     cluster.stop_all();
 }
 
@@ -1846,21 +1846,22 @@ TEST_P(NodeTest, leader_transfer_before_log_is_compleleted) {
         leader->apply(task);
     }
     cond.wait();
-    ASSERT_EQ(0, leader->transfer_leadership_to(target));
+    ASSERT_EQ(EHOSTUNREACH, leader->transfer_leadership_to(target));
     cond.reset(1);
     braft::Task task;
     butil::IOBuf data;
     data.resize(5, 'a');
     task.data = &data;
-    task.done = NEW_APPLYCLOSURE(&cond, EBUSY);
+    task.done = NEW_APPLYCLOSURE(&cond, 0);
     leader->apply(task);
     cond.wait();
+    braft::Node* saved_leader = leader;
     cluster.start(target.addr);
     usleep(5000 * 1000);
     LOG(INFO) << "here";
     cluster.wait_leader();
     leader = cluster.leader();
-    ASSERT_EQ(target, leader->node_id().peer_id);
+    ASSERT_EQ(saved_leader->node_id().peer_id, leader->node_id().peer_id);
     ASSERT_TRUE(cluster.ensure_same(5));
     cluster.stop_all();
 }
@@ -1903,14 +1904,14 @@ TEST_P(NodeTest, leader_transfer_resume_on_failure) {
         leader->apply(task);
     }
     cond.wait();
-    ASSERT_EQ(0, leader->transfer_leadership_to(target));
+    ASSERT_EQ(EHOSTUNREACH, leader->transfer_leadership_to(target));
     braft::Node* saved_leader = leader;
     cond.reset(1);
     braft::Task task;
     butil::IOBuf data;
     data.resize(5, 'a');
     task.data = &data;
-    task.done = NEW_APPLYCLOSURE(&cond, EBUSY);
+    task.done = NEW_APPLYCLOSURE(&cond, 0);
     leader->apply(task);
     cond.wait();
     //cluster.start(target.addr);

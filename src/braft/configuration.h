@@ -90,7 +90,7 @@ inline bool operator==(const PeerId& id1, const PeerId& id2) {
 }
 
 inline bool operator!=(const PeerId& id1, const PeerId& id2) {
-    return (id1.addr != id2.addr || id1.idx != id2.idx);
+    return !(id1 == id2);
 }
 
 inline std::ostream& operator << (std::ostream& os, const PeerId& id) {

@@ -31,3 +31,6 @@ compile_commands.json
 CTestTestfile.cmake
 /build
 /third-party
+
+# Github aciton
+!.github

@@ -35,14 +35,14 @@ class BAIDU_CACHELINE_ALIGNMENT Segment
         : public butil::RefCountedThreadSafe<Segment> {
 public:
     Segment(const std::string& path, const int64_t first_index, int checksum_type)
-        : _path(path), _bytes(0),
+        : _path(path), _bytes(0), _unsynced_bytes(0),
         _fd(-1), _is_open(true),
         _first_index(first_index), _last_index(first_index - 1),
         _checksum_type(checksum_type)
     {}
     Segment(const std::string& path, const int64_t first_index, const int64_t last_index,
             int checksum_type)
-        : _path(path), _bytes(0),
+        : _path(path), _bytes(0), _unsynced_bytes(0),
         _fd(-1), _is_open(false),
         _first_index(first_index), _last_index(last_index),
         _checksum_type(checksum_type)
@@ -119,6 +119,7 @@ friend class butil::RefCountedThreadSafe<Segment>;
 
     std::string _path;
     int64_t _bytes;
+    int64_t _unsynced_bytes;
     mutable raft_mutex_t _mutex;
     int _fd;
     bool _is_open;
@@ -191,7 +192,8 @@ public:
     
     butil::Status gc_instance(const std::string& uri) const;
 
-    SegmentMap& segments() {
+    SegmentMap segments() {
+        BAIDU_SCOPED_LOCK(_mutex);
         return _segments;
     }
 
@@ -209,7 +211,7 @@ private:
             int64_t first_index_kept, 
             std::vector<scoped_refptr<Segment> >* poped);
     void pop_segments_from_back(
-            const int64_t first_index_kept,
+            const int64_t last_index_kept,
             std::vector<scoped_refptr<Segment> >* popped,
             scoped_refptr<Segment>* last_segment);
 

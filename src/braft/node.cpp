@@ -124,6 +124,12 @@ inline int random_timeout(int timeout_ms) {
 
 DEFINE_int32(raft_election_heartbeat_factor, 10, "raft election:heartbeat timeout factor");
 static inline int heartbeat_timeout(int election_timeout) {
+    if (FLAGS_raft_election_heartbeat_factor <= 0){
+        LOG(WARNING) << "raft_election_heartbeat_factor flag must be greater than 1"
+                     << ", but get "<< FLAGS_raft_election_heartbeat_factor
+                     << ", it will be set to default value 10.";
+        FLAGS_raft_election_heartbeat_factor = 10;
+    }
     return std::max(election_timeout / FLAGS_raft_election_heartbeat_factor, 10);
 }
 
@@ -277,19 +283,19 @@ int NodeImpl::init_meta_storage() {
     // create stable storage
     _meta_storage = RaftMetaStorage::create(_options.raft_meta_uri);
     if (!_meta_storage) {
-        LOG(WARNING) << "node " << _group_id << ":" << _server_id
-                     << " failed to create meta storage, uri " 
-                     << _options.raft_meta_uri; 
+        LOG(ERROR) << "node " << _group_id << ":" << _server_id
+                   << " failed to create meta storage, uri " 
+                   << _options.raft_meta_uri; 
         return ENOENT;
     }
 
     // check init
     butil::Status status = _meta_storage->init();
     if (!status.ok()) {
-        LOG(WARNING) << "node " << _group_id << ":" << _server_id
-                     << " failed to init meta storage, uri " 
-                     << _options.raft_meta_uri 
-                     << ", error " << status;
+        LOG(ERROR) << "node " << _group_id << ":" << _server_id
+                   << " failed to init meta storage, uri " 
+                   << _options.raft_meta_uri 
+                   << ", error " << status;
         return status.error_code();
     }
     
@@ -297,11 +303,33 @@ int NodeImpl::init_meta_storage() {
     status = _meta_storage->
                 get_term_and_votedfor(&_current_term, &_voted_id, _v_group_id);
     if (!status.ok()) {
-        LOG(WARNING) << "node " << _group_id << ":" << _server_id
-                     << " failed to get term and voted_id when init meta storage,"
-                     << " uri " << _options.raft_meta_uri 
-                     << ", error " << status;
+        LOG(ERROR) << "node " << _group_id << ":" << _server_id
+                   << " failed to get term and voted_id when init meta storage,"
+                   << " uri " << _options.raft_meta_uri 
+                   << ", error " << status;
         return status.error_code();
+    }
+
+    // check term
+    const LogId last_log_id = _log_manager->last_log_id();
+    if (_current_term < last_log_id.term) {
+        // Please check when this bad case really happens!
+        LOG(WARNING) << "node " << _group_id << ":" << _server_id
+                     << " init with invalid term: current_term is " << _current_term 
+                     << " but last log term is " << last_log_id.term
+                     << ". Raft will use a newer term to avoid corner cases";
+        // Increase term by 1 is more safety although it may cause a working 
+        // Leader to stepdown
+        _current_term = last_log_id.term + 1;
+        _voted_id.reset();
+        butil::Status status = _meta_storage->
+                set_term_and_votedfor(_current_term, PeerId(), _v_group_id);
+        if (!status.ok()) {
+            LOG(ERROR) << "node " << _group_id << ":" << _server_id
+                       << " fail to set_term_and_votedfor when correct its term,"
+                          " error: " << status;
+            return status.error_code();
+        }
     }
 
     return 0;
@@ -501,13 +529,6 @@ int NodeImpl::init(const NodeOptions& options) {
         return -1;
     }
 
-    // meta init
-    if (init_meta_storage() != 0) {
-        LOG(ERROR) << "node " << _group_id << ":" << _server_id
-                   << " init_meta_storage failed";
-        return -1;
-    }
-
     if (init_fsm_caller(LogId(0, 0)) != 0) {
         LOG(ERROR) << "node " << _group_id << ":" << _server_id
                    << " init_fsm_caller failed";
@@ -550,11 +571,16 @@ int NodeImpl::init(const NodeOptions& options) {
         _conf.conf = _options.initial_conf;
     }
     
-    // init stable meta and check term
+    // init meta and check term
     if (init_meta_storage() != 0) {
         LOG(ERROR) << "node " << _group_id << ":" << _server_id
                    << " init_meta_storage failed";
         return -1;
+    }
+
+    // first start, we can vote directly
+    if (_current_term == 1 && _voted_id.is_empty()) {
+        _follower_lease.reset();
     }
 
     // init replicator
@@ -1044,8 +1070,7 @@ void NodeImpl::handle_timeout_now_request(brpc::Controller* controller,
         response->set_success(false);
         lck.unlock();
         LOG(INFO) << "node " << _group_id << ":" << _server_id
-                  << " received handle_timeout_now_request "
-                     "while _current_term="
+                  << " received handle_timeout_now_request while _current_term="
                   << saved_current_term << " didn't match request_term="
                   << request->term();
         return;
@@ -1057,9 +1082,8 @@ void NodeImpl::handle_timeout_now_request(brpc::Controller* controller,
         response->set_success(false);
         lck.unlock();
         LOG(INFO) << "node " << _group_id << ":" << _server_id
-                  << " received handle_timeout_now_request "
-                     "while state is " << state2str(saved_state)
-                  << " at term=" << saved_term;
+                  << " received handle_timeout_now_request while state is " 
+                  << state2str(saved_state) << " at term=" << saved_term;
         return;
     }
     const butil::EndPoint remote_side = controller->remote_side();
@@ -1075,7 +1099,7 @@ void NodeImpl::handle_timeout_now_request(brpc::Controller* controller,
     response->set_success(true);
     // Parallelize Response and election
     run_closure_in_bthread(done_guard.release());
-    elect_self(&lck);
+    elect_self(&lck, request->old_leader_stepped_down());
     // Don't touch any mutable field after this point, it's likely out of the
     // critical section
     if (lck.owns_lock()) {
@@ -1176,9 +1200,19 @@ int NodeImpl::transfer_leadership_to(const PeerId& peer) {
     const int64_t last_log_index = _log_manager->last_log_index();
     const int rc = _replicator_group.transfer_leadership_to(peer_id, last_log_index);
     if (rc != 0) {
-        LOG(WARNING) << "node " << _group_id << ":" << _server_id
+        if (rc == EINVAL) {
+            LOG(WARNING) << "node " << _group_id << ":" << _server_id
                      << " fail to transfer leadership, no such peer=" << peer_id;
-        return EINVAL;
+        } else if (rc == EHOSTUNREACH) {
+            LOG(WARNING) << "node " << _group_id << ":" << _server_id
+                     << " fail to transfer leadership, peer=" << peer_id
+                     << " whose consecutive_error_times not 0.";
+        } else {
+            LOG(WARNING) << "node " << _group_id << ":" << _server_id
+                     << " fail to transfer leadership, peer=" << peer_id
+                     << " err: " << berror(rc);
+        }
+        return rc;
     }
     _state = STATE_TRANSFERRING;
     butil::Status status;
@@ -1389,7 +1423,7 @@ void NodeImpl::retry_vote_on_reserved_peers() {
     if (peers.empty()) {
         return;
     }
-    request_peers_to_vote(peers, &_vote_ctx.disrupted_leader());
+    request_peers_to_vote(peers, _vote_ctx.disrupted_leader());
 }
 
 struct OnRequestVoteRPCDone : public google::protobuf::Closure {
@@ -1601,7 +1635,8 @@ void NodeImpl::pre_vote(std::unique_lock<raft_mutex_t>* lck, bool triggered) {
 }
 
 // in lock
-void NodeImpl::elect_self(std::unique_lock<raft_mutex_t>* lck) {
+void NodeImpl::elect_self(std::unique_lock<raft_mutex_t>* lck, 
+                          bool old_leader_stepped_down) {
     LOG(INFO) << "node " << _group_id << ":" << _server_id
               << " term " << _current_term << " start vote and grant vote self";
     if (!_conf.contains(_server_id)) {
@@ -1616,6 +1651,8 @@ void NodeImpl::elect_self(std::unique_lock<raft_mutex_t>* lck) {
         _election_timer.stop();
     }
     // reset leader_id before vote
+    const PeerId old_leader = _leader_id;
+    const int64_t leader_term = _current_term;
     PeerId empty_id;
     butil::Status status;
     status.set_error(ERAFTTIMEDOUT, "A follower's leader_id is reset to NULL "
@@ -1631,6 +1668,10 @@ void NodeImpl::elect_self(std::unique_lock<raft_mutex_t>* lck) {
     _vote_timer.start();
     _pre_vote_ctx.reset(this);
     _vote_ctx.init(this, false);
+    if (old_leader_stepped_down) {
+        _vote_ctx.set_disrupted_leader(DisruptedLeader(old_leader, leader_term));
+        _follower_lease.expire();
+    }
 
     int64_t old_term = _current_term;
     // get last_log_id outof node mutex
@@ -1648,7 +1689,7 @@ void NodeImpl::elect_self(std::unique_lock<raft_mutex_t>* lck) {
 
     std::set<PeerId> peers;
     _conf.list_peers(&peers);
-    request_peers_to_vote(peers, NULL);
+    request_peers_to_vote(peers, _vote_ctx.disrupted_leader());
 
     //TODO: outof lock
     status = _meta_storage->
@@ -1666,7 +1707,7 @@ void NodeImpl::elect_self(std::unique_lock<raft_mutex_t>* lck) {
 }
 
 void NodeImpl::request_peers_to_vote(const std::set<PeerId>& peers,
-                                     const NodeImpl::DisruptedLeader* disrupted_leader) {
+                                     const DisruptedLeader& disrupted_leader) {
     for (std::set<PeerId>::const_iterator
         iter = peers.begin(); iter != peers.end(); ++iter) {
         if (*iter == _server_id) {
@@ -1692,11 +1733,11 @@ void NodeImpl::request_peers_to_vote(const std::set<PeerId>& peers,
         done->request.set_last_log_index(_vote_ctx.last_log_id().index);
         done->request.set_last_log_term(_vote_ctx.last_log_id().term);
 
-        if (disrupted_leader) {
+        if (disrupted_leader.peer_id != ANY_PEER) {
             done->request.mutable_disrupted_leader()
-                ->set_peer_id(disrupted_leader->peer_id.to_string());
+                ->set_peer_id(disrupted_leader.peer_id.to_string());
             done->request.mutable_disrupted_leader()
-                ->set_term(disrupted_leader->term);
+                ->set_term(disrupted_leader.term);
         }
 
         RaftService_Stub stub(&channel);
@@ -2411,16 +2452,18 @@ void NodeImpl::handle_append_entries_request(brpc::Controller* cntl,
         response->set_term(_current_term);
         response->set_last_log_index(last_index);
         lck.unlock();
-        LOG(WARNING) << "node " << _group_id << ":" << _server_id
-                     << " reject term_unmatched AppendEntries from " 
-                     << request->server_id()
-                     << " in term " << request->term()
-                     << " prev_log_index " << request->prev_log_index()
-                     << " prev_log_term " << request->prev_log_term()
-                     << " local_prev_log_term " << local_prev_log_term
-                     << " last_log_index " << last_index
-                     << " entries_size " << request->entries_size()
-                     << " from_append_entries_cache: " << from_append_entries_cache;
+        if (local_prev_log_term != 0) {
+            LOG(WARNING) << "node " << _group_id << ":" << _server_id
+                         << " reject term_unmatched AppendEntries from " 
+                         << request->server_id()
+                         << " in term " << request->term()
+                         << " prev_log_index " << request->prev_log_index()
+                         << " prev_log_term " << request->prev_log_term()
+                         << " local_prev_log_term " << local_prev_log_term
+                         << " last_log_index " << last_index
+                         << " entries_size " << request->entries_size()
+                         << " from_append_entries_cache: " << from_append_entries_cache;
+        }
         return;
     }
 
@@ -2762,7 +2805,6 @@ void NodeImpl::get_status(NodeStatus* status) {
     status->readonly = (_node_readonly || _majority_nodes_readonly);
     _conf.conf.list_peers(&peers);
     _replicator_group.list_replicators(&replicators);
-    lck.unlock();
 
     if (status->state == STATE_LEADER ||
         status->state == STATE_TRANSFERRING) {
@@ -2770,6 +2812,8 @@ void NodeImpl::get_status(NodeStatus* status) {
     } else if (status->state == STATE_FOLLOWER) {
         status->leader_id = _leader_id;
     }
+
+    lck.unlock();
 
     LogManagerStatus log_manager_status;
     _log_manager->get_status(&log_manager_status);
@@ -3212,7 +3256,7 @@ void NodeImpl::ConfigurationCtx::next_stage() {
             return _node->unsafe_apply_configuration(
                     Configuration(_new_peers), &old_conf, false);
         }
-        // Skip joint consensus since only one peers has been changed here. Make
+        // Skip joint consensus since only one peer has been changed here. Make
         // it a one-stage change to be compitible with the legacy
         // implementation.
     case STAGE_JOINT:

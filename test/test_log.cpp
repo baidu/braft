@@ -304,16 +304,16 @@ TEST_F(LogStorageTest, multi_segment_and_segment_logstorage) {
 
     // boundary truncate prefix
     {
-        braft::SegmentLogStorage::SegmentMap& segments1 = storage->segments();
+        braft::SegmentLogStorage::SegmentMap segments1 = storage->segments();
         size_t old_segment_num = segments1.size();
         braft::Segment* first_seg = segments1.begin()->second.get();
 
         ASSERT_EQ(0, storage->truncate_prefix(first_seg->last_index()));
-        braft::SegmentLogStorage::SegmentMap& segments2 = storage->segments();
+        braft::SegmentLogStorage::SegmentMap segments2 = storage->segments();
         ASSERT_EQ(old_segment_num, segments2.size());
 
         ASSERT_EQ(0, storage->truncate_prefix(first_seg->last_index() + 1));
-        braft::SegmentLogStorage::SegmentMap& segments3 = storage->segments();
+        braft::SegmentLogStorage::SegmentMap segments3 = storage->segments();
         ASSERT_EQ(old_segment_num - 1, segments3.size());
     }
 
@@ -352,7 +352,7 @@ TEST_F(LogStorageTest, multi_segment_and_segment_logstorage) {
         ASSERT_EQ(5, storage->append_entries(entries, NULL));
 
         for (size_t j = 0; j < entries.size(); j++) {
-            delete entries[j];
+            entries[j]->Release();
         }
     }
 
@@ -365,16 +365,16 @@ TEST_F(LogStorageTest, multi_segment_and_segment_logstorage) {
 
     // boundary truncate suffix
     {
-        braft::SegmentLogStorage::SegmentMap& segments1 = storage->segments();
+        braft::SegmentLogStorage::SegmentMap segments1 = storage->segments();
         braft::Segment* first_seg = segments1.begin()->second.get();
         if (segments1.size() > 1) {
             storage->truncate_suffix(first_seg->last_index() + 1);
         }
-        braft::SegmentLogStorage::SegmentMap& segments2 = storage->segments();
-        ASSERT_EQ(2ul, segments2.size());
+        braft::SegmentLogStorage::SegmentMap segments2 = storage->segments();
+        ASSERT_EQ(1ul, segments2.size());
         ASSERT_EQ(storage->last_log_index(), first_seg->last_index() + 1);
         storage->truncate_suffix(first_seg->last_index());
-        braft::SegmentLogStorage::SegmentMap& segments3 = storage->segments();
+        braft::SegmentLogStorage::SegmentMap segments3 = storage->segments();
         ASSERT_EQ(1ul, segments3.size());
         ASSERT_EQ(storage->last_log_index(), first_seg->last_index());
     }

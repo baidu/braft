@@ -69,6 +69,12 @@ enum CheckSumType {
     CHECKSUM_CRC32 = 1,   
 };
 
+enum RaftSyncPolicy {
+    RAFT_SYNC_IMMEDIATELY = 0,
+    RAFT_SYNC_BY_BYTES = 1,
+};
+
+
 // Format of Header, all fields are in network order
 // | -------------------- term (64bits) -------------------------  |
 // | entry-type (8bits) | checksum_type (8bits) | reserved(16bits) |
@@ -425,21 +431,28 @@ int Segment::append(const LogEntry* entry) {
     _offset_and_term.push_back(std::make_pair(_bytes, entry->id.term));
     _last_index.fetch_add(1, butil::memory_order_relaxed);
     _bytes += to_write;
+    _unsynced_bytes += to_write;
 
     return 0;
 }
 
 int Segment::sync(bool will_sync) {
-    if (_last_index > _first_index) {
-        //CHECK(_is_open);
-        if (FLAGS_raft_sync && will_sync) {
-            return raft_fsync(_fd);
-        } else {
-            return 0;
-        }
-    } else {
+    if (_last_index < _first_index) {
         return 0;
     }
+    //CHECK(_is_open);
+    if (will_sync) {
+        if (!FLAGS_raft_sync) {
+            return 0;
+        }
+        if (FLAGS_raft_sync_policy == RaftSyncPolicy::RAFT_SYNC_BY_BYTES
+            && FLAGS_raft_sync_per_bytes > _unsynced_bytes) {
+            return 0;
+        }
+        _unsynced_bytes = 0;
+        return raft_fsync(_fd);
+    }
+    return 0;
 }
 
 LogEntry* Segment::get(const int64_t index) const {
@@ -927,6 +940,7 @@ int SegmentLogStorage::truncate_suffix(const int64_t last_index_kept) {
         if (ret == 0 && closed && last_segment->is_open()) {
             BAIDU_SCOPED_LOCK(_mutex);
             CHECK(!_open_segment);
+            _segments.erase(last_segment->first_index());
             _open_segment.swap(last_segment);
         }
     }

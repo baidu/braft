@@ -112,6 +112,10 @@ public:
     // Return the correct value on success, 0 otherwise.
     static int64_t get_next_index(ReplicatorId id);
 
+    // Get the consecutive error times of this Replica
+    // Return the correct value on success, -1 otherwise.
+    static int get_consecutive_error_times(ReplicatorId id);
+
     static void describe(ReplicatorId id, std::ostream& os, bool use_html);
 
     // Get replicator internal status.
@@ -156,7 +160,7 @@ private:
     void _block(long start_time_us, int error_code);
     void _install_snapshot();
     void _start_heartbeat_timer(long start_time_us);
-    void _send_timeout_now(bool unlock_id, bool stop_after_finish,
+    void _send_timeout_now(bool unlock_id, bool old_leader_stepped_down,
                            int timeout_ms = -1);
     int _transfer_leadership(int64_t log_index);
     void _cancel_append_entries_rpcs();
@@ -182,7 +186,7 @@ private:
                 ReplicatorId id, brpc::Controller* cntl,
                 TimeoutNowRequest* request, 
                 TimeoutNowResponse* response,
-                bool stop_after_finish);
+                bool old_leader_stepped_down);
 
     static void _on_timedout(void* arg);
     static void* _send_heartbeat(void* arg);

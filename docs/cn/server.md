@@ -538,7 +538,7 @@ braft中在Node启动之后，会在http://${your_server_endpoint}/raft_stat中�
 
 # flags配置项
 
-raft中有很多flags配置项，运行中可以通过http://endpoint/flags查看，具体如下：
+raft中有很多flags配置项，运行中可以通过http://endpoint/flags 查看，具体如下：
 
 | flags名                         | 说明                         |
 | ------------------------------ | -------------------------- |
@@ -551,3 +551,5 @@ raft中有很多flags配置项，运行中可以通过http://endpoint/flags查�
 | raft_max_byte_count_per_rpc    | snapshot每次rpc下载大小          |
 | raft_apply_batch               | apply的时候最大batch数量          |
 | raft_election_heartbeat_factor | election超时与heartbeat超时的比例  |
+| raft_sync_policy               | raft_sync为true时的细化策略，0表示每次写都立即sync，1表示每写入多少bytes才进行一次sync |
+| raft_sync_per_bytes            | raft_sync_policy 为1 时生效,表示每写bytes进行sync |
