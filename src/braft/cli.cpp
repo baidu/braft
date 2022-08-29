@@ -35,9 +35,19 @@ static butil::Status get_leader(const GroupId& group_id, const Configuration& co
     for (Configuration::const_iterator
             iter = conf.begin(); iter != conf.end(); ++iter) {
         brpc::Channel channel;
-        if (channel.Init(iter->addr, NULL) != 0) {
-            return butil::Status(-1, "Fail to init channel to %s",
-                                     iter->to_string().c_str());
+        if (iter->type_ == PeerId::Type::EndPoint) {
+            if (channel.Init(iter->addr, NULL) != 0) {
+                return butil::Status(-1, "Fail to init channel to %s",
+                                            iter->to_string().c_str());
+            }
+        } else {
+            std::string naming_service_url;
+            naming_service_url.append(PROTOCOL_PREFIX);
+            naming_service_url.append(iter->hostname_);
+            if (channel.Init(naming_service_url.c_str(), LOAD_BALANCER_NAME, NULL) != 0) {
+                return butil::Status(-1, "Fail to init channel to %s",
+                                            iter->to_string().c_str());
+            }
         }
         CliService_Stub stub(&channel);
         GetLeaderRequest request;
@@ -73,9 +83,19 @@ butil::Status add_peer(const GroupId& group_id, const Configuration& conf,
     butil::Status st = get_leader(group_id, conf, &leader_id);
     BRAFT_RETURN_IF(!st.ok(), st);
     brpc::Channel channel;
-    if (channel.Init(leader_id.addr, NULL) != 0) {
-        return butil::Status(-1, "Fail to init channel to %s",
-                                leader_id.to_string().c_str());
+    if (leader_id.type_ == PeerId::Type::EndPoint) {
+        if (channel.Init(leader_id.addr, NULL) != 0) {
+            return butil::Status(-1, "Fail to init channel to %s",
+                                    leader_id.to_string().c_str());
+        }
+    } else {
+            std::string naming_service_url;
+            naming_service_url.append(PROTOCOL_PREFIX);
+            naming_service_url.append(leader_id.hostname_);
+            if (channel.Init(naming_service_url.c_str(), LOAD_BALANCER_NAME, NULL) != 0) {
+            return butil::Status(-1, "Fail to init channel to %s",
+                                    leader_id.to_string().c_str());
+        }        
     }
     AddPeerRequest request;
     request.set_group_id(group_id);
@@ -111,9 +131,19 @@ butil::Status remove_peer(const GroupId& group_id, const Configuration& conf,
     butil::Status st = get_leader(group_id, conf, &leader_id);
     BRAFT_RETURN_IF(!st.ok(), st);
     brpc::Channel channel;
-    if (channel.Init(leader_id.addr, NULL) != 0) {
-        return butil::Status(-1, "Fail to init channel to %s",
-                                leader_id.to_string().c_str());
+    if (leader_id.type_ == PeerId::Type::EndPoint) {
+        if (channel.Init(leader_id.addr, NULL) != 0) {
+            return butil::Status(-1, "Fail to init channel to %s",
+                                    leader_id.to_string().c_str());
+        }
+    } else {
+        std::string naming_service_url;
+        naming_service_url.append(PROTOCOL_PREFIX);
+        naming_service_url.append(leader_id.hostname_);
+        if (channel.Init(naming_service_url.c_str(), LOAD_BALANCER_NAME, NULL) != 0) {
+            return butil::Status(-1, "Fail to init channel to %s",
+                                    leader_id.to_string().c_str());
+        }
     }
     RemovePeerRequest request;
     request.set_group_id(group_id);
@@ -150,9 +180,19 @@ butil::Status reset_peer(const GroupId& group_id, const PeerId& peer_id,
         return butil::Status(EINVAL, "new_conf is empty");
     }
     brpc::Channel channel;
-    if (channel.Init(peer_id.addr, NULL) != 0) {
-        return butil::Status(-1, "Fail to init channel to %s",
-                                peer_id.to_string().c_str());
+    if (peer_id.type_ == PeerId::Type::EndPoint) {
+        if (channel.Init(peer_id.addr, NULL) != 0) {
+            return butil::Status(-1, "Fail to init channel to %s",
+                                    peer_id.to_string().c_str());
+        }
+    } else {
+        std::string naming_service_url;
+        naming_service_url.append(PROTOCOL_PREFIX);
+        naming_service_url.append(peer_id.hostname_);
+        if (channel.Init(naming_service_url.c_str(), LOAD_BALANCER_NAME, NULL) != 0) {
+            return butil::Status(-1, "Fail to init channel to %s",
+                                    peer_id.to_string().c_str());
+        }
     }
     brpc::Controller cntl;
     cntl.set_timeout_ms(options.timeout_ms);
@@ -176,9 +216,19 @@ butil::Status reset_peer(const GroupId& group_id, const PeerId& peer_id,
 butil::Status snapshot(const GroupId& group_id, const PeerId& peer_id,
                       const CliOptions& options) {
     brpc::Channel channel;
-    if (channel.Init(peer_id.addr, NULL) != 0) {
-        return butil::Status(-1, "Fail to init channel to %s",
-                                peer_id.to_string().c_str());
+    if (peer_id.type_ == PeerId::Type::EndPoint) {
+        if (channel.Init(peer_id.addr, NULL) != 0) {
+            return butil::Status(-1, "Fail to init channel to %s",
+                                    peer_id.to_string().c_str());
+        }
+    } else {
+        std::string naming_service_url;
+        naming_service_url.append(PROTOCOL_PREFIX);
+        naming_service_url.append(peer_id.hostname_);
+        if (channel.Init(naming_service_url.c_str(), LOAD_BALANCER_NAME, NULL) != 0) {
+            return butil::Status(-1, "Fail to init channel to %s",
+                                    peer_id.to_string().c_str());
+        }       
     }
     brpc::Controller cntl;
     cntl.set_timeout_ms(options.timeout_ms);
@@ -204,9 +254,19 @@ butil::Status change_peers(const GroupId& group_id, const Configuration& conf,
     LOG(INFO) << "conf=" << conf << " leader=" << leader_id
               << " new_peers=" << new_peers;
     brpc::Channel channel;
-    if (channel.Init(leader_id.addr, NULL) != 0) {
-        return butil::Status(-1, "Fail to init channel to %s",
-                                leader_id.to_string().c_str());
+    if (leader_id.type_ == PeerId::Type::EndPoint) {
+        if (channel.Init(leader_id.addr, NULL) != 0) {
+            return butil::Status(-1, "Fail to init channel to %s",
+                                    leader_id.to_string().c_str());
+        }
+    } else {
+        std::string naming_service_url;
+        naming_service_url.append(PROTOCOL_PREFIX);
+        naming_service_url.append(leader_id.hostname_);
+        if (channel.Init(naming_service_url.c_str(), LOAD_BALANCER_NAME, NULL) != 0) {
+            return butil::Status(-1, "Fail to init channel to %s",
+                                    leader_id.to_string().c_str());
+        }
     }
 
     ChangePeersRequest request;
@@ -250,9 +310,19 @@ butil::Status transfer_leader(const GroupId& group_id, const Configuration& conf
         return butil::Status::OK();
     }
     brpc::Channel channel;
-    if (channel.Init(leader_id.addr, NULL) != 0) {
-        return butil::Status(-1, "Fail to init channel to %s",
-                                leader_id.to_string().c_str());
+    if (leader_id.type_ == PeerId::Type::EndPoint) {
+        if (channel.Init(leader_id.addr, NULL) != 0) {
+            return butil::Status(-1, "Fail to init channel to %s",
+                                    leader_id.to_string().c_str());
+        }
+    } else {
+        std::string naming_service_url;
+        naming_service_url.append(PROTOCOL_PREFIX);
+        naming_service_url.append(leader_id.hostname_);
+        if (channel.Init(naming_service_url.c_str(), LOAD_BALANCER_NAME, NULL) != 0) {
+            return butil::Status(-1, "Fail to init channel to %s",
+                                    leader_id.to_string().c_str());
+        }
     }
     TransferLeaderRequest request;
     request.set_group_id(group_id);
