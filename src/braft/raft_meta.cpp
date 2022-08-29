@@ -531,6 +531,11 @@ int FileBasedSingleMetaStorage::save() {
 
     StablePBMeta meta;
     meta.set_term(_term);
+    // if _votedfor's hostname_ is empty, the raft meta file(format ":0") could not be parsed.
+    // make some tricky fix.
+    if (_votedfor.type_ == PeerId::Type::HostName && _votedfor.hostname_.empty()) {
+        _votedfor.hostname_.append("localhost:0");
+    }
     meta.set_votedfor(_votedfor.to_string());
 
     std::string path(_path);

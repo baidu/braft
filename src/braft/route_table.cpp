@@ -23,6 +23,10 @@
 #include <brpc/controller.h>
 #include <brpc/channel.h>
 #include "braft/cli.pb.h"
+#include "braft/util.h"
+
+#include <memory>
+#include <unordered_map>
 
 namespace braft {
 namespace rtb {
@@ -78,6 +82,23 @@ public:
         return 0;
     }
 
+    std::pair<bool, brpc::Channel *> InitAndGetChannelTo(std::string name) {
+        std::unique_lock<std::mutex> lk(_channel_mux);
+        auto it = _channels.find(name);
+        if (it != _channels.end()) {
+            return {true, it->second.get()};
+        }
+
+        std::unique_ptr<brpc::Channel> chan_ptr(new brpc::Channel);
+        if (chan_ptr->Init(name.c_str(), LOAD_BALANCER_NAME, nullptr) != 0) {
+            LOG(ERROR) << "Fail to init channel to " << name;
+            return {false, nullptr};
+        }
+        brpc::Channel* chan = chan_ptr.get();
+        _channels.emplace(name, std::move(chan_ptr));
+        return {true, chan};
+    }
+
 private:
 friend struct DefaultSingletonTraits<RouteTable>;
     RouteTable() {
@@ -130,6 +151,9 @@ friend struct DefaultSingletonTraits<RouteTable>;
     }
 
     DbMap _map;
+
+    std::unordered_map<std::string, std::unique_ptr<brpc::Channel>> _channels;
+    std::mutex _channel_mux;
 };
 
 int update_configuration(const GroupId& group, const Configuration& conf) {
@@ -174,24 +198,38 @@ butil::Status refresh_leader(const GroupId& group, int timeout_ms) {
     for (Configuration::const_iterator
             iter = conf.begin(); iter != conf.end(); ++iter) {
         brpc::Channel channel;
-        if (channel.Init(iter->addr, NULL) != 0) {
-            if (error.ok()) {
-                error.set_error(-1, "Fail to init channel to %s",
-                                    iter->to_string().c_str());
-            } else {
-                std::string saved_et = error.error_str();
-                error.set_error(-1, "%s, Fail to init channel to %s",
-                                         saved_et.c_str(),
-                                         iter->to_string().c_str());
+        brpc::Channel *chan_ptr = &channel;
+        if (iter->type_ == PeerId::Type::EndPoint) {
+            if (channel.Init(iter->addr, NULL) != 0) {
+                if (error.ok()) {
+                    error.set_error(-1, "Fail to init EndPoint channel to %s",
+                                        iter->to_string().c_str());
+                } else {
+                    std::string saved_et = error.error_str();
+                    error.set_error(-1, "%s, Fail to init EndPoint channel to %s",
+                                            saved_et.c_str(),
+                                            iter->to_string().c_str());
+                }
+                continue;
             }
-            continue;
+        } else {
+            std::string naming_service_url;
+            naming_service_url.append(PROTOCOL_PREFIX);
+            naming_service_url.append(iter->hostname_);
+            auto [success, chan] = rtb->InitAndGetChannelTo(naming_service_url);
+            if (!success) {
+                error.set_error(-1, "Fail to init HostName channel to %s",
+                              iter->hostname_.c_str());
+                continue;
+            }
+            chan_ptr = chan;
         }
         brpc::Controller cntl;
         cntl.set_timeout_ms(timeout_ms);
         GetLeaderRequest request;
         request.set_group_id(group);
         GetLeaderResponse respones;
-        CliService_Stub stub(&channel);
+        CliService_Stub stub(chan_ptr);
         stub.get_leader(&cntl, &request, &respones, NULL);
         if (!cntl.Failed()) {
             update_leader(group, respones.leader_id());

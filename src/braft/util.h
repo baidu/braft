@@ -172,6 +172,10 @@ std::ostream& operator<<(std::ostream& os, const CounterRecorder&);
 namespace braft {
 class Closure;
 
+// for Brpc Channel Init Naming Service API
+inline const char *PROTOCOL_PREFIX = "http://";
+inline const char *LOAD_BALANCER_NAME = "rr";
+
 // http://stackoverflow.com/questions/1493936/faster-approach-to-checking-for-an-all-zero-buffer-in-c
 inline bool is_zero(const char* buff, const size_t size) {
     if (size >= sizeof(uint64_t)) {
