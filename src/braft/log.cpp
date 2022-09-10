@@ -540,7 +540,7 @@ int Segment::close(bool will_sync) {
               << " path: " << new_path;
     int ret = 0;
     if (_last_index > _first_index) {
-        if (FLAGS_raft_sync_segments && will_sync) {
+        if ((FLAGS_raft_sync || FLAGS_raft_sync_segments) && will_sync) {
             ret = raft_fsync(_fd);
         }
     }
