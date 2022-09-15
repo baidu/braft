@@ -22,6 +22,18 @@ It's widely used inside Baidu to build highly-available systems, such as:
 
 * Play braft with [examples](./example).
 
+* Installing from vcpkg
+  
+  You can download and install `braft` using the [vcpkg](https://github.com/Microsoft/vcpkg) dependency manager:
+  ```sh
+  git clone https://github.com/Microsoft/vcpkg.git
+  cd vcpkg
+  ./bootstrap-vcpkg.sh
+  ./vcpkg integrate install
+  ./vcpkg install braft
+  ```
+  The `braft` port in vcpkg is kept up to date by Microsoft team members and community contributors. If the version is out of date, please [create an issue or pull   request](https://github.com/Microsoft/vcpkg) on the vcpkg repository.
+
 # Docs
 
 * Read [overview](./docs/cn/overview.md) to know what you can do with braft.
