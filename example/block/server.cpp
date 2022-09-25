@@ -23,6 +23,13 @@
 #include <braft/util.h>                 // braft::AsyncClosureGuard
 #include "block.pb.h"                   // BlockService
 
+
+#ifdef __APPLE__
+#define fdatasync fsync
+#define fread_unlocked fread
+#endif
+
+
 DEFINE_bool(check_term, true, "Check if the leader changed to another term");
 DEFINE_bool(disable_cli, false, "Don't allow raft_cli access this node");
 DEFINE_bool(log_applied_task, false, "Print notice log when a task is applied");

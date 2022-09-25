@@ -50,6 +50,7 @@ export TCMALLOC_SAMPLE_PARAMETER=524288
 
 ${VALGRIND} ./block_client \
         --write_percentage=${FLAGS_write_percentage} \
+        --defer_close_second=1 \
         --bthread_concurrency=${FLAGS_bthread_concurrency} \
         --conf="${raft_peers}" \
         --crash_on_fatal_log=${FLAGS_crash_on_fatal} \
