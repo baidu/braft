@@ -298,7 +298,11 @@ void FSMCaller::do_committed(int64_t committed_index) {
             continue;
         }
         Iterator iter(&iter_impl);
-        _fsm->on_apply(iter);
+        if (!_node->arbiter()) {
+            _fsm->on_apply(iter);
+        } else {
+            for (;iter.valid();iter.next()) {}
+        }
         LOG_IF(ERROR, iter.valid())
                 << "Node " << _node->node_id() 
                 << " Iterator is still valid, did you return before iterator "
@@ -353,7 +357,11 @@ void FSMCaller::do_snapshot_save(SaveSnapshotClosure* done) {
         return;
     }
 
-    _fsm->on_snapshot_save(writer, done);
+    if (!_node->arbiter()) {
+        _fsm->on_snapshot_save(writer, done);
+    } else {
+       done->Run();
+    }
     return;
 }
 
@@ -402,7 +410,10 @@ void FSMCaller::do_snapshot_load(LoadSnapshotClosure* done) {
         return done->Run();
     }
 
-    ret = _fsm->on_snapshot_load(reader);
+    if (!_node->arbiter()) {
+        ret = _fsm->on_snapshot_load(reader);
+    }
+
     if (ret != 0) {
         done->status().set_error(ret, "StateMachine on_snapshot_load failed");
         done->Run();
@@ -454,12 +465,16 @@ int FSMCaller::on_leader_start(int64_t term, int64_t lease_epoch) {
 }
 
 void FSMCaller::do_leader_stop(const butil::Status& status) {
-    _fsm->on_leader_stop(status);
+    if (!_node->arbiter()) {
+        _fsm->on_leader_stop(status);
+    }
 }
 
 void FSMCaller::do_leader_start(const LeaderStartContext& leader_start_context) {
     _node->leader_lease_start(leader_start_context.lease_epoch);
-    _fsm->on_leader_start(leader_start_context.term);
+    if (!_node->arbiter()) {
+        _fsm->on_leader_start(leader_start_context.term);
+    }
 }
 
 int FSMCaller::on_start_following(const LeaderChangeContext& start_following_context) {

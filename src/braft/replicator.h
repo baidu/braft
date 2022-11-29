@@ -358,6 +358,9 @@ public:
     // Check if a replicator is in readonly
     bool readonly(const PeerId& peer) const;
 
+    // all log index before `complete_index()` have been persisted by all peers
+    int64_t complete_index() const;
+
 private:
 
     int _add_replicator(const PeerId& peer, ReplicatorId *rid);

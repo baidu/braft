@@ -560,6 +560,7 @@ void Replicator::_send_empty_entries(bool is_heartbeat) {
         _heartbeat_counter++;
         // set RPC timeout for heartbeat, how long should timeout be is waiting to be optimized.
         cntl->set_timeout_ms(*_options.election_timeout_ms / 2);
+        request->set_complete_index(_options.node->complete_index());
     } else {
         _st.st = APPENDING_ENTRIES;
         _st.first_log_index = _next_index;
@@ -758,6 +759,10 @@ void Replicator::_wait_more_entries() {
 }
 
 void Replicator::_install_snapshot() {
+    CHECK(!_options.node->arbiter()) << "node " << _options.group_id << ":" << _options.server_id
+                     << " refuse to send InstallSnapshotRequest to " << _options.peer_id
+                     << " because I am arbiter";
+
     if (_reader) {
         // follower's readonly mode change may cause two install_snapshot
         // one possible case is: 
@@ -1567,6 +1572,15 @@ bool ReplicatorGroup::readonly(const PeerId& peer) const {
     }
     ReplicatorId rid = iter->second.id;
     return Replicator::readonly(rid);
+}
+
+int64_t ReplicatorGroup::complete_index() const {
+    int64_t rst = std::numeric_limits<int64_t>::max();
+    for (std::map<PeerId, ReplicatorIdAndStatus>::const_iterator
+            iter = _rmap.begin();  iter != _rmap.end(); ++iter) {
+        rst = std::min(rst, Replicator::get_next_index(iter->second.id));
+    }
+    return rst;
 }
 
 } //  namespace braft

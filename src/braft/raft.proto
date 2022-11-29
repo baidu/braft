@@ -48,6 +48,7 @@ message AppendEntriesRequest {
     required int64 prev_log_index = 6;
     repeated EntryMeta entries = 7;
     required int64 committed_index = 8;
+    optional int64 complete_index = 9;
 };
 
 message AppendEntriesResponse {
