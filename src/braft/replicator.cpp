@@ -111,7 +111,7 @@ int Replicator::start(const ReplicatorOptions& options, ReplicatorId *id) {
     }
     Replicator* r = new Replicator();
     brpc::ChannelOptions channel_opt;
-    //channel_opt.connect_timeout_ms = *options.heartbeat_timeout_ms;
+    channel_opt.connect_timeout_ms = -1;
     channel_opt.timeout_ms = -1; // We don't need RPC timeout
     if (r->_sending_channel.Init(options.peer_id.addr, &channel_opt) != 0) {
         LOG(ERROR) << "Fail to init sending channel"
