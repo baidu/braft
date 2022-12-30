@@ -1615,7 +1615,7 @@ void NodeImpl::pre_vote(std::unique_lock<raft_mutex_t>* lck, bool triggered) {
         brpc::ChannelOptions options;
         options.connection_type = brpc::CONNECTION_TYPE_SINGLE;
         options.max_retry = 0;
-        options.connect_timeout_ms = braft::FLAGS_raft_rpc_channel_connect_timeout_ms;
+        options.connect_timeout_ms = FLAGS_raft_rpc_channel_connect_timeout_ms;
         brpc::Channel channel;
         if (0 != channel.Init(iter->addr, &options)) {
             LOG(WARNING) << "node " << _group_id << ":" << _server_id
@@ -1720,7 +1720,7 @@ void NodeImpl::request_peers_to_vote(const std::set<PeerId>& peers,
         }
         brpc::ChannelOptions options;
         options.connection_type = brpc::CONNECTION_TYPE_SINGLE;
-        options.connect_timeout_ms = braft::FLAGS_raft_rpc_channel_connect_timeout_ms;
+        options.connect_timeout_ms = FLAGS_raft_rpc_channel_connect_timeout_ms;
         options.max_retry = 0;
         brpc::Channel channel;
         if (0 != channel.Init(iter->addr, &options)) {

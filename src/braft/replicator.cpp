@@ -50,6 +50,8 @@ BRPC_VALIDATE_GFLAG(raft_retry_replicate_interval_ms,
 DECLARE_int64(raft_append_entry_high_lat_us);
 DECLARE_bool(raft_trace_append_entry_latency);
 
+DECLARE_int32(raft_rpc_channel_connect_timeout_ms);
+
 static bvar::LatencyRecorder g_send_entries_latency("raft_send_entries");
 static bvar::LatencyRecorder g_normalized_send_entries_latency(
              "raft_send_entries_normalized");
@@ -111,7 +113,7 @@ int Replicator::start(const ReplicatorOptions& options, ReplicatorId *id) {
     }
     Replicator* r = new Replicator();
     brpc::ChannelOptions channel_opt;
-    channel_opt.connect_timeout_ms = -1;
+    channel_opt.connect_timeout_ms = FLAGS_raft_rpc_channel_connect_timeout_ms;
     channel_opt.timeout_ms = -1; // We don't need RPC timeout
     if (r->_sending_channel.Init(options.peer_id.addr, &channel_opt) != 0) {
         LOG(ERROR) << "Fail to init sending channel"
