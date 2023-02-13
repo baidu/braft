@@ -588,6 +588,11 @@ struct NodeOptions {
     // Default: false
     bool disable_cli;
 
+    // If true, this node will neither participate in elections nor be inclued in quorum
+    // learner will not trigger election_timeout or vote
+    // Default: false
+    bool learner;
+
     // Construct a default instance
     NodeOptions();
 
@@ -609,6 +614,7 @@ inline NodeOptions::NodeOptions()
     , snapshot_file_system_adaptor(NULL)
     , snapshot_throttle(NULL)
     , disable_cli(false)
+    , learner(false)
 {}
 
 inline int NodeOptions::get_catchup_timeout_ms() {

@@ -499,9 +499,11 @@ int NodeImpl::init(const NodeOptions& options) {
         return -1;
     }
 
-    CHECK_EQ(0, _vote_timer.init(this, options.election_timeout_ms + options.max_clock_drift_ms));
-    CHECK_EQ(0, _election_timer.init(this, options.election_timeout_ms));
-    CHECK_EQ(0, _stepdown_timer.init(this, options.election_timeout_ms));
+    if (!options.learner) {
+        CHECK_EQ(0, _vote_timer.init(this, options.election_timeout_ms + options.max_clock_drift_ms));
+        CHECK_EQ(0, _election_timer.init(this, options.election_timeout_ms));
+        CHECK_EQ(0, _stepdown_timer.init(this, options.election_timeout_ms));
+    }
     CHECK_EQ(0, _snapshot_timer.init(this, options.snapshot_interval_s * 1000));
 
     _config_manager = new ConfigurationManager();
@@ -633,7 +635,7 @@ int NodeImpl::init(const NodeOptions& options) {
     // conditions
     std::unique_lock<raft_mutex_t> lck(_mutex);
     if (_conf.stable() && _conf.conf.size() == 1u
-            && _conf.conf.contains(_server_id)) {
+            && _conf.conf.contains(_server_id) && !options.learner) {
         // The group contains only this server which must be the LEADER, trigger
         // the timer immediately.
         elect_self(&lck);
@@ -1189,17 +1191,31 @@ int NodeImpl::transfer_leadership_to(const PeerId& peer) {
         if (_replicator_group.find_the_next_candidate(&peer_id, _conf) != 0) {
             return -1;    
         }
+    } else {
+        bool found = false;
+        for (Configuration::const_iterator iter = _conf.begin(); iter != _conf.end(); ++iter) {
+            if (*iter == peer_id) {
+                if (iter->learner) {
+                    LOG(WARNING) << "node " << _group_id << ":" << _server_id
+                                 << " refused to transfer leadership to peer " << peer_id
+                                 << " which is a learner";
+                    return EINVAL;
+                }
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            LOG(WARNING) << "node " << _group_id << ":" << _server_id
+                     << " refused to transfer leadership to peer " << peer_id
+                     << " which doesn't belong to " << _conf.conf;
+            return EINVAL;
+        }
     }
     if (peer_id == _server_id) {
         LOG(INFO) << "node " << _group_id << ":" << _server_id  
                   << " transfering leadership to self";
         return 0;
-    }
-    if (!_conf.contains(peer_id)) {
-        LOG(WARNING) << "node " << _group_id << ":" << _server_id
-                     << " refused to transfer leadership to peer " << peer_id
-                     << " which doesn't belong to " << _conf.conf;
-        return EINVAL;
     }
     const int64_t last_log_index = _log_manager->last_log_index();
     const int rc = _replicator_group.transfer_leadership_to(peer_id, last_log_index);
@@ -1609,7 +1625,7 @@ void NodeImpl::pre_vote(std::unique_lock<raft_mutex_t>* lck, bool triggered) {
 
     for (std::set<PeerId>::const_iterator
             iter = peers.begin(); iter != peers.end(); ++iter) {
-        if (*iter == _server_id) {
+        if (*iter == _server_id || iter->learner) {
             continue;
         }
         brpc::ChannelOptions options;
@@ -1715,7 +1731,7 @@ void NodeImpl::request_peers_to_vote(const std::set<PeerId>& peers,
                                      const DisruptedLeader& disrupted_leader) {
     for (std::set<PeerId>::const_iterator
         iter = peers.begin(); iter != peers.end(); ++iter) {
-        if (*iter == _server_id) {
+        if (*iter == _server_id || iter->learner) {
             continue;
         }
         brpc::ChannelOptions options;

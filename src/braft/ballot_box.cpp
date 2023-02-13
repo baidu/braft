@@ -48,6 +48,9 @@ int BallotBox::init(const BallotBoxOptions &options) {
 
 int BallotBox::commit_at(
         int64_t first_log_index, int64_t last_log_index, const PeerId& peer) {
+    if (peer.learner) {
+        return 0;
+    }
     // FIXME(chenzhangyi01): The cricital section is unacceptable because it 
     // blocks all the other Replicators and LogManagers
     std::unique_lock<raft_mutex_t> lck(_mutex);
