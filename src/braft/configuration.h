@@ -75,6 +75,8 @@ struct PeerId {
         snprintf(str, sizeof(str), "%s:%d", butil::endpoint2str(addr).c_str(), idx);
         return std::string(str);
     }
+    
+    PeerId& operator=(const PeerId& rhs) = default;
 };
 
 inline bool operator<(const PeerId& id1, const PeerId& id2) {
