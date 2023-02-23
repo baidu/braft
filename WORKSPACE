@@ -53,9 +53,9 @@ http_archive(
 
 http_archive(
     name = "com_github_brpc_brpc",
-    sha256 = "c0168d22205724bfa1939c9ad79bd9f74a98e0bd05be9e8f5cc504ef44c676a1",
-    strip_prefix = "incubator-brpc-1.0.0-rc02",
-    url = "https://github.com/apache/incubator-brpc/archive/refs/tags/1.0.0-rc02.tar.gz"
+    sha256 = "58a06997ae07c1654979fb8356884481ab9803b60de04c1b341d986e2b62220d",
+    strip_prefix = "brpc-1.1.0",
+    url = "https://github.com/apache/incubator-brpc/archive/refs/tags/1.1.0.tar.gz"
 )
 
 bind(
