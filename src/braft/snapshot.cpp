@@ -575,7 +575,7 @@ SnapshotWriter* LocalSnapshotStorage::create(bool from_empty) {
 }
 
 SnapshotCopier* LocalSnapshotStorage::start_to_copy_from(const std::string& uri) {
-    LocalSnapshotCopier* copier = new LocalSnapshotCopier();
+    LocalSnapshotCopier* copier = new LocalSnapshotCopier(_copy_file);
     copier->_storage = this;
     copier->_filter_before_copy_remote = _filter_before_copy_remote;
     copier->_fs = _fs.get();
@@ -738,7 +738,10 @@ butil::Status LocalSnapshotStorage::gc_instance(const std::string& uri) const {
 // LocalSnapshotCopier
 
 LocalSnapshotCopier::LocalSnapshotCopier() 
-    : _tid(INVALID_BTHREAD)
+    : LocalSnapshotCopier(true){}
+
+LocalSnapshotCopier::LocalSnapshotCopier(bool copy_file): 
+     _tid(INVALID_BTHREAD)
     , _cancelled(false)
     , _filter_before_copy_remote(false)
     , _fs(NULL)
@@ -746,8 +749,8 @@ LocalSnapshotCopier::LocalSnapshotCopier()
     , _writer(NULL)
     , _storage(NULL)
     , _reader(NULL)
-    , _cur_session(NULL)
-{}
+    , _copy_file(copy_file)
+    , _cur_session(NULL){}
 
 LocalSnapshotCopier::~LocalSnapshotCopier() {
     CHECK(!_writer);
@@ -768,6 +771,9 @@ void LocalSnapshotCopier::copy() {
         filter();
         if (!ok()) {
             break;
+        }
+        if (!_copy_file) {
+            break;            
         }
         std::vector<std::string> files;
         _remote_snapshot.list_files(&files);

@@ -7,6 +7,7 @@ message AddPeerRequest {
     required string group_id = 1;
     required string leader_id = 2;
     required string peer_id = 3;
+    optional bool is_witness = 4;
 }
 
 message AddPeerResponse {

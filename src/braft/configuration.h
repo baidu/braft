@@ -38,6 +38,7 @@ typedef std::string VersionedGroupId;
 struct PeerId {
     butil::EndPoint addr; // ip+port.
     int idx; // idx in same addr, default 0
+    bool witness;
 
     PeerId() : idx(0) {}
     explicit PeerId(butil::EndPoint addr_) : addr(addr_), idx(0) {}

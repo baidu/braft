@@ -67,6 +67,9 @@ BRPC_VALIDATE_GFLAG(raft_rpc_channel_connect_timeout_ms, brpc::PositiveInteger);
 
 DECLARE_bool(raft_enable_leader_lease);
 
+DEFINE_bool(raft_enable_witness_to_leader, false, 
+"enabel witness temporarily to become leader when leader down accidently");
+
 #ifndef UNIT_TEST
 static bvar::Adder<int64_t> g_num_nodes("raft_node_count");
 #else
@@ -253,6 +256,10 @@ int NodeImpl::init_snapshot_storage() {
     opt.init_term = _current_term;
     opt.filter_before_copy_remote = _options.filter_before_copy_remote;
     opt.usercode_in_pthread = _options.usercode_in_pthread;
+    // not need to copy data file when it is witness.
+    if (_options.is_witness) {
+        opt.copy_file = false;
+    }
     if (_options.snapshot_file_system_adaptor) {
         opt.file_system_adaptor = *_options.snapshot_file_system_adaptor;
     }
@@ -498,9 +505,17 @@ int NodeImpl::init(const NodeOptions& options) {
                    << ", did you forget to call braft::add_service()?";
         return -1;
     }
-
-    CHECK_EQ(0, _vote_timer.init(this, options.election_timeout_ms + options.max_clock_drift_ms));
-    CHECK_EQ(0, _election_timer.init(this, options.election_timeout_ms));
+    if (options.is_witness) {
+        // if node is witness, set timer twice as data replication node, 
+        // which guarantees data replica will be elected as leader priority。
+        if (FLAGS_raft_enable_witness_to_leader) {
+            CHECK_EQ(0, _election_timer.init(this, options.election_timeout_ms * 2));
+            CHECK_EQ(0, _vote_timer.init(this, options.election_timeout_ms * 2 + options.max_clock_drift_ms));
+        }
+    }else {
+        CHECK_EQ(0, _election_timer.init(this, options.election_timeout_ms));
+        CHECK_EQ(0, _vote_timer.init(this, options.election_timeout_ms + options.max_clock_drift_ms));
+    }
     CHECK_EQ(0, _stepdown_timer.init(this, options.election_timeout_ms));
     CHECK_EQ(0, _snapshot_timer.init(this, options.snapshot_interval_s * 1000));
 
@@ -524,7 +539,11 @@ int NodeImpl::init(const NodeOptions& options) {
     _fsm_caller = new FSMCaller();
 
     _leader_lease.init(options.election_timeout_ms);
-    _follower_lease.init(options.election_timeout_ms, options.max_clock_drift_ms);
+    if (options.is_witness) {
+        _follower_lease.init(options.election_timeout_ms * 2, options.max_clock_drift_ms);
+    } else {
+        _follower_lease.init(options.election_timeout_ms, options.max_clock_drift_ms);
+    }
 
     // log storage and log manager init
     if (init_log_storage() != 0) {
@@ -1302,9 +1321,14 @@ void NodeImpl::unsafe_reset_election_timeout_ms(int election_timeout_ms,
     _replicator_group.reset_heartbeat_interval(
             heartbeat_timeout(_options.election_timeout_ms));
     _replicator_group.reset_election_timeout_interval(_options.election_timeout_ms);
-    _election_timer.reset(election_timeout_ms);
-    _leader_lease.reset_election_timeout_ms(election_timeout_ms);
-    _follower_lease.reset_election_timeout_ms(election_timeout_ms, _options.max_clock_drift_ms);
+    if (_options.is_witness && FLAGS_raft_enable_witness_to_leader) {
+        _election_timer.reset(election_timeout_ms * 2);
+        _follower_lease.reset_election_timeout_ms(election_timeout_ms * 2, _options.max_clock_drift_ms);
+    } else {
+        _election_timer.reset(election_timeout_ms);
+        _leader_lease.reset_election_timeout_ms(election_timeout_ms);
+        _follower_lease.reset_election_timeout_ms(election_timeout_ms, _options.max_clock_drift_ms);
+    }
 }
 
 void NodeImpl::on_error(const Error& e) {

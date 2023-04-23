@@ -47,6 +47,7 @@ DEFINE_int32(raft_retry_replicate_interval_ms, 1000,
 BRPC_VALIDATE_GFLAG(raft_retry_replicate_interval_ms,
                     brpc::PositiveInteger);
 
+DECLARE_bool(raft_enable_witness_to_leader);
 DECLARE_int64(raft_append_entry_high_lat_us);
 DECLARE_bool(raft_trace_append_entry_latency);
 
@@ -621,8 +622,10 @@ int Replicator::_prepare_entry(int offset, EntryMeta* em, butil::IOBuf *data) {
     } else {
         CHECK(entry->type != ENTRY_TYPE_CONFIGURATION) << "log_index=" << log_index;
     }
-    em->set_data_len(entry->data.length());
-    data->append(entry->data);
+    if (!is_witness() || FLAGS_raft_enable_witness_to_leader) {
+        em->set_data_len(entry->data.length());
+        data->append(entry->data);
+    }
     entry->Release();
     return 0;
 }
