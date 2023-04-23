@@ -1,3 +1,4 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library")
 licenses(["notice"])
 
 exports_files(["LICENSE"])
