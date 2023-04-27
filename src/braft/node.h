@@ -240,7 +240,7 @@ public:
     int bootstrap(const BootstrapOptions& options);
 
     bool disable_cli() const { return _options.disable_cli; }
-
+    bool is_witness() const { return _options.witness; }
 private:
 friend class butil::RefCountedThreadSafe<NodeImpl>;
 
@@ -305,7 +305,7 @@ friend class butil::RefCountedThreadSafe<NodeImpl>;
                 void* meta, bthread::TaskIterator<LogEntryAndClosure>& iter);
     void apply(LogEntryAndClosure tasks[], size_t size);
     void check_dead_nodes(const Configuration& conf, int64_t now_ms);
-
+    void check_witness(const Configuration& conf);
     bool handle_out_of_order_append_entries(brpc::Controller* cntl,
                                             const AppendEntriesRequest* request,
                                             AppendEntriesResponse* response,

@@ -34,10 +34,15 @@ typedef std::string GroupId;
 // GroupId with version, format: {group_id}_{index}
 typedef std::string VersionedGroupId;
 
+enum Role {
+    WITNESS = 1,
+};
+
 // Represent a participant in a replicating group.
 struct PeerId {
     butil::EndPoint addr; // ip+port.
     int idx; // idx in same addr, default 0
+    Role role;
 
     PeerId() : idx(0) {}
     explicit PeerId(butil::EndPoint addr_) : addr(addr_), idx(0) {}
@@ -55,12 +60,19 @@ struct PeerId {
     bool is_empty() const {
         return (addr.ip == butil::IP_ANY && addr.port == 0 && idx == 0);
     }
-
+    bool is_witness() const {
+        return role == WITNESS;
+    }
     int parse(const std::string& str) {
         reset();
         char ip_str[64];
-        if (2 > sscanf(str.c_str(), "%[^:]%*[:]%d%*[:]%d", ip_str, &addr.port, &idx)) {
+        int value = 0;
+        if (2 > sscanf(str.c_str(), "%[^:]%*[:]%d%*[:]%d%*[:]%d", ip_str, &addr.port, &idx, &value)) {
             reset();
+            return -1;
+        }
+        role = (Role)value;
+        if (role > WITNESS) {
             return -1;
         }
         if (0 != butil::str2ip(ip_str, &addr.ip)) {
@@ -72,9 +84,11 @@ struct PeerId {
 
     std::string to_string() const {
         char str[128];
-        snprintf(str, sizeof(str), "%s:%d", butil::endpoint2str(addr).c_str(), idx);
+        snprintf(str, sizeof(str), "%s:%d:%d", butil::endpoint2str(addr).c_str(), idx, int(role));
         return std::string(str);
     }
+    
+    PeerId& operator=(const PeerId& rhs) = default;
 };
 
 inline bool operator<(const PeerId& id1, const PeerId& id2) {

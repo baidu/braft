@@ -44,6 +44,7 @@ struct SnapshotExecutorOptions {
     butil::EndPoint addr;
     bool filter_before_copy_remote;
     bool usercode_in_pthread;
+    bool copy_file = true;
     scoped_refptr<FileSystemAdaptor> file_system_adaptor;
     scoped_refptr<SnapshotThrottle> snapshot_throttle;
 };

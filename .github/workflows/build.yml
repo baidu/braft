@@ -17,7 +17,7 @@ jobs:
       fail-fast: false
       matrix:
         compiler: [clang, gcc]
-        os: [ubuntu-latest]
+        os: [ubuntu-20.04]
         build_tool: [cmake, bazel]
         with_test: [true, false]
         exclude:
@@ -46,6 +46,7 @@ jobs:
     - name: Install dependencies on Linux
       if: ${{ runner.os == 'Linux' }}
       run: |
+        sudo apt-get update
         sudo apt-get install -qq libgflags-dev \
             libprotobuf-dev libprotoc-dev protobuf-compiler \
             libleveldb-dev libgoogle-perftools-dev

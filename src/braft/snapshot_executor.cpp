@@ -373,6 +373,9 @@ int SnapshotExecutor::init(const SnapshotExecutorOptions& options) {
     if (tmp != NULL && !tmp->has_server_addr()) {
         tmp->set_server_addr(options.addr);
     }
+    if (!options.copy_file) {
+        tmp->set_copy_file(false);
+    }
     SnapshotReader* reader = _snapshot_storage->open();
     if (reader == NULL) {
         return 0;

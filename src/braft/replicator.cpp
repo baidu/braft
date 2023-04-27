@@ -47,8 +47,11 @@ DEFINE_int32(raft_retry_replicate_interval_ms, 1000,
 BRPC_VALIDATE_GFLAG(raft_retry_replicate_interval_ms,
                     brpc::PositiveInteger);
 
+DECLARE_bool(raft_enable_witness_to_leader);
 DECLARE_int64(raft_append_entry_high_lat_us);
 DECLARE_bool(raft_trace_append_entry_latency);
+
+DECLARE_int32(raft_rpc_channel_connect_timeout_ms);
 
 static bvar::LatencyRecorder g_send_entries_latency("raft_send_entries");
 static bvar::LatencyRecorder g_normalized_send_entries_latency(
@@ -111,7 +114,7 @@ int Replicator::start(const ReplicatorOptions& options, ReplicatorId *id) {
     }
     Replicator* r = new Replicator();
     brpc::ChannelOptions channel_opt;
-    //channel_opt.connect_timeout_ms = *options.heartbeat_timeout_ms;
+    channel_opt.connect_timeout_ms = FLAGS_raft_rpc_channel_connect_timeout_ms;
     channel_opt.timeout_ms = -1; // We don't need RPC timeout
     if (r->_sending_channel.Init(options.peer_id.addr, &channel_opt) != 0) {
         LOG(ERROR) << "Fail to init sending channel"
@@ -619,8 +622,10 @@ int Replicator::_prepare_entry(int offset, EntryMeta* em, butil::IOBuf *data) {
     } else {
         CHECK(entry->type != ENTRY_TYPE_CONFIGURATION) << "log_index=" << log_index;
     }
-    em->set_data_len(entry->data.length());
-    data->append(entry->data);
+    if (!is_witness() || FLAGS_raft_enable_witness_to_leader) {
+        em->set_data_len(entry->data.length());
+        data->append(entry->data);
+    }
     entry->Release();
     return 0;
 }
@@ -1523,6 +1528,13 @@ int ReplicatorGroup::find_the_next_candidate(
                 *peer_id = iter->first;
             }
         }
+        // transfer leadership to the non witness peer priority.
+        if (consecutive_error_times == 0  && next_index == max_index) {
+            if (peer_id && peer_id->is_witness()) {
+                *peer_id = iter->first;
+            }
+        }
+        
     }
     if (max_index == 0) {
         return -1;

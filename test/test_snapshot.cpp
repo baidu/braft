@@ -19,6 +19,9 @@
 
 namespace logging {
 DECLARE_int32(minloglevel);
+#if BRPC_WITH_GLOG
+DEFINE_int32(minloglevel, 1, "");
+#endif
 };
 
 class SnapshotTest : public testing::Test {
