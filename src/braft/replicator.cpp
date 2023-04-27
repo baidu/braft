@@ -1297,6 +1297,7 @@ void Replicator::_describe(std::ostream& os, bool use_html) {
 void Replicator::_get_status(PeerStatus* status) {
     status->valid = true;
     status->installing_snapshot = (_st.st == INSTALLING_SNAPSHOT);
+    status->blocking = (_st.st == BLOCKING);
     status->next_index = _next_index;
     status->flying_append_entries_size = _flying_append_entries_size;
     status->last_rpc_send_timestamp = _last_rpc_send_timestamp();
