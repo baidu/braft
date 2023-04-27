@@ -1528,6 +1528,13 @@ int ReplicatorGroup::find_the_next_candidate(
                 *peer_id = iter->first;
             }
         }
+        // transfer leadership to the non witness peer priority.
+        if (consecutive_error_times == 0  && next_index == max_index) {
+            if (peer_id && peer_id->is_witness()) {
+                *peer_id = iter->first;
+            }
+        }
+        
     }
     if (max_index == 0) {
         return -1;

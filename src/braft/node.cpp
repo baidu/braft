@@ -257,7 +257,7 @@ int NodeImpl::init_snapshot_storage() {
     opt.filter_before_copy_remote = _options.filter_before_copy_remote;
     opt.usercode_in_pthread = _options.usercode_in_pthread;
     // not need to copy data file when it is witness.
-    if (_options.is_witness) {
+    if (_options.witness) {
         opt.copy_file = false;
     }
     if (_options.snapshot_file_system_adaptor) {
@@ -505,7 +505,7 @@ int NodeImpl::init(const NodeOptions& options) {
                    << ", did you forget to call braft::add_service()?";
         return -1;
     }
-    if (options.is_witness) {
+    if (options.witness) {
         // if node is witness, set timer twice as data replication node, 
         // which guarantees data replica will be elected as leader priority。
         if (FLAGS_raft_enable_witness_to_leader) {
@@ -539,7 +539,7 @@ int NodeImpl::init(const NodeOptions& options) {
     _fsm_caller = new FSMCaller();
 
     _leader_lease.init(options.election_timeout_ms);
-    if (options.is_witness) {
+    if (options.witness) {
         _follower_lease.init(options.election_timeout_ms * 2, options.max_clock_drift_ms);
     } else {
         _follower_lease.init(options.election_timeout_ms, options.max_clock_drift_ms);
@@ -831,11 +831,23 @@ void NodeImpl::handle_stepdown_timeout() {
             << " state is " << state2str(_state);
         return;
     }
-
+    check_witness(_conf.conf);
     int64_t now = butil::monotonic_time_ms();
     check_dead_nodes(_conf.conf, now);
     if (!_conf.old_conf.empty()) {
         check_dead_nodes(_conf.old_conf, now);
+    }
+}
+
+void NodeImpl::check_witness(const Configuration& conf) {
+    if (is_witness()) {
+        LOG(WARNING) << "node " << node_id()
+                << " term " << _current_term
+                << " steps down as it's a witness but become leader temporarily"
+                << " conf: " << conf;
+        butil::Status status;
+        status.set_error(ETRANSFERLEADERSHIP, "Witness becomes leader temporarily");
+        step_down(_current_term, true, status);
     }
 }
 
@@ -1321,7 +1333,7 @@ void NodeImpl::unsafe_reset_election_timeout_ms(int election_timeout_ms,
     _replicator_group.reset_heartbeat_interval(
             heartbeat_timeout(_options.election_timeout_ms));
     _replicator_group.reset_election_timeout_interval(_options.election_timeout_ms);
-    if (_options.is_witness && FLAGS_raft_enable_witness_to_leader) {
+    if (_options.witness && FLAGS_raft_enable_witness_to_leader) {
         _election_timer.reset(election_timeout_ms * 2);
         _follower_lease.reset_election_timeout_ms(election_timeout_ms * 2, _options.max_clock_drift_ms);
     } else {

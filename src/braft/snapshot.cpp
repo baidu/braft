@@ -744,12 +744,12 @@ LocalSnapshotCopier::LocalSnapshotCopier(bool copy_file):
      _tid(INVALID_BTHREAD)
     , _cancelled(false)
     , _filter_before_copy_remote(false)
+    , _copy_file(copy_file)
     , _fs(NULL)
     , _throttle(NULL)
     , _writer(NULL)
     , _storage(NULL)
     , _reader(NULL)
-    , _copy_file(copy_file)
     , _cur_session(NULL){}
 
 LocalSnapshotCopier::~LocalSnapshotCopier() {

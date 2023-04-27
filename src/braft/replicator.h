@@ -207,7 +207,7 @@ private:
         return true;
     }
     bool is_witness() const {
-        return _options.peer_id.witness;
+        return _options.peer_id.is_witness();
     }
     void _close_reader();
     int64_t _last_rpc_send_timestamp() {

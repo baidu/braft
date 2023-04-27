@@ -71,12 +71,9 @@ void CliServiceImpl::add_peer(::google::protobuf::RpcController* controller,
                                 request->peer_id().c_str());
         return;
     }
-    if (request->is_witness()) {
-        adding_peer.witness = true;
-    }
     LOG(WARNING) << "Receive AddPeerRequest to " << node->node_id() 
                  << " from " << cntl->remote_side()
-                 << ", adding " << request->peer_id() << " is_witness:" << request->is_witness();
+                 << ", adding " << request->peer_id();
     Closure* add_peer_done = NewCallback(
             add_peer_returned, cntl, request, response, peers, node,
             done_guard.release());

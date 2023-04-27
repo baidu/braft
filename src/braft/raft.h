@@ -592,7 +592,7 @@ struct NodeOptions {
     // witness will never to be leader. so not need to init _vote_timer and _election_timer.
     // if raft_enable_witness_to_leader is true, witness can be leader, but should transfer leader as soon as possible.
     // Default: false
-    bool is_witness;
+    bool witness = false;
     // Construct a default instance
     NodeOptions();
 
