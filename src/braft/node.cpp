@@ -2605,7 +2605,10 @@ void NodeImpl::handle_install_snapshot_request(brpc::Controller* cntl,
                                     InstallSnapshotResponse* response,
                                     google::protobuf::Closure* done) {
     brpc::ClosureGuard done_guard(done);
-
+    if (is_witness()){
+        cntl->SetFailed(EINVAL, "Can't not install snapshot from witness node");
+        return;
+    }
     if (_snapshot_executor == NULL) {
         cntl->SetFailed(EINVAL, "Not support snapshot");
         return;
