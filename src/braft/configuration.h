@@ -35,6 +35,7 @@ typedef std::string GroupId;
 typedef std::string VersionedGroupId;
 
 enum Role {
+    REPLICA = 0,
     WITNESS = 1,
 };
 
@@ -44,17 +45,18 @@ struct PeerId {
     int idx; // idx in same addr, default 0
     Role role;
 
-    PeerId() : idx(0) {}
-    explicit PeerId(butil::EndPoint addr_) : addr(addr_), idx(0) {}
-    PeerId(butil::EndPoint addr_, int idx_) : addr(addr_), idx(idx_) {}
+    PeerId() : idx(0), role(REPLICA) {}
+    explicit PeerId(butil::EndPoint addr_) : addr(addr_), idx(0), role(REPLICA)  {}
+    PeerId(butil::EndPoint addr_, int idx_) : addr(addr_), idx(idx_), role(REPLICA) {}
     /*intended implicit*/PeerId(const std::string& str) 
     { CHECK_EQ(0, parse(str)); }
-    PeerId(const PeerId& id) : addr(id.addr), idx(id.idx) {}
+    PeerId(const PeerId& id) : addr(id.addr), idx(id.idx), role(id.role) {}
 
     void reset() {
         addr.ip = butil::IP_ANY;
         addr.port = 0;
         idx = 0;
+        role = REPLICA;
     }
 
     bool is_empty() const {
@@ -73,6 +75,7 @@ struct PeerId {
         }
         role = (Role)value;
         if (role > WITNESS) {
+            reset();
             return -1;
         }
         if (0 != butil::str2ip(ip_str, &addr.ip)) {
@@ -108,7 +111,7 @@ inline bool operator!=(const PeerId& id1, const PeerId& id2) {
 }
 
 inline std::ostream& operator << (std::ostream& os, const PeerId& id) {
-    return os << id.addr << ':' << id.idx;
+    return os << id.addr << ':' << id.idx << ':' << int(id.role);
 }
 
 struct NodeId {
