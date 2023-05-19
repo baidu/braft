@@ -17,6 +17,7 @@
 #ifndef PUBLIC_RAFT_TEST_UTIL_H
 #define PUBLIC_RAFT_TEST_UTIL_H
 
+#include <gflags/gflags.h>
 #include "braft/node.h"
 #include "braft/enum.pb.h"
 #include "braft/errno.pb.h"
@@ -25,20 +26,27 @@
 
 using namespace braft;
 bool g_dont_print_apply_log = false;
-
+namespace braft {
+DECLARE_bool(raft_enable_witness_to_leader);
+}
 class MockFSM : public braft::StateMachine {
 public:
-    MockFSM(const butil::EndPoint& address_)
+    MockFSM(const butil::EndPoint& address_):
+        MockFSM(address_,false) {
+    }  
+    MockFSM(const butil::EndPoint& address_, bool witness)
         : address(address_)
         , applied_index(0)
         , snapshot_index(0)
         , _on_start_following_times(0)
         , _on_stop_following_times(0)
+        , _witness(witness)
         , _leader_term(-1)
         , _on_leader_start_closure(NULL)
     {
         pthread_mutex_init(&mutex, NULL);
     }
+    
     virtual ~MockFSM() {
         pthread_mutex_destroy(&mutex);
     }
@@ -50,6 +58,7 @@ public:
     int64_t snapshot_index;
     int64_t _on_start_following_times;
     int64_t _on_stop_following_times;
+    bool _witness = false;
     volatile int64_t _leader_term;
     braft::Closure* _on_leader_start_closure;
 
@@ -82,6 +91,10 @@ public:
 
     virtual void on_apply(braft::Iterator& iter) {
         for (; iter.valid(); iter.next()) {
+            if (_witness && !FLAGS_raft_enable_witness_to_leader) {
+                LOG(INFO) << "addr " << address << " skip witness apply " << iter.index();
+                continue;
+            }
             LOG_IF(INFO, !g_dont_print_apply_log) << "addr " << address 
                                                    << " apply " << iter.index()
                                                    << " data_size " << iter.data().size();
@@ -233,7 +246,7 @@ public:
 
     int start(const butil::EndPoint& listen_addr, bool empty_peers = false,
               int snapshot_interval_s = 30,
-              braft::Closure* leader_start_closure = NULL) {
+              braft::Closure* leader_start_closure = NULL, bool witness = false) {
         if (_server_map[listen_addr] == NULL) {
             brpc::Server* server = new brpc::Server();
             if (braft::add_service(server, listen_addr) != 0 
@@ -246,13 +259,14 @@ public:
         }
 
         braft::NodeOptions options;
+        options.witness = witness;
         options.election_timeout_ms = _election_timeout_ms;
         options.max_clock_drift_ms = _max_clock_drift_ms;
         options.snapshot_interval_s = snapshot_interval_s;
         if (!empty_peers) {
             options.initial_conf = braft::Configuration(_peers);
         }
-        MockFSM* fsm = new MockFSM(listen_addr);
+        MockFSM* fsm = new MockFSM(listen_addr, witness);
         if (leader_start_closure) {
             fsm->set_on_leader_start_closure(leader_start_closure);
         }
@@ -424,11 +438,22 @@ WAIT:
         LOG(INFO) << "_fsms.size()=" << _fsms.size();
 
         int nround = 0;
-        MockFSM* first = _fsms[0];
+        MockFSM* first = nullptr;
+        // get first normal fsm when  raft_enable_witness_to_leader false
+        for (size_t i = 1; i < _fsms.size(); i++) {
+            if (_fsms[i]->_witness && !FLAGS_raft_enable_witness_to_leader) {
+                continue;
+            }
+            first = _fsms[i];
+            break;
+        }
 CHECK:
         first->lock();
-        for (size_t i = 1; i < _fsms.size(); i++) {
+        for (size_t i = 0; i < _fsms.size(); i++) {
             MockFSM* fsm = _fsms[i];
+            if ((fsm->_witness  && !FLAGS_raft_enable_witness_to_leader) || fsm->address == first->address) {
+                continue;
+            }
             fsm->lock();
 
             if (first->logs.size() != fsm->logs.size()) {

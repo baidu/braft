@@ -761,6 +761,10 @@ void Replicator::_wait_more_entries() {
 }
 
 void Replicator::_install_snapshot() {
+     NodeImpl *node_impl = _options.node;
+    if (node_impl->is_witness()) {
+        return _block(butil::gettimeofday_us(), EBUSY);
+    }
     if (_reader) {
         // follower's readonly mode change may cause two install_snapshot
         // one possible case is: 
@@ -1523,15 +1527,9 @@ int ReplicatorGroup::find_the_next_candidate(
         }
         const int64_t next_index = Replicator::get_next_index(iter->second.id);
         const int consecutive_error_times = Replicator::get_consecutive_error_times(iter->second.id);
-        if (consecutive_error_times == 0 && next_index > max_index) {
+        if (consecutive_error_times == 0 && next_index > max_index && !iter->first.is_witness()) {
             max_index = next_index;
             if (peer_id) {
-                *peer_id = iter->first;
-            }
-        }
-        // transfer leadership to the non witness peer priority.
-        if (consecutive_error_times == 0  && next_index == max_index) {
-            if (peer_id && peer_id->is_witness()) {
                 *peer_id = iter->first;
             }
         }

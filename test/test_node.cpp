@@ -39,7 +39,7 @@ protected:
     void SetUp() {
         g_dont_print_apply_log = false;
         //logging::FLAGS_v = 90;
-        GFLAGS_NS::SetCommandLineOption("minloglevel", "1");
+        // GFLAGS_NS::SetCommandLineOption("minloglevel", "1");
         GFLAGS_NS::SetCommandLineOption("crash_on_fatal_log", "true");
         if (GetParam() == std::string("NoReplication")) {
             braft::FLAGS_raft_max_parallel_append_entries_rpc_num = 1;
@@ -355,6 +355,122 @@ TEST_P(NodeTest, LeaderFail) {
         task.data = &data;
         task.done = NEW_APPLYCLOSURE(&cond, -1);
         nodes[0]->apply(task);
+    }
+    cond.wait();
+
+    // elect new leader
+    cluster.wait_leader();
+    leader = cluster.leader();
+    ASSERT_TRUE(leader != NULL);
+    LOG(WARNING) << "elect new leader " << leader->node_id();
+
+    // apply something
+    cond.reset(10);
+    for (int i = 10; i < 20; i++) {
+        butil::IOBuf data;
+        char data_buf[128];
+        snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
+        data.append(data_buf);
+        braft::Task task;
+        task.data = &data;
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
+        leader->apply(task);
+    }
+    cond.wait();
+
+    // old leader restart
+    ASSERT_EQ(0, cluster.start(old_leader));
+    LOG(WARNING) << "restart old leader " << old_leader;
+
+    // apply something
+    cond.reset(10);
+    for (int i = 20; i < 30; i++) {
+        butil::IOBuf data;
+        char data_buf[128];
+        snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
+        data.append(data_buf);
+        braft::Task task;
+        task.data = &data;
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
+        leader->apply(task);
+    }
+    cond.wait();
+
+    // stop and clean old leader
+    LOG(WARNING) << "stop old leader " << old_leader;
+    cluster.stop(old_leader);
+    LOG(WARNING) << "clean old leader data " << old_leader;
+    cluster.clean(old_leader);
+
+    sleep(2);
+    // restart old leader
+    ASSERT_EQ(0, cluster.start(old_leader));
+    LOG(WARNING) << "restart old leader " << old_leader;
+
+    cluster.ensure_same();
+
+    cluster.stop_all();
+}
+
+TEST_P(NodeTest, LeaderFailWithWitness) {
+    std::vector<braft::PeerId> peers;
+    for (int i = 0; i < 3; i++) {
+        braft::PeerId peer;
+        peer.addr.ip = butil::my_ip();
+        peer.addr.port = 5006 + i;
+        peer.idx = 0;
+        if (i == 0) {
+            peer.role = braft::Role::WITNESS;
+        }
+        peers.push_back(peer);
+    }
+
+    // start cluster
+    Cluster cluster("unittest", peers);
+    for (size_t i = 0; i < peers.size(); i++) {
+        ASSERT_EQ(0, cluster.start(peers[i].addr, false, 30, nullptr, peers[i].is_witness()));
+    }
+
+    // elect leader
+    cluster.wait_leader();
+    braft::Node* leader = cluster.leader();
+    ASSERT_TRUE(leader != NULL);
+    LOG(WARNING) << "leader is " << leader->node_id();
+
+    // apply something
+    bthread::CountdownEvent cond(10);
+    for (int i = 0; i < 10; i++) {
+        butil::IOBuf data;
+        char data_buf[128];
+        snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
+        data.append(data_buf);
+
+        braft::Task task;
+        task.data = &data;
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
+        leader->apply(task);
+    }
+    cond.wait();
+
+    // stop leader
+    butil::EndPoint old_leader = leader->node_id().peer_id.addr;
+    LOG(WARNING) << "stop leader " << leader->node_id();
+    cluster.stop(leader->node_id().peer_id.addr);
+
+    // apply something when follower
+    std::vector<braft::Node*> nodes;
+    cluster.followers(&nodes);
+    cond.reset(10);
+    for (int i = 0; i < 10; i++) {
+        butil::IOBuf data;
+        char data_buf[128];
+        snprintf(data_buf, sizeof(data_buf), "follower apply: %d", i + 1);
+        data.append(data_buf);
+        braft::Task task;
+        task.data = &data;
+        task.done = NEW_APPLYCLOSURE(&cond, -1);
+        // node 0 is witness;
+        nodes[1]->apply(task);
     }
     cond.wait();
 
@@ -3381,6 +3497,7 @@ INSTANTIATE_TEST_CASE_P(NodeTestWithPipelineReplication,
 int main(int argc, char* argv[]) {
     ::testing::AddGlobalTestEnvironment(new TestEnvironment());
     ::testing::InitGoogleTest(&argc, argv);
+    GFLAGS_NS::SetCommandLineOption("minloglevel", "1");
     GFLAGS_NS::ParseCommandLineFlags(&argc, &argv, true);
     return RUN_ALL_TESTS();
 }
