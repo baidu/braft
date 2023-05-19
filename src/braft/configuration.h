@@ -43,11 +43,17 @@ enum Role {
 struct PeerId {
     butil::EndPoint addr; // ip+port.
     int idx; // idx in same addr, default 0
-    Role role;
+    Role role = REPLICA;
 
     PeerId() : idx(0), role(REPLICA) {}
     explicit PeerId(butil::EndPoint addr_) : addr(addr_), idx(0), role(REPLICA)  {}
     PeerId(butil::EndPoint addr_, int idx_) : addr(addr_), idx(idx_), role(REPLICA) {}
+    PeerId(butil::EndPoint addr_, int idx_, bool witness) : addr(addr_), idx(idx_) {
+        if (witness) {
+            this->role = WITNESS;
+        }    
+    }
+
     /*intended implicit*/PeerId(const std::string& str) 
     { CHECK_EQ(0, parse(str)); }
     PeerId(const PeerId& id) : addr(id.addr), idx(id.idx), role(id.role) {}

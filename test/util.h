@@ -284,14 +284,14 @@ public:
 
         options.catchup_margin = 2;
         
-        braft::Node* node = new braft::Node(_name, braft::PeerId(listen_addr, 0));
+        braft::Node* node = new braft::Node(_name, braft::PeerId(listen_addr, 0, witness));
         int ret = node->init(options);
         if (ret != 0) {
             LOG(WARNING) << "init_node failed, server: " << listen_addr;
             delete node;
             return ret;
         } else {
-            LOG(INFO) << "init node " << listen_addr;
+            LOG(INFO) << "init node " << listen_addr << " witness " << witness;;
         }
 
         {
