@@ -1522,7 +1522,7 @@ int ReplicatorGroup::find_the_next_candidate(
     int64_t max_index =  0;
     for (std::map<PeerId, ReplicatorIdAndStatus>::const_iterator
             iter = _rmap.begin();  iter != _rmap.end(); ++iter) {
-        if (!conf.contains(iter->first)) {
+        if (!conf.contains(iter->first) || iter->first.learner) {
             continue;
         }
         const int64_t next_index = Replicator::get_next_index(iter->second.id);

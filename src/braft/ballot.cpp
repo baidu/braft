@@ -30,7 +30,9 @@ int Ballot::init(const Configuration& conf, const Configuration* old_conf) {
     _peers.reserve(conf.size());
     for (Configuration::const_iterator
             iter = conf.begin(); iter != conf.end(); ++iter) {
-        _peers.push_back(*iter);
+        if (!iter->learner) {
+            _peers.push_back(*iter);
+        }
     }
     _quorum = _peers.size() / 2 + 1;
     if (!old_conf) {
@@ -39,7 +41,9 @@ int Ballot::init(const Configuration& conf, const Configuration* old_conf) {
     _old_peers.reserve(old_conf->size());
     for (Configuration::const_iterator
             iter = old_conf->begin(); iter != old_conf->end(); ++iter) {
-        _old_peers.push_back(*iter);
+        if (!iter->learner) {
+            _old_peers.push_back(*iter);
+        }
     }
     _old_quorum = _old_peers.size() / 2 + 1;
     return 0;

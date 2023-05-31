@@ -38,18 +38,20 @@ typedef std::string VersionedGroupId;
 struct PeerId {
     butil::EndPoint addr; // ip+port.
     int idx; // idx in same addr, default 0
+    bool learner;
 
-    PeerId() : idx(0) {}
-    explicit PeerId(butil::EndPoint addr_) : addr(addr_), idx(0) {}
-    PeerId(butil::EndPoint addr_, int idx_) : addr(addr_), idx(idx_) {}
+    PeerId(butil::EndPoint addr_, int idx_, bool learner_=false) : addr(addr_), idx(idx_), learner(learner_) {}
+    PeerId() : PeerId(butil::EndPoint(), 0)  {}
+    explicit PeerId(butil::EndPoint addr_) : PeerId(addr_, 0) {}
     /*intended implicit*/PeerId(const std::string& str) 
     { CHECK_EQ(0, parse(str)); }
-    PeerId(const PeerId& id) : addr(id.addr), idx(id.idx) {}
+    PeerId(const PeerId& id) : PeerId(id.addr, id.idx, id.learner) {}
 
     void reset() {
         addr.ip = butil::IP_ANY;
         addr.port = 0;
         idx = 0;
+        learner = false;
     }
 
     bool is_empty() const {
@@ -59,6 +61,9 @@ struct PeerId {
     int parse(const std::string& str) {
         reset();
         char ip_str[64];
+        if (!str.empty() && str.back() == 'l') {
+            learner = true;
+        }
         if (2 > sscanf(str.c_str(), "%[^:]%*[:]%d%*[:]%d", ip_str, &addr.port, &idx)) {
             reset();
             return -1;
@@ -87,6 +92,9 @@ inline bool operator<(const PeerId& id1, const PeerId& id2) {
     }
 }
 
+// intentionally leave behind `learner` field.
+// So when we change a peer from learner to normal or normal to learner
+// raft will do nothing
 inline bool operator==(const PeerId& id1, const PeerId& id2) {
     return (id1.addr == id2.addr && id1.idx == id2.idx);
 }
