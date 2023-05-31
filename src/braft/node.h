@@ -241,6 +241,9 @@ public:
 
     bool disable_cli() const { return _options.disable_cli; }
 
+    bool arbiter() { return _options.arbiter;}
+    int64_t complete_index();
+
 private:
 friend class butil::RefCountedThreadSafe<NodeImpl>;
 

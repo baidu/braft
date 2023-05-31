@@ -155,7 +155,7 @@ PeerId Node::leader_id() {
 }
 
 bool Node::is_leader() {
-    return _impl->is_leader();
+    return !_impl->arbiter() && _impl->is_leader();
 }
 
 bool Node::is_leader_lease_valid() {

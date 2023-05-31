@@ -149,6 +149,10 @@ public:
     // Get the internal status of LogManager.
     void get_status(LogManagerStatus* status);
 
+    void set_complete_index(int64_t index) {
+        _complete_index.store(index, butil::memory_order_relaxed);
+    }
+
 private:
 friend class AppendBatcher;
     struct WaitMeta {
@@ -218,6 +222,7 @@ friend class AppendBatcher;
     int64_t _last_log_index;
     // the last snapshot's log_id
     LogId _last_snapshot_id;
+    butil::atomic<int64_t> _complete_index;
     // the virtual first log, for finding next_index of replicator, which 
     // can avoid install_snapshot too often in extreme case where a follower's
     // install_snapshot is slower than leader's save_snapshot

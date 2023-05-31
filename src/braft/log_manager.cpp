@@ -71,6 +71,7 @@ LogManager::LogManager()
     , _next_wait_id(0)
     , _first_log_index(0)
     , _last_log_index(0)
+    , _complete_index(std::numeric_limits<int64_t>::max())
 {
     CHECK_EQ(0, start_disk_thread());
 }
@@ -276,7 +277,8 @@ int LogManager::truncate_prefix(const int64_t first_index_kept,
         _last_log_index = first_index_kept - 1;
     }
     _config_manager->truncate_prefix(first_index_kept);
-    TruncatePrefixClosure* c = new TruncatePrefixClosure(first_index_kept);
+    TruncatePrefixClosure* c = new TruncatePrefixClosure(
+        std::min(first_index_kept, _complete_index.load(butil::memory_order_relaxed)));
     const int rc = bthread::execution_queue_execute(_disk_queue, c);
     lck.unlock();
     for (size_t i = 0; i < saved_logs_in_memory.size(); ++i) {

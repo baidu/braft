@@ -96,6 +96,13 @@ public:
             if (_leader_start) {
                 _node->leader_lease_start(_lease_epoch);
                 _node->_options.fsm->on_leader_start(_term);
+                if (_node->arbiter()) {
+                    // todo: handle errors
+                    CHECK(!_node->transfer_leadership_to(ANY_PEER)) << "Arbiter " << _node->node_id()
+                          << " fail to transfer leader to others";
+                    CHECK(!_node->is_leader()) << "Arbiter " << _node->node_id()
+                          << " is still leader after transfer_leadership_to ANY_PEER";
+                }
             }
         }
         delete this;
@@ -671,6 +678,10 @@ int NodeImpl::execute_applying_tasks(
 }
 
 void NodeImpl::apply(const Task& task) {
+    if (arbiter()) {
+        task.done->status().set_error(EPERM, "Node is arbiter"); 
+        return run_closure_in_bthread(task.done);
+    }
     LogEntry* entry = new LogEntry;
     entry->AddRef();
     entry->data.swap(*task.data);
@@ -1751,6 +1762,10 @@ void NodeImpl::request_peers_to_vote(const std::set<PeerId>& peers,
     }
 }
 
+int64_t NodeImpl::complete_index() {
+    return _replicator_group.complete_index();
+}
+
 // in lock
 void NodeImpl::step_down(const int64_t term, bool wakeup_a_candidate, 
                          const butil::Status& status) {
@@ -1877,21 +1892,6 @@ void NodeImpl::check_step_down(const int64_t request_term, const PeerId& server_
         reset_leader_id(server_id, status);
     }
 }
-
-class LeaderStartClosure : public Closure {
-public:
-    LeaderStartClosure(StateMachine* fsm, int64_t term) : _fsm(fsm), _term(term) {}
-    ~LeaderStartClosure() {}
-    void Run() {
-        if (status().ok()) {
-            _fsm->on_leader_start(_term);
-        }
-        delete this;
-    }
-private:
-    StateMachine* _fsm;
-    int64_t _term;
-};
 
 // in lock
 void NodeImpl::become_leader() {
@@ -2483,6 +2483,9 @@ void NodeImpl::handle_append_entries_request(brpc::Controller* cntl,
         _ballot_box->set_last_committed_index(
                 std::min(request->committed_index(),
                          prev_log_index));
+        if (arbiter()) {
+            _log_manager->set_complete_index(request->complete_index());
+        }
         return;
     }
 
@@ -3394,6 +3397,10 @@ bool NodeImpl::is_leader_lease_valid() {
 
 void NodeImpl::get_leader_lease_status(LeaderLeaseStatus* lease_status) {
     // Fast path for leader to lease check
+    if (arbiter()) {
+        lease_status->state = LEASE_EXPIRED;
+        return;
+    }
     LeaderLease::LeaseInfo internal_info;
     _leader_lease.get_lease_info(&internal_info);
     switch (internal_info.state) {

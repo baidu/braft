@@ -589,6 +589,13 @@ struct NodeOptions {
     // Default: false
     bool disable_cli;
 
+    // If true, this node will not have a copy of data and only participates in elections
+    // from user's viewpoint this node will never become leader,
+    // on_apply/on_snapshot_save/on_snapshot_load/on_leader_start/on_leader_stop etc will not be called
+    // todo: avoid installing snapshot for arbiter
+    // Default: false
+    bool arbiter;
+
     // Construct a default instance
     NodeOptions();
 
@@ -610,6 +617,7 @@ inline NodeOptions::NodeOptions()
     , snapshot_file_system_adaptor(NULL)
     , snapshot_throttle(NULL)
     , disable_cli(false)
+    , arbiter(false)
 {}
 
 inline int NodeOptions::get_catchup_timeout_ms() {
