@@ -1043,6 +1043,11 @@ void NodeImpl::handle_election_timeout() {
 
         return;
     }
+
+    if (arbiter()) {
+        return;
+    }
+
     bool triggered = _vote_triggered;
     _vote_triggered = false;
 
@@ -1088,6 +1093,12 @@ void NodeImpl::handle_timeout_now_request(brpc::Controller* controller,
         LOG(INFO) << "node " << _group_id << ":" << _server_id
                   << " received handle_timeout_now_request while state is " 
                   << state2str(saved_state) << " at term=" << saved_term;
+        return;
+    }
+    if (arbiter()) {
+        response->set_term(_current_term);
+        response->set_success(false);
+        lck.unlock();
         return;
     }
     const butil::EndPoint remote_side = controller->remote_side();
@@ -2704,7 +2715,7 @@ void NodeImpl::describe(std::ostream& os, bool use_html) {
     lck.unlock();
     const char *newline = use_html ? "<br>" : "\r\n";
     os << "peer_id: " << _server_id << newline;
-    os << "state: " << state2str(st) << newline;
+    os << "state: " << state2str(st) << (arbiter() ? ", ARBITER" : "") << newline;
     os << "readonly: " << readonly << newline;
     os << "term: " << term << newline;
     os << "conf_index: " << conf_index << newline;

@@ -976,23 +976,25 @@ void LocalSnapshotCopier::copy_file(const std::string& filename) {
         set_error(ECANCELED, "%s", berror(ECANCELED));
         return;
     }
-    scoped_refptr<RemoteFileCopier::Session> session
-        = _copier.start_to_copy_to_file(filename, file_path, NULL);
-    if (session == NULL) {
-        LOG(WARNING) << "Fail to copy " << filename
-                     << " path: " << _writer->get_path();
-        set_error(-1, "Fail to copy %s", filename.c_str());
-        return;
-    }
-    _cur_session = session.get();
-    lck.unlock();
-    session->join();
-    lck.lock();
-    _cur_session = NULL;
-    lck.unlock();
-    if (!session->status().ok()) {
-        set_error(session->status().error_code(), session->status().error_cstr());
-        return;
+    if (!_storage->dummy) {
+        scoped_refptr<RemoteFileCopier::Session> session
+            = _copier.start_to_copy_to_file(filename, file_path, NULL);
+        if (session == NULL) {
+            LOG(WARNING) << "Fail to copy " << filename
+                         << " path: " << _writer->get_path();
+            set_error(-1, "Fail to copy %s", filename.c_str());
+            return;
+        }
+        _cur_session = session.get();
+        lck.unlock();
+        session->join();
+        lck.lock();
+        _cur_session = NULL;
+        lck.unlock();
+        if (!session->status().ok()) {
+            set_error(session->status().error_code(), session->status().error_cstr());
+            return;
+        }
     }
     if (_writer->add_file(filename, &meta) != 0) {
         set_error(EIO, "Fail to add file to writer");
