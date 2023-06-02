@@ -44,6 +44,7 @@ FSMCaller::FSMCaller()
     , _closure_queue(NULL)
     , _last_applied_index(0)
     , _last_applied_term(0)
+    , _last_snapshot_index(0)
     , _after_shutdown(NULL)
     , _node(NULL)
     , _cur_task(IDLE)
@@ -167,6 +168,7 @@ int FSMCaller::init(const FSMCallerOptions &options) {
     _last_applied_index.store(options.bootstrap_id.index,
                               butil::memory_order_relaxed);
     _last_applied_term = options.bootstrap_id.term;
+    _snapshot_log_interval = options.snapshot_log_interval;
     if (_node) {
         _node->AddRef();
     }
@@ -275,9 +277,13 @@ void FSMCaller::do_committed(int64_t committed_index) {
     int64_t first_closure_index = 0;
     CHECK_EQ(0, _closure_queue->pop_closure_until(committed_index, &closure,
                                                   &first_closure_index));
-
+    
+    int64_t break_index = committed_index;
+    if (_snapshot_log_interval > 0) {
+        break_index = _last_snapshot_index + _snapshot_log_interval;
+    }
     IteratorImpl iter_impl(_fsm, _log_manager, &closure, first_closure_index,
-                 last_applied_index, committed_index, &_applying_index);
+                 last_applied_index, committed_index, break_index, &_applying_index);
     for (; iter_impl.is_good();) {
         if (iter_impl.entry()->type != ENTRY_TYPE_DATA) {
             if (iter_impl.entry()->type == ENTRY_TYPE_CONFIGURATION) {
@@ -295,30 +301,49 @@ void FSMCaller::do_committed(int64_t committed_index) {
                 iter_impl.done()->Run();
             }
             iter_impl.next();
-            continue;
+        } else {
+            Iterator iter(&iter_impl);
+            _fsm->on_apply(iter);
+            if(iter.valid()){
+                LOG(ERROR)
+                    << "Node " << _node->node_id() 
+                    << " Iterator is still valid, did you return before iterator "
+                    " reached the end?";
+                // Try move to next in case that we pass the same log twice.
+                iter.next();
+            }
         }
-        Iterator iter(&iter_impl);
-        _fsm->on_apply(iter);
-        LOG_IF(ERROR, iter.valid())
-                << "Node " << _node->node_id() 
-                << " Iterator is still valid, did you return before iterator "
-                   " reached the end?";
-        // Try move to next in case that we pass the same log twice.
-        iter.next();
+
+        if(iter_impl.has_error()){
+            set_error(iter_impl.error());
+            iter_impl.run_the_rest_closure_with_error();
+        }
+
+        const int64_t last_index = iter_impl.index() - 1;
+        const int64_t last_term = _log_manager->get_term(last_index);
+        LogId last_applied_id(last_index, last_term);
+        _last_applied_index.store(last_index, butil::memory_order_release);
+        _last_applied_term = last_term;
+        _log_manager->set_applied_id(last_applied_id);
+ 
+        if (_snapshot_log_interval > 0 && !iter_impl.has_error() &&
+            last_index == break_index) {
+            // Arrive at break point to trigger snapshot.
+            SynchronizedClosure done;
+            _node->snapshot(&done, true /* in_place*/);
+            done.wait();
+            break_index += _snapshot_log_interval;
+            // Reset next break index for continue running.
+            iter_impl.reset_break_index(break_index);
+        }
     }
-    if (iter_impl.has_error()) {
-        set_error(iter_impl.error());
-        iter_impl.run_the_rest_closure_with_error();
-    }
-    const int64_t last_index = iter_impl.index() - 1;
-    const int64_t last_term = _log_manager->get_term(last_index);
-    LogId last_applied_id(last_index, last_term);
-    _last_applied_index.store(committed_index, butil::memory_order_release);
-    _last_applied_term = last_term;
-    _log_manager->set_applied_id(last_applied_id);
 }
 
-int FSMCaller::on_snapshot_save(SaveSnapshotClosure* done) {
+int FSMCaller::on_snapshot_save(SaveSnapshotClosure* done, bool in_place) {
+    if (in_place) {
+        do_snapshot_save(done);
+        return 0;
+    }
     ApplyTask task;
     task.type = SNAPSHOT_SAVE;
     task.done = done;
@@ -333,6 +358,7 @@ void FSMCaller::do_snapshot_save(SaveSnapshotClosure* done) {
     SnapshotMeta meta;
     meta.set_last_included_index(last_applied_index);
     meta.set_last_included_term(_last_applied_term);
+    _last_snapshot_index = last_applied_index;
     ConfigurationEntry conf_entry;
     _log_manager->get_configuration(last_applied_index, &conf_entry);
     for (Configuration::const_iterator
@@ -422,8 +448,10 @@ void FSMCaller::do_snapshot_load(LoadSnapshotClosure* done) {
         _fsm->on_configuration_committed(conf, meta.last_included_index());
     }
 
+    _last_snapshot_index = meta.last_included_index(),
     _last_applied_index.store(meta.last_included_index(),
                               butil::memory_order_release);
+    
     _last_applied_term = meta.last_included_term();
     done->Run();
 }
@@ -555,6 +583,7 @@ IteratorImpl::IteratorImpl(StateMachine* sm, LogManager* lm,
                           int64_t first_closure_index,
                           int64_t last_applied_index, 
                           int64_t committed_index,
+                          int64_t break_index,
                           butil::atomic<int64_t>* applying_index)
         : _sm(sm)
         , _lm(lm)
@@ -562,6 +591,7 @@ IteratorImpl::IteratorImpl(StateMachine* sm, LogManager* lm,
         , _first_closure_index(first_closure_index)
         , _cur_index(last_applied_index)
         , _committed_index(committed_index)
+        , _break_index(break_index)
         , _cur_entry(NULL)
         , _applying_index(applying_index)
 { next(); }

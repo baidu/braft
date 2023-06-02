@@ -45,12 +45,13 @@ public:
     // Move to the next
     void next();
     LogEntry* entry() const { return _cur_entry; }
-    bool is_good() const { return _cur_index <= _committed_index && !has_error(); }
+    bool is_good() const { return _cur_index <= _committed_index && _cur_index <= _break_index && !has_error(); }
     Closure* done() const;
     void set_error_and_rollback(size_t ntail, const butil::Status* st);
     bool has_error() const { return _error.type() != ERROR_TYPE_NONE; }
     const Error& error() const { return _error; }
     int64_t index() const { return _cur_index; }
+    void reset_break_index(int64_t index) { _break_index = index;}
     void run_the_rest_closure_with_error();
 private:
     IteratorImpl(StateMachine* sm, LogManager* lm, 
@@ -58,6 +59,7 @@ private:
                  int64_t first_closure_index,
                  int64_t last_applied_index,
                  int64_t committed_index,
+                 int64_t break_index,
                  butil::atomic<int64_t>* applying_index);
     ~IteratorImpl() {}
 friend class FSMCaller;
@@ -66,6 +68,7 @@ friend class FSMCaller;
     std::vector<Closure*> *_closure;
     int64_t _first_closure_index;
     int64_t _cur_index;
+    int64_t _break_index;
     int64_t _committed_index;
     LogEntry* _cur_entry;
     butil::atomic<int64_t>* _applying_index;
@@ -81,6 +84,7 @@ struct FSMCallerOptions {
         , node(NULL)
         , usercode_in_pthread(false)
         , bootstrap_id()
+        , snapshot_log_interval(0)
     {}
     LogManager *log_manager;
     StateMachine *fsm;
@@ -89,6 +93,7 @@ struct FSMCallerOptions {
     NodeImpl* node;
     bool usercode_in_pthread;
     LogId bootstrap_id;
+    int64_t snapshot_log_interval;
 };
 
 class SaveSnapshotClosure : public Closure {
@@ -111,7 +116,7 @@ public:
     int shutdown();
     BRAFT_MOCK int on_committed(int64_t committed_index);
     BRAFT_MOCK int on_snapshot_load(LoadSnapshotClosure* done);
-    BRAFT_MOCK int on_snapshot_save(SaveSnapshotClosure* done);
+    BRAFT_MOCK int on_snapshot_save(SaveSnapshotClosure* done, bool in_place);
     int on_leader_stop(const butil::Status& status);
     int on_leader_start(int64_t term, int64_t lease_epoch);
     int on_start_following(const LeaderChangeContext& start_following_context);
@@ -189,6 +194,8 @@ friend class IteratorImpl;
     ClosureQueue* _closure_queue;
     butil::atomic<int64_t> _last_applied_index;
     int64_t _last_applied_term;
+    int64_t _last_snapshot_index;
+    int64_t _snapshot_log_interval;
     google::protobuf::Closure* _after_shutdown;
     NodeImpl* _node;
     TaskType _cur_task;

@@ -8,14 +8,33 @@
 #include <butil/memory/scoped_ptr.h>
 #include "braft/fsm_caller.h"
 #include "braft/raft.h"
+#include "braft/node.h"
 #include "braft/log.h"
 #include "braft/configuration.h"
 #include "braft/log_manager.h"
 
-class FSMCallerTest : public testing::Test {
+class TestEnvironment : public ::testing::Environment {
+public:
+    void SetUp() {
+    }
+    void TearDown() {
+    }
+};
+
+class FSMCallerTest : public testing::TestWithParam<const char*> {
 protected:
-    void SetUp() {}
+    void SetUp() {
+        if (GetParam() == std::string("LogInterval")) {
+            snapshot_trigger_type_ = braft::SNAPSHOT_TRIGGER_BY_LOG_INTERVAL;
+        }else if (GetParam() == std::string("Timer")) {
+            snapshot_trigger_type_ = braft::SNAPSHOT_TRIGGER_BY_TIMER;
+        }
+        LOG(INFO) << "Start unitests: " << GetParam();
+        system("rm -rf ./data");
+    }
     void TearDown() {}
+private:
+    braft::SnapshotTriggerType snapshot_trigger_type_;
 };
 
 class OrderedStateMachine : public braft::StateMachine {
@@ -96,8 +115,7 @@ private:
     butil::atomic<int> *_butex;
 };
 
-TEST_F(FSMCallerTest, sanity) {
-    system("rm -rf ./data");
+TEST_P(FSMCallerTest, sanity) {
     scoped_ptr<braft::ConfigurationManager> cm(
                                 new braft::ConfigurationManager);
     scoped_ptr<braft::SegmentLogStorage> storage(
@@ -109,15 +127,19 @@ TEST_F(FSMCallerTest, sanity) {
     ASSERT_EQ(0, lm->init(log_opt));
 
     braft::ClosureQueue cq(false);
-
+    braft::NodeImpl node;
     OrderedStateMachine fsm;
     fsm._expected_next = 0;
 
     braft::FSMCallerOptions opt;
+    opt.node = &node;
     opt.log_manager = lm.get();
     opt.after_shutdown = NULL;
     opt.fsm = &fsm;
     opt.closure_queue = &cq;
+    if (snapshot_trigger_type_ == braft::SNAPSHOT_TRIGGER_BY_LOG_INTERVAL) {
+        opt.snapshot_log_interval = 10;
+    }
 
     braft::FSMCaller caller;
     ASSERT_EQ(0, caller.init(opt));
@@ -146,7 +168,7 @@ TEST_F(FSMCallerTest, sanity) {
     ASSERT_EQ(fsm._expected_next, N);
 }
 
-TEST_F(FSMCallerTest, on_leader_start_and_stop) {
+TEST_P(FSMCallerTest, on_leader_start_and_stop) {
     scoped_ptr<braft::LogManager> lm(new braft::LogManager());
     OrderedStateMachine fsm;
     fsm._expected_next = 0;
@@ -247,14 +269,14 @@ private:
     braft::SnapshotReader* _reader;
 };
 
-TEST_F(FSMCallerTest, snapshot) {
+TEST_P(FSMCallerTest, snapshot) {
     braft::SnapshotMeta snapshot_meta;
     snapshot_meta.set_last_included_index(0);
     snapshot_meta.set_last_included_term(0);
     DummySnapshotReader dummy_reader(&snapshot_meta);
     DummySnapshoWriter dummy_writer;
     MockSaveSnapshotClosure save_snapshot_done(&dummy_writer, &snapshot_meta);
-    system("rm -rf ./data");
+
     scoped_ptr<braft::ConfigurationManager> cm(
                                 new braft::ConfigurationManager);
     scoped_ptr<braft::SegmentLogStorage> storage(
@@ -275,7 +297,7 @@ TEST_F(FSMCallerTest, snapshot) {
     opt.closure_queue = &cq;
     braft::FSMCaller caller;
     ASSERT_EQ(0, caller.init(opt));
-    ASSERT_EQ(0, caller.on_snapshot_save(&save_snapshot_done));
+    ASSERT_EQ(0, caller.on_snapshot_save(&save_snapshot_done, false));
     MockLoadSnapshotClosure load_snapshot_done(&dummy_reader);
     ASSERT_EQ(0, caller.on_snapshot_load(&load_snapshot_done));
     ASSERT_EQ(0, caller.shutdown());
@@ -286,3 +308,14 @@ TEST_F(FSMCallerTest, snapshot) {
     ASSERT_EQ(1, load_snapshot_done._start_times);
 }
 
+
+INSTANTIATE_TEST_CASE_P(SnapshotTrigger,
+                        FSMCallerTest,
+                        ::testing::Values("Timer", "LogInterval"));
+
+int main(int argc, char* argv[]) {
+    ::testing::AddGlobalTestEnvironment(new TestEnvironment());
+    ::testing::InitGoogleTest(&argc, argv);
+    GFLAGS_NS::ParseCommandLineFlags(&argc, &argv, true);
+    return RUN_ALL_TESTS();
+}
