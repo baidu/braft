@@ -74,7 +74,7 @@ struct PeerId {
     int parse(const std::string& str) {
         reset();
         char ip_str[64];
-        int value = 0;
+        int value = REPLICA;
         if (2 > sscanf(str.c_str(), "%[^:]%*[:]%d%*[:]%d%*[:]%d", ip_str, &addr.port, &idx, &value)) {
             reset();
             return -1;

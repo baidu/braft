@@ -68,7 +68,7 @@ BRPC_VALIDATE_GFLAG(raft_rpc_channel_connect_timeout_ms, brpc::PositiveInteger);
 DECLARE_bool(raft_enable_leader_lease);
 
 DEFINE_bool(raft_enable_witness_to_leader, false, 
-"enabel witness temporarily to become leader when leader down accidently");
+            "enable witness temporarily to become leader when leader down accidently");
 
 #ifndef UNIT_TEST
 static bvar::Adder<int64_t> g_num_nodes("raft_node_count");
@@ -506,8 +506,9 @@ int NodeImpl::init(const NodeOptions& options) {
         return -1;
     }
     if (options.witness) {
-        // if node is witness, set timer twice as data replication node, 
-        // which guarantees data replica will be elected as leader priority。
+        // When this node is a witness, set the election_timeout to be twice 
+        // of the normal replica to ensure that the normal replica has a higher
+        // priority and is selected as the master
         if (FLAGS_raft_enable_witness_to_leader) {
             CHECK_EQ(0, _election_timer.init(this, options.election_timeout_ms * 2));
             CHECK_EQ(0, _vote_timer.init(this, options.election_timeout_ms * 2 + options.max_clock_drift_ms));

@@ -589,9 +589,10 @@ struct NodeOptions {
     // Default: false
     bool disable_cli;
 
-    // if true, this node is a witness node, when raft_enable_witness_to_leader is false,
-    // witness will never to be leader. so not need to init _vote_timer and _election_timer.
-    // if raft_enable_witness_to_leader is true, witness can be leader, but should transfer leader as soon as possible.
+    // if true, this node is a witness, when FLAGS_raft_enable_witness_to_leader is false,
+    // it will never be elected as leader. so we don't need to init _vote_timer and _election_timer.
+    // if FLAGS_raft_enable_witness_to_leader is true, it can be electd as leader,
+    // but should transfer leader to normal replica as soon as possible.
     // Default: false
     bool witness = false;
     // Construct a default instance
