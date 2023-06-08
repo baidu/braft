@@ -269,7 +269,7 @@ TEST_F(TestUsageSuits, mixed_stable_storage_upgrade) {
         st = storage->get_term_and_votedfor(&term_bak, &peer_bak, v_group_id);
         ASSERT_TRUE(st.ok());
         ASSERT_EQ(term, term_bak);  
-        ASSERT_EQ("2.2.2.2:2000:0", peer_bak.to_string());
+        ASSERT_EQ("2.2.2.2:2000:0:0", peer_bak.to_string());
     }
     {
         // _merged_impl already catch up data after Mixed first load
@@ -278,7 +278,7 @@ TEST_F(TestUsageSuits, mixed_stable_storage_upgrade) {
         st = tmp->_merged_impl->get_term_and_votedfor(&term_bak, &peer_bak, v_group_id);
         ASSERT_TRUE(st.ok());
         ASSERT_EQ(term, term_bak);  
-        ASSERT_EQ("2.2.2.2:2000:0", peer_bak.to_string());
+        ASSERT_EQ("2.2.2.2:2000:0:0", peer_bak.to_string());
     }
 
     // test double write 
@@ -294,14 +294,14 @@ TEST_F(TestUsageSuits, mixed_stable_storage_upgrade) {
         st = tmp->_single_impl->get_term_and_votedfor(&term_bak, &peer_bak, v_group_id);
         ASSERT_TRUE(st.ok());
         ASSERT_EQ(term, term_bak);  
-        ASSERT_EQ("3.3.3.3:3000:3", peer_bak.to_string());
+        ASSERT_EQ("3.3.3.3:3000:3:0", peer_bak.to_string());
         
         term_bak = 0;
         peer_bak.reset();
         st = tmp->_merged_impl->get_term_and_votedfor(&term_bak, &peer_bak, v_group_id);
         ASSERT_TRUE(st.ok());
         ASSERT_EQ(term, term_bak);  
-        ASSERT_EQ("3.3.3.3:3000:3", peer_bak.to_string());
+        ASSERT_EQ("3.3.3.3:3000:3:0", peer_bak.to_string());
     }
     delete storage;
 
@@ -325,7 +325,7 @@ TEST_F(TestUsageSuits, mixed_stable_storage_upgrade) {
         st = storage->get_term_and_votedfor(&term_bak, &peer_bak, v_group_id);
         ASSERT_TRUE(st.ok());
         ASSERT_EQ(term, term_bak);  
-        ASSERT_EQ("3.3.3.3:3000:3", peer_bak.to_string());
+        ASSERT_EQ("3.3.3.3:3000:3:0", peer_bak.to_string());
     }
     // test merged stable storage alone 
     {
@@ -340,7 +340,7 @@ TEST_F(TestUsageSuits, mixed_stable_storage_upgrade) {
         st = storage->get_term_and_votedfor(&term_bak, &peer_bak, v_group_id);
         ASSERT_TRUE(st.ok());
         ASSERT_EQ(term, term_bak);  
-        ASSERT_EQ("4.4.4.4:4000:4", peer_bak.to_string());
+        ASSERT_EQ("4.4.4.4:4000:4:0", peer_bak.to_string());
     }
     delete storage; 
 }
@@ -454,7 +454,7 @@ TEST_F(TestUsageSuits, mixed_stable_storage_downgrade) {
         st = storage->get_term_and_votedfor(&term_bak, &peer_bak, v_group_id);
         ASSERT_TRUE(st.ok());
         ASSERT_EQ(term, term_bak);  
-        ASSERT_EQ("2.2.2.2:2000:0", peer_bak.to_string());
+        ASSERT_EQ("2.2.2.2:2000:0:0", peer_bak.to_string());
     }
     {
         // _single_impl already catch up data after Mixed first load
@@ -463,7 +463,7 @@ TEST_F(TestUsageSuits, mixed_stable_storage_downgrade) {
         st = tmp->_single_impl->get_term_and_votedfor(&term_bak, &peer_bak, v_group_id);
         ASSERT_TRUE(st.ok());
         ASSERT_EQ(term, term_bak);  
-        ASSERT_EQ("2.2.2.2:2000:0", peer_bak.to_string());
+        ASSERT_EQ("2.2.2.2:2000:0:0", peer_bak.to_string());
     }
 
     // test double write 
@@ -479,14 +479,14 @@ TEST_F(TestUsageSuits, mixed_stable_storage_downgrade) {
         st = tmp->_single_impl->get_term_and_votedfor(&term_bak, &peer_bak, v_group_id);
         ASSERT_TRUE(st.ok());
         ASSERT_EQ(term, term_bak);  
-        ASSERT_EQ("3.3.3.3:3000:3", peer_bak.to_string());
+        ASSERT_EQ("3.3.3.3:3000:3:0", peer_bak.to_string());
         
         term_bak = 0;
         peer_bak.reset();
         st = tmp->_merged_impl->get_term_and_votedfor(&term_bak, &peer_bak, v_group_id);
         ASSERT_TRUE(st.ok());
         ASSERT_EQ(term, term_bak);  
-        ASSERT_EQ("3.3.3.3:3000:3", peer_bak.to_string());
+        ASSERT_EQ("3.3.3.3:3000:3:0", peer_bak.to_string());
     }
     delete storage;
 
@@ -510,7 +510,7 @@ TEST_F(TestUsageSuits, mixed_stable_storage_downgrade) {
         st = storage->get_term_and_votedfor(&term_bak, &peer_bak, v_group_id);
         ASSERT_TRUE(st.ok());
         ASSERT_EQ(term, term_bak);  
-        ASSERT_EQ("3.3.3.3:3000:3", peer_bak.to_string());
+        ASSERT_EQ("3.3.3.3:3000:3:0", peer_bak.to_string());
     }
     // test single stable storage alone 
     {
@@ -525,7 +525,7 @@ TEST_F(TestUsageSuits, mixed_stable_storage_downgrade) {
         st = storage->get_term_and_votedfor(&term_bak, &peer_bak, v_group_id);
         ASSERT_TRUE(st.ok());
         ASSERT_EQ(term, term_bak);  
-        ASSERT_EQ("4.4.4.4:4000:4", peer_bak.to_string());
+        ASSERT_EQ("4.4.4.4:4000:4:0", peer_bak.to_string());
     }
     delete storage; 
 }
