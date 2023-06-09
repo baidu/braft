@@ -242,6 +242,10 @@ bool Node::readonly() {
     return _impl->readonly();
 }
 
+bool Node::degraded() {
+    return _impl->degraded();
+}
+
 // ------------- Iterator
 void Iterator::next() {
     if (valid()) {

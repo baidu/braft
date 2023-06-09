@@ -179,6 +179,11 @@ public:
         return copier;
     }
 
+    virtual SnapshotCopier* start_to_copy_from(const SnapshotMeta& meta) {
+        return NULL;
+    }
+
+
     virtual int close(SnapshotCopier* copier) {
         delete copier;
         return 0;

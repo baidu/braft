@@ -24,6 +24,7 @@
 #include <brpc/reloadable_flags.h>         // BRPC_VALIDATE_GFLAG
 #include "braft/storage.h"                       // LogStorage
 #include "braft/fsm_caller.h"                    // FSMCaller
+#include "braft/snapshot.h"                      // VirtualSnapshotReader
 
 namespace braft {
 
@@ -965,6 +966,32 @@ butil::Status LogManager::check_consistency() {
     }
     CHECK(false) << "Can't reach here";
     return butil::Status(-1, "Impossible condition");
+}
+
+SnapshotReader* LogManager::get_virtual_snapshot() {
+    BAIDU_SCOPED_LOCK(_mutex);
+    LogId last_id;
+    if (_last_log_index >= _first_log_index) {
+        last_id = LogId(_last_log_index, unsafe_get_term(_last_log_index));
+    } else {
+        last_id = _last_snapshot_id;
+    }
+    ConfigurationEntry conf_entry;
+    _config_manager->get(last_id.index, &conf_entry);
+    SnapshotMeta meta;
+    meta.set_last_included_index(last_id.index);
+    meta.set_last_included_term(last_id.term);
+    for (Configuration::const_iterator
+            iter = conf_entry.conf.begin();
+            iter != conf_entry.conf.end(); ++iter) {
+        *meta.add_peers() = iter->to_string();
+    }
+    for (Configuration::const_iterator
+            iter = conf_entry.old_conf.begin();
+            iter != conf_entry.old_conf.end(); ++iter) {
+        *meta.add_old_peers() = iter->to_string();
+    }
+    return new VirtualSnapshotReader(meta);
 }
 
 }  //  namespace braft

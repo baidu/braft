@@ -299,6 +299,405 @@ TEST_P(NodeTest, TripleNode) {
     cluster.stop_all();
 }
 
+TEST_P(NodeTest, ArbiterBasic) {
+    std::vector<braft::PeerId> peers;
+    for (int i = 0; i < 3; i++) {
+        braft::PeerId peer;
+        peer.addr.ip = butil::my_ip();
+        peer.addr.port = 5006 + i;
+        peer.idx = 0;
+
+        peers.push_back(peer);
+    }
+
+    // 1. start cluster
+    Cluster cluster("unittest", peers);
+    // peer[0] is arbiter
+    ASSERT_EQ(0, cluster.start(peers[0].addr, false, 30, nullptr, true));
+    ASSERT_EQ(0, cluster.start(peers[1].addr));
+
+    // elect leader
+    cluster.wait_leader();
+    braft::Node* leader = cluster.leader();
+    // arbiter should not become leader
+    ASSERT_TRUE(leader->node_id().peer_id.addr == peers[1].addr);
+
+    // 2. arbiter can't vote
+    braft::Node* arbiter = cluster.find_node(peers[0]);
+    butil::Status st = arbiter->vote(0);
+    ASSERT_EQ(st.error_code(), EPERM);
+
+    // 3. transer leadership to arbiter should fail
+    leader->transfer_leadership_to(peers[0]);
+    cluster.wait_leader();
+    ASSERT_EQ(cluster.leader()->node_id().peer_id, peers[1]);
+    
+    // 4. apply something (in degraded mode)
+    bthread::CountdownEvent cond(10);
+    for (int i = 0; i < 10; i++) {
+        butil::IOBuf data;
+        char data_buf[128];
+        snprintf(data_buf, sizeof(data_buf), "hello degraded: %d", i + 1);
+        data.append(data_buf);
+
+        braft::Task task;
+        task.data = &data;
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
+        leader->apply(task);
+    }
+    cond.wait();
+    ASSERT_TRUE(leader->degraded());
+
+    // 5. stop arbiter
+    cluster.stop(peers[0].addr);
+
+    // apply should failed
+    cond.reset(10);
+    for (int i = 0; i < 10; i++) {
+        butil::IOBuf data;
+        char data_buf[128];
+        snprintf(data_buf, sizeof(data_buf), "hello failed: %d", i + 1);
+        data.append(data_buf);
+
+        braft::Task task;
+        task.data = &data;
+        task.done = NEW_APPLYCLOSURE(&cond, -1);
+        leader->apply(task);
+    }
+    cond.wait();
+
+    // 6. restart arbiter
+    ASSERT_EQ(0, cluster.start(peers[0].addr, false, 30, nullptr, true));
+    cluster.wait_leader();
+    ASSERT_EQ(cluster.leader(), leader);
+    
+    // apply something
+    cond.reset(10);
+    for (int i = 0; i < 10; i++) {
+        butil::IOBuf data;
+        char data_buf[128];
+        snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
+        data.append(data_buf);
+
+        braft::Task task;
+        task.data = &data;
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
+        leader->apply(task);
+    }
+    cond.wait();
+
+    // 7. stop cluster
+    LOG(WARNING) << "cluster stop";
+    cluster.stop_all();
+}
+
+TEST_P(NodeTest, FollowerFailWithArbiter) {
+    std::vector<braft::PeerId> peers;
+    for (int i = 0; i < 3; i++) {
+        braft::PeerId peer;
+        peer.addr.ip = butil::my_ip();
+        peer.addr.port = 5006 + i;
+        peer.idx = 0;
+
+        peers.push_back(peer);
+    }
+
+    // 1. start cluster
+    Cluster cluster("unittest", peers);
+    // peer[0] is arbiter
+    ASSERT_EQ(0, cluster.start(peers[0].addr, false, 30, nullptr, true));
+    ASSERT_EQ(0, cluster.start(peers[1].addr)); 
+    ASSERT_EQ(0, cluster.start(peers[2].addr));
+
+    // elect leader
+    cluster.wait_leader();
+    braft::Node* leader = cluster.leader();
+    ASSERT_TRUE(leader != NULL);
+    ASSERT_FALSE(leader->degraded());
+    LOG(WARNING) << "leader is " << leader->node_id();
+
+    // 2. apply something (not in degraded mode)
+    bthread::CountdownEvent cond(10);
+    for (int i = 0; i < 10; i++) {
+        butil::IOBuf data;
+        char data_buf[128];
+        snprintf(data_buf, sizeof(data_buf), "hello normal: %d", i + 1);
+        data.append(data_buf);
+
+        braft::Task task;
+        task.data = &data;
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
+        leader->apply(task);
+    }
+    cond.wait();
+    // wait apply and print some log
+    sleep(2);
+
+    // arbiter should not commit any log
+    braft::Node* arbiter = cluster.find_node(peers[0]);
+    UserLog log;
+    butil::Status stat = arbiter->read_committed_user_log(1, &log);
+    ASSERT_EQ(stat.error_code(), ENOMOREUSERLOG);
+
+    // 3. enter/exit degraded mode many times by stop follower
+    std::vector<braft::Node*> nodes;
+    cluster.followers(&nodes);
+    ASSERT_EQ(2, nodes.size());
+    butil::EndPoint follower_addr = (nodes[0]->node_id().peer_id == peers[0])? 
+                                     nodes[1]->node_id().peer_id.addr:
+                                     nodes[0]->node_id().peer_id.addr;
+
+    for (int loop = 0; loop < 3; loop++) {
+        // stop leader
+        cluster.stop(follower_addr);
+        LOG(WARNING) << "stop follower: " << follower_addr << " loop " << loop;
+
+        // apply something
+        cond.reset(10);
+        for (int i = 0; i < 10; i++) {
+            butil::IOBuf data;
+            char data_buf[128];
+            snprintf(data_buf, sizeof(data_buf), "hello degraded: %d, loop %d", i + 1, loop);
+            data.append(data_buf);
+
+            braft::Task task;
+            task.data = &data;
+            task.done = NEW_APPLYCLOSURE(&cond, 0);
+            leader->apply(task);
+        }
+        cond.wait();
+
+        ASSERT_TRUE(leader->degraded()) << " loop " << loop;
+
+        // re start the follower and wait group exit degraded mode
+        cluster.start(follower_addr);
+        ASSERT_TRUE(cluster.wait_exit_degraded_mode(leader)) << " loop " << loop;
+
+        // apply something
+        cond.reset(10);
+        for (int i = 0; i < 10; i++) {
+            butil::IOBuf data;
+            char data_buf[128];
+            snprintf(data_buf, sizeof(data_buf), "hello normal again: %d, loop %d", i + 1, loop);
+            data.append(data_buf);
+
+            braft::Task task;
+            task.data = &data;
+            task.done = NEW_APPLYCLOSURE(&cond, 0);
+            leader->apply(task);
+        }
+        cond.wait();
+    }
+
+    cluster.ensure_same();
+
+    // 4. stop cluster
+    LOG(WARNING) << "cluster stop";
+    cluster.stop_all();
+}
+
+TEST_P(NodeTest, LeaderFailWithArbiter) {
+    std::vector<braft::PeerId> peers;
+    for (int i = 0; i < 3; i++) {
+        braft::PeerId peer;
+        peer.addr.ip = butil::my_ip();
+        peer.addr.port = 5006 + i;
+        peer.idx = 0;
+
+        peers.push_back(peer);
+    }
+
+    // 1. start cluster
+    Cluster cluster("unittest", peers);
+    // peer[0] is arbiter
+    ASSERT_EQ(0, cluster.start(peers[0].addr, false, 30, nullptr, true));
+    ASSERT_EQ(0, cluster.start(peers[1].addr)); 
+    ASSERT_EQ(0, cluster.start(peers[2].addr));
+
+    // elect leader
+    cluster.wait_leader();
+    braft::Node* leader = cluster.leader();
+    ASSERT_TRUE(leader != NULL);
+    ASSERT_FALSE(leader->degraded());
+    LOG(WARNING) << "leader is " << leader->node_id();
+
+
+    // 2. apply something (not in degraded mode)
+    bthread::CountdownEvent cond(10);
+    for (int i = 0; i < 10; i++) {
+        butil::IOBuf data;
+        char data_buf[128];
+        snprintf(data_buf, sizeof(data_buf), "hello normal: %d", i + 1);
+        data.append(data_buf);
+
+        braft::Task task;
+        task.data = &data;
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
+        leader->apply(task);
+    }
+    cond.wait();
+
+    // 3. stop leader
+    butil::EndPoint old_leader = leader->node_id().peer_id.addr;
+    LOG(WARNING) << "stop leader " << leader->node_id();
+    cluster.stop(leader->node_id().peer_id.addr);
+
+    // 4. apply something when follower
+    std::vector<braft::Node*> nodes;
+    cluster.followers(&nodes);
+    cond.reset(10);
+    for (int i = 0; i < 10; i++) {
+        butil::IOBuf data;
+        char data_buf[128];
+        snprintf(data_buf, sizeof(data_buf), "follower apply: %d", i + 1);
+        data.append(data_buf);
+        braft::Task task;
+        task.data = &data;
+        task.done = NEW_APPLYCLOSURE(&cond, -1);
+        nodes[i % nodes.size()]->apply(task);
+    }
+    cond.wait();
+
+    // elect new leader
+    cluster.wait_leader();
+    leader = cluster.leader();
+    ASSERT_TRUE(leader != NULL);
+    // arbiter should not become leader
+    ASSERT_NE(leader->node_id().peer_id.addr, peers[0].addr);
+    LOG(WARNING) << "elect new leader " << leader->node_id();
+
+    // 5. apply something
+    cond.reset(10);
+    for (int i = 10; i < 20; i++) {
+        butil::IOBuf data;
+        char data_buf[128];
+        snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
+        data.append(data_buf);
+        braft::Task task;
+        task.data = &data;
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
+        leader->apply(task);
+    }
+    cond.wait();
+    ASSERT_TRUE(leader->degraded());
+
+    // 6. old leader restart
+    ASSERT_EQ(0, cluster.start(old_leader));
+    LOG(WARNING) << "restart old leader " << old_leader;
+
+    // 7. apply something
+    cond.reset(10);
+    for (int i = 20; i < 30; i++) {
+        butil::IOBuf data;
+        char data_buf[128];
+        snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
+        data.append(data_buf);
+        braft::Task task;
+        task.data = &data;
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
+        leader->apply(task);
+    }
+    cond.wait();
+
+    // 8. stop and clean old leader
+    LOG(WARNING) << "stop old leader " << old_leader;
+    cluster.stop(old_leader);
+    LOG(WARNING) << "clean old leader data " << old_leader;
+    cluster.clean(old_leader);
+
+    sleep(2);
+    // 9. restart old leader
+    ASSERT_EQ(0, cluster.start(old_leader));
+    LOG(WARNING) << "restart old leader " << old_leader;
+
+    ASSERT_TRUE(cluster.wait_exit_degraded_mode(leader));
+    cluster.ensure_same();
+
+    // 10. stop cluster
+    LOG(WARNING) << "cluster stop";
+    cluster.stop_all();
+}
+
+TEST_P(NodeTest, ChangePeersWithArbiter) {
+    std::vector<braft::PeerId> peers;
+    braft::PeerId peer0("127.0.0.1:5006");
+    braft::PeerId peer1("127.0.0.1:5007");
+    braft::PeerId peer2("127.0.0.1:5008");
+    braft::PeerId peer3("127.0.0.1:5009");
+
+    // 1. start cluster
+    peers = { peer0, peer1, peer2 };
+    Cluster cluster("unittest", peers);
+    ASSERT_EQ(0, cluster.start(peer0.addr, false, 30, nullptr, true));
+    ASSERT_EQ(0, cluster.start(peer1.addr));
+    ASSERT_EQ(0, cluster.start(peer2.addr));
+
+    cluster.wait_leader();
+    braft::Node* leader = cluster.leader();
+    ASSERT_TRUE(leader != NULL);
+    ASSERT_FALSE(leader->degraded());
+    LOG(WARNING) << "leader is " << leader->node_id();
+    
+    // 2. apply something
+    bthread::CountdownEvent cond(10);
+    for (int i = 0; i < 10; i++) {
+        butil::IOBuf data;
+        char data_buf[128];
+        snprintf(data_buf, sizeof(data_buf), "hello normal: %d", i + 1);
+        data.append(data_buf);
+        braft::Task task;
+        task.data = &data;
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
+        leader->apply(task);
+    }
+    cond.wait();
+
+    // 3. stop follower
+    std::vector<braft::Node*> nodes;
+    cluster.followers(&nodes);
+    ASSERT_EQ(2, nodes.size());
+    butil::EndPoint follower_addr = (nodes[0]->node_id().peer_id == peers[0])? 
+                                     nodes[1]->node_id().peer_id.addr:
+                                     nodes[0]->node_id().peer_id.addr;
+    cluster.stop(follower_addr);
+    LOG(WARNING) << "stop follower: " << follower_addr;
+
+    // 4. apply something
+    cond.reset(10);
+    for (int i = 0; i < 10; i++) {
+        butil::IOBuf data;
+        char data_buf[128];
+        snprintf(data_buf, sizeof(data_buf), "hello degraded: %d", i + 1);
+        data.append(data_buf);
+
+        braft::Task task;
+        task.data = &data;
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
+        leader->apply(task);
+    }
+    cond.wait();
+
+    ASSERT_TRUE(leader->degraded());
+
+    // 5. start peer3
+    ASSERT_EQ(0, cluster.start(peer3.addr));
+
+    // 6. change the stopped peer to peer3
+    peers.erase(std::remove(peers.begin(), peers.end(), braft::PeerId(follower_addr)), peers.end());
+    peers.push_back(peer3);
+    braft::SynchronizedClosure done;
+    leader->change_peers(braft::Configuration(peers), &done);
+    done.wait();
+    ASSERT_TRUE(done.status().ok());
+
+    ASSERT_TRUE(cluster.wait_exit_degraded_mode(leader));
+    cluster.ensure_same();
+
+    // 7. stop cluster
+    LOG(WARNING) << "cluster stop";
+    cluster.stop_all();
+}
+
 TEST_P(NodeTest, LeaderFail) {
     std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {

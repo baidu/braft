@@ -233,7 +233,7 @@ public:
 
     int start(const butil::EndPoint& listen_addr, bool empty_peers = false,
               int snapshot_interval_s = 30,
-              braft::Closure* leader_start_closure = NULL) {
+              braft::Closure* leader_start_closure = NULL, bool arbiter = false) {
         if (_server_map[listen_addr] == NULL) {
             brpc::Server* server = new brpc::Server();
             if (braft::add_service(server, listen_addr) != 0 
@@ -269,6 +269,8 @@ public:
         options.snapshot_throttle = &tst;
 
         options.catchup_margin = 2;
+
+        options.arbiter = arbiter;
         
         braft::Node* node = new braft::Node(_name, braft::PeerId(listen_addr, 0));
         int ret = node->init(options);
@@ -380,6 +382,18 @@ public:
         }
     }
 
+    bool wait_exit_degraded_mode(braft::Node *node) {
+        while (true) {
+            if (!node->is_leader()) {
+                return false;
+            } else if (!node->degraded()) {
+                return true;
+            } else {
+                usleep(100 * 1000);
+            }
+        }
+    }
+
     void check_node_status() {
         std::vector<braft::Node*> nodes;
         {
@@ -424,10 +438,21 @@ WAIT:
         LOG(INFO) << "_fsms.size()=" << _fsms.size();
 
         int nround = 0;
-        MockFSM* first = _fsms[0];
+        MockFSM* first = nullptr;
+        for (size_t i = 0; i < _fsms.size(); i++) {
+            if (!_nodes[i]->_impl->arbiter()) {
+                first = _fsms[i];
+            }
+        }
+        if(first == nullptr) {
+            return false;
+        }
 CHECK:
         first->lock();
-        for (size_t i = 1; i < _fsms.size(); i++) {
+        for (size_t i = 0; i < _fsms.size(); i++) {
+            if (_fsms[i] == first || _nodes[i]->_impl->arbiter()) {
+                continue;
+            }
             MockFSM* fsm = _fsms[i];
             fsm->lock();
 

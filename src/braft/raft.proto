@@ -55,6 +55,7 @@ message AppendEntriesResponse {
     required bool success = 2;
     optional int64 last_log_index = 3;
     optional bool readonly = 4;
+    optional bool arbiter = 5;
 };
 
 message SnapshotMeta {

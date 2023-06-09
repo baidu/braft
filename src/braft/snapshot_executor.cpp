@@ -522,6 +522,11 @@ int SnapshotExecutor::register_downloading_snapshot(DownloadingSnapshot* ds) {
         ds->response->set_success(true);
         return -1;
     }
+    if (ds->request->uri() != kVirtualSnapshot && _node->arbiter()) {
+        LOG(WARNING) << "Register failed: arbiter node receive non virtual snapshot.";
+        ds->cntl->SetFailed(ESNAPSHOTNOTVIRTUAL, "Arbiter node recieve non virtual snapshot");
+        return -1;
+    }
     ds->response->set_term(_term);
     if (_saving_snapshot) {
         LOG(WARNING) << "Register failed: is saving snapshot.";
@@ -534,7 +539,13 @@ int SnapshotExecutor::register_downloading_snapshot(DownloadingSnapshot* ds) {
         _downloading_snapshot.store(ds, butil::memory_order_relaxed);
         // Now this session has the right to download the snapshot.
         CHECK(!_cur_copier);
-        _cur_copier = _snapshot_storage->start_to_copy_from(ds->request->uri());
+        if (ds->request->uri() != kVirtualSnapshot) {
+            CHECK(!_node->arbiter());
+            _cur_copier = _snapshot_storage->start_to_copy_from(ds->request->uri());
+        } else {
+            CHECK(_node->arbiter());
+            _cur_copier = _snapshot_storage->start_to_copy_from(ds->request->meta());
+        }
         if (_cur_copier == NULL) {
             _downloading_snapshot.store(NULL, butil::memory_order_relaxed);
             lck.unlock();
