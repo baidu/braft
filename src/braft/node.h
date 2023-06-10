@@ -241,6 +241,10 @@ public:
 
     bool disable_cli() const { return _options.disable_cli; }
 
+    bool arbiter() const { return _options.arbiter; }
+
+    bool degraded();
+
 private:
 friend class butil::RefCountedThreadSafe<NodeImpl>;
 
@@ -304,7 +308,12 @@ friend class butil::RefCountedThreadSafe<NodeImpl>;
     static int execute_applying_tasks(
                 void* meta, bthread::TaskIterator<LogEntryAndClosure>& iter);
     void apply(LogEntryAndClosure tasks[], size_t size);
-    void check_dead_nodes(const Configuration& conf, int64_t now_ms);
+    void check_dead_nodes(const Configuration& conf, int64_t now_ms,
+                          Configuration &alive_nodes);
+    // Check degraded mode for the conf. 
+    // Return true if non-arbiter alive nodes that have caught up can't achieve majority.
+    bool check_degraded(const Configuration &conf, 
+                        const Configuration &alive_nodes);
 
     bool handle_out_of_order_append_entries(brpc::Controller* cntl,
                                             const AppendEntriesRequest* request,
@@ -325,6 +334,9 @@ friend class butil::RefCountedThreadSafe<NodeImpl>;
     struct DisruptedLeader;
     void request_peers_to_vote(const std::set<PeerId>& peers,
                                const DisruptedLeader& disrupted_leader);
+
+    void enter_degraded_mode();
+    void exit_degraded_mode();
 
 private:
 
@@ -533,6 +545,8 @@ private:
 
     LeaderLease _leader_lease;
     FollowerLease _follower_lease;
+
+    bool _degraded;
 };
 
 }

@@ -194,6 +194,7 @@ public:
     virtual int close(SnapshotReader* reader);
     virtual SnapshotReader* copy_from(const std::string& uri) WARN_UNUSED_RESULT;
     virtual SnapshotCopier* start_to_copy_from(const std::string& uri);
+    virtual SnapshotCopier* start_to_copy_from(const SnapshotMeta& meta);
     virtual int close(SnapshotCopier* copier);
     virtual int set_filter_before_copy_remote();
     virtual int set_file_system_adaptor(FileSystemAdaptor* fs);
@@ -219,6 +220,47 @@ private:
     butil::EndPoint _addr;
     scoped_refptr<FileSystemAdaptor> _fs;
     scoped_refptr<SnapshotThrottle> _snapshot_throttle;
+};
+
+constexpr const char* kVirtualSnapshot = "VirtualSnapshot";
+
+class VirtualSnapshotReader: public SnapshotReader {
+public:
+    VirtualSnapshotReader(const SnapshotMeta& meta) : _meta(meta) {};
+    virtual ~VirtualSnapshotReader() = default;
+    virtual int load_meta(SnapshotMeta* meta) {
+        *meta = _meta;
+        return 0;
+    }
+    // Get the path of the Snapshot
+    virtual std::string get_path() { return std::string(); }
+    // Generate uri for other peers to copy this snapshot.
+    // Return an empty string if some error has occcured
+    virtual std::string generate_uri_for_copy() { return kVirtualSnapshot; }
+    // List all the existing files in the Snapshot currently
+    virtual void list_files(std::vector<std::string> *files) {}
+private:
+    SnapshotMeta _meta;
+};
+
+class VirtualSnapshotCopier : public SnapshotCopier {
+friend class LocalSnapshotStorage;
+public:
+    VirtualSnapshotCopier(const SnapshotMeta& meta);
+    ~VirtualSnapshotCopier();
+    virtual void cancel() {};
+    virtual void join();
+    virtual SnapshotReader* get_reader() { return _reader; }
+private:
+    static void* start_copy(void* arg);
+    void start();
+    void copy();
+
+    bthread_t _tid;
+    SnapshotMeta _meta;
+    SnapshotReader* _reader;
+    LocalSnapshotWriter* _writer;
+    LocalSnapshotStorage* _storage;
 };
 
 }  //  namespace braft

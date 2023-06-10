@@ -149,6 +149,8 @@ public:
     // Get the internal status of LogManager.
     void get_status(LogManagerStatus* status);
 
+    SnapshotReader* get_virtual_snapshot();
+
 private:
 friend class AppendBatcher;
     struct WaitMeta {

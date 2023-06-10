@@ -298,7 +298,13 @@ void FSMCaller::do_committed(int64_t committed_index) {
             continue;
         }
         Iterator iter(&iter_impl);
-        _fsm->on_apply(iter);
+        if (!_node->arbiter()) {
+            _fsm->on_apply(iter);
+        } else {
+            while(iter.valid()) {
+                iter.next();
+            }
+        }
         LOG_IF(ERROR, iter.valid())
                 << "Node " << _node->node_id() 
                 << " Iterator is still valid, did you return before iterator "
@@ -352,8 +358,11 @@ void FSMCaller::do_snapshot_save(SaveSnapshotClosure* done) {
         done->Run();
         return;
     }
-
-    _fsm->on_snapshot_save(writer, done);
+    if (!_node->arbiter()) {
+        _fsm->on_snapshot_save(writer, done);
+    } else {
+        done->Run();
+    }
     return;
 }
 
@@ -402,7 +411,9 @@ void FSMCaller::do_snapshot_load(LoadSnapshotClosure* done) {
         return done->Run();
     }
 
-    ret = _fsm->on_snapshot_load(reader);
+    if (!_node->arbiter()) {
+        ret = _fsm->on_snapshot_load(reader);
+    }
     if (ret != 0) {
         done->status().set_error(ret, "StateMachine on_snapshot_load failed");
         done->Run();

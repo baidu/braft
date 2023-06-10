@@ -83,6 +83,8 @@ Replicator::Replicator()
     , _is_waiter_canceled(false)
     , _reader(NULL)
     , _catchup_closure(NULL)
+    , _arbiter(false)
+    , _degraded(false)
 {
     _install_snapshot_in_fly.value = 0;
     _heartbeat_in_fly.value = 0;
@@ -188,6 +190,13 @@ void Replicator::wait_for_caught_up(ReplicatorId id,
         run_closure_in_bthread(done);
         return;
     }
+    if (r->_arbiter) {
+        LOG(INFO) << "Skip wait for arbiter caught up, group" << r->_options.group_id;
+        run_closure_in_bthread(done);
+        CHECK_EQ(0, bthread_id_unlock(dummy_id))
+                << "Fail to unlock" << dummy_id;
+        return;
+    }
     done->_max_margin = max_margin;
     if (r->_has_succeeded && r->_is_catchup(max_margin)) {
         LOG(INFO) << "Already catch up before add catch up timer"
@@ -217,6 +226,17 @@ void Replicator::wait_for_caught_up(ReplicatorId id,
     return;
 }
 
+bool Replicator::is_caughtup(ReplicatorId id, int64_t max_margin) {
+    bthread_id_t dummy_id = { id };
+    Replicator* r = NULL;
+    if (bthread_id_lock(dummy_id, (void**)&r) != 0) {
+        return false;
+    }
+    bool caught_up = r->_has_succeeded && r->_is_catchup(max_margin);
+    CHECK_EQ(0, bthread_id_unlock(dummy_id)) << "Fail to unlock " << dummy_id;
+    return caught_up;
+}
+
 void* Replicator::_on_block_timedout_in_new_thread(void* arg) {
     Replicator* r = NULL;
     bthread_id_t id = { (uint64_t)arg };
@@ -242,6 +262,14 @@ void Replicator::_block(long start_time_us, int error_code) {
     // mainly for pipeline case, to avoid too many block timer when this 
     // replicator is something wrong
     if (_st.st == BLOCKING) {
+        CHECK_EQ(0, bthread_id_unlock(_id)) << "Fail to unlock " << _id;
+        return;
+    }
+
+    if (error_code == ENOTDEGRADED) {
+        LOG(INFO) << "Blocking " << _options.peer_id
+                  << ", not in degraded mode, group " << _options.group_id;
+        _st.st = BLOCKING;
         CHECK_EQ(0, bthread_id_unlock(_id)) << "Fail to unlock " << _id;
         return;
     }
@@ -333,7 +361,8 @@ void Replicator::_on_heartbeat_returned(
     }
 
     bool readonly = response->has_readonly() && response->readonly();
-    BRAFT_VLOG << ss.str() << " readonly " << readonly;
+    bool arbiter = response->has_arbiter() && response->arbiter();
+    BRAFT_VLOG << ss.str() << " readonly " << readonly << " arbiter " << arbiter;
     r->_update_last_rpc_send_timestamp(rpc_send_time);
     r->_start_heartbeat_timer(start_time_us);
     NodeImpl* node_impl = NULL;
@@ -413,6 +442,19 @@ void Replicator::_on_rpc_returned(ReplicatorId id, brpc::Controller* cntl,
         r->_reset_next_index();
         return r->_block(start_time_us, cntl->ErrorCode());
     }
+
+    // Detect arbiter node.
+    bool arbiter = response->has_arbiter() && response->arbiter();
+    if(!r->_arbiter && arbiter) {
+        LOG(INFO) << ss.str() << " detect arbiter peer";
+        r->_arbiter = arbiter;
+        r->_notify_on_caught_up(0, false);
+        // dummy_id is unlock in block
+        r->_reset_next_index();
+        r->_block(0, ENOTDEGRADED);
+        return;
+    }
+    
     r->_consecutive_error_times = 0;
     if (!response->success()) {
         if (response->term() > r->_options.term) {
@@ -628,8 +670,11 @@ int Replicator::_prepare_entry(int offset, EntryMeta* em, butil::IOBuf *data) {
     } else {
         CHECK(entry->type != ENTRY_TYPE_CONFIGURATION) << "log_index=" << log_index;
     }
-    em->set_data_len(entry->data.length());
-    data->append(entry->data);
+    // Only send user log meta to arbiter.
+    if (!_arbiter || entry->type == ENTRY_TYPE_CONFIGURATION) {
+        em->set_data_len(entry->data.length());
+        data->append(entry->data);
+    }
     entry->Release();
     return 0;
 }
@@ -777,7 +822,7 @@ void Replicator::_install_snapshot() {
         return;
     }
 
-    if (_options.snapshot_throttle && !_options.snapshot_throttle->
+    if (!_arbiter && _options.snapshot_throttle && !_options.snapshot_throttle->
                                             add_one_more_task(true)) {
         return _block(butil::gettimeofday_us(), EBUSY);
     }
@@ -786,7 +831,11 @@ void Replicator::_install_snapshot() {
     // blocked if something is wrong, such as throttled for a period of time 
     _st.st = INSTALLING_SNAPSHOT;
 
-    _reader = _options.snapshot_storage->open();
+    if (_arbiter) {
+        _reader = _options.log_manager->get_virtual_snapshot();
+    } else {
+        _reader = _options.snapshot_storage->open();
+    }
     if (!_reader) {
         if (_options.snapshot_throttle) {
             _options.snapshot_throttle->finish_one_task(true);
@@ -871,9 +920,13 @@ void Replicator::_on_install_snapshot_returned(
         return;
     }
     if (r->_reader) {
-        r->_options.snapshot_storage->close(r->_reader);
+        if (!r->_arbiter) {
+            r->_options.snapshot_storage->close(r->_reader);
+        } else {
+            delete r->_reader;
+        }
         r->_reader = NULL;
-        if (r->_options.snapshot_throttle) {
+        if (!r->_arbiter && r->_options.snapshot_throttle) {
             r->_options.snapshot_throttle->finish_one_task(true);
         }
     }
@@ -884,6 +937,21 @@ void Replicator::_on_install_snapshot_returned(
        << " last_included_term " << request->meta().last_included_term();
     do {
         if (cntl->Failed()) {
+            // Detect arbiter node.
+            bool arbiter = cntl->ErrorCode() == ESNAPSHOTNOTVIRTUAL;
+            if (!r->_arbiter && arbiter) {
+                // Arbiter reject install non virtual snapshot, this can happend if we
+                // don't know a node is arbiter and try install a normal snapshot to it
+                LOG(INFO) << ss.str() << ", error: " <<cntl->ErrorText()
+                          << ", detect arbiter peer";
+                r->_arbiter = arbiter;
+                r->_notify_on_caught_up(0, false);
+                r->_reset_next_index();
+                // dummy_id is unlock in block
+                r->_block(0, ENOTDEGRADED);
+                return;
+            }
+
             ss << " error: " << cntl->ErrorText();
             LOG(INFO) << ss.str();
 
@@ -904,6 +972,11 @@ void Replicator::_on_install_snapshot_returned(
         }
         // Success 
         r->_next_index = request->meta().last_included_index() + 1;
+        if (r->_arbiter) {
+            r->_options.ballot_box->commit_at(
+                    0, request->meta().last_included_index(),
+                    r->_options.peer_id);
+        }
         ss << " success.";
         LOG(INFO) << ss.str();
     } while (0);
@@ -1053,6 +1126,10 @@ int Replicator::stop_transfer_leadership(ReplicatorId id) {
 }
 
 int Replicator::_transfer_leadership(int64_t log_index) {
+    if (_arbiter) {
+        CHECK_EQ(0, bthread_id_unlock(_id)) << "Fail to unlock " << _id;
+        return ENODATA;
+    }
     if (_has_succeeded && _min_flying_index() > log_index) {
         // _id is unlock in _send_timeout_now
         _send_timeout_now(true, false);
@@ -1252,6 +1329,54 @@ bool Replicator::readonly(ReplicatorId id) {
     return readonly;
 }
 
+bool Replicator::arbiter(ReplicatorId id) {
+    Replicator *r = NULL;
+    bthread_id_t dummy_id = { id };
+    if (bthread_id_lock(dummy_id, (void**)&r) != 0) {
+        return false;
+    }
+    bool arbiter = r->_arbiter;
+    CHECK_EQ(0, bthread_id_unlock(dummy_id)) << "Fail to unlock " << dummy_id;
+    return arbiter;
+}
+
+int Replicator::enter_degraded_mode(ReplicatorId id) {
+    Replicator *r = NULL;
+    bthread_id_t dummy_id = { id };
+    if (bthread_id_lock(dummy_id, (void**)&r) != 0) {
+        return -1;
+    }
+    if(!r->_arbiter || r->_degraded) {
+        CHECK_EQ(0, bthread_id_unlock(dummy_id)) << "Fail to unlock " << dummy_id;
+        return -1;
+    }
+    LOG(INFO) << "node " << r->_options.group_id << ":" << r->_options.server_id
+              << " resume replicating log to arbiter peer " << r->_options.peer_id;
+    r->_degraded = true;
+    // dummy_id is unlock in _install_snapshot.
+    r->_install_snapshot();
+    return 0;
+}
+
+int Replicator::exit_degraded_mode(ReplicatorId id) {
+    Replicator *r = NULL;
+    bthread_id_t dummy_id = { id };
+    if (bthread_id_lock(dummy_id, (void**)&r) != 0) {
+        return -1;
+    }
+    if(!r->_arbiter || !r->_degraded) {
+        CHECK_EQ(0, bthread_id_unlock(dummy_id)) << "Fail to unlock " << dummy_id;
+        return -1;
+    }
+    LOG(INFO) << "node " << r->_options.group_id << ":" << r->_options.server_id
+              << " stop replicating log to arbiter peer " << r->_options.peer_id;
+    r->_degraded = false;
+    r->_reset_next_index();
+    // dummy_id is unlock in _block
+    r->_block(0, ENOTDEGRADED);
+    return 0;
+}
+
 void Replicator::_destroy() {
     bthread_id_t saved_id = _id;
     CHECK_EQ(0, bthread_id_unlock_and_destroy(saved_id));
@@ -1271,10 +1396,12 @@ void Replicator::_describe(std::ostream& os, bool use_html) {
     const int64_t append_entries_counter = _append_entries_counter;
     const int64_t install_snapshot_counter = _install_snapshot_counter;
     const int64_t readonly_index = _readonly_index;
+    const bool arbiter = _arbiter;
     CHECK_EQ(0, bthread_id_unlock(_id));
     // Don't touch *this ever after
     const char* new_line = use_html ? "<br>" : "\r\n";
     os << "replicator_" << id << '@' << peer_id << ':';
+    os << " arbiter=" << arbiter << ' ';
     os << " next_index=" << next_index << ' ';
     os << " flying_append_entries_size=" << flying_append_entries_size << ' ';
     if (readonly_index != 0) {
@@ -1337,9 +1464,13 @@ void Replicator::get_status(ReplicatorId id, PeerStatus* status) {
 
 void Replicator::_close_reader() {
     if (_reader) {
-        _options.snapshot_storage->close(_reader);
+        if(!_arbiter) {
+            _options.snapshot_storage->close(_reader);
+        } else {
+            delete _reader;
+        }
         _reader = NULL;
-        if (_options.snapshot_throttle) {
+        if (!_arbiter && _options.snapshot_throttle) {
             _options.snapshot_throttle->finish_one_task(true);
         }
     }
@@ -1412,6 +1543,15 @@ int ReplicatorGroup::wait_caughtup(const PeerId& peer,
     ReplicatorId rid = iter->second.id;
     Replicator::wait_for_caught_up(rid, max_margin, due_time, done);
     return 0;
+}
+
+bool ReplicatorGroup::is_caughtup(const PeerId& peer, int64_t max_margin) {
+    std::map<PeerId, ReplicatorIdAndStatus>::const_iterator iter = _rmap.find(peer);
+    if (iter == _rmap.end()) {
+        return false;
+    }
+    ReplicatorId rid = iter->second.id;
+    return Replicator::is_caughtup(rid, max_margin);
 }
 
 int64_t ReplicatorGroup::last_rpc_send_timestamp(const PeerId& peer) {
@@ -1525,6 +1665,9 @@ int ReplicatorGroup::find_the_next_candidate(
         if (!conf.contains(iter->first)) {
             continue;
         }
+        if (Replicator::arbiter(iter->second.id)) {
+            continue;
+        }
         const int64_t next_index = Replicator::get_next_index(iter->second.id);
         const int consecutive_error_times = Replicator::get_consecutive_error_times(iter->second.id);
         if (consecutive_error_times == 0 && next_index > max_index) {
@@ -1575,6 +1718,31 @@ bool ReplicatorGroup::readonly(const PeerId& peer) const {
     }
     ReplicatorId rid = iter->second.id;
     return Replicator::readonly(rid);
+}
+
+bool ReplicatorGroup::arbiter(const PeerId& peer) const {
+    std::map<PeerId, ReplicatorIdAndStatus>::const_iterator iter = _rmap.find(peer);
+    if (iter == _rmap.end()) {
+        return false;
+    }
+    ReplicatorId rid = iter->second.id;
+    return Replicator::arbiter(rid);
+}
+
+int ReplicatorGroup::enter_degraded_mode() {
+    for (std::map<PeerId, ReplicatorIdAndStatus>::const_iterator
+        iter = _rmap.begin();  iter != _rmap.end(); ++iter) {
+        Replicator::enter_degraded_mode(iter->second.id);
+    }
+    return 0;
+}
+
+int ReplicatorGroup::exit_degraded_mode() {
+    for (std::map<PeerId, ReplicatorIdAndStatus>::const_iterator
+        iter = _rmap.begin();  iter != _rmap.end(); ++iter) {
+        Replicator::exit_degraded_mode(iter->second.id);
+    }
+    return 0;
 }
 
 } //  namespace braft

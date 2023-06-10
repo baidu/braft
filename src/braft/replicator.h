@@ -97,6 +97,10 @@ public:
     static void wait_for_caught_up(ReplicatorId, int64_t max_margin,
                                    const timespec* due_time,
                                    CatchupClosure* done);
+    
+    // Check if the the margin between |last_log_index| from leader and the peer
+    // is less than |max_margin|.
+    static bool is_caughtup(ReplicatorId id, int64_t max_margin);
 
     // Tranfer leadership to the very peer if the replicated logs are over
     // |log_index|
@@ -127,6 +131,12 @@ public:
 
     // Check if a replicator is readonly
     static bool readonly(ReplicatorId id);
+
+    // Check if a replicator is arbiter
+    static bool arbiter(ReplicatorId id);
+
+    static int enter_degraded_mode(ReplicatorId id);
+    static int exit_degraded_mode(ReplicatorId id);
     
 private:
     enum St {
@@ -205,6 +215,9 @@ private:
     void _describe(std::ostream& os, bool use_html);
     void _get_status(PeerStatus* status);
     bool _is_catchup(int64_t max_margin) {
+        if (_arbiter) {
+            return true;
+        }
         // We should wait until install snapshot finish. If the process is throttled,
         // it maybe very slow.
         if (_next_index < _options.log_manager->first_log_index()) {
@@ -258,6 +271,8 @@ private:
     bthread_timer_t _heartbeat_timer;
     SnapshotReader* _reader;
     CatchupClosure *_catchup_closure;
+    bool _arbiter;
+    bool _degraded;
 };
 
 struct ReplicatorGroupOptions {
@@ -296,6 +311,9 @@ public:
     // wait the very peer catchup
     int wait_caughtup(const PeerId& peer, int64_t max_margin,
                       const timespec* due_time, CatchupClosure* done);
+    
+    // Check the very peer catchup
+    bool is_caughtup(const PeerId& peer, int64_t max_margin);
 
     int64_t last_rpc_send_timestamp(const PeerId& peer);
 
@@ -357,6 +375,12 @@ public:
 
     // Check if a replicator is in readonly
     bool readonly(const PeerId& peer) const;
+
+    // Check if a replicator is arbiter
+    bool arbiter(const PeerId& peer) const;
+
+    int enter_degraded_mode();
+    int exit_degraded_mode();
 
 private:
 

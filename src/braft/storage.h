@@ -336,6 +336,7 @@ public:
     // Copy snapshot from uri and open it as a SnapshotReader
     virtual SnapshotReader* copy_from(const std::string& uri) WARN_UNUSED_RESULT = 0;
     virtual SnapshotCopier* start_to_copy_from(const std::string& uri) = 0;
+    virtual SnapshotCopier* start_to_copy_from(const SnapshotMeta& meta) = 0;
     virtual int close(SnapshotCopier* copier) = 0;
 
     // Create an instance of this kind of SnapshotStorage with the parameters encoded 

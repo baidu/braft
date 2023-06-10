@@ -590,6 +590,13 @@ SnapshotCopier* LocalSnapshotStorage::start_to_copy_from(const std::string& uri)
     return copier;
 }
 
+SnapshotCopier* LocalSnapshotStorage::start_to_copy_from(const SnapshotMeta& meta) {
+    VirtualSnapshotCopier* copier = new VirtualSnapshotCopier(meta);
+    copier->_storage = this;
+    copier->start();
+    return copier;
+}
+
 int LocalSnapshotStorage::close(SnapshotCopier* copier) {
     delete copier;
     return 0;
@@ -1029,6 +1036,59 @@ void LocalSnapshotCopier::cancel() {
 
 int LocalSnapshotCopier::init(const std::string& uri) {
     return _copier.init(uri, _fs, _throttle);
+}
+
+
+// Virtual SnapshotCopier
+
+VirtualSnapshotCopier::VirtualSnapshotCopier(const SnapshotMeta& meta)
+    : _tid(INVALID_BTHREAD)
+    , _meta(meta)
+    , _reader(NULL) 
+    , _writer(NULL)
+    , _storage(NULL) {}
+
+VirtualSnapshotCopier::~VirtualSnapshotCopier() {
+    CHECK(!_writer);
+}
+
+void VirtualSnapshotCopier::join() {
+    bthread_join(_tid, NULL);
+}
+
+void VirtualSnapshotCopier::start() {
+    if (bthread_start_background(
+                &_tid, NULL, start_copy, this) != 0) {
+        PLOG(ERROR) << "Fail to start bthread";
+        copy();
+    }
+}
+
+void *VirtualSnapshotCopier::start_copy(void* arg) {
+    VirtualSnapshotCopier* c = (VirtualSnapshotCopier*)arg;
+    c->copy();
+    return NULL;
+}
+
+void VirtualSnapshotCopier::copy() {
+    _writer = (LocalSnapshotWriter *)_storage->create();
+    if (_writer == NULL) {
+        set_error(EIO, "Fail to create snapshot writer");
+        return;
+    }
+
+    _writer->save_meta(_meta);
+    if (_writer->sync() != 0) {
+        set_error(EIO, "Fail to sync snapshot writer");
+    }
+    if (_storage->close(_writer) != 0 && ok()) {
+        set_error(EIO, "Fail to close writer");
+    }
+    _writer = NULL;
+
+    if (ok()) {
+        _reader = _storage->open();
+    }
 }
 
 }  //  namespace braft

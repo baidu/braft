@@ -32,5 +32,9 @@ enum RaftError {
     ENOMOREUSERLOG = 10015;
     // Raft node in readonly mode
     EREADONLY = 10016;
+    // Raft group not in degraded mode
+    ENOTDEGRADED = 10017;
+    // Arbiter node receives non virtual snapshot
+    ESNAPSHOTNOTVIRTUAL = 10018;
 };
 

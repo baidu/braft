@@ -589,6 +589,17 @@ struct NodeOptions {
     // Default: false
     bool disable_cli;
 
+    // If true, this is an arbiter node. 
+    // Arbiter make it easier to achieve quorums but not maintain a full copy of data.
+    // Arbiter participate in leader election but are not eligible to become leader.
+    // Arbiter will not replicate any log if alive non-arbiter node can achieve quorums.
+    // Arbiter will replicate log's meta if alive non-arbiter node can't achieve quorums.
+    // Arbiter will never call following methods in StateMachine:
+    //   on_apply, on_leader_start, on_leader_stop
+    //   on_snapshot_save, on_snapshot_load, on_snapshot_purge
+    // Default: false
+    bool arbiter;
+
     // Construct a default instance
     NodeOptions();
 
@@ -610,6 +621,7 @@ inline NodeOptions::NodeOptions()
     , snapshot_file_system_adaptor(NULL)
     , snapshot_throttle(NULL)
     , disable_cli(false)
+    , arbiter(false)
 {}
 
 inline int NodeOptions::get_catchup_timeout_ms() {
@@ -774,6 +786,9 @@ public:
     //      - This node is a leader, and the count of writable nodes in the group
     //        is less than the majority.
     bool readonly();
+
+    // Return true if this is the leader, and the group is in degraded mode.
+    bool degraded();
 
 private:
     NodeImpl* _impl;
