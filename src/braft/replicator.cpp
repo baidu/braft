@@ -219,6 +219,13 @@ void Replicator::wait_for_caught_up(ReplicatorId id,
 }
 
 void* Replicator::_on_block_timedout_in_new_thread(void* arg) {
+    Replicator* r = NULL;
+    bthread_id_t id = { (uint64_t)arg };
+    if (bthread_id_lock(id, (void**)&r) != 0) {
+        return NULL;
+    }
+    r->_st.st = IDLE;
+    bthread_id_unlock(id);
     Replicator::_continue_sending(arg, ETIMEDOUT);
     return NULL;
 }
