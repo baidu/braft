@@ -147,6 +147,7 @@ class LocalSnapshotCopier : public SnapshotCopier {
 friend class LocalSnapshotStorage;
 public:
     LocalSnapshotCopier();
+    LocalSnapshotCopier(bool copy_file);
     ~LocalSnapshotCopier();
     virtual void cancel();
     virtual void join();
@@ -166,6 +167,7 @@ private:
     bthread_t _tid;
     bool _cancelled;
     bool _filter_before_copy_remote;
+    bool _copy_file = true;
     FileSystemAdaptor* _fs;
     SnapshotThrottle* _throttle;
     LocalSnapshotWriter* _writer;
@@ -204,6 +206,7 @@ public:
     
     void set_server_addr(butil::EndPoint server_addr) { _addr = server_addr; }
     bool has_server_addr() { return _addr != butil::EndPoint(); }
+    void set_copy_file(bool copy_file) { _copy_file = copy_file; }
 private:
     SnapshotWriter* create(bool from_empty) WARN_UNUSED_RESULT;
     int destroy_snapshot(const std::string& path);
@@ -217,6 +220,7 @@ private:
     int64_t _last_snapshot_index;
     std::map<int64_t, int> _ref_map;
     butil::EndPoint _addr;
+    bool _copy_file = true;
     scoped_refptr<FileSystemAdaptor> _fs;
     scoped_refptr<SnapshotThrottle> _snapshot_throttle;
 };

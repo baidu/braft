@@ -47,6 +47,7 @@ DEFINE_int32(raft_retry_replicate_interval_ms, 1000,
 BRPC_VALIDATE_GFLAG(raft_retry_replicate_interval_ms,
                     brpc::PositiveInteger);
 
+DECLARE_bool(raft_enable_witness_to_leader);
 DECLARE_int64(raft_append_entry_high_lat_us);
 DECLARE_bool(raft_trace_append_entry_latency);
 
@@ -628,8 +629,10 @@ int Replicator::_prepare_entry(int offset, EntryMeta* em, butil::IOBuf *data) {
     } else {
         CHECK(entry->type != ENTRY_TYPE_CONFIGURATION) << "log_index=" << log_index;
     }
-    em->set_data_len(entry->data.length());
-    data->append(entry->data);
+    if (!is_witness() || FLAGS_raft_enable_witness_to_leader) {
+        em->set_data_len(entry->data.length());
+        data->append(entry->data);
+    }
     entry->Release();
     return 0;
 }
@@ -765,6 +768,10 @@ void Replicator::_wait_more_entries() {
 }
 
 void Replicator::_install_snapshot() {
+     NodeImpl *node_impl = _options.node;
+    if (node_impl->is_witness()) {
+        return _block(butil::gettimeofday_us(), EBUSY);
+    }
     if (_reader) {
         // follower's readonly mode change may cause two install_snapshot
         // one possible case is: 
@@ -1527,12 +1534,13 @@ int ReplicatorGroup::find_the_next_candidate(
         }
         const int64_t next_index = Replicator::get_next_index(iter->second.id);
         const int consecutive_error_times = Replicator::get_consecutive_error_times(iter->second.id);
-        if (consecutive_error_times == 0 && next_index > max_index) {
+        if (consecutive_error_times == 0 && next_index > max_index && !iter->first.is_witness()) {
             max_index = next_index;
             if (peer_id) {
                 *peer_id = iter->first;
             }
         }
+        
     }
     if (max_index == 0) {
         return -1;

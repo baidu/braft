@@ -42,6 +42,18 @@ TEST_F(TestUsageSuits, PeerId) {
     LOG(INFO) << "id:" << id1.to_string();
     LOG(INFO) << "id:" << id1;
 
+    ASSERT_EQ(0, id1.parse("1.1.1.1:1000:0:0"));
+    LOG(INFO) << "id:" << id1.to_string();
+    LOG(INFO) << "id:" << id1;
+    ASSERT_FALSE(id1.is_witness());
+
+    ASSERT_EQ(0, id1.parse("1.1.1.1:1000:0:1"));
+    LOG(INFO) << "id:" << id1.to_string();
+    LOG(INFO) << "id:" << id1;
+    ASSERT_TRUE(id1.is_witness());
+
+    ASSERT_EQ(-1, id1.parse("1.1.1.1:1000:0:2"));
+
     ASSERT_EQ(0, id1.parse("1.1.1.1:1000"));
     LOG(INFO) << "id:" << id1.to_string();
     LOG(INFO) << "id:" << id1;
