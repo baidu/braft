@@ -939,7 +939,7 @@ void LogManager::report_error(int error_code, const char* fmt, ...) {
     va_start(ap, fmt);
     Error e;
     e.set_type(ERROR_TYPE_LOG);
-    e.status().set_error(error_code, fmt, ap);
+    e.status().set_errorv(error_code, fmt, ap);
     va_end(ap);
     _fsm_caller->on_error(e);
 }
