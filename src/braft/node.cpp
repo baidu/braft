@@ -513,7 +513,7 @@ int NodeImpl::init(const NodeOptions& options) {
             CHECK_EQ(0, _election_timer.init(this, options.election_timeout_ms * 2));
             CHECK_EQ(0, _vote_timer.init(this, options.election_timeout_ms * 2 + options.max_clock_drift_ms));
         }
-    }else {
+    } else {
         CHECK_EQ(0, _election_timer.init(this, options.election_timeout_ms));
         CHECK_EQ(0, _vote_timer.init(this, options.election_timeout_ms + options.max_clock_drift_ms));
     }

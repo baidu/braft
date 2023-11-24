@@ -589,10 +589,18 @@ struct NodeOptions {
     // Default: false
     bool disable_cli;
 
-    // if true, this node is a witness, when FLAGS_raft_enable_witness_to_leader is false,
-    // it will never be elected as leader. so we don't need to init _vote_timer and _election_timer.
-    // if FLAGS_raft_enable_witness_to_leader is true, it can be electd as leader,
-    // but should transfer leader to normal replica as soon as possible.
+    // If true, this node is a witness.
+    // 1. FLAGS_raft_enable_witness_to_leader = false
+    //     It will never be elected as leader. So we don't need to init _vote_timer and _election_timer.
+    // 2. FLAGS_raft_enable_witness_to_leader = true
+    //     It can be electd as leader, but should transfer leader to normal replica as soon as possible.
+    // 
+    // Warning: 
+    // 1. FLAGS_raft_enable_witness_to_leader = false
+    //     When leader down and witness had newer log entry, it may cause leader election fail.
+    // 2. FLAGS_raft_enable_witness_to_leader = true
+    //     When leader shutdown and witness was elected as leader, if follower delay over one snapshot,
+    //     it may cause data lost because witness had truncated log entry before snapshot.
     // Default: false
     bool witness = false;
     // Construct a default instance
