@@ -43,6 +43,7 @@
 #include <bvar/bvar.h>
 #include "braft/macros.h"
 #include "braft/raft.h"
+#include "braft/configuration.h"
 
 namespace bvar {
 namespace detail {
@@ -172,9 +173,15 @@ std::ostream& operator<<(std::ostream& os, const CounterRecorder&);
 namespace braft {
 class Closure;
 
-// for Brpc Channel Init Naming Service API
-inline const char *PROTOCOL_PREFIX = "http://";
+// for brpc channel init naming service api
 inline const char *LOAD_BALANCER_NAME = "rr";
+inline const char *HTTP_SCHEMA = "http://";
+
+// naming_service_url format: http://hostname:port
+inline void HostNameAddr2NSUrl(const HostNameAddr &hostname_addr, std::string &ns_url) {
+    ns_url.append(HTTP_SCHEMA);
+    ns_url.append(hostname_addr.to_string());
+}
 
 // http://stackoverflow.com/questions/1493936/faster-approach-to-checking-for-an-all-zero-buffer-in-c
 inline bool is_zero(const char* buff, const size_t size) {

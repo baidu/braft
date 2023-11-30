@@ -60,9 +60,8 @@ static void* sender(void* arg) {
             }
         } else {
             std::string naming_service_url;
-            naming_service_url.append(PROTOCOL_PREFIX);
-            naming_service_url.append(leader.hostname_);
-            if (channel.Init(naming_service_url.c_str(), LOAD_BALANCER_NAME, NULL) != 0) {
+            HostNameAddr2NSUrl(leader.hostname_addr, naming_service_url);
+            if (channel.Init(naming_service_url.c_str(), braft::LOAD_BALANCER_NAME, NULL) != 0) {
                 LOG(ERROR) << "Fail to init channel to " << leader;
                 bthread_usleep(FLAGS_timeout_ms * 1000L);
                 continue;
@@ -73,7 +72,7 @@ static void* sender(void* arg) {
 
         brpc::Controller cntl;
         cntl.set_timeout_ms(FLAGS_timeout_ms);
-        // Randomly select which request we want send;
+        // Randomly select which request we want to send;
         example::CounterResponse response;
 
         if (butil::fast_rand_less_than(100) < (size_t)FLAGS_add_percentage) {

@@ -39,13 +39,63 @@ enum Role {
     WITNESS = 1,
 };
 
+struct HostNameAddr {
+    HostNameAddr() : hostname(""), port(0) {}
+    explicit HostNameAddr(const std::string& hostname_, uint16_t port_) : hostname(hostname_), port(port_) {}
+
+    HostNameAddr(const HostNameAddr& rhs) = default;
+    HostNameAddr(HostNameAddr&& rhs) = default;
+    HostNameAddr& operator=(const HostNameAddr& addr) = default;
+    HostNameAddr& operator=(HostNameAddr&& addr)  noexcept {
+        if(&addr == this) {
+            return *this;
+        }
+        hostname = std::move(addr.hostname);
+        port = addr.port;
+        return *this;
+    }
+
+    void reset() {
+        hostname.clear();
+        port = 0;
+    }
+
+    std::string to_string() const;
+
+    std::string hostname;
+    uint16_t port;
+};
+
+inline bool operator<(const HostNameAddr& addr1, const HostNameAddr& addr2) {
+    return (addr1.hostname != addr2.hostname) ? (addr1.hostname < addr2.hostname) : (addr1.port < addr2.port);
+}
+
+inline bool operator==(const HostNameAddr& addr1, const HostNameAddr& addr2) {
+    return addr1.hostname == addr2.hostname && addr1.port == addr2.port;
+}
+
+inline bool operator!=(const HostNameAddr& addr1, const HostNameAddr& addr2) {
+    return !(addr1 == addr2);
+}
+
+inline std::ostream& operator<<(std::ostream& os, const HostNameAddr& addr) {
+    return os << addr.hostname << ":" << addr.port;
+}
+
+inline std::string HostNameAddr::to_string() const {
+        std::ostringstream oss;
+        oss << *this;
+        return oss.str();
+}
+
+
 // Represent a participant in a replicating group.
 // Conf like: 172-17-0-1.default.pod.cluster.local:8002:0,172-17-0-2.default.pod.cluster.local:8002:0,172-17-0-3.default.pod.cluster.local:8002:0
 struct PeerId {
     butil::EndPoint addr; // ip+port.
     int idx; // idx in same addr, default 0
     Role role = REPLICA;
-    std::string hostname_; // hostname+port, e.g. www.foo.com:8765
+    HostNameAddr hostname_addr; // hostname+port.
     enum class Type {
         EndPoint = 0,
         HostName
@@ -62,24 +112,17 @@ struct PeerId {
     }
     /*intended implicit*/PeerId(const std::string& str) 
     { CHECK_EQ(0, parse(str)); }
-    PeerId(const PeerId& id) : addr(id.addr), idx(id.idx), role(id.role), hostname_(id.hostname_), type_(id.type_) {}
-    PeerId(PeerId&& id) : addr(std::move(id.addr)), idx(std::move(id.idx)), role(std::move(id.role)), hostname_(std::move(id.hostname_)),
-                          type_(std::move(id.type_)) {}
-    
-    PeerId& operator=(const PeerId& id) {
-        addr = id.addr;
-        idx = id.idx;
-        hostname_ = id.hostname_;
-        type_ = id.type_;
-        role = id.role;
+    PeerId(const PeerId& id) = default;
+    PeerId(PeerId&& id) = default;
+    PeerId& operator=(const PeerId& id) = default;
 
-        return *this;
-    }
-
-    PeerId& operator=(PeerId&& id) {
+    PeerId& operator=(PeerId&& id)  noexcept {
+        if ( &id == this) {
+            return *this;
+        }
         addr = std::move(id.addr);
         idx = std::move(id.idx);
-        hostname_ = std::move(id.hostname_);
+        hostname_addr = std::move(id.hostname_addr);
         type_ = std::move(id.type_);
         role = std::move(id.role);
 
@@ -92,7 +135,7 @@ struct PeerId {
             addr.port = 0;
         } 
         else {
-            hostname_.clear();
+            hostname_addr.reset();
         }
         idx = 0;
         role = REPLICA;
@@ -102,7 +145,7 @@ struct PeerId {
         if (type_ == Type::EndPoint) {
             return (addr.ip == butil::IP_ANY && addr.port == 0 && idx == 0);
         } else {
-            return (hostname_.empty() && idx == 0);
+            return (hostname_addr.hostname.empty() && hostname_addr.port == 0 && idx == 0);
         }
     }
     bool is_witness() const {
@@ -124,9 +167,8 @@ struct PeerId {
         }
         if (0 != butil::str2ip(temp_str, &addr.ip)) {
             type_ = Type::HostName;
-            hostname_.append(temp_str);
-            hostname_.append(":");
-            hostname_.append(std::to_string(port));
+            hostname_addr.hostname = temp_str;
+            hostname_addr.port = port;
         } else {
             type_ = Type::EndPoint;
             addr.port = port;
@@ -139,7 +181,7 @@ struct PeerId {
         if (type_ == Type::EndPoint) {
             snprintf(str, sizeof(str), "%s:%d:%d", butil::endpoint2str(addr).c_str(), idx, int(role));
         } else {
-            snprintf(str, sizeof(str), "%s:%d:%d", hostname_.c_str(), idx, int(role));
+            snprintf(str, sizeof(str), "%s:%d:%d", hostname_addr.to_string().c_str(), idx, int(role));
         }
         return std::string(str);
     }
@@ -150,13 +192,13 @@ inline bool operator<(const PeerId& id1, const PeerId& id2) {
     if (id1.type_ != id2.type_) {
         LOG(WARNING) << "PeerId id1 and PeerId id2 do not have same type(IP Addr or Hostname).";
         if (id1.type_ == PeerId::Type::EndPoint) {
-            if (strcmp(butil::endpoint2str(id1.addr).c_str(), id2.hostname_.c_str()) < 0) {
+            if (strcmp(butil::endpoint2str(id1.addr).c_str(), id2.hostname_addr.to_string().c_str()) < 0) {
                 return true;
             } else {
                 return false;
             }
         } else {
-            if (strcmp(id1.hostname_.c_str(), butil::endpoint2str(id2.addr).c_str()) < 0) {
+            if (strcmp(id1.hostname_addr.to_string().c_str(), butil::endpoint2str(id2.addr).c_str()) < 0) {
                 return true;
             } else {
                 return false;
@@ -170,10 +212,10 @@ inline bool operator<(const PeerId& id1, const PeerId& id2) {
                 return id1.addr == id2.addr && id1.idx < id2.idx;
             }
         } else {
-            if (id1.hostname_ < id2.hostname_) {
+            if (id1.hostname_addr < id2.hostname_addr) {
                 return true;
             } else {
-                return id1.hostname_ == id2.hostname_ && id1.idx < id2.idx;
+                return id1.hostname_addr == id2.hostname_addr && id1.idx < id2.idx;
             }
         }
     }
@@ -186,7 +228,7 @@ inline bool operator==(const PeerId& id1, const PeerId& id2) {
     if (id1.type_ == PeerId::Type::EndPoint) {
         return (id1.addr == id2.addr && id1.idx == id2.idx);
     } else {
-        return (id1.hostname_ == id2.hostname_ && id1.idx == id2.idx);
+        return (id1.hostname_addr == id2.hostname_addr && id1.idx == id2.idx);
     }
 }
 
@@ -198,7 +240,7 @@ inline std::ostream& operator << (std::ostream& os, const PeerId& id) {
     if (id.type_ == PeerId::Type::EndPoint) {
         return os << id.addr << ':' << id.idx << ':' << int(id.role);
     } else {
-        return os << id.hostname_ << ':' << id.idx << ':' << int(id.role);
+        return os << id.hostname_addr << ':' << id.idx << ':' << int(id.role);
     }
 }
 

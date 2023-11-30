@@ -34,3 +34,4 @@ CTestTestfile.cmake
 
 # Github aciton
 !.github
+cmake-build-debug

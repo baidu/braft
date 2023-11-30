@@ -125,8 +125,7 @@ int Replicator::start(const ReplicatorOptions& options, ReplicatorId *id) {
         }
     } else {
         std::string naming_service_url;
-        naming_service_url.append(PROTOCOL_PREFIX);
-        naming_service_url.append(options.peer_id.hostname_);
+        HostNameAddr2NSUrl(options.peer_id.hostname_addr, naming_service_url);
         if (r->_sending_channel.Init(naming_service_url.c_str(), LOAD_BALANCER_NAME, &channel_opt) != 0) {
             LOG(ERROR) << "Fail to init sending channel"
                     << ", group " << options.group_id;

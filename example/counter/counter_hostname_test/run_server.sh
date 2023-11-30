@@ -60,6 +60,7 @@ for ((i=0; i<$FLAGS_server_num; ++i)); do
     cp ./counter_server runtime/$i
     cd runtime/$i
     ${VALGRIND} ./counter_server \
+        -node_hostname="${IP}" \
         -bthread_concurrency=${FLAGS_bthread_concurrency}\
         -crash_on_fatal_log=${FLAGS_crash_on_fatal} \
         -raft_max_segment_size=${FLAGS_max_segment_size} \

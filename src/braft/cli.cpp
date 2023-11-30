@@ -42,8 +42,7 @@ static butil::Status get_leader(const GroupId& group_id, const Configuration& co
             }
         } else {
             std::string naming_service_url;
-            naming_service_url.append(PROTOCOL_PREFIX);
-            naming_service_url.append(iter->hostname_);
+            HostNameAddr2NSUrl(iter->hostname_addr, naming_service_url);
             if (channel.Init(naming_service_url.c_str(), LOAD_BALANCER_NAME, NULL) != 0) {
                 return butil::Status(-1, "Fail to init channel to %s",
                                             iter->to_string().c_str());
@@ -90,8 +89,7 @@ butil::Status add_peer(const GroupId& group_id, const Configuration& conf,
         }
     } else {
             std::string naming_service_url;
-            naming_service_url.append(PROTOCOL_PREFIX);
-            naming_service_url.append(leader_id.hostname_);
+            HostNameAddr2NSUrl(leader_id.hostname_addr, naming_service_url);
             if (channel.Init(naming_service_url.c_str(), LOAD_BALANCER_NAME, NULL) != 0) {
             return butil::Status(-1, "Fail to init channel to %s",
                                     leader_id.to_string().c_str());
@@ -138,8 +136,7 @@ butil::Status remove_peer(const GroupId& group_id, const Configuration& conf,
         }
     } else {
         std::string naming_service_url;
-        naming_service_url.append(PROTOCOL_PREFIX);
-        naming_service_url.append(leader_id.hostname_);
+        HostNameAddr2NSUrl(leader_id.hostname_addr, naming_service_url);
         if (channel.Init(naming_service_url.c_str(), LOAD_BALANCER_NAME, NULL) != 0) {
             return butil::Status(-1, "Fail to init channel to %s",
                                     leader_id.to_string().c_str());
@@ -187,8 +184,7 @@ butil::Status reset_peer(const GroupId& group_id, const PeerId& peer_id,
         }
     } else {
         std::string naming_service_url;
-        naming_service_url.append(PROTOCOL_PREFIX);
-        naming_service_url.append(peer_id.hostname_);
+        HostNameAddr2NSUrl(peer_id.hostname_addr, naming_service_url);
         if (channel.Init(naming_service_url.c_str(), LOAD_BALANCER_NAME, NULL) != 0) {
             return butil::Status(-1, "Fail to init channel to %s",
                                     peer_id.to_string().c_str());
@@ -223,8 +219,7 @@ butil::Status snapshot(const GroupId& group_id, const PeerId& peer_id,
         }
     } else {
         std::string naming_service_url;
-        naming_service_url.append(PROTOCOL_PREFIX);
-        naming_service_url.append(peer_id.hostname_);
+        HostNameAddr2NSUrl(peer_id.hostname_addr, naming_service_url);
         if (channel.Init(naming_service_url.c_str(), LOAD_BALANCER_NAME, NULL) != 0) {
             return butil::Status(-1, "Fail to init channel to %s",
                                     peer_id.to_string().c_str());
@@ -261,8 +256,7 @@ butil::Status change_peers(const GroupId& group_id, const Configuration& conf,
         }
     } else {
         std::string naming_service_url;
-        naming_service_url.append(PROTOCOL_PREFIX);
-        naming_service_url.append(leader_id.hostname_);
+        HostNameAddr2NSUrl(leader_id.hostname_addr, naming_service_url);
         if (channel.Init(naming_service_url.c_str(), LOAD_BALANCER_NAME, NULL) != 0) {
             return butil::Status(-1, "Fail to init channel to %s",
                                     leader_id.to_string().c_str());
@@ -317,8 +311,7 @@ butil::Status transfer_leader(const GroupId& group_id, const Configuration& conf
         }
     } else {
         std::string naming_service_url;
-        naming_service_url.append(PROTOCOL_PREFIX);
-        naming_service_url.append(leader_id.hostname_);
+        HostNameAddr2NSUrl(leader_id.hostname_addr, naming_service_url);
         if (channel.Init(naming_service_url.c_str(), LOAD_BALANCER_NAME, NULL) != 0) {
             return butil::Status(-1, "Fail to init channel to %s",
                                     leader_id.to_string().c_str());

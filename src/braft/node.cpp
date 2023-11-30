@@ -1662,11 +1662,10 @@ void NodeImpl::pre_vote(std::unique_lock<raft_mutex_t>* lck, bool triggered) {
             }
         } else {
             std::string naming_service_url;
-            naming_service_url.append(PROTOCOL_PREFIX);
-            naming_service_url.append(iter->hostname_);
+            HostNameAddr2NSUrl(iter->hostname_addr, naming_service_url);
             if (channel.Init(naming_service_url.c_str(), LOAD_BALANCER_NAME, &options) != 0) {
                 LOG(WARNING) << "node " << _group_id << ":" << _server_id
-                        << " channel init failed, hostname " << iter->hostname_;
+                        << " channel init failed, hostname " << iter->hostname_addr;
                 continue;
             }
         }
@@ -1778,11 +1777,10 @@ void NodeImpl::request_peers_to_vote(const std::set<PeerId>& peers,
             }
         } else {
             std::string naming_service_url;
-            naming_service_url.append(PROTOCOL_PREFIX);
-            naming_service_url.append(iter->hostname_);
+            HostNameAddr2NSUrl(iter->hostname_addr, naming_service_url);
             if (channel.Init(naming_service_url.c_str(), LOAD_BALANCER_NAME, &options) != 0) {
                 LOG(WARNING) << "node " << _group_id << ":" << _server_id
-                            << " channel init failed, addr " << iter->hostname_;
+                            << " channel init failed, addr " << iter->hostname_addr;
                 continue;
             }
         }

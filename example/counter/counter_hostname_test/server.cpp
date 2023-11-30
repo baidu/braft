@@ -91,9 +91,7 @@ public:
         node_options.disable_cli = FLAGS_disable_cli;
         // braft::Node* node = new braft::Node(FLAGS_group, braft::PeerId(addr));
         braft::PeerId node_host(addr);
-        node_host.hostname_.append(FLAGS_node_hostname);
-        node_host.hostname_.append(":");
-        node_host.hostname_.append(std::to_string(FLAGS_port));
+        node_host.hostname_addr = braft::HostNameAddr(FLAGS_node_hostname, FLAGS_port);
         node_host.type_ = braft::PeerId::Type::HostName;
         braft::Node* node = new braft::Node(FLAGS_group, node_host);
         if (node->init(node_options) != 0) {

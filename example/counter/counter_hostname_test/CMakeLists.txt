@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 2.8.10)
 project(counter C CXX)
 
+option(BRPC_WITH_GLOG "With glog" OFF)
 option(EXAMPLE_LINK_SO "Whether examples are linked dynamically" OFF)
 option(LINK_TCMALLOC "Link tcmalloc if possible" ON)
 
@@ -17,6 +18,16 @@ include(FindProtobuf)
 if (NOT PROTOBUF_PROTOC_EXECUTABLE)
     get_filename_component(PROTO_LIB_DIR ${PROTOBUF_LIBRARY} DIRECTORY)
     set (PROTOBUF_PROTOC_EXECUTABLE "${PROTO_LIB_DIR}/../bin/protoc")
+endif()
+
+if(BRPC_WITH_GLOG)
+    message(NOTICE "counter BRPC_WITH_GLOG=ON")
+    find_path(GLOG_INCLUDE_PATH NAMES glog/logging.h)
+    find_library(GLOG_LIB NAMES glog VERSION ">=0.6.0" REQUIRE)
+    if((NOT GLOG_INCLUDE_PATH) OR (NOT GLOG_LIB))
+        message(FATAL_ERROR "Fail to find glog")
+    endif()
+    include_directories(${GLOG_INCLUDE_PATH})
 endif()
 
 protobuf_generate_cpp(PROTO_SRC PROTO_HEADER counter.proto)
@@ -112,6 +123,7 @@ add_executable(counter_server server.cpp ${PROTO_SRC} ${PROTO_HEADER})
 set(DYNAMIC_LIB
     ${CMAKE_THREAD_LIBS_INIT}
     ${GFLAGS_LIBRARY}
+    ${GLOG_LIB}
     ${PROTOBUF_LIBRARY}
     ${GPERFTOOLS_LIBRARIES}
     ${LEVELDB_LIB}

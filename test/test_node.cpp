@@ -272,8 +272,7 @@ TEST_P(NodeTest, TripleNode) {
             }
         } else {
             std::string naming_service_url;
-            naming_service_url.append(PROTOCOL_PREFIX);
-            naming_service_url.append(leader->node_id().peer_id.hostname_);
+            HostNameAddr2NSUrl(leader->node_id().peer_id.hostname_addr, naming_service_url);
             if (channel.Init(naming_service_url.c_str(), LOAD_BALANCER_NAME, &options) != 0) {
                 LOG(ERROR) << "Fail to initialize channel";
             }
@@ -717,8 +716,7 @@ TEST_P(NodeTest, Leader_step_down_during_install_snapshot) {
             }
         } else {
             std::string naming_service_url;
-            naming_service_url.append(PROTOCOL_PREFIX);
-            naming_service_url.append(leader->node_id().peer_id.hostname_);
+            HostNameAddr2NSUrl(leader->node_id().peer_id.hostname_addr, naming_service_url);
             if (channel.Init(naming_service_url.c_str(), LOAD_BALANCER_NAME, &options) != 0) {
                 LOG(ERROR) << "Fail to initialize channel";
             }

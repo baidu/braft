@@ -214,12 +214,11 @@ butil::Status refresh_leader(const GroupId& group, int timeout_ms) {
             }
         } else {
             std::string naming_service_url;
-            naming_service_url.append(PROTOCOL_PREFIX);
-            naming_service_url.append(iter->hostname_);
+            HostNameAddr2NSUrl(iter->hostname_addr, naming_service_url);
             auto [success, chan] = rtb->InitAndGetChannelTo(naming_service_url);
             if (!success) {
                 error.set_error(-1, "Fail to init HostName channel to %s",
-                              iter->hostname_.c_str());
+                              iter->hostname_addr.to_string().c_str());
                 continue;
             }
             chan_ptr = chan;
