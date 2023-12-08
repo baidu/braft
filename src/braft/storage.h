@@ -232,7 +232,9 @@ public:
     virtual int get_file_meta(const std::string& filename, 
                               ::google::protobuf::Message* file_meta) {
         (void)filename;
-        file_meta->Clear();
+        if (file_meta != NULL) {
+            file_meta->Clear();
+        }
         return 0;
     }
 };
