@@ -23,7 +23,7 @@
 #include <ostream>
 #include <vector>
 #include <set>
-#include <map>
+#include "butil/string_printf.h"
 #include <butil/strings/string_piece.h>
 #include <butil/endpoint.h>
 #include <butil/logging.h>
@@ -41,41 +41,41 @@ enum Role {
 
 // Represent a participant in a replicating group.
 struct PeerId {
-    butil::EndPoint addr; // ip+port.
-    int idx; // idx in same addr, default 0
+    std::string addr; // ip+port.
+    int idx = 0; // idx in same addr, default 0
     Role role = REPLICA;
 
     PeerId() : idx(0), role(REPLICA) {}
-    explicit PeerId(butil::EndPoint addr_) : addr(addr_), idx(0), role(REPLICA)  {}
-    PeerId(butil::EndPoint addr_, int idx_) : addr(addr_), idx(idx_), role(REPLICA) {}
-    PeerId(butil::EndPoint addr_, int idx_, bool witness) : addr(addr_), idx(idx_) {
+
+    PeerId(std::string addr_, int idx_) : addr(addr_), idx(idx_), role(REPLICA) {}
+    PeerId(std::string addr_, int idx_, bool witness) : addr(addr_), idx(idx_) {
         if (witness) {
             this->role = WITNESS;
         }    
     }
 
-    /*intended implicit*/PeerId(const std::string& str) 
-    { CHECK_EQ(0, parse(str)); }
     PeerId(const PeerId& id) : addr(id.addr), idx(id.idx), role(id.role) {}
 
     void reset() {
-        addr.ip = butil::IP_ANY;
-        addr.port = 0;
+        addr.clear();
         idx = 0;
         role = REPLICA;
     }
 
     bool is_empty() const {
-        return (addr.ip == butil::IP_ANY && addr.port == 0 && idx == 0);
+        return (addr.empty() && idx == 0);
     }
+
     bool is_witness() const {
         return role == WITNESS;
     }
+
     int parse(const std::string& str) {
         reset();
-        char ip_str[64];
+        char ip_str[1024];
+        int32_t port;
         int value = REPLICA;
-        if (2 > sscanf(str.c_str(), "%[^:]%*[:]%d%*[:]%d%*[:]%d", ip_str, &addr.port, &idx, &value)) {
+        if (2 > sscanf(str.c_str(), "%[^:]%*[:]%d%*[:]%d%*[:]%d", ip_str, &port, &idx, &value)) {
             reset();
             return -1;
         }
@@ -84,20 +84,24 @@ struct PeerId {
             reset();
             return -1;
         }
-        if (0 != butil::str2ip(ip_str, &addr.ip)) {
-            reset();
-            return -1;
-        }
+
+        addr = butil::string_printf("%s:%d", ip_str, port);
+
         return 0;
     }
 
     std::string to_string() const {
-        char str[128];
-        snprintf(str, sizeof(str), "%s:%d:%d", butil::endpoint2str(addr).c_str(), idx, int(role));
-        return std::string(str);
+        return butil::string_printf("%s:%d:%d", addr.c_str(), idx, int(role));
     }
     
     PeerId& operator=(const PeerId& rhs) = default;
+
+    static PeerId from_string(const std::string&s) {
+        PeerId p;
+        CHECK_EQ(0,p.parse(s));
+
+        return p;
+    }
 };
 
 inline bool operator<(const PeerId& id1, const PeerId& id2) {
