@@ -724,6 +724,7 @@ int Replicator::_continue_sending(void* arg, int error_code) {
         //     1. pipeline is enabled and 
         //     2. disable readonly mode triggers another replication
         if (r->_wait_id != 0) {
+            bthread_id_unlock(id);
             return 0;
         }
         
