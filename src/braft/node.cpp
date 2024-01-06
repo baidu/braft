@@ -70,6 +70,9 @@ DECLARE_bool(raft_enable_leader_lease);
 DEFINE_bool(raft_enable_witness_to_leader, false, 
             "enable witness temporarily to become leader when leader down accidently");
 
+DEFINE_bool(raft_enable_peer_not_in_conf_can_elec, false, 
+            "enable peer not in the conf can initiate elections");
+
 #ifndef UNIT_TEST
 static bvar::Adder<int64_t> g_num_nodes("raft_node_count");
 #else
@@ -1622,10 +1625,12 @@ void NodeImpl::pre_vote(std::unique_lock<raft_mutex_t>* lck, bool triggered) {
                         " configuration is possibly out of date";
         return;
     }
-    if (!_conf.contains(_server_id)) {
+    if (!FLAGS_raft_enable_peer_not_in_conf_can_elec) {
+      if (!_conf.contains(_server_id)) {
         LOG(WARNING) << "node " << _group_id << ':' << _server_id
                      << " can't do pre_vote as it is not in " << _conf.conf;
         return;
+      }
     }
 
     int64_t old_term = _current_term;
@@ -1681,10 +1686,12 @@ void NodeImpl::elect_self(std::unique_lock<raft_mutex_t>* lck,
                           bool old_leader_stepped_down) {
     LOG(INFO) << "node " << _group_id << ":" << _server_id
               << " term " << _current_term << " start vote and grant vote self";
-    if (!_conf.contains(_server_id)) {
+    if (!FLAGS_raft_enable_peer_not_in_conf_can_elec) {
+      if (!_conf.contains(_server_id)) {
         LOG(WARNING) << "node " << _group_id << ':' << _server_id
                      << " can't do elect_self as it is not in " << _conf.conf;
         return;
+      }
     }
     // cancel follower election timer
     if (_state == STATE_FOLLOWER) {
@@ -2393,6 +2400,16 @@ void NodeImpl::handle_append_entries_request(brpc::Controller* cntl,
     brpc::ClosureGuard done_guard(done);
     std::unique_lock<raft_mutex_t> lck(_mutex);
 
+    // for test
+    const int64_t reject_log_index = get_reject_log_index();
+    if (reject_log_index > 0 &&
+        request->prev_log_index() + 1 >= reject_log_index) {
+      // _last_leader_timestamp = butil::monotonic_time_ms();
+      // don't interfere check_dead_nodes
+      cntl->SetFailed(EBUSY, "handle_append_entries_request reject_log_index");
+      return;
+    }
+
     // pre set term, to avoid get term in lock
     response->set_term(_current_term);
 
@@ -2892,6 +2909,10 @@ void NodeImpl::get_status(NodeStatus* status) {
         }
         Replicator::get_status(replicators[i].second, &(it->second));
     }
+}
+
+void NodeImpl::get_log_mgr_status(LogManagerStatus* log_manager_status) {
+    _log_manager->get_status(log_manager_status);
 }
 
 void NodeImpl::stop_replicator(const std::set<PeerId>& keep,
