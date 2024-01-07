@@ -141,6 +141,8 @@ public:
     void change_peers(const Configuration& new_peers, Closure* done);
     butil::Status reset_peers(const Configuration& new_peers);
 
+    void add_learner(const PeerId& peer, Closure* done);
+
     // trigger snapshot
     void snapshot(Closure* done);
 
@@ -496,6 +498,7 @@ private:
     VoteBallotCtx _vote_ctx; // candidate vote ctx
     VoteBallotCtx _pre_vote_ctx; // prevote ctx
     ConfigurationEntry _conf;
+    Configuration _learners;
 
     GroupId _group_id;
     VersionedGroupId _v_group_id;

@@ -622,8 +622,11 @@ int NodeImpl::init(const NodeOptions& options) {
         : NULL;
     _replicator_group.init(NodeId(_group_id, _server_id), rg_options);
 
-    // set state to follower
-    _state = STATE_FOLLOWER;
+    if (options.is_learner) {
+        _state = STATE_LEARNER;
+    } else {
+        _state = STATE_FOLLOWER;
+    }
 
     LOG(INFO) << "node " << _group_id << ":" << _server_id << " init,"
               << " term: " << _current_term
@@ -916,6 +919,39 @@ void NodeImpl::remove_peer(const PeerId& peer, Closure* done) {
 void NodeImpl::change_peers(const Configuration& new_peers, Closure* done) {
     BAIDU_SCOPED_LOCK(_mutex);
     return unsafe_register_conf_change(_conf.conf, new_peers, done);
+}
+
+void NodeImpl::add_learner(const PeerId& peer, Closure* done) {
+    BAIDU_SCOPED_LOCK(_mutex);
+    if (_state != STATE_LEADER) {
+        if (done) {
+            done->status().set_error(EPERM, "Not leader");
+            run_closure_in_bthread(done);
+        }
+        return;
+    }
+    
+    // FIXME: Should we return error or just ignore it?
+    if (_learners.contains(peer)) {
+        if (done) {
+            done->status().set_error(EINVAL, "Already learner");
+            run_closure_in_bthread(done);
+        }
+        return;
+    }
+    
+    if (!_learners.add_peer(peer)) {
+        if (done) {
+            done->status().set_error(EINVAL, "Add learner failed");
+            run_closure_in_bthread(done);
+        }
+        return;
+    }
+
+    _replicator_group.add_replicator(peer, true);
+    if (done) {
+        run_closure_in_bthread(done);
+    }
 }
 
 butil::Status NodeImpl::reset_peers(const Configuration& new_peers) {

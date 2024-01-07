@@ -22,6 +22,7 @@
 #include <bthread/bthread.h>                            // bthread_id
 #include <brpc/channel.h>                  // brpc::Channel
 
+#include "braft/file_system_adaptor.h"
 #include "braft/storage.h"                       // SnapshotStorage
 #include "braft/raft.h"                          // Closure
 #include "braft/configuration.h"                 // Configuration
@@ -57,6 +58,9 @@ struct ReplicatorOptions {
     SnapshotStorage* snapshot_storage;
     SnapshotThrottle* snapshot_throttle;
     ReplicatorStatus* replicator_status;
+
+    // Learner replciator do not vote.
+    bool is_learner;
 };
 
 typedef uint64_t ReplicatorId;
@@ -294,7 +298,7 @@ public:
     // NOTE: when calling this function, the replicatos starts to work
     // immediately, annd might call node->step_down which might have race with
     // the caller, you should deal with this situation.
-    int add_replicator(const PeerId& peer);
+    int add_replicator(const PeerId& peer, bool is_learner = false);
     
     // wait the very peer catchup
     int wait_caughtup(const PeerId& peer, int64_t max_margin,

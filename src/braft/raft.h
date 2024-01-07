@@ -269,6 +269,7 @@ public:
 
 enum State {
     // Don't change the order if you are not sure about the usage.
+    STATE_LEARNER = 0,
     STATE_LEADER = 1,
     STATE_TRANSFERRING = 2,
     STATE_CANDIDATE = 3,
@@ -607,6 +608,8 @@ struct NodeOptions {
     NodeOptions();
 
     int get_catchup_timeout_ms();
+
+    bool is_learner = false;
 };
 
 inline NodeOptions::NodeOptions() 
@@ -698,6 +701,11 @@ public:
     // would be invoked after this operation finishes, describing the detailed
     // result.
     void change_peers(const Configuration& new_peers, Closure* done);
+    
+    // Add a new learner to the raft group. done->Run() would be invoked after this
+    // operation finishes, describing the detailed result.
+    // [NOTE] learner is a special peer, it will not vote and not participate in leader election.
+    void add_learner(const PeerId& peer, Closure* done);
 
     // Reset the configuration of this node individually, without any repliation
     // to other peers before this node beomes the leader. This function is
