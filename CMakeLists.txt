@@ -216,9 +216,9 @@ set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${CMAKE_CPP_FLAGS} -O2 -pipe -Wall -W -fPIC 
 
 macro(use_cxx11)
 if(CMAKE_VERSION VERSION_LESS "3.1.3")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++14")
 else()
-    set(CMAKE_CXX_STANDARD 11)
+    set(CMAKE_CXX_STANDARD 14)
     set(CMAKE_CXX_STANDARD_REQUIRED ON)
 endif()
 endmacro(use_cxx11)
