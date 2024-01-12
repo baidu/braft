@@ -46,14 +46,14 @@ int Ballot::init(const Configuration& conf, const Configuration* old_conf) {
 }
 
 Ballot::PosHint Ballot::grant(const PeerId& peer, PosHint hint) {
-    std::vector<UnfoundPeerId>::iterator iter;
+    std::vector<UnfoundPeerId>::reverse_iterator iter;
     iter = find_peer(peer, _peers, hint.pos0);
-    if (iter != _peers.end()) {
+    if (iter != _peers.rend()) {
         if (!iter->found) {
             iter->found = true;
             --_quorum;
         }
-        hint.pos0 = iter - _peers.begin();
+        hint.pos0 = iter - _peers.rbegin();
     } else {
         hint.pos0 = -1;
     }
@@ -65,12 +65,12 @@ Ballot::PosHint Ballot::grant(const PeerId& peer, PosHint hint) {
 
     iter = find_peer(peer, _old_peers, hint.pos1);
 
-    if (iter != _old_peers.end()) {
+    if (iter != _old_peers.rend()) {
         if (!iter->found) {
             iter->found = true;
             --_old_quorum;
         }
-        hint.pos1 = iter - _old_peers.begin();
+        hint.pos1 = iter - _old_peers.rbegin();
     } else {
         hint.pos1 = -1;
     }
