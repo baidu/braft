@@ -543,6 +543,7 @@ raft中有很多flags配置项，运行中可以通过http://endpoint/flags 查�
 | flags名                         | 说明                         |
 | ------------------------------ | -------------------------- |
 | raft_sync                      | 是否开启sync                   |
+| raft_sync_interval_s           | 定期执行raft_sync，与raft_sync互斥  |
 | raft_max_append_buffer_size    | log manager中内存缓存大小         |
 | raft_leader_batch              | log manager中最大batch合并      |
 | raft_max_entries_size          | AppendEntries包含entries最大数量 |
