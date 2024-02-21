@@ -436,7 +436,7 @@ int Segment::append(const LogEntry* entry) {
     return 0;
 }
 
-int Segment::sync(bool will_sync) {
+int Segment::sync(bool will_sync, bool has_conf) {
     if (_last_index < _first_index) {
         return 0;
     }
@@ -446,7 +446,8 @@ int Segment::sync(bool will_sync) {
             return 0;
         }
         if (FLAGS_raft_sync_policy == RaftSyncPolicy::RAFT_SYNC_BY_BYTES
-            && FLAGS_raft_sync_per_bytes > _unsynced_bytes) {
+            && FLAGS_raft_sync_per_bytes > _unsynced_bytes
+            && !has_conf) {
             return 0;
         }
         _unsynced_bytes = 0;
@@ -737,6 +738,7 @@ int SegmentLogStorage::append_entries(const std::vector<LogEntry*>& entries, IOM
     scoped_refptr<Segment> last_segment = NULL;
     int64_t now = 0;
     int64_t delta_time_us = 0;
+    bool has_conf = false;
     for (size_t i = 0; i < entries.size(); i++) {
         now = butil::cpuwide_time_us();
         LogEntry* entry = entries[i];
@@ -754,6 +756,9 @@ int SegmentLogStorage::append_entries(const std::vector<LogEntry*>& entries, IOM
         if (0 != ret) {
             return i;
         }
+        if (entry->type == ENTRY_TYPE_CONFIGURATION) {
+            has_conf = true;
+        }
         if (FLAGS_raft_trace_append_entry_latency && metric) {
             delta_time_us = butil::cpuwide_time_us() - now;
             metric->append_entry_time_us += delta_time_us;
@@ -763,7 +768,7 @@ int SegmentLogStorage::append_entries(const std::vector<LogEntry*>& entries, IOM
         last_segment = segment;
     }
     now = butil::cpuwide_time_us();
-    last_segment->sync(_enable_sync);
+    last_segment->sync(_enable_sync, has_conf);
     if (FLAGS_raft_trace_append_entry_latency && metric) {
         delta_time_us = butil::cpuwide_time_us() - now;
         metric->sync_segment_time_us += delta_time_us;
