@@ -354,7 +354,7 @@ int Segment::load(ConfigurationManager* configuration_manager) {
             return ret;
         // Truncate the log to the last normal index
         } else {
-          ret = 0; 
+            ret = 0;
         }
     }
 
