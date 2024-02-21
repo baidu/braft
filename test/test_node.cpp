@@ -4,11 +4,13 @@
 // Author: WangYao (fisherman), wangyao02@baidu.com
 // Date: 2015/10/08 17:00:05
 
+#include <algorithm>
 #include <gflags/gflags.h>
 #include <gtest/gtest.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <braft/sync_point.h>
 #include <butil/logging.h>
 #include <butil/files/file_path.h>
 #include <butil/file_util.h>
@@ -16,6 +18,7 @@
 #include <brpc/closure_guard.h>
 #include <bthread/bthread.h>
 #include <bthread/countdown_event.h>
+#include <vector>
 #include "../test/util.h"
 
 namespace braft {
@@ -2950,6 +2953,121 @@ TEST_P(NodeTest, change_peers_steps_down_in_joint_consensus) {
         --wait_count;
     }
     ASSERT_TRUE(!leader->_impl->_conf_ctx.is_busy());
+}
+
+// A test case used to reboot cluster between join stage and stable stage,
+// during this time the new configuration has not replicated to C_{new} peers,
+// but replicated to the peers not in C_{new} that is diff(C_{old,new},
+// C_{new}).
+TEST_P(NodeTest, change_peers_restart_cluster_before_stable_stage) {
+    // This case do the folling steps:
+    // 1. start a five nodes cluster (peer0,1,2,3,4).
+    // 2. remove 3 nodes (form {peer0,1,2,3,4} to {peer3,4}).
+    // 3. stop {peer3,4} before leader start to replicate new configuration.
+    // 4. reboot cluster, and check memebership change can be continued to
+    // complete successfuly.
+    std::vector<braft::PeerId> all_peers;
+    braft::PeerId peer0("127.0.0.1:5006");
+    braft::PeerId peer1("127.0.0.1:5007");
+    braft::PeerId peer2("127.0.0.1:5008");
+    braft::PeerId peer3("127.0.0.1:5009");
+    braft::PeerId peer4("127.0.0.1:5010");
+    all_peers = {peer0, peer1, peer2, peer3, peer4};
+
+    Cluster cluster("unittest", all_peers);
+    for (const auto &peer : all_peers) {
+        ASSERT_EQ(cluster.start(peer.addr), 0);
+    }
+    LOG(INFO) << "started five nodes cluster";
+    cluster.wait_leader();
+    braft::Node* leader = cluster.leader();
+
+    // Transfer leadership to peer0 because it not in `keep_peers`.
+    ASSERT_EQ(0, leader->transfer_leadership_to(peer0));
+    cluster.wait_leader();
+    leader = cluster.leader();
+    ASSERT_EQ(leader->leader_id(), peer0);
+
+    bthread::CountdownEvent cond(10);
+    for (int i = 0; i < 10; i++) {
+        butil::IOBuf data;
+        char data_buf[128];
+        snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
+        data.append(data_buf);
+        braft::Task task;
+        task.data = &data;
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
+        leader->apply(task);
+    }
+    cond.wait();
+
+    // Start to change peers from 5 to 2, just keep peer3 and peer4.
+    //
+    // After joint configuration (`C_old `and `C_new`) has committed
+    // and before applying stable configuration (`Cnew`), we stop peer3 and peer4,
+    // so `Cnew` can not be committed. Then restart cluster to continue membership
+    // change process.
+    std::vector<braft::PeerId> keep_peers = {peer3, peer4};
+    SyncPoint::GetInstance()->SetCallBack(
+        "NodeImpl::ConfigurationCtx:StableStage:BeforeApplyConfiguration",
+        [&cluster, &keep_peers](void *) -> void {
+          for (const auto &peer : keep_peers) {
+            ASSERT_EQ(cluster.stop(peer.addr), 0);
+          }
+        });
+    SyncPoint::GetInstance()->EnableProcessing();
+
+    braft::SynchronizedClosure done;
+    Configuration conf(keep_peers);
+    leader->change_peers(conf, &done);
+    done.wait();
+    ASSERT_EQ(EPERM, done.status().error_code());
+    // Current leader has received Cnew.
+    ASSERT_TRUE(leader->_impl->_conf.stable());
+    
+    // Restart cluster
+    cluster.stop_all();
+    SyncPoint::GetInstance()->DisableProcessing();
+
+    Cluster new_cluster("unittest", keep_peers);
+    for (const auto &peer : all_peers) {
+        ASSERT_EQ(cluster.start(peer.addr), 0);
+    }
+    LOG(INFO) << "restarted five nodes cluste";
+
+    // Waiting leader to be elected from `keep_peers` eventually.
+    int wait_count = 10;
+    while (wait_count > 0) {
+        cluster.wait_leader();
+        leader = cluster.leader();
+        if (std::find(keep_peers.begin(), keep_peers.end(),
+                      leader->leader_id()) != keep_peers.end()) {
+            break;
+        }
+        usleep(5 * 1000);
+        --wait_count;
+    }
+    ASSERT_GT(wait_count, 0);
+    cluster.check_node_status();
+    
+    // Now we can remove unused nodes safely.
+    for (const auto &peer : all_peers) {
+        if (std::find(keep_peers.begin(), keep_peers.end(), 
+        peer) == keep_peers.end()) {
+            ASSERT_EQ(cluster.stop(peer.addr), 0);
+        }
+    }
+
+    leader = cluster.leader();
+    ASSERT_TRUE(leader->_impl->_conf.stable());
+    // Check the new configuration must be the same as `keep_peers`.
+    std::vector<PeerId> new_peers;
+    leader->list_peers(&new_peers);
+    for (const auto &peer : new_peers) {
+        ASSERT_TRUE(std::find(keep_peers.begin(), keep_peers.end(), peer) !=
+                    keep_peers.end());
+    }
+    cluster.ensure_same();
 }
 
 struct ChangeArg {

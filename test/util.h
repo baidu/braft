@@ -278,9 +278,8 @@ public:
                             butil::endpoint2str(listen_addr).c_str());
         butil::string_printf(&options.snapshot_uri, "local://./data/%s/snapshot",
                             butil::endpoint2str(listen_addr).c_str());
-        
-        scoped_refptr<braft::SnapshotThrottle> tst(_throttle);
-        options.snapshot_throttle = &tst;
+
+        options.snapshot_throttle = &_throttle;
 
         options.catchup_margin = 2;
         
@@ -541,7 +540,7 @@ private:
     int32_t _election_timeout_ms;
     int32_t _max_clock_drift_ms;
     raft_mutex_t _mutex;
-    braft::SnapshotThrottle* _throttle;
+    scoped_refptr<braft::SnapshotThrottle> _throttle;
 };
 
 #endif // ~PUBLIC_RAFT_TEST_UTIL_H
