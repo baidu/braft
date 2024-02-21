@@ -1806,6 +1806,7 @@ void NodeImpl::step_down(const int64_t term, bool wakeup_a_candidate,
         _vote_ctx.reset(this);
     } else if (_state == STATE_FOLLOWER) {
         _pre_vote_ctx.reset(this);
+        _follower_lease.renew(PeerId());
     } else if (_state <= STATE_TRANSFERRING) {
         _stepdown_timer.stop();
         _ballot_box->clear_pending_tasks();
