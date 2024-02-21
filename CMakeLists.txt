@@ -62,6 +62,10 @@ if(BRPC_WITH_GLOG)
     include_directories(${GLOG_INCLUDE_PATH})
 endif()
 
+if(BRPC_WITH_THRIFT)
+    find_library(THRIFT_LIB NAMES thrift)
+endif()
+
 if(LEVELDB_WITH_SNAPPY)
     find_library(SNAPPY_LIB NAMES snappy)
 endif()
@@ -124,6 +128,12 @@ if(LEVELDB_WITH_SNAPPY)
     set(DYNAMIC_LIB ${DYNAMIC_LIB}
         ${SNAPPY_LIB}
 	)
+endif()
+
+if(BRPC_WITH_THRIFT)
+    set(DYNAMIC_LIB ${DYNAMIC_LIB}
+            ${THRIFT_LIB}
+    )
 endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
