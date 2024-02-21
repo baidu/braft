@@ -230,6 +230,10 @@ void Node::get_status(NodeStatus* status) {
     return _impl->get_status(status);
 }
 
+void Node::get_log_mgr_status(LogManagerStatus* log_manager_status) {
+  return _impl->get_log_mgr_status(log_manager_status);
+}
+
 void Node::enter_readonly_mode() {
     return _impl->enter_readonly_mode();
 }
@@ -240,6 +244,14 @@ void Node::leave_readonly_mode() {
 
 bool Node::readonly() {
     return _impl->readonly();
+}
+
+void Node::set_reject_log_index(const int64_t log_index) {
+    _impl->set_reject_log_index(log_index);
+}
+
+int64_t Node::get_reject_log_index() const {
+    return _impl->get_reject_log_index();
 }
 
 // ------------- Iterator
