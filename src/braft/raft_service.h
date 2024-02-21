@@ -23,7 +23,7 @@ namespace braft {
 
 class RaftServiceImpl : public RaftService {
 public:
-    explicit RaftServiceImpl(butil::EndPoint addr)
+    explicit RaftServiceImpl(const std::string& addr)
         : _addr(addr) {}
     ~RaftServiceImpl();
 
@@ -51,7 +51,7 @@ public:
                      ::braft::TimeoutNowResponse* response,
                      ::google::protobuf::Closure* done);
 private:
-    butil::EndPoint _addr;
+    std::string _addr;
 };
 
 }

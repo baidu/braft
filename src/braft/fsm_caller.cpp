@@ -64,7 +64,7 @@ int FSMCaller::run(void* meta, bthread::TaskIterator<ApplyTask>& iter) {
     }
     int64_t max_committed_index = -1;
     int64_t counter = 0;
-    size_t  batch_size = FLAGS_raft_fsm_caller_commit_batch;
+    int64_t  batch_size = FLAGS_raft_fsm_caller_commit_batch;
     for (; iter; ++iter) {
         if (iter->type == COMMITTED && counter < batch_size) {
             if (iter->committed_index > max_committed_index) {
@@ -417,7 +417,7 @@ void FSMCaller::do_snapshot_load(LoadSnapshotClosure* done) {
         // Joint stage is not supposed to be noticeable by end users.
         Configuration conf;
         for (int i = 0; i < meta.peers_size(); ++i) {
-            conf.add_peer(meta.peers(i));
+            conf.add_peer(PeerId::from_string(meta.peers(i)));
         }
         _fsm->on_configuration_committed(conf, meta.last_included_index());
     }

@@ -113,7 +113,7 @@ public:
 private:
     // Users shouldn't create LocalSnapshotReader Directly
     LocalSnapshotReader(const std::string& path,
-                        butil::EndPoint server_addr,
+                        const std::string& server_addr,
                         FileSystemAdaptor* fs,
                         SnapshotThrottle* snapshot_throttle);
     virtual ~LocalSnapshotReader();
@@ -121,7 +121,7 @@ private:
 
     std::string _path;
     LocalSnapshotMetaTable _meta_table;
-    butil::EndPoint _addr;
+    std::string _addr;
     int64_t _reader_id;
     scoped_refptr<FileSystemAdaptor> _fs;
     scoped_refptr<SnapshotThrottle> _snapshot_throttle;
@@ -204,8 +204,8 @@ public:
     SnapshotStorage* new_instance(const std::string& uri) const;
     butil::Status gc_instance(const std::string& uri) const;
     
-    void set_server_addr(butil::EndPoint server_addr) { _addr = server_addr; }
-    bool has_server_addr() { return _addr != butil::EndPoint(); }
+    void set_server_addr(const std::string& server_addr) { _addr = server_addr; }
+    bool has_server_addr() { return !_addr.empty(); }
     void set_copy_file(bool copy_file) { _copy_file = copy_file; }
 private:
     SnapshotWriter* create(bool from_empty) WARN_UNUSED_RESULT;
@@ -219,7 +219,7 @@ private:
     bool _filter_before_copy_remote;
     int64_t _last_snapshot_index;
     std::map<int64_t, int> _ref_map;
-    butil::EndPoint _addr;
+    std::string _addr;
     bool _copy_file = true;
     scoped_refptr<FileSystemAdaptor> _fs;
     scoped_refptr<SnapshotThrottle> _snapshot_throttle;

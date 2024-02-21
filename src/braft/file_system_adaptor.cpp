@@ -122,7 +122,7 @@ ssize_t BufferedSequentialWriteFileAdaptor::write(const butil::IOBuf& data, off_
     BRAFT_VLOG << "begin write offset " << offset << ", data_size " << data.size()
               << ", buffer_offset " << _buffer_offset 
               << ", buffer_size " << _buffer_size;
-    if (offset < _buffer_offset + _buffer_size) {
+    if (offset < _buffer_offset + static_cast<off_t>(_buffer_size)) {
         LOG(WARNING) << "Fail to write into buffered file adaptor with invalid range"
                      << ", offset: " << offset
                      << ", data_size: " << data.size()
@@ -130,7 +130,7 @@ ssize_t BufferedSequentialWriteFileAdaptor::write(const butil::IOBuf& data, off_
                      << ", buffer_size: " << _buffer_size;
         errno = EINVAL;
         return -1;
-    } else if (offset > _buffer_offset + _buffer_size) {
+    } else if (offset > _buffer_offset + static_cast<off_t>(_buffer_size)) {
         // passby hole
         CHECK(_buffer_size == 0);
         BRAFT_VLOG << "seek to new offset " << offset << " as there is hole";
