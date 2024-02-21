@@ -23,12 +23,12 @@
 namespace braft {
 
 static void add_peer_returned(brpc::Controller* cntl,
-                          const AddPeerRequest* request,
-                          AddPeerResponse* response,
-                          std::vector<PeerId> old_peers,
-                          scoped_refptr<NodeImpl> /*node*/,
-                          ::google::protobuf::Closure* done,
-                          const butil::Status& st) {
+                              const AddPeerRequest* request,
+                              AddPeerResponse* response,
+                              std::vector<PeerId> old_peers,
+                              scoped_refptr<NodeImpl> /*node*/,
+                              ::google::protobuf::Closure* done,
+                              const butil::Status& st) {
     brpc::ClosureGuard done_guard(done);
     if (!st.ok()) {
         cntl->SetFailed(st.error_code(), "%s", st.error_cstr());
@@ -81,12 +81,12 @@ void CliServiceImpl::add_peer(::google::protobuf::RpcController* controller,
 }
 
 static void remove_peer_returned(brpc::Controller* cntl,
-                          const RemovePeerRequest* request,
-                          RemovePeerResponse* response,
-                          std::vector<PeerId> old_peers,
-                          scoped_refptr<NodeImpl> /*node*/,
-                          ::google::protobuf::Closure* done,
-                          const butil::Status& st) {
+                                 const RemovePeerRequest* request,
+                                 RemovePeerResponse* response,
+                                 std::vector<PeerId> old_peers,
+                                 scoped_refptr<NodeImpl> /*node*/,
+                                 ::google::protobuf::Closure* done,
+                                 const butil::Status& st) {
     brpc::ClosureGuard done_guard(done);
     if (!st.ok()) {
         cntl->SetFailed(st.error_code(), "%s", st.error_cstr());
@@ -230,8 +230,8 @@ void CliServiceImpl::get_leader(::google::protobuf::RpcController* controller,
 }
 
 butil::Status CliServiceImpl::get_node(scoped_refptr<NodeImpl>* node,
-                                      const GroupId& group_id,
-                                      const std::string& peer_id) {
+                                       const GroupId& group_id,
+                                       const std::string& peer_id) {
     if (!peer_id.empty()) {
         *node = global_node_manager->get(group_id, peer_id);
         if (!(*node)) {
@@ -263,13 +263,13 @@ butil::Status CliServiceImpl::get_node(scoped_refptr<NodeImpl>* node,
 }
 
 static void change_peers_returned(brpc::Controller* cntl,
-                          const ChangePeersRequest* request,
-                          ChangePeersResponse* response,
-                          std::vector<PeerId> old_peers,
-                          Configuration new_peers,
-                          scoped_refptr<NodeImpl> /*node*/,
-                          ::google::protobuf::Closure* done,
-                          const butil::Status& st) {
+                                  const ChangePeersRequest* request,
+                                  ChangePeersResponse* response,
+                                  std::vector<PeerId> old_peers,
+                                  Configuration new_peers,
+                                  scoped_refptr<NodeImpl> /*node*/,
+                                  ::google::protobuf::Closure* done,
+                                  const butil::Status& st) {
     brpc::ClosureGuard done_guard(done);
     if (!st.ok()) {
         cntl->SetFailed(st.error_code(), "%s", st.error_cstr());
