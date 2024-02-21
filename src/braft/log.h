@@ -70,7 +70,7 @@ public:
     int close(bool will_sync = true);
 
     // sync open segment
-    int sync(bool will_sync);
+    int sync(bool will_sync, bool has_conf = false);
 
     // unlink segment
     int unlink();
