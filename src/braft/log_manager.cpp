@@ -46,6 +46,8 @@ static bvar::LatencyRecorder g_nomralized_append_entries_latency(
                                     "raft_storage_append_entries_normalized");
 static bvar::Adder<int64_t> g_storage_append_entries_concurrency(
                                     "raft_storage_append_entries_concurrency");
+static bvar::Adder<uint64_t> g_storage_append_entries_written_size(
+                                    "raft_storage_append_entries_written_size");
 
 static bvar::CounterRecorder g_storage_flush_batch_counter(
                                         "raft_storage_flush_batch_counter");
@@ -471,6 +473,7 @@ void LogManager::append_to_storage(std::vector<LogEntry*>* to_append,
         }
         g_storage_append_entries_latency << timer.u_elapsed();
         if (written_size) {
+            g_storage_append_entries_written_size << written_size;
             g_nomralized_append_entries_latency << timer.u_elapsed() * 1024 / written_size;
         }
     }
