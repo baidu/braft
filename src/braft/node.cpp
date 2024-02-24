@@ -1884,6 +1884,9 @@ void NodeImpl::step_down(const int64_t term, bool wakeup_a_candidate,
         }
     }
 
+    // clear all learners' address.
+    _learners.reset();
+
     // stop stagging new node
     if (wakeup_a_candidate) {
         _replicator_group.stop_all_and_find_the_next_candidate(
