@@ -184,7 +184,7 @@ friend class AppendBatcher;
 
     void unsafe_truncate_suffix(const int64_t last_index_kept);
 
-    // Clear the logs in memory whose id <= the given |id|
+    // Clear the logs in memory whose id < the given |id|
     void clear_memory_logs(const LogId& id);
 
     int64_t unsafe_get_term(const int64_t index);
