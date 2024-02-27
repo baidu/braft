@@ -132,7 +132,7 @@ void LogManager::clear_memory_logs(const LogId& id) {
             while (!_logs_in_memory.empty() 
                     && nentries < ARRAY_SIZE(entries_to_clear)) {
                 LogEntry* entry = _logs_in_memory.front();
-                if (entry->id > id) {
+                if (entry->id >= id) {
                     break;
                 }
                 entries_to_clear[nentries++] = entry;
