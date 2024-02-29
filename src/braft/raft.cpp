@@ -166,6 +166,14 @@ void Node::get_leader_lease_status(LeaderLeaseStatus* status) {
     return _impl->get_leader_lease_status(status);
 }
 
+int64_t Node::last_committed_index() {
+    return _impl->last_committed_index();
+}
+
+bool Node::can_linearizable_read(int64_t readindex) {
+    return _impl->can_linearizable_read(readindex);
+}
+
 int Node::init(const NodeOptions& options) {
     return _impl->init(options);
 }

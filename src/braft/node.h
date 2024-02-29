@@ -226,6 +226,9 @@ public:
     bool is_leader_lease_valid();
     void get_leader_lease_status(LeaderLeaseStatus* status);
 
+    int64_t last_committed_index();
+    bool can_linearizable_read(int64_t readindex);
+
     // Call on_error when some error happens, after this is called.
     // After this point:
     //  - This node is to step down immediately if it was the leader.

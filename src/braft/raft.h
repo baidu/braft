@@ -657,6 +657,13 @@ public:
     // Get leader lease status for more complex checking
     void get_leader_lease_status(LeaderLeaseStatus* status);
 
+    // Get last committed log index
+    int64_t last_committed_index();
+
+    // Return true if read would not get stale value
+    // readindex is the saved value of last_committed_index() before read
+    bool can_linearizable_read(int64_t readindex);
+
     // init node
     int init(const NodeOptions& options);
 
