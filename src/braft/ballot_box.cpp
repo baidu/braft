@@ -121,10 +121,7 @@ int BallotBox::reset_pending_index(int64_t new_pending_index) {
 int BallotBox::append_pending_task(const Configuration& conf, const Configuration* old_conf,
                                    Closure* closure) {
     Ballot bl;
-    if (bl.init(conf, old_conf) != 0) {
-        CHECK(false) << "Fail to init ballot";
-        return -1;
-    }
+    bl.init(conf, old_conf);
 
     BAIDU_SCOPED_LOCK(_mutex);
     CHECK(_pending_index > 0);
