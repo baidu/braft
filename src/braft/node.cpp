@@ -1858,7 +1858,8 @@ void NodeImpl::step_down(const int64_t term, bool wakeup_a_candidate,
     reset_leader_id(empty_id, status);
 
     // soft state in memory
-    _state = STATE_FOLLOWER;
+    _state = _state == STATE_LEARNER ? STATE_LEARNER : STATE_FOLLOWER;
+    
     // _conf_ctx.reset() will stop replicators of catching up nodes
     _conf_ctx.reset();
     _majority_nodes_readonly = false;
@@ -1939,12 +1940,12 @@ void NodeImpl::check_step_down(const int64_t request_term, const PeerId& server_
         status.set_error(ENEWLEADER, "Raft node receives message from "
                 "new leader with higher term."); 
         step_down(request_term, false, status);
-    } else if (_state != STATE_FOLLOWER) { 
+    } else if (_state != STATE_FOLLOWER && _state != STATE_LEARNER) { 
         status.set_error(ENEWLEADER, "Candidate receives message "
                 "from new leader with the same term.");
         step_down(request_term, false, status);
     } else if (_leader_id.is_empty()) {
-        status.set_error(ENEWLEADER, "Follower receives message "
+        status.set_error(ENEWLEADER, "Follower/Learner receives message "
                 "from new leader with the same term.");
         step_down(request_term, false, status); 
     }
