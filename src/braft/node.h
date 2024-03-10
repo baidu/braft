@@ -25,6 +25,7 @@
 #include <butil/iobuf.h>
 #include <bthread/execution_queue.h>
 #include <brpc/server.h>
+#include "braft/configuration.h"
 #include "braft/raft.h"
 #include "braft/log_manager.h"
 #include "braft/ballot_box.h"
@@ -141,8 +142,6 @@ public:
     void change_peers(const Configuration& new_peers, Closure* done);
     butil::Status reset_peers(const Configuration& new_peers);
 
-    void add_learner(const PeerId& peer, Closure* done);
-
     // trigger snapshot
     void snapshot(Closure* done);
 
@@ -243,6 +242,12 @@ public:
 
     bool disable_cli() const { return _options.disable_cli; }
     bool is_witness() const { return _options.witness; }
+
+    void add_learner(const PeerId& peer, Closure* done);
+
+    // Called when the learners configuration is applied to the FSMCaller
+    void on_learner_config_apply(LogEntry *entry);
+
 private:
 friend class butil::RefCountedThreadSafe<NodeImpl>;
 

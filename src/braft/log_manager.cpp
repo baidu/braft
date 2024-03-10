@@ -22,6 +22,7 @@
 #include <bthread/unstable.h>                   // bthread_flush
 #include <bthread/countdown_event.h>            // bthread::CountdownEvent
 #include <brpc/reloadable_flags.h>         // BRPC_VALIDATE_GFLAG
+#include "braft/enum.pb.h"
 #include "braft/storage.h"                       // LogStorage
 #include "braft/fsm_caller.h"                    // FSMCaller
 
@@ -276,6 +277,7 @@ int LogManager::truncate_prefix(const int64_t first_index_kept,
         _last_log_index = first_index_kept - 1;
     }
     _config_manager->truncate_prefix(first_index_kept);
+    _learner_config_manager->truncate_prefix(first_index_kept);
     TruncatePrefixClosure* c = new TruncatePrefixClosure(first_index_kept);
     const int rc = bthread::execution_queue_execute(_disk_queue, c);
     lck.unlock();
@@ -294,6 +296,8 @@ int LogManager::reset(const int64_t next_log_index,
     _last_log_index = next_log_index - 1;
     _config_manager->truncate_prefix(_first_log_index);
     _config_manager->truncate_suffix(_last_log_index);
+    _learner_config_manager->truncate_prefix(_first_log_index);
+    _learner_config_manager->truncate_suffix(_last_log_index);
     ResetClosure* c = new ResetClosure(next_log_index);
     const int ret = bthread::execution_queue_execute(_disk_queue, c);
     lck.unlock();
@@ -781,6 +785,11 @@ LogEntry* LogManager::get_entry(const int64_t index) {
 void LogManager::get_configuration(const int64_t index, ConfigurationEntry* conf) {
     BAIDU_SCOPED_LOCK(_mutex);
     return _config_manager->get(index, conf);
+}
+
+void LogManager::set_learner_configuration(const ConfigurationEntry& conf) {
+    BAIDU_SCOPED_LOCK(_mutex);
+    _learner_config_manager->add(conf);
 }
 
 bool LogManager::check_and_set_configuration(ConfigurationEntry* current) {

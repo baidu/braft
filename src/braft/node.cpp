@@ -921,39 +921,6 @@ void NodeImpl::change_peers(const Configuration& new_peers, Closure* done) {
     return unsafe_register_conf_change(_conf.conf, new_peers, done);
 }
 
-void NodeImpl::add_learner(const PeerId& peer, Closure* done) {
-    BAIDU_SCOPED_LOCK(_mutex);
-    if (_state != STATE_LEADER) {
-        if (done) {
-            done->status().set_error(EPERM, "Not leader");
-            run_closure_in_bthread(done);
-        }
-        return;
-    }
-    
-    // FIXME: Should we return error or just ignore it?
-    if (_learners.contains(peer)) {
-        if (done) {
-            done->status().set_error(EINVAL, "Already learner");
-            run_closure_in_bthread(done);
-        }
-        return;
-    }
-    
-    if (!_learners.add_peer(peer)) {
-        if (done) {
-            done->status().set_error(EINVAL, "Add learner failed");
-            run_closure_in_bthread(done);
-        }
-        return;
-    }
-
-    _replicator_group.add_replicator(peer, true);
-    if (done) {
-        run_closure_in_bthread(done);
-    }
-}
-
 butil::Status NodeImpl::reset_peers(const Configuration& new_peers) {
     BAIDU_SCOPED_LOCK(_mutex);
 
@@ -2003,6 +1970,18 @@ void NodeImpl::become_leader() {
         _replicator_group.add_replicator(*iter);
     }
 
+    std::set<PeerId> learners;
+    _learners.list_peers(&learners);
+    for (std::set<PeerId>::const_iterator
+            iter = learners.begin(); iter != learners.end(); ++iter) {
+        CHECK(*iter != _server_id);
+        _replicator_group.add_replicator(*iter, true);
+
+        BRAFT_VLOG << "node " << _group_id << ":" << _server_id
+                   << " term " << _current_term
+                   << " add learner " << *iter;
+    }
+
     // init commit manager
     _ballot_box->reset_pending_index(_log_manager->last_log_index() + 1);
 
@@ -2115,6 +2094,81 @@ void NodeImpl::apply(LogEntryAndClosure tasks[], size_t size) {
                                         _ballot_box));
     // update _conf.first
     _log_manager->check_and_set_configuration(&_conf);
+}
+
+void NodeImpl::add_learner(const PeerId& peer, Closure* done) {
+    BAIDU_SCOPED_LOCK(_mutex);
+    if (_state != STATE_LEADER) {
+        if (done) {
+            done->status().set_error(EPERM, "Not leader");
+            run_closure_in_bthread(done);
+        }
+        return;
+    }
+    
+    if (_learners.contains(peer)) {
+        if (done) {
+            done->status().set_error(EINVAL, "Already learner");
+            run_closure_in_bthread(done);
+        }
+        return;
+    }
+
+    CHECK(_conf_ctx.is_busy());
+    LogEntry* entry = new LogEntry();
+    entry->AddRef();
+    entry->id.term = _current_term;
+    entry->type = ENTRY_TYPE_ADD_LEARNER;
+    entry->peers = new std::vector<PeerId>;
+    _learners.list_peers(entry->peers);
+    entry->peers->push_back(peer);
+
+    // Use the new_conf to deal the quorum of this very log
+    _ballot_box->append_pending_task(_conf.conf, nullptr, done);
+
+    std::vector<LogEntry*> entries{entry};
+    _log_manager->append_entries(&entries,
+                                new LeaderStableClosure(
+                                        NodeId(_group_id, _server_id),
+                                        1u, _ballot_box));
+}
+
+void NodeImpl::on_learner_config_apply(LogEntry *entry) {
+    ConfigurationEntry conf_entry(*entry);
+
+    _log_manager->set_learner_configuration(conf_entry);
+
+    std::set<PeerId> cur_learners;
+    conf_entry.conf.list_peers(&cur_learners);
+    std::set<PeerId> old_learners;
+    _learners.list_peers(&old_learners);
+
+    std::set<PeerId> change;
+    std::set_difference(cur_learners.begin(), cur_learners.end(),
+                        old_learners.begin(), old_learners.end(),
+                        std::inserter(change, change.begin()));
+    if (cur_learners.size() > old_learners.size()) {
+        // add learner
+        for (auto it = change.begin(); it != change.end(); ++it) {
+            _learners.add_peer(*it);
+            _replicator_group.add_replicator(*it, true);
+            LOG(INFO) << "node " << _group_id << ":" << _server_id
+                      << " add learner " << *it;
+        }
+    } else {
+        // remove learner
+        for (auto it = change.begin(); it != change.end(); ++it) {
+            _learners.remove_peer(*it);
+            _replicator_group.stop_replicator(*it);
+            LOG(INFO) << "node " << _group_id << ":" << _server_id
+                      << " remove learner " << *it;
+        }
+    }
+
+    _learners.reset();
+    for (auto it = cur_learners.begin(); it != cur_learners.end(); ++it) {
+        _learners.add_peer(*it);
+    }
 }
 
 void NodeImpl::unsafe_apply_configuration(const Configuration& new_conf,

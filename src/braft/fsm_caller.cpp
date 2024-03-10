@@ -288,6 +288,10 @@ void FSMCaller::do_committed(int64_t committed_index) {
                             iter_impl.entry()->id.index);
                 }
             }
+            if (iter_impl.entry()->type == ENTRY_TYPE_ADD_LEARNER) {
+                _node->on_learner_config_apply(iter_impl.entry());
+                // TODO: should we notify state machine?
+            }
             // For other entries, we have nothing to do besides flush the
             // pending tasks and run this closure to notify the caller that the
             // entries before this one were successfully committed and applied.

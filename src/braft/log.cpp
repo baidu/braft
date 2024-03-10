@@ -395,6 +395,16 @@ int Segment::append(const LogEntry* entry) {
             }
         }
         break;
+    case ENTRY_TYPE_ADD_LEARNER: 
+        {
+            butil::Status status = serialize_learner_meta(entry, data);
+            if (!status.ok()) {
+                LOG(ERROR) << "Fail to serialize learner's ConfigurationPBMeta, path: " 
+                           << _path;
+                return -1; 
+            }
+        }
+        break;
     default:
         LOG(FATAL) << "unknow entry type: " << entry->type
                    << ", path: " << _path;
@@ -488,6 +498,17 @@ LogEntry* Segment::get(const int64_t index) const {
                 butil::Status status = parse_configuration_meta(data, entry); 
                 if (!status.ok()) {
                     LOG(WARNING) << "Fail to parse ConfigurationPBMeta, path: "
+                                 << _path;
+                    ok = false;
+                    break;
+                }
+            }
+            break;
+        case ENTRY_TYPE_ADD_LEARNER:
+            {
+                butil::Status status = parse_learner_meta(data, entry); 
+                if (!status.ok()) {
+                    LOG(WARNING) << "Fail to parse learner's ConfigurationPBMeta, path: "
                                  << _path;
                     ok = false;
                     break;

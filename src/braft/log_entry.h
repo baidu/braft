@@ -98,6 +98,10 @@ butil::Status parse_configuration_meta(const butil::IOBuf& data, LogEntry* entry
 
 butil::Status serialize_configuration_meta(const LogEntry* entry, butil::IOBuf& data);
 
+butil::Status parse_learner_meta(const butil::IOBuf& data, LogEntry* entry);
+
+butil::Status serialize_learner_meta(const LogEntry* entry, butil::IOBuf& data);
+
 }  //  namespace braft
 
 #endif  //BRAFT_LOG_ENTRY_H

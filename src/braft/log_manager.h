@@ -114,6 +114,8 @@ public:
 
     void get_configuration(int64_t index, ConfigurationEntry* conf);
 
+    void set_learner_configuration(const ConfigurationEntry& conf);
+
     // Check if |current| should be updated to the latest configuration
     // Returns true and |current| is assigned to the lastest configuration, returns
     // false otherweise
@@ -202,6 +204,7 @@ friend class AppendBatcher;
     // TODO(chenzhangyi01): reduce the critical section
     LogStorage* _log_storage;
     ConfigurationManager* _config_manager;
+    ConfigurationManager* _learner_config_manager;
     FSMCaller* _fsm_caller;
 
     raft_mutex_t _mutex;
