@@ -147,7 +147,7 @@ TEST_P(NodeTest, add_learner_should_work_and_can_recive_log) {
     learner.stop();
 }
 
-TEST_P(NodeTest, learner_should_not_recive_log_after_leader_change) {
+TEST_P(NodeTest, learner_should_recive_log_after_leader_change) {
     std::vector<braft::PeerId> peers;
     braft::PeerId learner_id;
     for (int i = 0; i < 3; i++) {
@@ -229,10 +229,12 @@ TEST_P(NodeTest, learner_should_not_recive_log_after_leader_change) {
     }
     cond.wait();
 
+    sleep(1);
+
     // Learner should not recive log after leader change
     leader_fsm = cluster.leader_fsm();
     ASSERT_TRUE(leader_fsm != nullptr);
-    ASSERT_FALSE(learner.ensure_same(leader_fsm));
+    ASSERT_TRUE(learner.ensure_same(leader_fsm));
     cluster.stop_all();
     learner.stop();
 }

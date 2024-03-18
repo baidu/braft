@@ -150,6 +150,7 @@ NodeImpl::NodeImpl(const GroupId& group_id, const PeerId& peer_id)
     , _meta_storage(NULL)
     , _closure_queue(NULL)
     , _config_manager(NULL)
+    , _learner_config_manager(NULL)
     , _log_manager(NULL)
     , _fsm_caller(NULL)
     , _ballot_box(NULL)
@@ -176,6 +177,7 @@ NodeImpl::NodeImpl()
     , _meta_storage(NULL)
     , _closure_queue(NULL)
     , _config_manager(NULL)
+    , _learner_config_manager(NULL)
     , _log_manager(NULL)
     , _fsm_caller(NULL)
     , _ballot_box(NULL)
@@ -203,6 +205,10 @@ NodeImpl::~NodeImpl() {
     if (_config_manager) {
         delete _config_manager;
         _config_manager = NULL;
+    }
+    if (_learner_config_manager) {
+        delete _learner_config_manager;
+        _learner_config_manager = NULL;
     }
     if (_log_manager) {
         delete _log_manager;
@@ -286,6 +292,7 @@ int NodeImpl::init_log_storage() {
     LogManagerOptions log_manager_options;
     log_manager_options.log_storage = _log_storage;
     log_manager_options.configuration_manager = _config_manager;
+    log_manager_options.learner_configuration_manager = _learner_config_manager;
     log_manager_options.fsm_caller = _fsm_caller;
     return _log_manager->init(log_manager_options);
 }
@@ -419,6 +426,7 @@ int NodeImpl::bootstrap(const BootstrapOptions& options) {
     _options.raft_meta_uri = options.raft_meta_uri;
     _options.snapshot_uri = options.snapshot_uri;
     _config_manager = new ConfigurationManager();
+    _learner_config_manager = new ConfigurationManager();
 
     // Create _fsm_caller first as log_manager needs it to report error
     _fsm_caller = new FSMCaller();
@@ -521,6 +529,7 @@ int NodeImpl::init(const NodeOptions& options) {
     CHECK_EQ(0, _snapshot_timer.init(this, options.snapshot_interval_s * 1000));
 
     _config_manager = new ConfigurationManager();
+    _learner_config_manager = new ConfigurationManager();
 
     if (bthread::execution_queue_start(&_apply_queue_id, NULL,
                                        execute_applying_tasks, this) != 0) {
@@ -1852,9 +1861,6 @@ void NodeImpl::step_down(const int64_t term, bool wakeup_a_candidate,
         }
     }
 
-    // clear all learners' address.
-    _learners.reset();
-
     // stop stagging new node
     if (wakeup_a_candidate) {
         _replicator_group.stop_all_and_find_the_next_candidate(
@@ -1974,7 +1980,7 @@ void NodeImpl::become_leader() {
     _learners.list_peers(&learners);
     for (std::set<PeerId>::const_iterator
             iter = learners.begin(); iter != learners.end(); ++iter) {
-        CHECK(*iter != _server_id);
+        CHECK_NE(*iter, _server_id);
         _replicator_group.add_replicator(*iter, true);
 
         BRAFT_VLOG << "node " << _group_id << ":" << _server_id
@@ -2114,7 +2120,6 @@ void NodeImpl::add_learner(const PeerId& peer, Closure* done) {
         return;
     }
 
-    CHECK(_conf_ctx.is_busy());
     LogEntry* entry = new LogEntry();
     entry->AddRef();
     entry->id.term = _current_term;
@@ -2134,6 +2139,7 @@ void NodeImpl::add_learner(const PeerId& peer, Closure* done) {
 }
 
 void NodeImpl::on_learner_config_apply(LogEntry *entry) {
+    BAIDU_SCOPED_LOCK(_mutex);
     ConfigurationEntry conf_entry(*entry);
 
     _log_manager->set_learner_configuration(conf_entry);
@@ -2147,22 +2153,25 @@ void NodeImpl::on_learner_config_apply(LogEntry *entry) {
     std::set_difference(cur_learners.begin(), cur_learners.end(),
                         old_learners.begin(), old_learners.end(),
                         std::inserter(change, change.begin()));
-    if (cur_learners.size() > old_learners.size()) {
+
+    if (_state == STATE_LEADER) {
+      if (cur_learners.size() > old_learners.size()) {
         // add learner
         for (auto it = change.begin(); it != change.end(); ++it) {
-            _learners.add_peer(*it);
-            _replicator_group.add_replicator(*it, true);
-            LOG(INFO) << "node " << _group_id << ":" << _server_id
-                      << " add learner " << *it;
+          _learners.add_peer(*it);
+          _replicator_group.add_replicator(*it, true);
+          LOG(INFO) << "node " << _group_id << ":" << _server_id
+                    << " add learner " << *it;
         }
-    } else {
+      } else {
         // remove learner
         for (auto it = change.begin(); it != change.end(); ++it) {
-            _learners.remove_peer(*it);
-            _replicator_group.stop_replicator(*it);
-            LOG(INFO) << "node " << _group_id << ":" << _server_id
-                      << " remove learner " << *it;
+          _learners.remove_peer(*it);
+          _replicator_group.stop_replicator(*it);
+          LOG(INFO) << "node " << _group_id << ":" << _server_id
+                    << " remove learner " << *it;
         }
+      }
     }
 
     _learners.reset();
@@ -2635,7 +2644,6 @@ void NodeImpl::handle_append_entries_request(brpc::Controller* cntl,
                 for (int i = 0; i < entry.peers_size(); i++) {
                     log_entry->peers->push_back(entry.peers(i));
                 }
-                CHECK_EQ(log_entry->type, ENTRY_TYPE_CONFIGURATION);
                 if (entry.old_peers_size() > 0) {
                     log_entry->old_peers = new std::vector<PeerId>;
                     for (int i = 0; i < entry.old_peers_size(); i++) {

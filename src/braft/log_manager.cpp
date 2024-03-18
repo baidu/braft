@@ -22,6 +22,7 @@
 #include <bthread/unstable.h>                   // bthread_flush
 #include <bthread/countdown_event.h>            // bthread::CountdownEvent
 #include <brpc/reloadable_flags.h>         // BRPC_VALIDATE_GFLAG
+#include <cstddef>
 #include "braft/enum.pb.h"
 #include "braft/storage.h"                       // LogStorage
 #include "braft/fsm_caller.h"                    // FSMCaller
@@ -72,6 +73,7 @@ LogManager::LogManager()
     , _next_wait_id(0)
     , _first_log_index(0)
     , _last_log_index(0)
+    , _learner_config_manager(NULL)
 {
     CHECK_EQ(0, start_disk_thread());
 }
@@ -87,6 +89,7 @@ int LogManager::init(const LogManagerOptions &options) {
     }
     _log_storage = options.log_storage;
     _config_manager = options.configuration_manager;
+    _learner_config_manager = options.learner_configuration_manager;
     int ret = _log_storage->init(_config_manager);
     if (ret != 0) {
         return ret;

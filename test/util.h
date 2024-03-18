@@ -584,8 +584,8 @@ public:
                             butil::endpoint2str(_peer_id.addr).c_str());
         butil::string_printf(&options.snapshot_uri, "local://./data/%s/snapshot",
                             butil::endpoint2str(_peer_id.addr).c_str());
-        std::vector<PeerId> dummy{_peer_id};
-        options.initial_conf = braft::Configuration(dummy);
+        // std::vector<PeerId> dummy{_peer_id};
+        options.initial_conf = braft::Configuration();
         options.catchup_margin = 2;
         options.snapshot_interval_s = 30;
         options.is_learner = true;

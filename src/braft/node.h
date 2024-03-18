@@ -516,6 +516,7 @@ private:
     RaftMetaStorage* _meta_storage;
     ClosureQueue* _closure_queue;
     ConfigurationManager* _config_manager;
+    ConfigurationManager* _learner_config_manager;
     LogManager* _log_manager;
     FSMCaller* _fsm_caller;
     BallotBox* _ballot_box;
