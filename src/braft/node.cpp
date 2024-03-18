@@ -150,7 +150,6 @@ NodeImpl::NodeImpl(const GroupId& group_id, const PeerId& peer_id)
     , _meta_storage(NULL)
     , _closure_queue(NULL)
     , _config_manager(NULL)
-    , _learner_config_manager(NULL)
     , _log_manager(NULL)
     , _fsm_caller(NULL)
     , _ballot_box(NULL)
@@ -177,7 +176,6 @@ NodeImpl::NodeImpl()
     , _meta_storage(NULL)
     , _closure_queue(NULL)
     , _config_manager(NULL)
-    , _learner_config_manager(NULL)
     , _log_manager(NULL)
     , _fsm_caller(NULL)
     , _ballot_box(NULL)
@@ -205,10 +203,6 @@ NodeImpl::~NodeImpl() {
     if (_config_manager) {
         delete _config_manager;
         _config_manager = NULL;
-    }
-    if (_learner_config_manager) {
-        delete _learner_config_manager;
-        _learner_config_manager = NULL;
     }
     if (_log_manager) {
         delete _log_manager;
@@ -292,7 +286,6 @@ int NodeImpl::init_log_storage() {
     LogManagerOptions log_manager_options;
     log_manager_options.log_storage = _log_storage;
     log_manager_options.configuration_manager = _config_manager;
-    log_manager_options.learner_configuration_manager = _learner_config_manager;
     log_manager_options.fsm_caller = _fsm_caller;
     return _log_manager->init(log_manager_options);
 }
@@ -426,7 +419,6 @@ int NodeImpl::bootstrap(const BootstrapOptions& options) {
     _options.raft_meta_uri = options.raft_meta_uri;
     _options.snapshot_uri = options.snapshot_uri;
     _config_manager = new ConfigurationManager();
-    _learner_config_manager = new ConfigurationManager();
 
     // Create _fsm_caller first as log_manager needs it to report error
     _fsm_caller = new FSMCaller();
@@ -529,7 +521,6 @@ int NodeImpl::init(const NodeOptions& options) {
     CHECK_EQ(0, _snapshot_timer.init(this, options.snapshot_interval_s * 1000));
 
     _config_manager = new ConfigurationManager();
-    _learner_config_manager = new ConfigurationManager();
 
     if (bthread::execution_queue_start(&_apply_queue_id, NULL,
                                        execute_applying_tasks, this) != 0) {
@@ -1834,8 +1825,10 @@ void NodeImpl::step_down(const int64_t term, bool wakeup_a_candidate,
     reset_leader_id(empty_id, status);
 
     // soft state in memory
-    _state = _state == STATE_LEARNER ? STATE_LEARNER : STATE_FOLLOWER;
-    
+    if (_state != STATE_LEARNER) {
+      _state = STATE_FOLLOWER;
+    }
+
     // _conf_ctx.reset() will stop replicators of catching up nodes
     _conf_ctx.reset();
     _majority_nodes_readonly = false;
@@ -1977,7 +1970,7 @@ void NodeImpl::become_leader() {
     }
 
     std::set<PeerId> learners;
-    _learners.list_peers(&learners);
+    _learner_conf.conf.list_peers(&learners);
     for (std::set<PeerId>::const_iterator
             iter = learners.begin(); iter != learners.end(); ++iter) {
         CHECK_NE(*iter, _server_id);
@@ -2112,7 +2105,7 @@ void NodeImpl::add_learner(const PeerId& peer, Closure* done) {
         return;
     }
     
-    if (_learners.contains(peer)) {
+    if (_learner_conf.conf.contains(peer)) {
         if (done) {
             done->status().set_error(EINVAL, "Already learner");
             run_closure_in_bthread(done);
@@ -2125,7 +2118,7 @@ void NodeImpl::add_learner(const PeerId& peer, Closure* done) {
     entry->id.term = _current_term;
     entry->type = ENTRY_TYPE_ADD_LEARNER;
     entry->peers = new std::vector<PeerId>;
-    _learners.list_peers(entry->peers);
+    _learner_conf.conf.list_peers(entry->peers);
     entry->peers->push_back(peer);
 
     // Use the new_conf to deal the quorum of this very log
@@ -2147,7 +2140,7 @@ void NodeImpl::on_learner_config_apply(LogEntry *entry) {
     std::set<PeerId> cur_learners;
     conf_entry.conf.list_peers(&cur_learners);
     std::set<PeerId> old_learners;
-    _learners.list_peers(&old_learners);
+    _learner_conf.conf.list_peers(&old_learners);
 
     std::set<PeerId> change;
     std::set_difference(cur_learners.begin(), cur_learners.end(),
@@ -2158,7 +2151,7 @@ void NodeImpl::on_learner_config_apply(LogEntry *entry) {
       if (cur_learners.size() > old_learners.size()) {
         // add learner
         for (auto it = change.begin(); it != change.end(); ++it) {
-          _learners.add_peer(*it);
+          _learner_conf.conf.add_peer(*it);
           _replicator_group.add_replicator(*it, true);
           LOG(INFO) << "node " << _group_id << ":" << _server_id
                     << " add learner " << *it;
@@ -2166,7 +2159,7 @@ void NodeImpl::on_learner_config_apply(LogEntry *entry) {
       } else {
         // remove learner
         for (auto it = change.begin(); it != change.end(); ++it) {
-          _learners.remove_peer(*it);
+          _learner_conf.conf.remove_peer(*it);
           _replicator_group.stop_replicator(*it);
           LOG(INFO) << "node " << _group_id << ":" << _server_id
                     << " remove learner " << *it;
@@ -2174,9 +2167,9 @@ void NodeImpl::on_learner_config_apply(LogEntry *entry) {
       }
     }
 
-    _learners.reset();
+    _learner_conf.conf.reset();
     for (auto it = cur_learners.begin(); it != cur_learners.end(); ++it) {
-        _learners.add_peer(*it);
+        _learner_conf.conf.add_peer(*it);
     }
 }
 

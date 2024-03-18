@@ -73,7 +73,6 @@ LogManager::LogManager()
     , _next_wait_id(0)
     , _first_log_index(0)
     , _last_log_index(0)
-    , _learner_config_manager(NULL)
 {
     CHECK_EQ(0, start_disk_thread());
 }
@@ -89,7 +88,6 @@ int LogManager::init(const LogManagerOptions &options) {
     }
     _log_storage = options.log_storage;
     _config_manager = options.configuration_manager;
-    _learner_config_manager = options.learner_configuration_manager;
     int ret = _log_storage->init(_config_manager);
     if (ret != 0) {
         return ret;
@@ -280,7 +278,6 @@ int LogManager::truncate_prefix(const int64_t first_index_kept,
         _last_log_index = first_index_kept - 1;
     }
     _config_manager->truncate_prefix(first_index_kept);
-    _learner_config_manager->truncate_prefix(first_index_kept);
     TruncatePrefixClosure* c = new TruncatePrefixClosure(first_index_kept);
     const int rc = bthread::execution_queue_execute(_disk_queue, c);
     lck.unlock();
@@ -299,8 +296,6 @@ int LogManager::reset(const int64_t next_log_index,
     _last_log_index = next_log_index - 1;
     _config_manager->truncate_prefix(_first_log_index);
     _config_manager->truncate_suffix(_last_log_index);
-    _learner_config_manager->truncate_prefix(_first_log_index);
-    _learner_config_manager->truncate_suffix(_last_log_index);
     ResetClosure* c = new ResetClosure(next_log_index);
     const int ret = bthread::execution_queue_execute(_disk_queue, c);
     lck.unlock();
@@ -792,7 +787,7 @@ void LogManager::get_configuration(const int64_t index, ConfigurationEntry* conf
 
 void LogManager::set_learner_configuration(const ConfigurationEntry& conf) {
     BAIDU_SCOPED_LOCK(_mutex);
-    _learner_config_manager->add(conf);
+    _config_manager->add_learner_conf(conf);
 }
 
 bool LogManager::check_and_set_configuration(ConfigurationEntry* current) {

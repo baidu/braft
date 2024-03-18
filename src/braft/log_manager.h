@@ -205,7 +205,6 @@ friend class AppendBatcher;
     // TODO(chenzhangyi01): reduce the critical section
     LogStorage* _log_storage;
     ConfigurationManager* _config_manager;
-    ConfigurationManager* _learner_config_manager;
     FSMCaller* _fsm_caller;
 
     raft_mutex_t _mutex;

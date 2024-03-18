@@ -503,7 +503,7 @@ private:
     VoteBallotCtx _vote_ctx; // candidate vote ctx
     VoteBallotCtx _pre_vote_ctx; // prevote ctx
     ConfigurationEntry _conf;
-    Configuration _learners;
+    ConfigurationEntry _learner_conf;
 
     GroupId _group_id;
     VersionedGroupId _v_group_id;
@@ -516,7 +516,6 @@ private:
     RaftMetaStorage* _meta_storage;
     ClosureQueue* _closure_queue;
     ConfigurationManager* _config_manager;
-    ConfigurationManager* _learner_config_manager;
     LogManager* _log_manager;
     FSMCaller* _fsm_caller;
     BallotBox* _ballot_box;
