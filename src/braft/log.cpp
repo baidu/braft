@@ -27,6 +27,7 @@
 #include <butil/fd_utility.h>                        // butil::make_close_on_exec
 #include <brpc/reloadable_flags.h>             // 
 
+#include "braft/enum.pb.h"
 #include "braft/local_storage.pb.h"
 #include "braft/log_entry.h"
 #include "braft/protobuf_file.h"
@@ -318,6 +319,25 @@ int Segment::load(ConfigurationManager* configuration_manager) {
                 configuration_manager->add(conf_entry); 
             } else {
                 LOG(ERROR) << "fail to parse configuration meta, path: " << _path
+                    << " entry_off " << entry_off;
+                ret = -1;
+                break;
+            }
+        }
+        if (header.type == ENTRY_TYPE_ADD_LEARNER) {
+            butil::IOBuf data;
+            if (_load_entry(entry_off, NULL, &data, skip_len) != 0) {
+                break;
+            }
+            scoped_refptr<LogEntry> entry = new LogEntry();
+            entry->id.index = i;
+            entry->id.term = header.term;
+            butil::Status status = parse_learner_meta(data, entry);
+            if (status.ok()) {
+                ConfigurationEntry conf_entry(*entry);
+                configuration_manager->add_learner_conf(conf_entry);
+            } else {
+                LOG(ERROR) << "fail to parse learner meta, path: " << _path
                     << " entry_off " << entry_off;
                 ret = -1;
                 break;

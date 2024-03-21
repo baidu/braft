@@ -67,7 +67,7 @@ public:
     // (last_index_kept, infinity) are being discarded
     void truncate_suffix(int64_t last_index_kept);
 
-    void set_snapshot(const ConfigurationEntry& snapshot);
+    void set_snapshot(const ConfigurationEntry& snapshot, const ConfigurationEntry& learner_entry);
 
     void get(int64_t last_included_index, ConfigurationEntry* entry);
 

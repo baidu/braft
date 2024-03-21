@@ -23,6 +23,7 @@
 #include <bthread/countdown_event.h>            // bthread::CountdownEvent
 #include <brpc/reloadable_flags.h>         // BRPC_VALIDATE_GFLAG
 #include <cstddef>
+#include "braft/configuration.h"
 #include "braft/enum.pb.h"
 #include "braft/storage.h"                       // LogStorage
 #include "braft/fsm_caller.h"                    // FSMCaller
@@ -637,11 +638,18 @@ void LogManager::set_snapshot(const SnapshotMeta* meta) {
     for (int i = 0; i < meta->old_peers_size(); ++i) {
         old_conf.add_peer(meta->old_peers(i));
     }
+    Configuration learner_conf;
+    for (int i = 0; i < meta->learners_size(); ++i) {
+        learner_conf.add_peer(meta->learners(i));
+    }
     ConfigurationEntry entry;
     entry.id = LogId(meta->last_included_index(), meta->last_included_term());
     entry.conf = conf;
     entry.old_conf = old_conf;
-    _config_manager->set_snapshot(entry);
+    ConfigurationEntry learner_entry;
+    learner_entry.id = LogId(meta->last_included_index(), meta->last_included_term());
+    learner_entry.conf = learner_conf;
+    _config_manager->set_snapshot(entry, learner_entry);
     int64_t term = unsafe_get_term(meta->last_included_index());
 
     const LogId last_but_one_snapshot_id = _last_snapshot_id;
@@ -783,6 +791,11 @@ LogEntry* LogManager::get_entry(const int64_t index) {
 void LogManager::get_configuration(const int64_t index, ConfigurationEntry* conf) {
     BAIDU_SCOPED_LOCK(_mutex);
     return _config_manager->get(index, conf);
+}
+
+void LogManager::get_learner_configuration(const int64_t index, ConfigurationEntry* conf) {
+    BAIDU_SCOPED_LOCK(_mutex);
+    return _config_manager->get_learner_conf(index, conf);
 }
 
 void LogManager::set_learner_configuration(const ConfigurationEntry& conf) {

@@ -21,6 +21,7 @@
 #include <butil/time.h>                          // butil::gettimeofday_us
 #include <brpc/controller.h>                     // brpc::Controller
 #include <brpc/reloadable_flags.h>               // BRPC_VALIDATE_GFLAG
+#include "braft/enum.pb.h"
 #include "braft/replicator.h"
 #include "braft/node.h"                          // NodeImpl
 #include "braft/ballot_box.h"                    // BallotBox 
@@ -612,7 +613,7 @@ int Replicator::_prepare_entry(int offset, EntryMeta* em, butil::IOBuf *data) {
     // still have enough followers to commit logs, we can safely stop waiting new logs
     // until the replicator leave readonly mode.
     if (_readonly_index != 0 && log_index >= _readonly_index) {
-        if (entry->type != ENTRY_TYPE_CONFIGURATION) {
+        if (entry->type != ENTRY_TYPE_CONFIGURATION && entry->type != ENTRY_TYPE_ADD_LEARNER) {
             return EREADONLY;
         }
         _readonly_index = log_index + 1;
@@ -630,7 +631,7 @@ int Replicator::_prepare_entry(int offset, EntryMeta* em, butil::IOBuf *data) {
             }
         }
     } else {
-        CHECK(entry->type != ENTRY_TYPE_CONFIGURATION) << "log_index=" << log_index;
+        CHECK(entry->type != ENTRY_TYPE_CONFIGURATION && entry->type != ENTRY_TYPE_ADD_LEARNER) << "log_index=" << log_index;
     }
     if (!is_witness() || FLAGS_raft_enable_witness_to_leader) {
         em->set_data_len(entry->data.length());

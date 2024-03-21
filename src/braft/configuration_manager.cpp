@@ -66,9 +66,10 @@ void ConfigurationManager::truncate_suffix(const int64_t last_index_kept) {
     }
 }
 
-void ConfigurationManager::set_snapshot(const ConfigurationEntry& entry) {
+void ConfigurationManager::set_snapshot(const ConfigurationEntry& entry, const ConfigurationEntry& learner_entry) {
     CHECK_GE(entry.id, _snapshot.id);
     _snapshot = entry;
+    _learner_snapshot = learner_entry;
 }
 
 void ConfigurationManager::get(int64_t last_included_index,

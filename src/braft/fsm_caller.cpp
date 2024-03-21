@@ -17,6 +17,7 @@
 //          Xiong,Kai(xiongkai@baidu.com)
 
 #include <butil/logging.h>
+#include "braft/configuration_manager.h"
 #include "braft/raft.h"
 #include "braft/log_manager.h"
 #include "braft/node.h"
@@ -339,6 +340,8 @@ void FSMCaller::do_snapshot_save(SaveSnapshotClosure* done) {
     meta.set_last_included_term(_last_applied_term);
     ConfigurationEntry conf_entry;
     _log_manager->get_configuration(last_applied_index, &conf_entry);
+    ConfigurationEntry learner_conf_entry;
+    _log_manager->get_learner_configuration(last_applied_index, &learner_conf_entry);
     for (Configuration::const_iterator
             iter = conf_entry.conf.begin();
             iter != conf_entry.conf.end(); ++iter) { 
@@ -348,6 +351,11 @@ void FSMCaller::do_snapshot_save(SaveSnapshotClosure* done) {
             iter = conf_entry.old_conf.begin();
             iter != conf_entry.old_conf.end(); ++iter) { 
         *meta.add_old_peers() = iter->to_string();
+    }
+    for (Configuration::const_iterator
+            iter = learner_conf_entry.conf.begin();
+            iter != learner_conf_entry.conf.end(); ++iter) { 
+        *meta.add_learners() = iter->to_string();
     }
 
     SnapshotWriter* writer = done->start(meta);
