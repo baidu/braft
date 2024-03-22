@@ -59,12 +59,11 @@ static butil::Status get_leader(const GroupId& group_id, const Configuration& co
                 }
             continue;
         }
-        leader_id->parse(response.leader_id());
+        if (0 == leader_id->parse(response.leader_id())) {
+            return butil::Status::OK();
+        }
     }
-    if (leader_id->is_empty()) {
-        return st;
-    }
-    return butil::Status::OK();
+    return st;
 }
 
 butil::Status add_peer(const GroupId& group_id, const Configuration& conf,
