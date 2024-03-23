@@ -38,7 +38,6 @@ struct LogManagerOptions {
     LogManagerOptions();
     LogStorage* log_storage;
     ConfigurationManager* configuration_manager;
-    ConfigurationManager* learner_configuration_manager = nullptr;
     FSMCaller* fsm_caller;  // To report log error
 };
 

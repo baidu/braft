@@ -26,8 +26,6 @@ struct ConfigurationEntry {
     LogId id;
     Configuration conf;
     Configuration old_conf;
-    Configuration learners_conf;
-    Configuration old_learners_conf;
 
     ConfigurationEntry() {}
     ConfigurationEntry(const LogEntry& entry) {
