@@ -111,7 +111,7 @@ public:
     int shutdown();
     BRAFT_MOCK int on_committed(int64_t committed_index);
     BRAFT_MOCK int on_snapshot_load(LoadSnapshotClosure* done);
-    BRAFT_MOCK int on_snapshot_save(SaveSnapshotClosure* done);
+    BRAFT_MOCK int on_snapshot_save(SaveSnapshotClosure* done, int64_t self_snapshot_index = 0);
     int on_leader_stop(const butil::Status& status);
     int on_leader_start(int64_t term, int64_t lease_epoch);
     int on_start_following(const LeaderChangeContext& start_following_context);
@@ -150,6 +150,7 @@ friend class IteratorImpl;
 
     struct ApplyTask {
         TaskType type;
+        int64_t self_snapshot_index = 0; // Customize log truncation points
         union {
             // For applying log entry (including configuration change)
             int64_t committed_index;
@@ -173,7 +174,7 @@ friend class IteratorImpl;
     void do_shutdown(); //Closure* done);
     void do_committed(int64_t committed_index);
     void do_cleared(int64_t log_index, Closure* done, int error_code);
-    void do_snapshot_save(SaveSnapshotClosure* done);
+    void do_snapshot_save(SaveSnapshotClosure* done, int64_t self_snapshot_index = 0);
     void do_snapshot_load(LoadSnapshotClosure* done);
     void do_on_error(OnErrorClousre* done);
     void do_leader_stop(const butil::Status& status);
