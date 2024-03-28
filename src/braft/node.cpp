@@ -36,9 +36,6 @@
 
 namespace braft {
 
-extern std::mutex raft_snapshot_gap_mutex;
-DECLARE_int32(raft_do_snapshot_min_index_gap);
-
 DEFINE_int32(raft_max_election_delay_ms, 1000, 
              "Max election delay time allowed by user");
 BRPC_VALIDATE_GFLAG(raft_max_election_delay_ms, brpc::PositiveInteger);
@@ -970,26 +967,8 @@ butil::Status NodeImpl::reset_peers(const Configuration& new_peers) {
     return butil::Status::OK();
 }
 
-butil::Status NodeImpl::set_raft_do_snapshot_min_index_gap(int32_t raft_do_snapshot_min_index_gap) {
-    if (raft_do_snapshot_min_index_gap <= 0) {
-        return butil::Status(EINVAL, "raft_do_snapshot_min_index_gap is not valid");
-    }
-
-    std::lock_guard<std::mutex> lock(raft_snapshot_gap_mutex);
-    FLAGS_raft_do_snapshot_min_index_gap = raft_do_snapshot_min_index_gap;
-
-    return butil::Status();
-}
-
 void NodeImpl::snapshot(Closure* done, int64_t self_snapshot_index) {
-    if (self_snapshot_index < 0) {
-        if (done) {
-            done->status().set_error(EINVAL, "Snapshot index is not valid");
-            run_closure_in_bthread(done);
-        }
-    } else {
-        do_snapshot(done, self_snapshot_index);
-    }
+    do_snapshot(done, self_snapshot_index);
 }
 
 void NodeImpl::do_snapshot(Closure* done, int64_t self_snapshot_index) {

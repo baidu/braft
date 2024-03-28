@@ -150,7 +150,10 @@ friend class IteratorImpl;
 
     struct ApplyTask {
         TaskType type;
-        int64_t self_snapshot_index = 0; // Customize log truncation points
+        // Customize log truncation points
+        // == 0 : Use the braft default last_applied_index as the location of the snapshot truncation
+        // > 0 : Use the custom index as the location for snapshot truncation
+        int64_t self_snapshot_index = 0;
         union {
             // For applying log entry (including configuration change)
             int64_t committed_index;

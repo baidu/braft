@@ -145,33 +145,32 @@ void SnapshotExecutor::do_snapshot(Closure* done, int64_t self_snapshot_index) {
     }
 
     int64_t saved_fsm_applied_index = 0;
-    if (self_snapshot_index == 0) {
+    if (self_snapshot_index <= 0) {
         saved_fsm_applied_index = _fsm_caller->last_applied_index();
     } else {
         saved_fsm_applied_index = self_snapshot_index;
     }
-    {
-        std::lock_guard<std::mutex> lock(raft_snapshot_gap_mutex);
-        if (saved_fsm_applied_index - _last_snapshot_index < 
-                                            FLAGS_raft_do_snapshot_min_index_gap) {
-            // There might be false positive as the last_applied_index() is being
-            // updated. But it's fine since we will do next snapshot saving in a
-            // predictable time.
-            lck.unlock();
 
-            _log_manager->clear_bufferred_logs();
-            LOG_IF(INFO, _node != NULL) << "node " << _node->node_id()
-                << " the gap between fsm applied index " << saved_fsm_applied_index
-                << " and last_snapshot_index " << saved_last_snapshot_index
-                << " is less than " << FLAGS_raft_do_snapshot_min_index_gap
-                << ", will clear bufferred logs and return success";
+    if (saved_fsm_applied_index - _last_snapshot_index < 
+                                        FLAGS_raft_do_snapshot_min_index_gap) {
+        // There might be false positive as the last_applied_index() is being
+        // updated. But it's fine since we will do next snapshot saving in a
+        // predictable time.
+        lck.unlock();
 
-            if (done) {
-                run_closure_in_bthread(done, _usercode_in_pthread);
-            }
-            return;
+        _log_manager->clear_bufferred_logs();
+        LOG_IF(INFO, _node != NULL) << "node " << _node->node_id()
+            << " the gap between fsm applied index " << saved_fsm_applied_index
+            << " and last_snapshot_index " << saved_last_snapshot_index
+            << " is less than " << FLAGS_raft_do_snapshot_min_index_gap
+            << ", will clear bufferred logs and return success";
+
+        if (done) {
+            run_closure_in_bthread(done, _usercode_in_pthread);
         }
+        return;
     }
+
     SnapshotWriter* writer = _snapshot_storage->create();
     if (!writer) {
         lck.unlock();
