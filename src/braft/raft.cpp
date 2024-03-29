@@ -202,6 +202,10 @@ void Node::add_learner(const PeerId &peer, Closure *done) {
     _impl->add_learner(peer, done);
 }
 
+void Node::remove_learner(const PeerId &peer, Closure *done) {
+    _impl->remove_learner(peer, done);
+}
+
 butil::Status Node::reset_peers(const Configuration& new_peers) {
     return _impl->reset_peers(new_peers);
 }

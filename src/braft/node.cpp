@@ -22,6 +22,7 @@
 #include <brpc/channel.h>
 
 #include "braft/errno.pb.h"
+#include "braft/configuration.h"
 #include "braft/util.h"
 #include "braft/raft.h"
 #include "braft/node.h"
@@ -2116,12 +2117,11 @@ void NodeImpl::add_learner(const PeerId& peer, Closure* done) {
     LogEntry* entry = new LogEntry();
     entry->AddRef();
     entry->id.term = _current_term;
-    entry->type = ENTRY_TYPE_ADD_LEARNER;
+    entry->type = ENTRY_TYPE_LEARNER_CHANGE;
     entry->peers = new std::vector<PeerId>;
     _learner_conf.conf.list_peers(entry->peers);
     entry->peers->push_back(peer);
 
-    // Use the new_conf to deal the quorum of this very log
     _ballot_box->append_pending_task(_conf.conf, nullptr, done);
 
     std::vector<LogEntry*> entries{entry};
@@ -2131,8 +2131,48 @@ void NodeImpl::add_learner(const PeerId& peer, Closure* done) {
                                         1u, _ballot_box));
 }
 
+void NodeImpl::remove_learner(const PeerId &peer, Closure *done) {
+    BAIDU_SCOPED_LOCK(_mutex);
+    if (_state != STATE_LEADER) {
+        if (done) {
+            done->status().set_error(EPERM, "Not leader");
+            run_closure_in_bthread(done);
+        }
+        return;
+    }
+
+    if (!_learner_conf.conf.contains(peer)) {
+        if (done) {
+            done->status().set_error(EINVAL, "Not learner");
+            run_closure_in_bthread(done);
+        }
+        return;
+    }
+
+    LogEntry* entry = new LogEntry();
+    entry->AddRef();
+    entry->id.term = _current_term;
+    entry->type = ENTRY_TYPE_LEARNER_CHANGE;
+    entry->peers = new std::vector<PeerId>;
+    _learner_conf.conf.list_peers(entry->peers);
+    entry->peers->erase(std::remove(entry->peers->begin(), entry->peers->end(), peer),
+                        entry->peers->end());
+
+    _ballot_box->append_pending_task(_conf.conf, nullptr, done);
+    std::vector<LogEntry*> entries{entry};
+    _log_manager->append_entries(&entries,
+                                new LeaderStableClosure(
+                                        NodeId(_group_id, _server_id),
+                                        1u, _ballot_box));
+}
+
 void NodeImpl::on_learner_config_apply(LogEntry *entry) {
     BAIDU_SCOPED_LOCK(_mutex);
+    if (entry->peers == NULL) {
+        // If all learners are removed, the entry->peers of follower is NULL.  
+        // We should reset the learner configuration to a empty one.
+        entry->peers = new std::vector<PeerId>;
+    }
     ConfigurationEntry conf_entry(*entry);
 
     _log_manager->set_learner_configuration(conf_entry);
@@ -2143,13 +2183,13 @@ void NodeImpl::on_learner_config_apply(LogEntry *entry) {
     _learner_conf.conf.list_peers(&old_learners);
 
     std::set<PeerId> change;
-    std::set_difference(cur_learners.begin(), cur_learners.end(),
-                        old_learners.begin(), old_learners.end(),
-                        std::inserter(change, change.begin()));
 
     if (_state == STATE_LEADER) {
       if (cur_learners.size() > old_learners.size()) {
         // add learner
+        std::set_difference(cur_learners.begin(), cur_learners.end(),
+                            old_learners.begin(), old_learners.end(),
+                            std::inserter(change, change.begin()));
         for (auto it = change.begin(); it != change.end(); ++it) {
           _learner_conf.conf.add_peer(*it);
           _replicator_group.add_replicator(*it, true);
@@ -2158,6 +2198,9 @@ void NodeImpl::on_learner_config_apply(LogEntry *entry) {
         }
       } else {
         // remove learner
+        std::set_difference(old_learners.begin(), old_learners.end(),
+                            cur_learners.begin(), cur_learners.end(),
+                            std::inserter(change, change.begin()));
         for (auto it = change.begin(); it != change.end(); ++it) {
           _learner_conf.conf.remove_peer(*it);
           _replicator_group.stop_replicator(*it);

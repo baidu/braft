@@ -244,6 +244,7 @@ public:
     bool is_witness() const { return _options.witness; }
 
     void add_learner(const PeerId& peer, Closure* done);
+    void remove_learner(const PeerId& peer, Closure* done);
 
     // Called when the learners configuration is applied to the FSMCaller
     void on_learner_config_apply(LogEntry *entry);

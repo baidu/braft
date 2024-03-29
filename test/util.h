@@ -623,14 +623,14 @@ public:
         leader_sfm->lock();
         bool ret = _fsm->logs.size() == leader_sfm->logs.size();
         if (!ret) {
-            LOG(ERROR) << "log size not match, "
+            LOG(WARNING) << "log size not match, "
                       << " addr: " << _fsm->address << " vs "
                       << leader_sfm->address << ", log num "
                       << _fsm->logs.size() << " vs " << leader_sfm->logs.size();
         }
         for (size_t i = 0; i < _fsm->logs.size(); i++) {
             if (_fsm->logs[i].to_string() != leader_sfm->logs[i].to_string()) {
-                LOG(ERROR) << "log data of index=" << i << " not match, "
+                LOG(WARNING) << "log data of index=" << i << " not match, "
                           << " addr: " << _fsm->address << " vs "
                           << leader_sfm->address << ", data ("
                           << _fsm->logs[i].to_string() << ") vs " 

@@ -707,6 +707,8 @@ public:
     // [NOTE] learner is a special peer, it will not vote and not participate in leader election.
     void add_learner(const PeerId& peer, Closure* done);
 
+    void remove_learner(const PeerId& peer, Closure* done);
+
     // Reset the configuration of this node individually, without any repliation
     // to other peers before this node beomes the leader. This function is
     // supposed to be inovoked when the majority of the replication group are

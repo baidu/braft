@@ -324,7 +324,7 @@ int Segment::load(ConfigurationManager* configuration_manager) {
                 break;
             }
         }
-        if (header.type == ENTRY_TYPE_ADD_LEARNER) {
+        if (header.type == ENTRY_TYPE_LEARNER_CHANGE) {
             butil::IOBuf data;
             if (_load_entry(entry_off, NULL, &data, skip_len) != 0) {
                 break;
@@ -415,7 +415,7 @@ int Segment::append(const LogEntry* entry) {
             }
         }
         break;
-    case ENTRY_TYPE_ADD_LEARNER: 
+    case ENTRY_TYPE_LEARNER_CHANGE: 
         {
             butil::Status status = serialize_learner_meta(entry, data);
             if (!status.ok()) {
@@ -524,7 +524,7 @@ LogEntry* Segment::get(const int64_t index) const {
                 }
             }
             break;
-        case ENTRY_TYPE_ADD_LEARNER:
+        case ENTRY_TYPE_LEARNER_CHANGE:
             {
                 butil::Status status = parse_learner_meta(data, entry); 
                 if (!status.ok()) {

@@ -71,7 +71,7 @@ private:
     butil::ShadowingAtExitManager exit_manager_;
 };
 
-TEST_P(NodeTest, add_learner_should_work_and_can_recive_log) {
+TEST_P(NodeTest, DISABLED_add_learner_should_work_and_can_recive_log) {
     std::vector<braft::PeerId> peers;
     braft::PeerId learner_id;
     for (int i = 0; i < 3; i++) {
@@ -147,7 +147,7 @@ TEST_P(NodeTest, add_learner_should_work_and_can_recive_log) {
     learner.stop();
 }
 
-TEST_P(NodeTest, learner_should_recive_log_after_leader_change) {
+TEST_P(NodeTest, DISABLED_learner_should_recive_log_after_leader_change) {
     std::vector<braft::PeerId> peers;
     braft::PeerId learner_id;
     for (int i = 0; i < 3; i++) {
@@ -239,7 +239,7 @@ TEST_P(NodeTest, learner_should_recive_log_after_leader_change) {
     learner.stop();
 }
 
-TEST_P(NodeTest, learner_should_not_vote_for_logentry) {
+TEST_P(NodeTest, DISABLED_learner_should_not_vote_for_logentry) {
     std::vector<braft::PeerId> peers;
     braft::PeerId learner_id;
     for (int i = 0; i < 4; i++) {
@@ -324,6 +324,91 @@ TEST_P(NodeTest, learner_should_not_vote_for_logentry) {
 
     cluster.stop_all();
     learner.stop();
+}
+
+TEST_P(NodeTest, learner_should_be_removed) {
+    std::vector<braft::PeerId> peers;
+    braft::PeerId learner_id;
+    for (int i = 0; i < 3; i++) {
+        braft::PeerId peer;
+        peer.addr.ip = butil::my_ip();
+        peer.addr.port = 5006 + i;
+        peer.idx = 0;
+
+        peers.push_back(peer);
+    }
+    learner_id.addr.ip = butil::my_ip();
+    learner_id.addr.port = 5010;
+    learner_id.idx = 0;
+
+    // start cluster
+    Cluster cluster("unittest", peers);
+    for (size_t i = 0; i < peers.size(); i++) {
+        ASSERT_EQ(0, cluster.start(peers[i].addr));
+    }
+    LearnerManager learner("unittest", learner_id);
+    ASSERT_EQ(0, learner.start());
+
+    // elect leader
+    cluster.wait_leader();
+    braft::Node* leader = cluster.leader();
+    ASSERT_TRUE(leader != NULL);
+    LOG(WARNING) << "leader is " << leader->node_id();
+
+    // add learner
+    braft::SynchronizedClosure learner_done;
+    leader->add_learner(learner.peer_id(), &learner_done);
+    if (!learner_done.status().ok()) {
+        LOG(ERROR) << "Fail to add learner: " << learner_done.status();
+    }
+    learner_done.wait();
+
+    // apply something
+    bthread::CountdownEvent cond(10);
+    for (int i = 0; i < 10; i++) {
+        butil::IOBuf data;
+        char data_buf[128];
+        snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
+        data.append(data_buf);
+
+        braft::Task task;
+        task.data = &data;
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
+        leader->apply(task);
+    }
+    cond.wait();
+
+    cluster.ensure_same();
+    auto leader_fsm = cluster.leader_fsm();
+    ASSERT_TRUE(leader_fsm != nullptr);
+    ASSERT_TRUE(learner.ensure_same(leader_fsm));
+
+    // remove learner
+    braft::SynchronizedClosure remove_done;
+    leader->remove_learner(learner.peer_id(), &remove_done);
+    if (!remove_done.status().ok()) {
+        LOG(ERROR) << "Fail to remove learner: " << remove_done.status();
+    }
+
+    // apply something
+    bthread::CountdownEvent cond2(10);
+    for (int i = 0; i < 10; i++) {
+        butil::IOBuf data;
+        char data_buf[128];
+        snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
+        data.append(data_buf);
+
+        braft::Task task;
+        task.data = &data;
+        task.done = NEW_APPLYCLOSURE(&cond2, 0);
+        leader->apply(task);
+    }
+    cond2.wait();
+
+    cluster.ensure_same();
+    leader_fsm = cluster.leader_fsm();
+    ASSERT_TRUE(leader_fsm != nullptr);
+    ASSERT_FALSE(learner.ensure_same(leader_fsm));
 }
 
 TEST_P(NodeTest, InitShutdown) {

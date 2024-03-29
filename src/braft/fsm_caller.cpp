@@ -289,7 +289,7 @@ void FSMCaller::do_committed(int64_t committed_index) {
                             iter_impl.entry()->id.index);
                 }
             }
-            if (iter_impl.entry()->type == ENTRY_TYPE_ADD_LEARNER) {
+            if (iter_impl.entry()->type == ENTRY_TYPE_LEARNER_CHANGE) {
                 _node->on_learner_config_apply(iter_impl.entry());
                 // TODO: should we notify state machine?
             }

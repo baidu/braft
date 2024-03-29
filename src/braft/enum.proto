@@ -6,7 +6,7 @@ enum EntryType {
     ENTRY_TYPE_NO_OP = 1;
     ENTRY_TYPE_DATA = 2;
     ENTRY_TYPE_CONFIGURATION= 3;
-    ENTRY_TYPE_ADD_LEARNER = 4;
+    ENTRY_TYPE_LEARNER_CHANGE = 4;
 };
 
 enum ErrorType {

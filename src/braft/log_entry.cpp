@@ -72,6 +72,11 @@ butil::Status serialize_configuration_meta(const LogEntry* entry, butil::IOBuf& 
 
 butil::Status parse_learner_meta(const butil::IOBuf& data, LogEntry* entry) {
     butil::Status status;
+    if (data.size() == 0) {
+        // All the learners were removed.
+        entry->peers = new std::vector<PeerId>;
+        return status;
+    }
     ConfigurationPBMeta meta;
     butil::IOBufAsZeroCopyInputStream wrapper(data);
     if (!meta.ParseFromZeroCopyStream(&wrapper)) {
@@ -88,6 +93,10 @@ butil::Status parse_learner_meta(const butil::IOBuf& data, LogEntry* entry) {
 
 butil::Status serialize_learner_meta(const LogEntry* entry, butil::IOBuf& data) {
     butil::Status status;
+    if (entry->peers == NULL || entry->peers->empty()) {
+        // All the learners were removed.
+        return status;
+    }
     ConfigurationPBMeta meta;
     for (size_t i = 0; i < entry->peers->size(); ++i) {
         meta.add_peers((*(entry->peers))[i].to_string());

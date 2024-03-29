@@ -613,7 +613,7 @@ int Replicator::_prepare_entry(int offset, EntryMeta* em, butil::IOBuf *data) {
     // still have enough followers to commit logs, we can safely stop waiting new logs
     // until the replicator leave readonly mode.
     if (_readonly_index != 0 && log_index >= _readonly_index) {
-        if (entry->type != ENTRY_TYPE_CONFIGURATION && entry->type != ENTRY_TYPE_ADD_LEARNER) {
+        if (entry->type != ENTRY_TYPE_CONFIGURATION && entry->type != ENTRY_TYPE_LEARNER_CHANGE) {
             return EREADONLY;
         }
         _readonly_index = log_index + 1;
@@ -621,7 +621,9 @@ int Replicator::_prepare_entry(int offset, EntryMeta* em, butil::IOBuf *data) {
     em->set_term(entry->id.term);
     em->set_type(entry->type);
     if (entry->peers != NULL) {
-        CHECK(!entry->peers->empty()) << "log_index=" << log_index;
+        if (entry->type == ENTRY_TYPE_CONFIGURATION) {
+            CHECK(!(entry->peers->empty())) << "log_index=" << log_index;
+        }
         for (size_t i = 0; i < entry->peers->size(); ++i) {
             em->add_peers((*entry->peers)[i].to_string());
         }
@@ -631,7 +633,7 @@ int Replicator::_prepare_entry(int offset, EntryMeta* em, butil::IOBuf *data) {
             }
         }
     } else {
-        CHECK(entry->type != ENTRY_TYPE_CONFIGURATION && entry->type != ENTRY_TYPE_ADD_LEARNER) << "log_index=" << log_index;
+        CHECK(entry->type != ENTRY_TYPE_CONFIGURATION && entry->type != ENTRY_TYPE_LEARNER_CHANGE) << "log_index=" << log_index;
     }
     if (!is_witness() || FLAGS_raft_enable_witness_to_leader) {
         em->set_data_len(entry->data.length());
