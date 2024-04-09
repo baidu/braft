@@ -447,15 +447,23 @@ void Replicator::_on_rpc_returned(ReplicatorId id, brpc::Controller* cntl,
                        << " is " << response->last_log_index();
             // The peer contains less logs than leader
             r->_next_index = response->last_log_index() + 1;
-        } else {  
+        } else {
             // The peer contains logs from old term which should be truncated,
             // decrease _last_log_at_peer by one to test the right index to keep
             if (BAIDU_LIKELY(r->_next_index > 1)) {
-                BRAFT_VLOG << "Group " << r->_options.group_id 
+                BRAFT_VLOG << "Group " << r->_options.group_id
                            << " log_index=" << r->_next_index << " mismatch";
-                --r->_next_index;
+                // Decrease the |_next_index| when the request with the minimum log
+                // index mismatch.
+                // Because when we enable pipeline replication and disable cache,
+                // the request with larger log index would be handled before the
+                // smaller request, we should ignore it.
+                // See https://github.com/baidu/braft/issues/421
+                if (request->prev_log_index() == r->_next_index - 1) {
+                    --r->_next_index;
+                }
             } else {
-                LOG(ERROR) << "Group " << r->_options.group_id 
+                LOG(ERROR) << "Group " << r->_options.group_id
                            << " peer=" << r->_options.peer_id
                            << " declares that log at index=0 doesn't match,"
                               " which is not supposed to happen";
