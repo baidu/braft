@@ -29,7 +29,7 @@ TEST(BallotTest, sanity) {
     conf.add_peer(peer2);
     conf.add_peer(peer3);
     braft::Ballot bl;
-    ASSERT_EQ(0, bl.init(conf, NULL));
+    bl.init(conf, NULL);
     ASSERT_EQ(2, bl._quorum);
     ASSERT_EQ(0, bl._old_quorum);
     bl.grant(peer1);
@@ -54,7 +54,7 @@ TEST(BallotTest, joint_consensus_same_conf) {
     conf.add_peer(peer2);
     conf.add_peer(peer3);
     braft::Ballot bl;
-    ASSERT_EQ(0, bl.init(conf, &conf));
+    bl.init(conf, &conf);
     ASSERT_EQ(2, bl._quorum);
     ASSERT_EQ(2, bl._old_quorum);
     bl.grant(peer1);
@@ -92,7 +92,7 @@ TEST(BallotTest, joint_consensus_different_conf) {
     conf2.add_peer(peer3);
     conf2.add_peer(peer4);
     braft::Ballot bl;
-    ASSERT_EQ(0, bl.init(conf, &conf2));
+    bl.init(conf, &conf2);
     bl.grant(peer1);
     bl.grant(peer2);
     ASSERT_FALSE(bl.granted());
