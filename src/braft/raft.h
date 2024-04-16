@@ -708,6 +708,12 @@ public:
     // case, BE CAREFULE when dealing with this method.
     butil::Status reset_peers(const Configuration& new_peers);
 
+    // customize the log playback point
+    void set_self_playback_point(int64_t self_playback_point);
+
+    // get term by log index
+    uint64_t get_term(uint64_t log_index);
+
     // Start a snapshot immediately if possible. done->Run() would be invoked
     // when the snapshot finishes, describing the detailed result.
     void snapshot(Closure* done);

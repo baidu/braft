@@ -422,9 +422,15 @@ void FSMCaller::do_snapshot_load(LoadSnapshotClosure* done) {
         _fsm->on_configuration_committed(conf, meta.last_included_index());
     }
 
-    _last_applied_index.store(meta.last_included_index(),
+    // If the log playback point is not customized or is configured but smaller than that
+    // in the snapshot(Consider booting when the node is normally shut down), 
+    // the log playback point in the snapshot prevails.
+    if (last_applied_index() < meta.last_included_index()) {
+        _last_applied_index.store(meta.last_included_index(),
                               butil::memory_order_release);
-    _last_applied_term = meta.last_included_term();
+        _last_applied_term = meta.last_included_term();
+    }
+    
     done->Run();
 }
 
@@ -532,6 +538,12 @@ void FSMCaller::describe(std::ostream &os, bool use_html) {
         break;
     }
     os << newline;
+}
+
+void FSMCaller::set_self_playback_point(int64_t self_playback_point) {
+    _last_applied_index.store(self_playback_point,
+                              butil::memory_order_relaxed);
+    _last_applied_term = _log_manager->get_term(self_playback_point);
 }
 
 int64_t FSMCaller::applying_index() const {

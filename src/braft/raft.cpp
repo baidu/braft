@@ -202,6 +202,14 @@ butil::Status Node::reset_peers(const Configuration& new_peers) {
     return _impl->reset_peers(new_peers);
 }
 
+void Node::set_self_playback_point(int64_t self_playback_point) {
+    _impl->set_self_playback_point(self_playback_point);
+}
+
+uint64_t Node::get_term(uint64_t log_index) {
+    return _impl->get_term(log_index);
+}
+
 void Node::snapshot(Closure* done) {
     _impl->snapshot(done);
 }
