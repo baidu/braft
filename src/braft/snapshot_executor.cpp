@@ -22,6 +22,7 @@
 
 namespace braft {
 
+std::mutex raft_snapshot_gap_mutex;
 DEFINE_int32(raft_do_snapshot_min_index_gap, 1, 
              "Will do snapshot only when actual gap between applied_index and"
              " last_snapshot_index is equal to or larger than this value");
@@ -111,7 +112,7 @@ SnapshotExecutor::~SnapshotExecutor() {
     }
 }
 
-void SnapshotExecutor::do_snapshot(Closure* done) {
+void SnapshotExecutor::do_snapshot(Closure* done, int64_t self_snapshot_index) {
     std::unique_lock<raft_mutex_t> lck(_mutex);
     int64_t saved_last_snapshot_index = _last_snapshot_index;
     int64_t saved_last_snapshot_term = _last_snapshot_term;
@@ -142,7 +143,14 @@ void SnapshotExecutor::do_snapshot(Closure* done) {
         }
         return;
     }
-    int64_t saved_fsm_applied_index = _fsm_caller->last_applied_index();
+
+    int64_t saved_fsm_applied_index = 0;
+    if (self_snapshot_index <= 0) {
+        saved_fsm_applied_index = _fsm_caller->last_applied_index();
+    } else {
+        saved_fsm_applied_index = self_snapshot_index;
+    }
+
     if (saved_fsm_applied_index - _last_snapshot_index < 
                                         FLAGS_raft_do_snapshot_min_index_gap) {
         // There might be false positive as the last_applied_index() is being
@@ -162,7 +170,7 @@ void SnapshotExecutor::do_snapshot(Closure* done) {
         }
         return;
     }
-    
+
     SnapshotWriter* writer = _snapshot_storage->create();
     if (!writer) {
         lck.unlock();
@@ -175,7 +183,7 @@ void SnapshotExecutor::do_snapshot(Closure* done) {
     }
     _saving_snapshot = true;
     SaveSnapshotDone* snapshot_save_done = new SaveSnapshotDone(this, writer, done);
-    if (_fsm_caller->on_snapshot_save(snapshot_save_done) != 0) {
+    if (_fsm_caller->on_snapshot_save(snapshot_save_done, self_snapshot_index) != 0) {
         lck.unlock();
         if (done) {
             snapshot_save_done->status().set_error(EHOSTDOWN, "The raft node is down");

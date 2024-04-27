@@ -967,15 +967,15 @@ butil::Status NodeImpl::reset_peers(const Configuration& new_peers) {
     return butil::Status::OK();
 }
 
-void NodeImpl::snapshot(Closure* done) {
-    do_snapshot(done);
+void NodeImpl::snapshot(Closure* done, int64_t self_snapshot_index) {
+    do_snapshot(done, self_snapshot_index);
 }
 
-void NodeImpl::do_snapshot(Closure* done) {
+void NodeImpl::do_snapshot(Closure* done, int64_t self_snapshot_index) {
     LOG(INFO) << "node " << _group_id << ":" << _server_id 
               << " starts to do snapshot";
     if (_snapshot_executor) {
-        _snapshot_executor->do_snapshot(done);
+        _snapshot_executor->do_snapshot(done, self_snapshot_index);
     } else {
         if (done) {
             done->status().set_error(EINVAL, "Snapshot is not supported");
