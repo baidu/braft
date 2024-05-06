@@ -20,6 +20,7 @@
 #include <brpc/errno.pb.h>
 #include <brpc/controller.h>
 #include <brpc/channel.h>
+#include <iomanip>
 
 #include "braft/errno.pb.h"
 #include "braft/util.h"
@@ -63,12 +64,19 @@ BRPC_VALIDATE_GFLAG(raft_trace_append_entry_latency, brpc::PassValidate);
 
 DEFINE_int32(raft_rpc_channel_connect_timeout_ms, 200,
              "Timeout in milliseconds for establishing connections of RPCs");
+
 BRPC_VALIDATE_GFLAG(raft_rpc_channel_connect_timeout_ms, brpc::PositiveInteger);
 
 DECLARE_bool(raft_enable_leader_lease);
 
 DEFINE_bool(raft_enable_witness_to_leader, false, 
             "enable witness temporarily to become leader when leader down accidently");
+
+DEFINE_bool(enable_first_snapshot_config, false,
+            "enable first snapshot start time configuration");
+
+DEFINE_string(first_snapshot_start_time, "00:00:00",
+            "first snapshot start time, whose format is \"HH:MM:SS\"");
 
 #ifndef UNIT_TEST
 static bvar::Adder<int64_t> g_num_nodes("raft_node_count");
@@ -85,7 +93,22 @@ int SnapshotTimer::adjust_timeout_ms(int timeout_ms) {
         return timeout_ms;
     }
     if (timeout_ms > 0) {
-        timeout_ms = butil::fast_rand_less_than(timeout_ms) + 1;
+        if (!FLAGS_enable_first_snapshot_config) {
+            timeout_ms = butil::fast_rand_less_than(timeout_ms) + 1;
+        } else {
+            using namespace std::chrono;
+            auto now = system_clock::now();
+            auto now_c = system_clock::to_time_t(now);
+            auto tm_now = localtime(&now_c);
+            tm tm_start = *tm_now;
+            std::istringstream ss(FLAGS_first_snapshot_start_time);
+            ss >> std::get_time(&tm_start, "%H:%M:%S");
+            if (now_c > mktime(&tm_start)) {
+                tm_start.tm_mday += 1;
+            }
+            auto next_start = system_clock::from_time_t(mktime(&tm_start));
+            timeout_ms = duration_cast<milliseconds>(next_start - now).count();
+        }
     }
     _first_schedule = false;
     return timeout_ms;
