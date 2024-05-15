@@ -147,6 +147,9 @@ public:
     // get term by log index
     uint64_t get_term(uint64_t log_index);
 
+    // get last log index
+    uint64_t get_last_log_index(bool is_flush);
+
     // trigger snapshot
     void snapshot(Closure* done);
 

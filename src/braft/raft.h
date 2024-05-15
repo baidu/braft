@@ -714,6 +714,9 @@ public:
     // get term by log index
     uint64_t get_term(uint64_t log_index);
 
+    // get last log index
+    uint64_t get_last_log_index(bool is_flush = false);
+
     // Start a snapshot immediately if possible. done->Run() would be invoked
     // when the snapshot finishes, describing the detailed result.
     void snapshot(Closure* done);
