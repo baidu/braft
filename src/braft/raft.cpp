@@ -210,8 +210,8 @@ uint64_t Node::get_term(uint64_t log_index) {
     return _impl->get_term(log_index);
 }
 
-void Node::snapshot(Closure* done) {
-    _impl->snapshot(done);
+void Node::snapshot(Closure* done, int64_t self_snapshot_index) {
+    _impl->snapshot(done, self_snapshot_index);
 }
 
 uint64_t Node::get_last_log_index(bool is_flush) {

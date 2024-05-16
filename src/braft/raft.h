@@ -719,7 +719,7 @@ public:
 
     // Start a snapshot immediately if possible. done->Run() would be invoked
     // when the snapshot finishes, describing the detailed result.
-    void snapshot(Closure* done);
+    void snapshot(Closure* done, int64_t self_snapshot_index = 0);
 
     // user trigger vote
     // reset election_timeout, suggest some peer to become the leader in a
