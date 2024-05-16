@@ -668,6 +668,10 @@ void LogManager::set_snapshot(const SnapshotMeta* meta) {
             // We have last snapshot index
             _virtual_first_log_id = last_but_one_snapshot_id;
             truncate_prefix(last_but_one_snapshot_id.index + 1, lck);
+        } else {
+            // after restart, no followers, we can truncate log safely
+            _virtual_first_log_id = _last_snapshot_id;
+            truncate_prefix(meta->last_included_index() + 1, lck);
         }
         return;
     } else {

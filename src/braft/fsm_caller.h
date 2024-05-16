@@ -116,7 +116,7 @@ public:
     int on_leader_start(int64_t term, int64_t lease_epoch);
     int on_start_following(const LeaderChangeContext& start_following_context);
     int on_stop_following(const LeaderChangeContext& stop_following_context);
-    void on_install_snapshot_start(const PeerId& peer_id);
+    void on_pre_send_snapshot(const PeerId& peer_id);
     BRAFT_MOCK int on_error(const Error& e);
     int64_t last_applied_index() const {
         return _last_applied_index.load(butil::memory_order_relaxed);

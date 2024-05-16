@@ -496,8 +496,8 @@ void FSMCaller::do_stop_following(const LeaderChangeContext& stop_following_cont
     _fsm->on_stop_following(stop_following_context);
 }
 
-void FSMCaller::on_install_snapshot_start(const PeerId& peer_id) {
-    _fsm->on_install_snapshot_start(peer_id);
+void FSMCaller::on_pre_send_snapshot(const PeerId& peer_id) {
+    _fsm->on_pre_send_snapshot(peer_id);
 }
 
 void FSMCaller::describe(std::ostream &os, bool use_html) {

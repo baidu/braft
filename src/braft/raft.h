@@ -268,7 +268,7 @@ public:
 
     // Invoked when the leader start to send snapshot to |peer_id|
     // Default: Do nothing
-    virtual void on_install_snapshot_start(const PeerId& peer_id);
+    virtual void on_pre_send_snapshot(const PeerId& peer_id);
 
 };
 
