@@ -313,6 +313,7 @@ void StateMachine::on_configuration_committed(const Configuration& conf, int64_t
 
 void StateMachine::on_stop_following(const LeaderChangeContext&) {}
 void StateMachine::on_start_following(const LeaderChangeContext&) {}
+void StateMachine::on_pre_send_snapshot(const PeerId& peer_id) {}
 
 BootstrapOptions::BootstrapOptions()
     : last_log_index(0)

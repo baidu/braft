@@ -1365,6 +1365,11 @@ void NodeImpl::on_error(const Error& e) {
     lck.unlock();
 }
 
+void NodeImpl::pre_send_snapshot(const PeerId& peer_id) {
+    _fsm_caller->on_pre_send_snapshot(peer_id);
+}
+
+
 void NodeImpl::handle_vote_timeout() {
     std::unique_lock<raft_mutex_t> lck(_mutex);
 

@@ -789,6 +789,8 @@ void Replicator::_install_snapshot() {
                                             add_one_more_task(true)) {
         return _block(butil::gettimeofday_us(), EBUSY);
     }
+
+    node_impl->pre_send_snapshot(_options.peer_id);
     
     // pre-set replicator state to INSTALLING_SNAPSHOT, so replicator could be
     // blocked if something is wrong, such as throttled for a period of time 

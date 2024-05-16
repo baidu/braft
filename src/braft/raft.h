@@ -265,6 +265,11 @@ public:
     // the very leader whom the follower starts to follow.
     // User can reset the node's information as it starts to follow some leader.
     virtual void on_start_following(const ::braft::LeaderChangeContext& ctx);
+
+    // Invoked when the leader start to send snapshot to |peer_id|
+    // Default: Do nothing
+    virtual void on_pre_send_snapshot(const PeerId& peer_id);
+
 };
 
 enum State {

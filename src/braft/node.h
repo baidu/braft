@@ -241,6 +241,9 @@ public:
 
     bool disable_cli() const { return _options.disable_cli; }
     bool is_witness() const { return _options.witness; }
+
+    // Called when leader start to send snapshot to remote peer
+    void pre_send_snapshot(const PeerId& peer_id);
 private:
 friend class butil::RefCountedThreadSafe<NodeImpl>;
 
