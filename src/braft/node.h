@@ -143,7 +143,7 @@ public:
     butil::Status reset_peers(const Configuration& new_peers);
 
     // trigger snapshot
-    void snapshot(Closure* done);
+    void snapshot(Closure* done, int64_t self_snapshot_index = 0);
 
     // trigger vote
     butil::Status vote(int election_timeout);
@@ -301,7 +301,7 @@ friend class butil::RefCountedThreadSafe<NodeImpl>;
                                     const Configuration* old_conf,
                                     bool leader_start);
 
-    void do_snapshot(Closure* done);
+    void do_snapshot(Closure* done, int64_t self_snapshot_index = 0);
 
     void after_shutdown();
     static void after_shutdown(NodeImpl* node);

@@ -91,7 +91,7 @@ int FSMCaller::run(void* meta, bthread::TaskIterator<ApplyTask>& iter) {
             case SNAPSHOT_SAVE:
                 caller->_cur_task = SNAPSHOT_SAVE;
                 if (caller->pass_by_status(iter->done)) {
-                    caller->do_snapshot_save((SaveSnapshotClosure*)iter->done);
+                    caller->do_snapshot_save((SaveSnapshotClosure*)iter->done, iter->self_snapshot_index);
                 }
                 break;
             case SNAPSHOT_LOAD:
@@ -323,25 +323,34 @@ void FSMCaller::do_committed(int64_t committed_index) {
     _log_manager->set_applied_id(last_applied_id);
 }
 
-int FSMCaller::on_snapshot_save(SaveSnapshotClosure* done) {
+int FSMCaller::on_snapshot_save(SaveSnapshotClosure* done, int64_t self_snapshot_index) {
     ApplyTask task;
     task.type = SNAPSHOT_SAVE;
+    task.self_snapshot_index = self_snapshot_index;
     task.done = done;
     return bthread::execution_queue_execute(_queue_id, task);
 }
 
-void FSMCaller::do_snapshot_save(SaveSnapshotClosure* done) {
+void FSMCaller::do_snapshot_save(SaveSnapshotClosure* done, int64_t self_snapshot_index) {
     CHECK(done);
 
-    int64_t last_applied_index = _last_applied_index.load(butil::memory_order_relaxed);
+    int64_t snapshot_last_index = 0;
+    int64_t snapshot_last_term = 0;
+    if (self_snapshot_index == 0) {
+        snapshot_last_index = _last_applied_index.load(butil::memory_order_relaxed);
+        snapshot_last_term = _last_applied_term;
+    } else {
+        snapshot_last_index = self_snapshot_index;
+        snapshot_last_term = _log_manager->get_term(self_snapshot_index);
+    }
 
     SnapshotMeta meta;
-    meta.set_last_included_index(last_applied_index);
-    meta.set_last_included_term(_last_applied_term);
+    meta.set_last_included_index(snapshot_last_index);
+    meta.set_last_included_term(snapshot_last_term);
     ConfigurationEntry conf_entry;
-    _log_manager->get_configuration(last_applied_index, &conf_entry);
     ConfigurationEntry learner_conf_entry;
-    _log_manager->get_learner_configuration(last_applied_index, &learner_conf_entry);
+    _log_manager->get_configuration(snapshot_last_index, &conf_entry);
+    _log_manager->get_learner_configuration(snapshot_last_index, &learner_conf_entry);
     for (Configuration::const_iterator
             iter = conf_entry.conf.begin();
             iter != conf_entry.conf.end(); ++iter) { 

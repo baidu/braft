@@ -56,4 +56,3 @@ ${VALGRIND} ./counter_client \
         --log_each_request=${FLAGS_log_each_request} \
         --thread_num=${FLAGS_thread_num} \
         --use_bthread=${FLAGS_use_bthread} \
-

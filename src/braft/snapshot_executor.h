@@ -63,7 +63,7 @@ public:
 
     // Start to snapshot StateMachine, and |done| is called after the execution
     // finishes or fails.
-    void do_snapshot(Closure* done);
+    void do_snapshot(Closure* done, int64_t self_snapshot_index = 0);
 
     // Install snapshot according to the very RPC from leader
     // After the installing succeeds (StateMachine is reset with the snapshot)
