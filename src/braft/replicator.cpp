@@ -21,6 +21,7 @@
 #include <butil/time.h>                          // butil::gettimeofday_us
 #include <brpc/controller.h>                     // brpc::Controller
 #include <brpc/reloadable_flags.h>               // BRPC_VALIDATE_GFLAG
+#include "braft/enum.pb.h"
 #include "braft/replicator.h"
 #include "braft/node.h"                          // NodeImpl
 #include "braft/ballot_box.h"                    // BallotBox 
@@ -486,9 +487,12 @@ void Replicator::_on_rpc_returned(ReplicatorId id, brpc::Controller* cntl,
                                     << rpc_last_log_index
                                     << "] to peer " << r->_options.peer_id;
     if (entries_size > 0) {
-        r->_options.ballot_box->commit_at(
-                min_flying_index, rpc_last_log_index,
-                r->_options.peer_id);
+        if (!r->_options.is_learner) {
+            r->_options.ballot_box->commit_at(
+                    min_flying_index, rpc_last_log_index,
+                    r->_options.peer_id);
+        }
+
         int64_t rpc_latency_us = cntl->latency_us();
         if (FLAGS_raft_trace_append_entry_latency && 
             rpc_latency_us > FLAGS_raft_append_entry_high_lat_us) {
@@ -609,7 +613,7 @@ int Replicator::_prepare_entry(int offset, EntryMeta* em, butil::IOBuf *data) {
     // still have enough followers to commit logs, we can safely stop waiting new logs
     // until the replicator leave readonly mode.
     if (_readonly_index != 0 && log_index >= _readonly_index) {
-        if (entry->type != ENTRY_TYPE_CONFIGURATION) {
+        if (entry->type != ENTRY_TYPE_CONFIGURATION && entry->type != ENTRY_TYPE_LEARNER_CHANGE) {
             return EREADONLY;
         }
         _readonly_index = log_index + 1;
@@ -617,7 +621,9 @@ int Replicator::_prepare_entry(int offset, EntryMeta* em, butil::IOBuf *data) {
     em->set_term(entry->id.term);
     em->set_type(entry->type);
     if (entry->peers != NULL) {
-        CHECK(!entry->peers->empty()) << "log_index=" << log_index;
+        if (entry->type == ENTRY_TYPE_CONFIGURATION) {
+            CHECK(!(entry->peers->empty())) << "log_index=" << log_index;
+        }
         for (size_t i = 0; i < entry->peers->size(); ++i) {
             em->add_peers((*entry->peers)[i].to_string());
         }
@@ -627,7 +633,7 @@ int Replicator::_prepare_entry(int offset, EntryMeta* em, butil::IOBuf *data) {
             }
         }
     } else {
-        CHECK(entry->type != ENTRY_TYPE_CONFIGURATION) << "log_index=" << log_index;
+        CHECK(entry->type != ENTRY_TYPE_CONFIGURATION && entry->type != ENTRY_TYPE_LEARNER_CHANGE) << "log_index=" << log_index;
     }
     if (!is_witness() || FLAGS_raft_enable_witness_to_leader) {
         em->set_data_len(entry->data.length());
@@ -1388,10 +1394,11 @@ int ReplicatorGroup::init(const NodeId& node_id, const ReplicatorGroupOptions& o
     _common_options.snapshot_storage = options.snapshot_storage;
     _common_options.snapshot_throttle = options.snapshot_throttle;
     _common_options.replicator_status = NULL;
+    _common_options.is_learner = false;
     return 0;
 }
 
-int ReplicatorGroup::add_replicator(const PeerId& peer) {
+int ReplicatorGroup::add_replicator(const PeerId& peer, bool is_learner) {
     CHECK_NE(0, _common_options.term);
     if (_rmap.find(peer) != _rmap.end()) {
         return 0;
@@ -1399,6 +1406,7 @@ int ReplicatorGroup::add_replicator(const PeerId& peer) {
     ReplicatorOptions options = _common_options;
     options.peer_id = peer;
     options.replicator_status = new ReplicatorStatus;
+    options.is_learner = is_learner;
     ReplicatorId rid;
     if (Replicator::start(options, &rid) != 0) {
         LOG(ERROR) << "Group " << options.group_id

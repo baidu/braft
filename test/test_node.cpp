@@ -16,6 +16,7 @@
 #include <brpc/closure_guard.h>
 #include <bthread/bthread.h>
 #include <bthread/countdown_event.h>
+#include <unistd.h>
 #include "../test/util.h"
 
 namespace braft {
@@ -69,6 +70,346 @@ protected:
 private:
     butil::ShadowingAtExitManager exit_manager_;
 };
+
+TEST_P(NodeTest, DISABLED_add_learner_should_work_and_can_recive_log) {
+    std::vector<braft::PeerId> peers;
+    braft::PeerId learner_id;
+    for (int i = 0; i < 3; i++) {
+        braft::PeerId peer;
+        peer.addr.ip = butil::my_ip();
+        peer.addr.port = 5006 + i;
+        peer.idx = 0;
+
+        peers.push_back(peer);
+    }
+    learner_id.addr.ip = butil::my_ip();
+    learner_id.addr.port = 5010;
+    learner_id.idx = 0;
+
+    // start cluster
+    Cluster cluster("unittest", peers);
+    for (size_t i = 0; i < peers.size(); i++) {
+        ASSERT_EQ(0, cluster.start(peers[i].addr));
+    }
+    LearnerManager learner("unittest", learner_id);
+    ASSERT_EQ(0, learner.start());
+
+    // elect leader
+    cluster.wait_leader();
+    braft::Node* leader = cluster.leader();
+    ASSERT_TRUE(leader != NULL);
+    LOG(WARNING) << "leader is " << leader->node_id();
+
+    // add learner
+    braft::SynchronizedClosure learner_done;
+    leader->add_learner(learner.peer_id(), &learner_done);
+    if (!learner_done.status().ok()) {
+        LOG(ERROR) << "Fail to add learner: " << learner_done.status();
+    }
+    learner_done.wait();
+
+    // apply something
+    bthread::CountdownEvent cond(10);
+    for (int i = 0; i < 10; i++) {
+        butil::IOBuf data;
+        char data_buf[128];
+        snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
+        data.append(data_buf);
+
+        braft::Task task;
+        task.data = &data;
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
+        leader->apply(task);
+    }
+    cond.wait();
+
+    {
+        butil::IOBuf data;
+        char data_buf[128];
+        snprintf(data_buf, sizeof(data_buf), "no closure");
+        data.append(data_buf);
+        braft::Task task;
+        task.data = &data;
+        leader->apply(task);
+    }
+
+    cluster.ensure_same();
+    auto leader_fsm = cluster.leader_fsm();
+    ASSERT_TRUE(leader_fsm != nullptr);
+    ASSERT_TRUE(learner.ensure_same(leader_fsm));
+
+    // stop cluster
+    std::vector<braft::Node*> nodes;
+    cluster.followers(&nodes);
+    ASSERT_EQ(2, nodes.size());
+
+    cluster.stop_all();
+    learner.stop();
+}
+
+TEST_P(NodeTest, DISABLED_learner_should_recive_log_after_leader_change) {
+    std::vector<braft::PeerId> peers;
+    braft::PeerId learner_id;
+    for (int i = 0; i < 3; i++) {
+        braft::PeerId peer;
+        peer.addr.ip = butil::my_ip();
+        peer.addr.port = 5006 + i;
+        peer.idx = 0;
+
+        peers.push_back(peer);
+    }
+    learner_id.addr.ip = butil::my_ip();
+    learner_id.addr.port = 5010;
+    learner_id.idx = 0;
+
+    // start cluster
+    Cluster cluster("unittest", peers);
+    for (size_t i = 0; i < peers.size(); i++) {
+        ASSERT_EQ(0, cluster.start(peers[i].addr));
+    }
+    LearnerManager learner("unittest", learner_id);
+    ASSERT_EQ(0, learner.start());
+
+    // elect leader
+    cluster.wait_leader();
+    braft::Node* leader = cluster.leader();
+    ASSERT_TRUE(leader != NULL);
+    LOG(WARNING) << "leader is " << leader->node_id();
+
+    // add learner
+    braft::SynchronizedClosure learner_done;
+    leader->add_learner(learner.peer_id(), &learner_done);
+    if (!learner_done.status().ok()) {
+        LOG(ERROR) << "Fail to add learner: " << learner_done.status();
+    }
+    learner_done.wait();
+
+    // apply something
+    bthread::CountdownEvent cond(10);
+    for (int i = 0; i < 10; i++) {
+        butil::IOBuf data;
+        char data_buf[128];
+        snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
+        data.append(data_buf);
+
+        braft::Task task;
+        task.data = &data;
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
+        leader->apply(task);
+    }
+    cond.wait();
+
+    cluster.ensure_same();
+    auto leader_fsm = cluster.leader_fsm();
+    ASSERT_TRUE(leader_fsm != nullptr);
+    ASSERT_TRUE(learner.ensure_same(leader_fsm));
+
+    butil::Status status;
+    status.set_error(braft::ERAFTTIMEDOUT, "Majority of the group dies");
+    leader->_impl->step_down(leader->_impl->_current_term, false, status);
+    
+    // wait for leader change
+    cluster.wait_leader();
+    leader = cluster.leader();
+    ASSERT_TRUE(leader != NULL);
+
+    // apply something
+    // apply something
+    cond.add_count(10);
+    for (int i = 0; i < 10; i++) {
+        butil::IOBuf data;
+        char data_buf[128];
+        snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
+        data.append(data_buf);
+
+        braft::Task task;
+        task.data = &data;
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
+        leader->apply(task);
+    }
+    cond.wait();
+
+    sleep(1);
+
+    // Learner should not recive log after leader change
+    leader_fsm = cluster.leader_fsm();
+    ASSERT_TRUE(leader_fsm != nullptr);
+    ASSERT_TRUE(learner.ensure_same(leader_fsm));
+    cluster.stop_all();
+    learner.stop();
+}
+
+TEST_P(NodeTest, DISABLED_learner_should_not_vote_for_logentry) {
+    std::vector<braft::PeerId> peers;
+    braft::PeerId learner_id;
+    for (int i = 0; i < 4; i++) {
+        braft::PeerId peer;
+        peer.addr.ip = butil::my_ip();
+        peer.addr.port = 5006 + i;
+        peer.idx = 0;
+
+        peers.push_back(peer);
+    }
+    learner_id.addr.ip = butil::my_ip();
+    learner_id.addr.port = 5010;
+    learner_id.idx = 0;
+
+    // start cluster
+    Cluster cluster("unittest", peers);
+    for (size_t i = 0; i < peers.size(); i++) {
+        ASSERT_EQ(0, cluster.start(peers[i].addr));
+    }
+    LearnerManager learner("unittest", learner_id);
+    ASSERT_EQ(0, learner.start());
+
+    // elect leader
+    cluster.wait_leader();
+    braft::Node* leader = cluster.leader();
+    ASSERT_TRUE(leader != NULL);
+    LOG(WARNING) << "leader is " << leader->node_id();
+
+    // add learner
+    braft::SynchronizedClosure learner_done;
+    leader->add_learner(learner.peer_id(), &learner_done);
+    if (!learner_done.status().ok()) {
+        LOG(ERROR) << "Fail to add learner: " << learner_done.status();
+    }
+    learner_done.wait();
+
+    // apply something
+    bthread::CountdownEvent cond(10);
+    int append_logs_count = 10;
+    for (int i = 0; i < append_logs_count; i++) {
+        butil::IOBuf data;
+        char data_buf[128];
+        snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
+        data.append(data_buf);
+
+        braft::Task task;
+        task.data = &data;
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
+        leader->apply(task);
+    }
+    cond.wait();
+
+    cluster.ensure_same();
+    auto leader_fsm = cluster.leader_fsm();
+    ASSERT_TRUE(leader_fsm != nullptr);
+    ASSERT_TRUE(learner.ensure_same(leader_fsm));
+
+    // kill two follower
+    std::vector<braft::Node*> nodes;
+    cluster.followers(&nodes);
+    ASSERT_EQ(3, nodes.size());
+    cluster.stop(nodes[0]->node_id().peer_id.addr);
+    cluster.stop(nodes[1]->node_id().peer_id.addr);
+
+    // apply log to leader, check if the log entry is not voted by learner
+    butil::IOBuf data;
+    char data_buf[128];
+    snprintf(data_buf, sizeof(data_buf), "hello: %d", 11);
+    data.append(data_buf);
+    braft::Task task;
+    task.data = &data;
+    task.done = NEW_APPLYCLOSURE(&cond, 1); // expect to fail
+    leader->apply(task);
+    
+    usleep(1);
+
+    // check if the log entry is not voted by learner
+    leader_fsm = cluster.leader_fsm();
+    auto learner_fsm =  learner.fsm();
+    ASSERT_EQ(leader_fsm->logs.size(), append_logs_count);
+    ASSERT_EQ(learner_fsm->logs.size(), append_logs_count);
+
+    cluster.stop_all();
+    learner.stop();
+}
+
+TEST_P(NodeTest, learner_should_be_removed) {
+    std::vector<braft::PeerId> peers;
+    braft::PeerId learner_id;
+    for (int i = 0; i < 3; i++) {
+        braft::PeerId peer;
+        peer.addr.ip = butil::my_ip();
+        peer.addr.port = 5006 + i;
+        peer.idx = 0;
+
+        peers.push_back(peer);
+    }
+    learner_id.addr.ip = butil::my_ip();
+    learner_id.addr.port = 5010;
+    learner_id.idx = 0;
+
+    // start cluster
+    Cluster cluster("unittest", peers);
+    for (size_t i = 0; i < peers.size(); i++) {
+        ASSERT_EQ(0, cluster.start(peers[i].addr));
+    }
+    LearnerManager learner("unittest", learner_id);
+    ASSERT_EQ(0, learner.start());
+
+    // elect leader
+    cluster.wait_leader();
+    braft::Node* leader = cluster.leader();
+    ASSERT_TRUE(leader != NULL);
+    LOG(WARNING) << "leader is " << leader->node_id();
+
+    // add learner
+    braft::SynchronizedClosure learner_done;
+    leader->add_learner(learner.peer_id(), &learner_done);
+    if (!learner_done.status().ok()) {
+        LOG(ERROR) << "Fail to add learner: " << learner_done.status();
+    }
+    learner_done.wait();
+
+    // apply something
+    bthread::CountdownEvent cond(10);
+    for (int i = 0; i < 10; i++) {
+        butil::IOBuf data;
+        char data_buf[128];
+        snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
+        data.append(data_buf);
+
+        braft::Task task;
+        task.data = &data;
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
+        leader->apply(task);
+    }
+    cond.wait();
+
+    cluster.ensure_same();
+    auto leader_fsm = cluster.leader_fsm();
+    ASSERT_TRUE(leader_fsm != nullptr);
+    ASSERT_TRUE(learner.ensure_same(leader_fsm));
+
+    // remove learner
+    braft::SynchronizedClosure remove_done;
+    leader->remove_learner(learner.peer_id(), &remove_done);
+    if (!remove_done.status().ok()) {
+        LOG(ERROR) << "Fail to remove learner: " << remove_done.status();
+    }
+
+    // apply something
+    bthread::CountdownEvent cond2(10);
+    for (int i = 0; i < 10; i++) {
+        butil::IOBuf data;
+        char data_buf[128];
+        snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
+        data.append(data_buf);
+
+        braft::Task task;
+        task.data = &data;
+        task.done = NEW_APPLYCLOSURE(&cond2, 0);
+        leader->apply(task);
+    }
+    cond2.wait();
+
+    cluster.ensure_same();
+    leader_fsm = cluster.leader_fsm();
+    ASSERT_TRUE(leader_fsm != nullptr);
+    ASSERT_FALSE(learner.ensure_same(leader_fsm));
+}
 
 TEST_P(NodeTest, InitShutdown) {
     brpc::Server server;

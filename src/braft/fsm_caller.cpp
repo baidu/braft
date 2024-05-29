@@ -17,6 +17,7 @@
 //          Xiong,Kai(xiongkai@baidu.com)
 
 #include <butil/logging.h>
+#include "braft/configuration_manager.h"
 #include "braft/raft.h"
 #include "braft/log_manager.h"
 #include "braft/node.h"
@@ -288,6 +289,10 @@ void FSMCaller::do_committed(int64_t committed_index) {
                             iter_impl.entry()->id.index);
                 }
             }
+            if (iter_impl.entry()->type == ENTRY_TYPE_LEARNER_CHANGE) {
+                _node->on_learner_config_apply(iter_impl.entry());
+                // TODO: should we notify state machine?
+            }
             // For other entries, we have nothing to do besides flush the
             // pending tasks and run this closure to notify the caller that the
             // entries before this one were successfully committed and applied.
@@ -343,7 +348,9 @@ void FSMCaller::do_snapshot_save(SaveSnapshotClosure* done, int64_t self_snapsho
     meta.set_last_included_index(snapshot_last_index);
     meta.set_last_included_term(snapshot_last_term);
     ConfigurationEntry conf_entry;
+    ConfigurationEntry learner_conf_entry;
     _log_manager->get_configuration(snapshot_last_index, &conf_entry);
+    _log_manager->get_learner_configuration(snapshot_last_index, &learner_conf_entry);
     for (Configuration::const_iterator
             iter = conf_entry.conf.begin();
             iter != conf_entry.conf.end(); ++iter) { 
@@ -353,6 +360,11 @@ void FSMCaller::do_snapshot_save(SaveSnapshotClosure* done, int64_t self_snapsho
             iter = conf_entry.old_conf.begin();
             iter != conf_entry.old_conf.end(); ++iter) { 
         *meta.add_old_peers() = iter->to_string();
+    }
+    for (Configuration::const_iterator
+            iter = learner_conf_entry.conf.begin();
+            iter != learner_conf_entry.conf.end(); ++iter) { 
+        *meta.add_learners() = iter->to_string();
     }
 
     SnapshotWriter* writer = done->start(meta);

@@ -18,9 +18,13 @@
 #define PUBLIC_RAFT_TEST_UTIL_H
 
 #include <gflags/gflags.h>
+#include <memory>
+#include <vector>
+#include "braft/configuration.h"
 #include "braft/node.h"
 #include "braft/enum.pb.h"
 #include "braft/errno.pb.h"
+#include "braft/raft.h"
 #include "braft/snapshot_throttle.h" 
 #include "braft/snapshot_executor.h"
 
@@ -353,6 +357,17 @@ public:
         return node;
     }
 
+    MockFSM *leader_fsm() {
+        std::lock_guard<raft_mutex_t> guard(_mutex);
+        for (size_t i = 0; i < _nodes.size(); i++) {
+            if (_nodes[i]->is_leader() &&
+                    _fsms[i]->_leader_term == _nodes[i]->_impl->_current_term) {
+                return _fsms[i];
+            }
+        }
+        return nullptr;
+    }
+
     void followers(std::vector<braft::Node*>* nodes) {
         nodes->clear();
 
@@ -542,6 +557,105 @@ private:
     int32_t _max_clock_drift_ms;
     raft_mutex_t _mutex;
     braft::SnapshotThrottle* _throttle;
+};
+
+class LearnerManager {
+public:
+    LearnerManager(std::string name, braft::PeerId peer_id)
+        : _name(name), _peer_id(peer_id) {}
+
+    int start() {
+        _server.reset(new brpc::Server());
+        if (braft::add_service(_server.get(), _peer_id.addr) != 0 
+                || _server->Start(_peer_id.addr, NULL) != 0) {
+            LOG(ERROR) << "Fail to start raft service";
+            return -1;
+        }
+
+        braft::NodeOptions options;
+        options.election_timeout_ms = 3000;
+        _fsm = new MockFSM(_peer_id.addr);
+        options.fsm = _fsm;
+        options.node_owns_fsm = true;
+        butil::string_printf(&options.log_uri, "local://./data/%s/log",
+                            butil::endpoint2str(_peer_id.addr).c_str());
+        butil::string_printf(&options.raft_meta_uri,
+                            "local://./data/%s/raft_meta",
+                            butil::endpoint2str(_peer_id.addr).c_str());
+        butil::string_printf(&options.snapshot_uri, "local://./data/%s/snapshot",
+                            butil::endpoint2str(_peer_id.addr).c_str());
+        // std::vector<PeerId> dummy{_peer_id};
+        options.initial_conf = braft::Configuration();
+        options.catchup_margin = 2;
+        options.snapshot_interval_s = 30;
+        options.is_learner = true;
+        braft::Node *node = new braft::Node(_name, _peer_id);
+        int ret = node->init(options);
+        if (ret != 0) {
+            LOG(WARNING) << "init_node failed, server: " << _peer_id.addr;
+            delete node;
+            return ret;
+        } else {
+            LOG(INFO) << "init node " << _peer_id.addr;
+        }
+        _node.reset(node);
+        return 0;
+    }
+
+    int stop() {
+        bthread::CountdownEvent cond;
+        if (_node) {
+            _node->shutdown(NEW_SHUTDOWNCLOSURE(&cond));
+            cond.wait();
+            _node->join();
+        }
+        _node.reset();
+        _server.reset();
+        return 0;
+    }
+
+    bool ensure_same(MockFSM* leader_sfm) {
+        if (!_fsm) {
+            LOG(ERROR) << "leader_sfm is null";
+            return false;
+        }
+        _fsm->lock();
+        leader_sfm->lock();
+        bool ret = _fsm->logs.size() == leader_sfm->logs.size();
+        if (!ret) {
+            LOG(WARNING) << "log size not match, "
+                      << " addr: " << _fsm->address << " vs "
+                      << leader_sfm->address << ", log num "
+                      << _fsm->logs.size() << " vs " << leader_sfm->logs.size();
+        }
+        for (size_t i = 0; i < _fsm->logs.size(); i++) {
+            if (_fsm->logs[i].to_string() != leader_sfm->logs[i].to_string()) {
+                LOG(WARNING) << "log data of index=" << i << " not match, "
+                          << " addr: " << _fsm->address << " vs "
+                          << leader_sfm->address << ", data ("
+                          << _fsm->logs[i].to_string() << ") vs " 
+                          << leader_sfm->logs[i].to_string() << ")";
+                ret = false;
+                break;
+            }
+        }
+        _fsm->unlock();
+        leader_sfm->unlock();
+        return ret;
+    }
+
+    braft::Node *node() { return _node.get(); }
+
+    PeerId peer_id() { return _peer_id; }
+
+    MockFSM *fsm() { return _fsm; }
+
+private:
+    std::string _name;
+    braft::PeerId _peer_id;
+    std::unique_ptr<braft::Node> _node;
+    MockFSM* _fsm = nullptr;
+    std::unique_ptr<brpc::Server> _server;
 };
 
 #endif // ~PUBLIC_RAFT_TEST_UTIL_H

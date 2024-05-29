@@ -114,6 +114,10 @@ public:
 
     void get_configuration(int64_t index, ConfigurationEntry* conf);
 
+    void get_learner_configuration(int64_t index, ConfigurationEntry* conf);
+
+    void set_learner_configuration(const ConfigurationEntry& conf);
+
     // Check if |current| should be updated to the latest configuration
     // Returns true and |current| is assigned to the lastest configuration, returns
     // false otherweise

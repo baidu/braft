@@ -27,6 +27,7 @@
 #include <butil/fd_utility.h>                        // butil::make_close_on_exec
 #include <brpc/reloadable_flags.h>             // 
 
+#include "braft/enum.pb.h"
 #include "braft/local_storage.pb.h"
 #include "braft/log_entry.h"
 #include "braft/protobuf_file.h"
@@ -323,6 +324,25 @@ int Segment::load(ConfigurationManager* configuration_manager) {
                 break;
             }
         }
+        if (header.type == ENTRY_TYPE_LEARNER_CHANGE) {
+            butil::IOBuf data;
+            if (_load_entry(entry_off, NULL, &data, skip_len) != 0) {
+                break;
+            }
+            scoped_refptr<LogEntry> entry = new LogEntry();
+            entry->id.index = i;
+            entry->id.term = header.term;
+            butil::Status status = parse_learner_meta(data, entry);
+            if (status.ok()) {
+                ConfigurationEntry conf_entry(*entry);
+                configuration_manager->add_learner_conf(conf_entry);
+            } else {
+                LOG(ERROR) << "fail to parse learner meta, path: " << _path
+                    << " entry_off " << entry_off;
+                ret = -1;
+                break;
+            }
+        }
         _offset_and_term.push_back(std::make_pair(entry_off, header.term));
         ++actual_last_index;
         entry_off += skip_len;
@@ -390,6 +410,16 @@ int Segment::append(const LogEntry* entry) {
             butil::Status status = serialize_configuration_meta(entry, data);
             if (!status.ok()) {
                 LOG(ERROR) << "Fail to serialize ConfigurationPBMeta, path: " 
+                           << _path;
+                return -1; 
+            }
+        }
+        break;
+    case ENTRY_TYPE_LEARNER_CHANGE: 
+        {
+            butil::Status status = serialize_learner_meta(entry, data);
+            if (!status.ok()) {
+                LOG(ERROR) << "Fail to serialize learner's ConfigurationPBMeta, path: " 
                            << _path;
                 return -1; 
             }
@@ -488,6 +518,17 @@ LogEntry* Segment::get(const int64_t index) const {
                 butil::Status status = parse_configuration_meta(data, entry); 
                 if (!status.ok()) {
                     LOG(WARNING) << "Fail to parse ConfigurationPBMeta, path: "
+                                 << _path;
+                    ok = false;
+                    break;
+                }
+            }
+            break;
+        case ENTRY_TYPE_LEARNER_CHANGE:
+            {
+                butil::Status status = parse_learner_meta(data, entry); 
+                if (!status.ok()) {
+                    LOG(WARNING) << "Fail to parse learner's ConfigurationPBMeta, path: "
                                  << _path;
                     ok = false;
                     break;

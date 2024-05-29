@@ -62,6 +62,7 @@ message SnapshotMeta {
     required int64 last_included_term = 2;
     repeated string peers = 3;
     repeated string old_peers = 4;
+    repeated string learners = 5;
 }
 
 message InstallSnapshotRequest {

@@ -70,4 +70,43 @@ butil::Status serialize_configuration_meta(const LogEntry* entry, butil::IOBuf& 
     return status;
 }
 
+butil::Status parse_learner_meta(const butil::IOBuf& data, LogEntry* entry) {
+    butil::Status status;
+    if (data.size() == 0) {
+        // All the learners were removed.
+        entry->peers = new std::vector<PeerId>;
+        return status;
+    }
+    ConfigurationPBMeta meta;
+    butil::IOBufAsZeroCopyInputStream wrapper(data);
+    if (!meta.ParseFromZeroCopyStream(&wrapper)) {
+        status.set_error(EINVAL, "Fail to parse learner's ConfigurationPBMeta");
+        return status;
+    }
+    entry->peers = new std::vector<PeerId>;
+    for (int j = 0; j < meta.peers_size(); ++j) {
+        entry->peers->push_back(PeerId(meta.peers(j)));
+    }
+    CHECK_EQ(meta.old_peers_size(), 0) << "Learner's old_peers should be empty";
+    return status;    
+}
+
+butil::Status serialize_learner_meta(const LogEntry* entry, butil::IOBuf& data) {
+    butil::Status status;
+    if (entry->peers == NULL || entry->peers->empty()) {
+        // All the learners were removed.
+        return status;
+    }
+    ConfigurationPBMeta meta;
+    for (size_t i = 0; i < entry->peers->size(); ++i) {
+        meta.add_peers((*(entry->peers))[i].to_string());
+    }
+    CHECK(!entry->old_peers) << "Learner's old_peers should be empty";
+    butil::IOBufAsZeroCopyOutputStream wrapper(&data);
+    if (!meta.SerializeToZeroCopyStream(&wrapper)) {
+        status.set_error(EINVAL, "Fail to serialize learner's ConfigurationPBMeta");
+    }
+    return status;
+}
+
 }

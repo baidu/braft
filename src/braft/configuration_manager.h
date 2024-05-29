@@ -56,22 +56,31 @@ public:
     // add new configuration at index
     int add(const ConfigurationEntry& entry);
 
+    // add new learner configuration at index
+    int add_learner_conf(const ConfigurationEntry& entry);
+
     // [1, first_index_kept) are being discarded
     void truncate_prefix(int64_t first_index_kept);
 
     // (last_index_kept, infinity) are being discarded
     void truncate_suffix(int64_t last_index_kept);
 
-    void set_snapshot(const ConfigurationEntry& snapshot);
+    void set_snapshot(const ConfigurationEntry& snapshot, const ConfigurationEntry& learner_entry);
 
     void get(int64_t last_included_index, ConfigurationEntry* entry);
 
+    void get_learner_conf(int64_t last_included_index, ConfigurationEntry* entry);
+
     const ConfigurationEntry& last_configuration() const;
+
+    const ConfigurationEntry& last_learner_configuration() const;
 
 private:
 
     std::deque<ConfigurationEntry> _configurations;
+    std::deque<ConfigurationEntry> _learner_configurations;
     ConfigurationEntry _snapshot;
+    ConfigurationEntry _learner_snapshot;
 };
 
 }  //  namespace braft

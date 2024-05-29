@@ -22,6 +22,7 @@
 #include <bthread/bthread.h>                            // bthread_id
 #include <brpc/channel.h>                  // brpc::Channel
 
+#include "braft/file_system_adaptor.h"
 #include "braft/storage.h"                       // SnapshotStorage
 #include "braft/raft.h"                          // Closure
 #include "braft/configuration.h"                 // Configuration
@@ -45,18 +46,21 @@ struct ReplicatorStatus : public butil::RefCountedThreadSafe<ReplicatorStatus> {
 
 struct ReplicatorOptions {
     ReplicatorOptions();
-    int* dynamic_heartbeat_timeout_ms;
-    int* election_timeout_ms;
-    GroupId group_id;
-    PeerId server_id;
-    PeerId peer_id;
-    LogManager* log_manager;
-    BallotBox* ballot_box;
-    NodeImpl *node;
-    int64_t term;
-    SnapshotStorage* snapshot_storage;
-    SnapshotThrottle* snapshot_throttle;
-    ReplicatorStatus* replicator_status;
+    int* dynamic_heartbeat_timeout_ms = nullptr;
+    int* election_timeout_ms = nullptr;
+    GroupId group_id = 0;
+    PeerId server_id = 0;
+    PeerId peer_id = 0;
+    LogManager* log_manager = nullptr;
+    BallotBox* ballot_box = nullptr;
+    NodeImpl *node = nullptr;
+    int64_t term = -1;
+    SnapshotStorage* snapshot_storage = nullptr;
+    SnapshotThrottle* snapshot_throttle = nullptr;
+    ReplicatorStatus* replicator_status = nullptr;
+
+    // Learner replciator do not vote.
+    bool is_learner = false;
 };
 
 typedef uint64_t ReplicatorId;
@@ -72,10 +76,10 @@ protected:
     {}
 private:
 friend class Replicator;
-    int64_t _max_margin;
+    int64_t _max_margin = -1;
     bthread_timer_t _timer;
-    bool _has_timer;
-    bool _error_was_set;
+    bool _has_timer = false;
+    bool _error_was_set = false;
     void _run();
 };
 
@@ -294,7 +298,7 @@ public:
     // NOTE: when calling this function, the replicatos starts to work
     // immediately, annd might call node->step_down which might have race with
     // the caller, you should deal with this situation.
-    int add_replicator(const PeerId& peer);
+    int add_replicator(const PeerId& peer, bool is_learner = false);
     
     // wait the very peer catchup
     int wait_caughtup(const PeerId& peer, int64_t max_margin,
