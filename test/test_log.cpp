@@ -21,6 +21,7 @@
 
 namespace braft {
 DECLARE_bool(raft_trace_append_entry_latency);
+DECLARE_bool(raft_recover_log_from_corrupt);
 }
 
 class LogStorageTest : public testing::Test {
@@ -501,6 +502,18 @@ int truncate_uninterrupted(const char* filename, off_t length) {
         rc = truncate(filename, length);
     } while (rc == -1 && errno == EINTR);
     return rc;
+}
+
+int append_corrupted_data(const char* filename) {
+  char header_buf[200];
+  memset(header_buf, 1, 200);
+  FILE* fp = std::fopen(filename, "a");
+  if (fp == NULL) {
+    return -1;
+  }
+  int ret = std::fputs(header_buf, fp);
+  std::fclose(fp);
+  return ret;
 }
 
 TEST_F(LogStorageTest, data_lost) {
@@ -1281,3 +1294,82 @@ TEST_F(LogStorageTest, append_close_load_append_with_io_metric) {
     delete storage;
     delete configuration_manager;
 }
+
+TEST_F(LogStorageTest, data_corrupt) {
+    ::system("rm -rf data");
+    braft::LogStorage* storage = new braft::SegmentLogStorage("./data");
+    braft::ConfigurationManager* configuration_manager = new braft::ConfigurationManager;
+    ASSERT_EQ(0, storage->init(configuration_manager));
+
+    // append entry
+    for (int i = 0; i < 100000; i++) {
+        std::vector<braft::LogEntry*> entries;
+        for (int j = 0; j < 5; j++) {
+            int64_t index = 5*i + j + 1;
+            braft::LogEntry* entry = new braft::LogEntry();
+            entry->type = braft::ENTRY_TYPE_DATA;
+            entry->id.term = 1;
+            entry->id.index = index;
+
+            char data_buf[128];
+            snprintf(data_buf, sizeof(data_buf), "hello, world: %ld", index);
+            entry->data.append(data_buf);
+            entries.push_back(entry);
+        }
+
+        ASSERT_EQ(5, storage->append_entries(entries, NULL));
+
+        for (size_t j = 0; j < entries.size(); j++) {
+            delete entries[j];
+        }
+    }
+
+    delete storage;
+    delete configuration_manager;
+
+    // reinit 
+    storage = new braft::SegmentLogStorage("./data");
+    configuration_manager = new braft::ConfigurationManager;
+    ASSERT_EQ(0, storage->init(configuration_manager));
+
+    ASSERT_EQ(storage->first_log_index(), 1);
+    ASSERT_EQ(storage->last_log_index(), 100000*5);
+
+    delete storage;
+    delete configuration_manager;
+
+    // last segment data corrupt
+    butil::DirReaderPosix dir_reader1("./data");
+    ASSERT_TRUE(dir_reader1.IsValid());
+    while (dir_reader1.Next()) {
+        int64_t first_index = 0;
+        int match = sscanf(dir_reader1.name(), "log_inprogress_%020ld", 
+                           &first_index);
+        std::string path;
+        butil::string_appendf(&path, "./data/%s", dir_reader1.name());
+        if (match == 1) {
+            ASSERT_LE(0, append_corrupted_data(path.c_str()));
+        }
+    }
+
+
+    storage = new braft::SegmentLogStorage("./data");
+    configuration_manager = new braft::ConfigurationManager;
+    ASSERT_NE(0, storage->init(configuration_manager));
+
+    delete storage;
+    delete configuration_manager;
+
+    braft::FLAGS_raft_recover_log_from_corrupt = true;
+
+    storage = new braft::SegmentLogStorage("./data");
+    configuration_manager = new braft::ConfigurationManager;
+    ASSERT_EQ(0, storage->init(configuration_manager));
+
+    ASSERT_EQ(storage->first_log_index(), 1);
+    ASSERT_EQ(storage->last_log_index(), 100000*5);
+
+    delete storage;
+    delete configuration_manager;
+}
+

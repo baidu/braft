@@ -396,7 +396,7 @@ struct NodeStatus {
     // If the value is 0, means no pending logs.
     // 
     // WARNING: if this value is not 0, and keep the same in a long time,
-    // means something happend to prevent the node to commit logs in a
+    // means something happened to prevent the node to commit logs in a
     // large probability, and users should check carefully to find out
     // the reasons.
     int64_t pending_index;
@@ -411,7 +411,7 @@ struct NodeStatus {
     // The current applying index. If the value is 0, means no applying log.
     //
     // WARNING: if this value is not 0, and keep the same in a long time, means
-    // the apply thread hung, users should check if a deadlock happend, or some
+    // the apply thread hung, users should check if a deadlock happened, or some
     // time-consuming operations is handling in place.
     int64_t applying_index;
 

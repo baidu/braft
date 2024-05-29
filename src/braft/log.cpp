@@ -53,6 +53,9 @@ BRPC_VALIDATE_GFLAG(raft_max_segment_size, brpc::PositiveInteger);
 DEFINE_bool(raft_sync_segments, false, "call fsync when a segment is closed");
 BRPC_VALIDATE_GFLAG(raft_sync_segments, ::brpc::PassValidate);
 
+DEFINE_bool(raft_recover_log_from_corrupt, false, "recover log by truncating corrupted log");
+BRPC_VALIDATE_GFLAG(raft_recover_log_from_corrupt, ::brpc::PassValidate);
+
 static bvar::LatencyRecorder g_open_segment_latency("raft_open_segment");
 static bvar::LatencyRecorder g_segment_append_entry_latency("raft_segment_append_entry");
 static bvar::LatencyRecorder g_sync_segment_latency("raft_sync_segment");
@@ -285,6 +288,7 @@ int Segment::load(ConfigurationManager* configuration_manager) {
     int64_t file_size = st_buf.st_size;
     int64_t entry_off = 0;
     int64_t actual_last_index = _first_index - 1;
+    bool is_entry_corrupted = false;
     for (int64_t i = _first_index; entry_off < file_size; i++) {
         EntryHeader header;
         const int rc = _load_entry(entry_off, &header, NULL, ENTRY_HEADER_SIZE);
@@ -293,6 +297,7 @@ int Segment::load(ConfigurationManager* configuration_manager) {
             break;
         }
         if (rc < 0) {
+            is_entry_corrupted = true;
             ret = rc;
             break;
         }
@@ -365,7 +370,12 @@ int Segment::load(ConfigurationManager* configuration_manager) {
     }
 
     if (ret != 0) {
-        return ret;
+        if (!_is_open || !FLAGS_raft_recover_log_from_corrupt || !is_entry_corrupted) {
+            return ret;
+        // Truncate the log to the last normal index
+        } else {
+            ret = 0;
+        }
     }
 
     if (_is_open) {
@@ -466,7 +476,7 @@ int Segment::append(const LogEntry* entry) {
     return 0;
 }
 
-int Segment::sync(bool will_sync) {
+int Segment::sync(bool will_sync, bool has_conf) {
     if (_last_index < _first_index) {
         return 0;
     }
@@ -476,7 +486,8 @@ int Segment::sync(bool will_sync) {
             return 0;
         }
         if (FLAGS_raft_sync_policy == RaftSyncPolicy::RAFT_SYNC_BY_BYTES
-            && FLAGS_raft_sync_per_bytes > _unsynced_bytes) {
+            && FLAGS_raft_sync_per_bytes > _unsynced_bytes
+            && !has_conf) {
             return 0;
         }
         _unsynced_bytes = 0;
@@ -778,6 +789,7 @@ int SegmentLogStorage::append_entries(const std::vector<LogEntry*>& entries, IOM
     scoped_refptr<Segment> last_segment = NULL;
     int64_t now = 0;
     int64_t delta_time_us = 0;
+    bool has_conf = false;
     for (size_t i = 0; i < entries.size(); i++) {
         now = butil::cpuwide_time_us();
         LogEntry* entry = entries[i];
@@ -795,6 +807,9 @@ int SegmentLogStorage::append_entries(const std::vector<LogEntry*>& entries, IOM
         if (0 != ret) {
             return i;
         }
+        if (entry->type == ENTRY_TYPE_CONFIGURATION) {
+            has_conf = true;
+        }
         if (FLAGS_raft_trace_append_entry_latency && metric) {
             delta_time_us = butil::cpuwide_time_us() - now;
             metric->append_entry_time_us += delta_time_us;
@@ -804,7 +819,7 @@ int SegmentLogStorage::append_entries(const std::vector<LogEntry*>& entries, IOM
         last_segment = segment;
     }
     now = butil::cpuwide_time_us();
-    last_segment->sync(_enable_sync);
+    last_segment->sync(_enable_sync, has_conf);
     if (FLAGS_raft_trace_append_entry_latency && metric) {
         delta_time_us = butil::cpuwide_time_us() - now;
         metric->sync_segment_time_us += delta_time_us;

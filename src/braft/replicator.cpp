@@ -1536,20 +1536,32 @@ int ReplicatorGroup::stop_all_and_find_the_next_candidate(
 int ReplicatorGroup::find_the_next_candidate(
         PeerId* peer_id, const ConfigurationEntry& conf) {
     int64_t max_index =  0;
+    struct peerInfo {
+        peerInfo(const PeerId& id, const ReplicatorIdAndStatus& status) {
+            peer_id = id;
+            id_and_status = status;
+        }
+        PeerId peer_id;
+        ReplicatorIdAndStatus id_and_status;
+    };
+    std::vector<peerInfo> peers;
     for (std::map<PeerId, ReplicatorIdAndStatus>::const_iterator
             iter = _rmap.begin();  iter != _rmap.end(); ++iter) {
-        if (!conf.contains(iter->first)) {
+       peers.emplace_back(peerInfo(iter->first,iter->second));
+    }
+    std::random_shuffle(peers.begin(), peers.end());
+    for (auto iter = peers.begin();  iter != peers.end(); ++iter) {
+        if (!conf.contains(iter->peer_id)) {
             continue;
         }
-        const int64_t next_index = Replicator::get_next_index(iter->second.id);
-        const int consecutive_error_times = Replicator::get_consecutive_error_times(iter->second.id);
-        if (consecutive_error_times == 0 && next_index > max_index && !iter->first.is_witness()) {
+        const int64_t next_index = Replicator::get_next_index(iter->id_and_status.id);
+        const int consecutive_error_times = Replicator::get_consecutive_error_times(iter->id_and_status.id);
+        if (consecutive_error_times == 0 && next_index > max_index && !iter->peer_id.is_witness()) {
             max_index = next_index;
             if (peer_id) {
-                *peer_id = iter->first;
+                *peer_id = iter->peer_id;
             }
         }
-        
     }
     if (max_index == 0) {
         return -1;
