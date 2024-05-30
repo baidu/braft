@@ -48,9 +48,9 @@ struct ReplicatorOptions {
     ReplicatorOptions();
     int* dynamic_heartbeat_timeout_ms = nullptr;
     int* election_timeout_ms = nullptr;
-    GroupId group_id = 0;
-    PeerId server_id = 0;
-    PeerId peer_id = 0;
+    GroupId group_id;
+    PeerId server_id;
+    PeerId peer_id;
     LogManager* log_manager = nullptr;
     BallotBox* ballot_box = nullptr;
     NodeImpl *node = nullptr;
