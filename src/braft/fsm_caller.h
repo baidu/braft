@@ -95,6 +95,17 @@ class SaveSnapshotClosure : public Closure {
 public:
     // TODO: comments
     virtual SnapshotWriter* start(const SnapshotMeta& meta) = 0;
+
+    void set_snapshot_index(int64_t index){
+        _index = index;
+    }
+
+    int64_t snapshot_index() const {
+        return _index;
+    }
+
+private:
+    int64_t _index;
 };
 
 class LoadSnapshotClosure : public Closure {

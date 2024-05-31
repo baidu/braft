@@ -345,6 +345,7 @@ void FSMCaller::do_snapshot_save(SaveSnapshotClosure* done) {
             iter != conf_entry.old_conf.end(); ++iter) { 
         *meta.add_old_peers() = iter->to_string();
     }
+    done->set_snapshot_index(last_applied_index);
 
     SnapshotWriter* writer = done->start(meta);
     if (!writer) {
