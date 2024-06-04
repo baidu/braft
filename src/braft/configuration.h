@@ -103,13 +103,21 @@ struct PeerId {
 inline bool operator<(const PeerId& id1, const PeerId& id2) {
     if (id1.addr < id2.addr) {
         return true;
-    } else {
-        return id1.addr == id2.addr && id1.idx < id2.idx;
     }
+    if (id2.addr < id1.addr) {
+        return false;
+    }
+    if (id1.idx < id2.idx) {
+        return true;
+    }
+    if (id2.idx < id1.idx) {
+        return false;
+    }
+    return id1.role < id2.role;
 }
 
 inline bool operator==(const PeerId& id1, const PeerId& id2) {
-    return (id1.addr == id2.addr && id1.idx == id2.idx);
+    return (id1.addr == id2.addr && id1.idx == id2.idx && id1.role == id2.role);
 }
 
 inline bool operator!=(const PeerId& id1, const PeerId& id2) {
