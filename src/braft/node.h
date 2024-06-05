@@ -135,6 +135,7 @@ public:
     void apply(const Task& task);
 
     butil::Status list_peers(std::vector<PeerId>* peers);
+    butil::Status list_learners(std::vector<PeerId>* learners);
 
     // @Node configuration change
     void add_peer(const PeerId& peer, Closure* done);

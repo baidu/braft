@@ -903,6 +903,15 @@ butil::Status NodeImpl::list_peers(std::vector<PeerId>* peers) {
     return butil::Status::OK();
 }
 
+butil::Status NodeImpl::list_learners(std::vector<PeerId>* learners) {
+    BAIDU_SCOPED_LOCK(_mutex);
+    if (_state != STATE_LEADER) {
+        return butil::Status(EPERM, "Not leader");
+    }
+    _learner_conf.conf.list_peers(learners);
+    return butil::Status::OK();
+}
+
 void NodeImpl::add_peer(const PeerId& peer, Closure* done) {
     BAIDU_SCOPED_LOCK(_mutex);
     Configuration new_conf = _conf.conf;
