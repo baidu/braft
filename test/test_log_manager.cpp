@@ -681,3 +681,38 @@ TEST_F(LogManagerTest, set_snapshot_and_get_log_term) {
     ASSERT_EQ(1L, lm->get_term(N - 1));
     LOG(INFO) << "Last_index=" << lm->last_log_index();
 }
+
+TEST_F(LogManagerTest, manually_set_snapshot_index) {
+    system("rm -rf ./data");
+    int64_t first_include_index = 1;
+    int64_t last_include_index = 20;
+    int64_t first_snapshot_truncate_index = 10;
+    int64_t second_snapshot_truncate_index = 15;
+    int64_t term = 1;
+    scoped_ptr<braft::ConfigurationManager> cm(
+            new braft::ConfigurationManager);
+    scoped_ptr<braft::SegmentLogStorage> storage(
+            new braft::SegmentLogStorage("./data"));
+    scoped_ptr<braft::LogManager> lm(new braft::LogManager());
+    braft::LogManagerOptions opt;
+    opt.log_storage = storage.get();
+    opt.configuration_manager = cm.get();
+    ASSERT_EQ(0, lm->init(opt));
+    for (int i = first_include_index; i <= last_include_index; ++i) {
+        append_entry(lm.get(), "test", i, term);
+    }
+    braft::SnapshotMeta first_snapshot_meta;
+    first_snapshot_meta.set_last_included_index(first_snapshot_truncate_index);
+    first_snapshot_meta.set_last_included_term(term);
+    //LogManager will truncate nothing in frist snapshot
+    lm->set_snapshot(&first_snapshot_meta);
+    ASSERT_EQ(first_include_index, lm->first_log_index());
+
+
+    braft::SnapshotMeta second_snapshot_meta;
+    second_snapshot_meta.set_last_included_index(second_snapshot_truncate_index);
+    second_snapshot_meta.set_last_included_term(term);
+    // Logmanager will truncate first snapshot.
+    lm->set_snapshot(&second_snapshot_meta);
+    ASSERT_EQ(first_snapshot_truncate_index + 1, lm->first_log_index());
+}

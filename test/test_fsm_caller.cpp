@@ -204,10 +204,12 @@ private:
 class MockSaveSnapshotClosure : public braft::SaveSnapshotClosure {
 public:
     MockSaveSnapshotClosure(braft::SnapshotWriter* writer, 
-                            braft::SnapshotMeta *expected_meta) 
+                            braft::SnapshotMeta *expected_meta,
+                            braft::LogManager* lm) 
         : _start_times(0)
         , _writer(writer)
         , _expected_meta(expected_meta)
+        , _lm(lm)
     {
     }
     ~MockSaveSnapshotClosure() {}
@@ -222,10 +224,18 @@ public:
         ++_start_times;
         return _writer;
     }
+
+    void set_meta(){
+        const int64_t last_include_index = snapshot_index();
+        _expected_meta->set_last_included_index(last_include_index);
+        const int64_t last_include_term = _lm->get_term(last_include_index);
+        _expected_meta->set_last_included_term(last_include_term);
+    }
 private:
     int _start_times;
     braft::SnapshotWriter* _writer;
     braft::SnapshotMeta* _expected_meta;
+    braft::LogManager* _lm;
 };
 
 class MockLoadSnapshotClosure : public braft::LoadSnapshotClosure {
@@ -253,13 +263,13 @@ TEST_F(FSMCallerTest, snapshot) {
     snapshot_meta.set_last_included_term(0);
     DummySnapshotReader dummy_reader(&snapshot_meta);
     DummySnapshoWriter dummy_writer;
-    MockSaveSnapshotClosure save_snapshot_done(&dummy_writer, &snapshot_meta);
     system("rm -rf ./data");
     scoped_ptr<braft::ConfigurationManager> cm(
                                 new braft::ConfigurationManager);
     scoped_ptr<braft::SegmentLogStorage> storage(
                                 new braft::SegmentLogStorage("./data"));
     scoped_ptr<braft::LogManager> lm(new braft::LogManager());
+    MockSaveSnapshotClosure save_snapshot_done(&dummy_writer, &snapshot_meta, lm.get());
     braft::LogManagerOptions log_opt;
     log_opt.log_storage = storage.get();
     log_opt.configuration_manager = cm.get();
@@ -284,5 +294,73 @@ TEST_F(FSMCallerTest, snapshot) {
     ASSERT_EQ(1, fsm._on_snapshot_load_times);
     ASSERT_EQ(1, save_snapshot_done._start_times);
     ASSERT_EQ(1, load_snapshot_done._start_times);
+}
+
+TEST_F(FSMCallerTest, manually_set_snapshot_index) {
+    braft::SnapshotMeta snapshot_meta;
+    int64_t term_1_first_include_index = 1;
+    int64_t term_1_last_include_index = 10;
+    int64_t term_2_last_include_index = 20;
+    // in term 1
+    int64_t first_snapshot_truncate_index = (term_1_last_include_index - term_1_first_include_index) / 2;
+    // in term 2
+    int64_t second_snapshot_truncate_index = term_1_last_include_index+ (term_2_last_include_index - term_1_last_include_index) / 2;
+    int64_t frist_term = 1;
+    int64_t second_term = 2;
+
+    DummySnapshotReader dummy_reader(&snapshot_meta);
+    DummySnapshoWriter dummy_writer;
+    system("rm -rf ./data");
+    scoped_ptr<braft::ConfigurationManager> cm(
+                                new braft::ConfigurationManager);
+    scoped_ptr<braft::SegmentLogStorage> storage(
+                                new braft::SegmentLogStorage("./data"));
+    scoped_ptr<braft::LogManager> lm(new braft::LogManager());
+    MockSaveSnapshotClosure save_snapshot_done(&dummy_writer, &snapshot_meta, lm.get());
+    braft::LogManagerOptions log_opt;
+    log_opt.log_storage = storage.get();
+    log_opt.configuration_manager = cm.get();
+    ASSERT_EQ(0, lm->init(log_opt));
+    for (int i = term_1_first_include_index; i <= term_1_last_include_index; i++){
+        braft::LogEntry* entry = new braft::LogEntry;
+        entry->AddRef();
+        butil::StringPiece data = "test";
+        entry->data.append(data.data(), data.size());
+        entry->type = braft::ENTRY_TYPE_DATA;
+        entry->id = braft::LogId(i, frist_term);
+        SyncClosure sc;
+        std::vector<braft::LogEntry*> entries;
+        entries.push_back(entry);
+        lm->append_entries(&entries, &sc);
+        sc.join();
+    }
+    for (int i = term_1_last_include_index + 1; i <= term_2_last_include_index; i++){
+        braft::LogEntry* entry = new braft::LogEntry;
+        entry->AddRef();
+        butil::StringPiece data = "test";
+        entry->data.append(data.data(), data.size());
+        entry->type = braft::ENTRY_TYPE_DATA;
+        entry->id = braft::LogId(i, second_term);
+        SyncClosure sc;
+        std::vector<braft::LogEntry*> entries;
+        entries.push_back(entry);
+        lm->append_entries(&entries, &sc);
+        sc.join();
+    }
+    //             LogManager
+    //
+    // Log:  |___1-10______| |___11-20____|
+    //           term1           term2
+
+    save_snapshot_done.set_snapshot_index(first_snapshot_truncate_index);
+    save_snapshot_done.set_meta();
+    ASSERT_EQ(snapshot_meta.last_included_index(), first_snapshot_truncate_index);
+    ASSERT_EQ(snapshot_meta.last_included_term(), frist_term);
+
+    save_snapshot_done.set_snapshot_index(second_snapshot_truncate_index);
+    save_snapshot_done.set_meta();
+    ASSERT_EQ(snapshot_meta.last_included_index(), second_snapshot_truncate_index);
+    ASSERT_EQ(snapshot_meta.last_included_term(), second_term);
+
 }
 
