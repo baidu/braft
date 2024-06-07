@@ -120,6 +120,7 @@ public:
     int64_t last_applied_index() const {
         return _last_applied_index.load(butil::memory_order_relaxed);
     }
+    void set_self_playback_point(int64_t self_playback_point);
     int64_t applying_index() const;
     void describe(std::ostream& os, bool use_html);
     void join();

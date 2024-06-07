@@ -142,6 +142,15 @@ public:
     void change_peers(const Configuration& new_peers, Closure* done);
     butil::Status reset_peers(const Configuration& new_peers);
 
+    // customize the log playback point
+    void set_self_playback_point(int64_t self_playback_point);
+
+    // get term by log index
+    uint64_t get_term(uint64_t log_index);
+
+    // get last log index
+    uint64_t get_last_log_index(bool is_flush);
+
     // trigger snapshot
     void snapshot(Closure* done, int64_t self_snapshot_index = 0);
 

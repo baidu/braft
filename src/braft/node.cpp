@@ -971,6 +971,23 @@ butil::Status NodeImpl::reset_peers(const Configuration& new_peers) {
     return butil::Status::OK();
 }
 
+void NodeImpl::set_self_playback_point(int64_t self_playback_point) {
+    if (self_playback_point <= _fsm_caller->last_applied_index() || 
+        self_playback_point > _log_manager->last_log_index()) {
+        return;
+    }
+    
+    _fsm_caller->set_self_playback_point(self_playback_point);
+}
+
+uint64_t NodeImpl::get_term(uint64_t log_index) {
+    return _log_manager->get_term(log_index);
+}
+
+uint64_t NodeImpl::get_last_log_index(bool is_flush) {
+    return _log_manager->last_log_index(is_flush);
+}
+
 void NodeImpl::snapshot(Closure* done, int64_t self_snapshot_index) {
     do_snapshot(done, self_snapshot_index);
 }
