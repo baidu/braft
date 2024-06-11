@@ -51,19 +51,19 @@ private:
             return peer_id == id;
         }
     };
-    std::vector<UnfoundPeerId>::iterator find_peer(
+    std::vector<UnfoundPeerId>::reverse_iterator find_peer(
             const PeerId& peer, std::vector<UnfoundPeerId>& peers, int pos_hint) {
         if (pos_hint < 0 || pos_hint >= (int)peers.size()
                 || peers[pos_hint].peer_id != peer) {
-            for (std::vector<UnfoundPeerId>::iterator
-                    iter = peers.begin(); iter != peers.end(); ++iter) {
-                if (*iter == peer) {
-                    return iter;
-                }
+            for (std::vector<UnfoundPeerId>::reverse_iterator
+                        iter = peers.rbegin(); iter != peers.rend(); ++iter) {
+                    if (*iter == peer) {
+                        return iter;
+                    }
             }
-            return peers.end();
+            return peers.rend();
         }
-        return peers.begin() + pos_hint;
+        return peers.rbegin() + pos_hint;
     }
     std::vector<UnfoundPeerId> _peers;
     int _quorum;
