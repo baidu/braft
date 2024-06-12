@@ -133,7 +133,8 @@ public:
     //              Otherwise we will specifit the error and call it.
     //
     void apply(const Task& task);
-
+    
+    butil::Status list_members(std::vector<PeerId>* peers, const ConfigurationEntry& conf);
     butil::Status list_peers(std::vector<PeerId>* peers);
     butil::Status list_learners(std::vector<PeerId>* learners);
 

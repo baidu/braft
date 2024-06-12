@@ -894,22 +894,21 @@ void NodeImpl::unsafe_register_conf_change(const Configuration& old_conf,
     return _conf_ctx.start(old_conf, new_conf, done);
 }
 
-butil::Status NodeImpl::list_peers(std::vector<PeerId>* peers) {
+butil::Status NodeImpl::list_members(std::vector<PeerId>* peers, const ConfigurationEntry& conf) {
     BAIDU_SCOPED_LOCK(_mutex);
     if (_state != STATE_LEADER) {
         return butil::Status(EPERM, "Not leader");
     }
-    _conf.conf.list_peers(peers);
+    conf.conf.list_peers(peers);
     return butil::Status::OK();
 }
 
+butil::Status NodeImpl::list_peers(std::vector<PeerId>* peers) {
+   return list_members(peers, _conf); 
+}
+
 butil::Status NodeImpl::list_learners(std::vector<PeerId>* learners) {
-    BAIDU_SCOPED_LOCK(_mutex);
-    if (_state != STATE_LEADER) {
-        return butil::Status(EPERM, "Not leader");
-    }
-    _learner_conf.conf.list_peers(learners);
-    return butil::Status::OK();
+    return list_members(learners, _learner_conf);
 }
 
 void NodeImpl::add_peer(const PeerId& peer, Closure* done) {
