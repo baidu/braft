@@ -19,6 +19,7 @@
 #include <unistd.h>
 #include <butil/string_printf.h>
 #include <butil/class_name.h>
+#include <vector>
 #include "braft/raft.h"
 #include "braft/node.h"
 #include "braft/storage.h"
@@ -184,6 +185,10 @@ void Node::apply(const Task& task) {
 
 butil::Status Node::list_peers(std::vector<PeerId>* peers) {
     return _impl->list_peers(peers);
+}
+
+butil::Status Node::list_learners(std::vector<PeerId>* learners) {
+    return _impl->list_learners(learners);
 }
 
 void Node::add_peer(const PeerId& peer, Closure* done) {

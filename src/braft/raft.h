@@ -282,10 +282,10 @@ enum State {
 };
 
 inline const char* state2str(State state) {
-    const char* str[] = {"LEADER", "TRANSFERRING", "CANDIDATE", "FOLLOWER", 
+    const char* str[] = {"LEARNER", "LEADER", "TRANSFERRING", "CANDIDATE", "FOLLOWER", 
                          "ERROR", "UNINITIALIZED", "SHUTTING", "SHUTDOWN", };
     if (state < STATE_END) {
-        return str[(int)state - 1];
+        return str[(int)state];
     } else {
         return "UNKNOWN";
     }
@@ -688,6 +688,11 @@ public:
     // [NOTE] when list_peers concurrency with add_peer/remove_peer, maybe return peers is staled.
     // because add_peer/remove_peer immediately modify configuration in memory
     butil::Status list_peers(std::vector<PeerId>* peers);
+
+    // list learner peers of this raft group, only leader retruns ok
+    // [NOTE] when list_learner_peers concurrency with add_learner/remove_learner, maybe return learner_peers is staled.
+    // because add_learner/remove_learner immediately modify configuration in memory
+    butil::Status list_learners(std::vector<PeerId>* learners);
 
     // Add a new peer to the raft group. done->Run() would be invoked after this
     // operation finishes, describing the detailed result.
