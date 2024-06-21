@@ -610,6 +610,7 @@ int Replicator::_prepare_entry(int offset, EntryMeta* em, butil::IOBuf *data) {
     // until the replicator leave readonly mode.
     if (_readonly_index != 0 && log_index >= _readonly_index) {
         if (entry->type != ENTRY_TYPE_CONFIGURATION) {
+            entry->Release();
             return EREADONLY;
         }
         _readonly_index = log_index + 1;
