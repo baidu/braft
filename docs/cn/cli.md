@@ -1,4 +1,4 @@
-braft提供了一系列API用来控制复制主或者具体节点, 可以选择在程序了调用[API](../../src/braft/cli.h)或者使用[braft_cli](../../tools/braft_cli.cpp)来给节点发远程控制命令
+braft提供了一系列API用来控制复制主或者具体节点, 可以选择在程序里调用[API](../../src/braft/cli.h)或者使用[braft_cli](../../tools/braft_cli.cpp)来给节点发远程控制命令
 
 # API
 

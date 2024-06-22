@@ -269,7 +269,7 @@ void apply(const Task& task);
 
 * 由于apply是异步的，有可能某个节点在term1是leader，apply了一条log，但是中间发生了主从切换，在很短的时间内这个节点又变为term3的leader，之前apply的日志才开始进行处理，这种情况下要实现严格意义上的复制状态机，需要解决这种ABA问题，可以在apply的时候设置leader当时的term.
 
-raft::Closure是一个特殊的protobuf::Closure的子类， 可以用了标记一次异步调用成功或者失败. 和protobuf::Closure一样， 你需要继承这个类，实现Run接口。 当一次异步调用真正结束之后， Run会被框架调用， 此时你可以通过[status()](https://github.com/brpc/brpc/src/butil/status.h)来确认这次调用是否成功或者失败。
+raft::Closure是一个特殊的protobuf::Closure的子类， 可以用来标记一次异步调用成功或者失败. 和protobuf::Closure一样， 你需要继承这个类，实现Run接口。 当一次异步调用真正结束之后， Run会被框架调用， 此时你可以通过[status()](https://github.com/brpc/brpc/src/butil/status.h)来确认这次调用是否成功或者失败。
 
 ```cpp
 // Raft-specific closure which encloses a base::Status to report if the
