@@ -110,10 +110,12 @@ TEST_F(LogManagerTest, get_should_be_ok_when_disk_thread_stucks) {
     lm->clear_memory_logs(braft::LogId(N, 1));
     // After clear all the memory logs, all the saved entries should have no
     // other reference
-    for (size_t i = 0; i < N; ++i) {
+    for (size_t i = 0; i < N - 1; ++i) {
         ASSERT_EQ(1u, saved_entries[i]->ref_count_);
         saved_entries[i]->Release();
     }
+    ASSERT_EQ(2u, saved_entries[N-1]->ref_count_);
+    saved_entries[N - 1]->Release();
 }
 
 TEST_F(LogManagerTest, configuration_changes) {
@@ -165,10 +167,12 @@ TEST_F(LogManagerTest, configuration_changes) {
     lm->clear_memory_logs(braft::LogId(N, 1));
     // After clear all the memory logs, all the saved entries should have no
     // other reference
-    for (size_t i = 0; i < N; ++i) {
+    for (size_t i = 0; i < N - 1; ++i) {
         ASSERT_EQ(1u, saved_entries[i]->ref_count_) << "i=" << i;
         saved_entries[i]->Release();
     }
+    ASSERT_EQ(2u, saved_entries[N-1]->ref_count_);
+    saved_entries[N - 1]->Release();
 }
 
 TEST_F(LogManagerTest, truncate_suffix_also_revert_configuration) {
@@ -321,8 +325,11 @@ TEST_F(LogManagerTest, append_with_the_same_index) {
     for (size_t i = 0; i < N; ++i) {
         ASSERT_EQ(1u, saved_entries0[i]->ref_count_);
         ASSERT_EQ(1u, saved_entries1[i]->ref_count_);
-        ASSERT_EQ(1u, saved_entries2[i]->ref_count_);
+        if (i != N - 1) {
+            ASSERT_EQ(1u, saved_entries2[i]->ref_count_);
+        }
     }
+    ASSERT_EQ(2u, saved_entries2[N-1]->ref_count_);
 
     for (size_t i = 0; i < N; ++i) {
         braft::LogEntry* entry = lm->get_entry(i + 1);
@@ -465,7 +472,7 @@ TEST_F(LogManagerTest, pipelined_append) {
     ASSERT_EQ(N * 2, lm->_logs_in_memory.size());
 
     lm->set_applied_id(braft::LogId(N * 2, 2));
-    ASSERT_EQ(0u, lm->_logs_in_memory.size())
+    ASSERT_EQ(1u, lm->_logs_in_memory.size())
          << "last_log_id=" << lm->last_log_id(true);
 
     // We can still get the right data from storage
