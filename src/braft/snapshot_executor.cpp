@@ -151,7 +151,7 @@ void SnapshotExecutor::do_snapshot(Closure* done) {
         lck.unlock();
 
         _log_manager->clear_bufferred_logs();
-        LOG_IF(INFO, _node != NULL) << "node " << _node->node_id()
+        VLOG_IF(1, _node != NULL) << "node " << _node->node_id()
             << " the gap between fsm applied index " << saved_fsm_applied_index
             << " and last_snapshot_index " << saved_last_snapshot_index
             << " is less than " << FLAGS_raft_do_snapshot_min_index_gap

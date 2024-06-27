@@ -280,7 +280,7 @@ int LocalSnapshotWriter::sync() {
 }
 
 LocalSnapshotReader::LocalSnapshotReader(const std::string& path,
-                                         butil::EndPoint server_addr,
+                                         const std::string& server_addr,
                                          FileSystemAdaptor* fs,
                                          SnapshotThrottle* snapshot_throttle)
     : _path(path)
@@ -407,7 +407,7 @@ private:
 };
 
 std::string LocalSnapshotReader::generate_uri_for_copy() {
-    if (_addr == butil::EndPoint()) {
+    if (_addr.empty()) {
         LOG(ERROR) << "Address is not specified, path:" << _path;
         return std::string();
     }
@@ -783,9 +783,9 @@ void LocalSnapshotCopier::copy() {
     } while (0);
     if (!ok() && _writer && _writer->ok()) {
         LOG(WARNING) << "Fail to copy, error_code " << error_code()
-                     << " error_msg " << error_cstr() 
+                     << " error_msg " << error_str() 
                      << " writer path " << _writer->get_path();
-        _writer->set_error(error_code(), error_cstr());
+        _writer->set_error(error_code(), error_str());
     }
     if (_writer) {
         // set_error for copier only when failed to close writer and copier was 
@@ -818,7 +818,7 @@ void LocalSnapshotCopier::load_meta_table() {
     lck.unlock();
     if (!session->status().ok()) {
         LOG(WARNING) << "Fail to copy meta file : " << session->status();
-        set_error(session->status().error_code(), session->status().error_cstr());
+        set_error(session->status().error_code(), session->status().error_str());
         return;
     }
     if (_remote_snapshot._meta_table.load_from_iobuf_as_remote(meta_buf) != 0) {
@@ -997,7 +997,7 @@ void LocalSnapshotCopier::copy_file(const std::string& filename) {
     _cur_session = NULL;
     lck.unlock();
     if (!session->status().ok()) {
-        set_error(session->status().error_code(), session->status().error_cstr());
+        set_error(session->status().error_code(), session->status().error_str());
         return;
     }
     if (_writer->add_file(filename, &meta) != 0) {

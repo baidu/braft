@@ -41,12 +41,12 @@ butil::Status parse_configuration_meta(const butil::IOBuf& data, LogEntry* entry
     }
     entry->peers = new std::vector<PeerId>;
     for (int j = 0; j < meta.peers_size(); ++j) {
-        entry->peers->push_back(PeerId(meta.peers(j)));
+        entry->peers->push_back(PeerId::from_string(meta.peers(j)));
     }
     if (meta.old_peers_size() > 0) {
         entry->old_peers = new std::vector<PeerId>;
         for (int i = 0; i < meta.old_peers_size(); i++) {
-            entry->old_peers->push_back(PeerId(meta.old_peers(i)));
+            entry->old_peers->push_back(PeerId::from_string(meta.old_peers(i)));
         }
     }
     return status;    
