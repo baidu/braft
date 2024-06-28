@@ -83,7 +83,7 @@ public:
             _on_leader_start_closure = NULL;
         }
     }
-    void on_leader_stop(const braft::LeaderChangeContext&) {
+    void on_leader_stop(const butil::Status&) {
         _leader_term = -1;
     }
 
