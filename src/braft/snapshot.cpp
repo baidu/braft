@@ -618,9 +618,10 @@ int LocalSnapshotStorage::close(SnapshotWriter* writer_base,
         if (0 != ret) {
             break;
         }
-        ret = writer->sync();
-        if (ret != 0) {
-            break;
+        if (writer->sync() != 0) {
+          LOG(WARNING) << "Sync meta table to disk failed, path " << writer->get_path();
+          ret = EIO;
+          break;
         }
         int64_t old_index = 0;
         {
