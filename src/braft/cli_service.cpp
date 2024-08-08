@@ -233,7 +233,11 @@ butil::Status CliServiceImpl::get_node(scoped_refptr<NodeImpl>* node,
                                       const GroupId& group_id,
                                       const std::string& peer_id) {
     if (!peer_id.empty()) {
-        *node = global_node_manager->get(group_id, peer_id);
+        PeerId peer;
+        if (peer.parse(peer_id) != 0) {
+            return butil::Status(EINVAL, "Fail to parse %s", peer_id.c_str());
+        }
+        *node = global_node_manager->get(group_id, peer);
         if (!(*node)) {
             return butil::Status(ENOENT, "Fail to find node %s in group %s",
                                          peer_id.c_str(),
