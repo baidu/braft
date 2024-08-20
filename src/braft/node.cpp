@@ -1134,8 +1134,9 @@ void NodeImpl::handle_timeout_now_request(brpc::Controller* controller,
     }
     response->set_success(true);
     // Parallelize Response and election
+    bool old_leader_stepped_down = request->old_leader_stepped_down();
     run_closure_in_bthread(done_guard.release());
-    elect_self(&lck, request->old_leader_stepped_down());
+    elect_self(&lck, old_leader_stepped_down);
     // Don't touch any mutable field after this point, it's likely out of the
     // critical section
     if (lck.owns_lock()) {
