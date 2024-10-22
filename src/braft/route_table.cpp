@@ -167,7 +167,7 @@ butil::Status refresh_leader(const GroupId& group, int timeout_ms) {
     RouteTable* const rtb = RouteTable::GetInstance();
     Configuration conf;
     if (rtb->list_conf(group, &conf) != 0) {
-        return butil::Status(ENOENT, "group %s is not reistered in RouteTable",
+        return butil::Status(ENOENT, "group %s is not registered in RouteTable",
                                     group.c_str());
     }
     butil::Status error;
