@@ -18,7 +18,7 @@ bash run_server.sh
 ```
 
 * Default number of servers in the group is `3`,  changed by `--server_num` 
-* Servers run on `./runtime/` which is resued,  add --clean to cleanup storage
+* Servers run on `./runtime/` which is reused,  add --clean to cleanup storage
 
 # Run Client
 
