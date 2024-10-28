@@ -207,6 +207,7 @@ friend class AppendBatcher;
     raft_mutex_t _mutex;
     butil::FlatMap<int64_t, WaitMeta*> _wait_map;
     bool _stopped;
+    bool _shutdown;
     butil::atomic<bool> _has_error;
     WaitId _next_wait_id;
 
