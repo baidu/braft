@@ -629,11 +629,11 @@ void LogManager::set_snapshot(const SnapshotMeta* meta) {
     }
     Configuration conf;
     for (int i = 0; i < meta->peers_size(); ++i) {
-        conf.add_peer(meta->peers(i));
+        conf.add_peer(PeerId::from_string(meta->peers(i)));
     }
     Configuration old_conf;
     for (int i = 0; i < meta->old_peers_size(); ++i) {
-        old_conf.add_peer(meta->old_peers(i));
+        old_conf.add_peer(PeerId::from_string(meta->old_peers(i)));
     }
     ConfigurationEntry entry;
     entry.id = LogId(meta->last_included_index(), meta->last_included_term());

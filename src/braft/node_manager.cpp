@@ -26,24 +26,23 @@ NodeManager::NodeManager() {}
 
 NodeManager::~NodeManager() {}
 
-bool NodeManager::server_exists(butil::EndPoint addr) {
+bool NodeManager::server_exists(const std::string& addr) {
     BAIDU_SCOPED_LOCK(_mutex);
-    if (addr.ip != butil::IP_ANY) {
-        butil::EndPoint any_addr(butil::IP_ANY, addr.port);
-        if (_addr_set.find(any_addr) != _addr_set.end()) {
+    if (addr!= std::string()) {
+        if (_addr_set.find(addr) != _addr_set.end()) {
             return true;
         }
     }
     return _addr_set.find(addr) != _addr_set.end();
 }
 
-void NodeManager::remove_address(butil::EndPoint addr) {
+void NodeManager::remove_address(const std::string& addr) {
     BAIDU_SCOPED_LOCK(_mutex);
     _addr_set.erase(addr);
 }
 
 int NodeManager::add_service(brpc::Server* server, 
-                             const butil::EndPoint& listen_address) {
+                             const std::string& listen_address) {
     if (server == NULL) {
         LOG(ERROR) << "server is NULL";
         return -1;

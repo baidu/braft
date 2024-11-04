@@ -38,7 +38,7 @@ static void add_peer_returned(brpc::Controller* cntl,
     for (size_t i = 0; i < old_peers.size(); ++i) {
         response->add_old_peers(old_peers[i].to_string());
         response->add_new_peers(old_peers[i].to_string());
-        if (old_peers[i] == request->peer_id()) {
+        if (old_peers[i] == PeerId::from_string(request->peer_id())) {
             already_exists = true;
         }
     }
@@ -94,7 +94,7 @@ static void remove_peer_returned(brpc::Controller* cntl,
     }
     for (size_t i = 0; i < old_peers.size(); ++i) {
         response->add_old_peers(old_peers[i].to_string());
-        if (old_peers[i] != request->peer_id()) {
+        if (old_peers[i] != PeerId::from_string(request->peer_id())) {
             response->add_new_peers(old_peers[i].to_string());
         }
     }
@@ -233,7 +233,7 @@ butil::Status CliServiceImpl::get_node(scoped_refptr<NodeImpl>* node,
                                       const GroupId& group_id,
                                       const std::string& peer_id) {
     if (!peer_id.empty()) {
-        *node = global_node_manager->get(group_id, peer_id);
+        *node = global_node_manager->get(group_id, PeerId::from_string(peer_id));
         if (!(*node)) {
             return butil::Status(ENOENT, "Fail to find node %s in group %s",
                                          peer_id.c_str(),

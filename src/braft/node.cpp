@@ -493,7 +493,7 @@ int NodeImpl::init(const NodeOptions& options) {
     _options = options;
 
     // check _server_id
-    if (butil::IP_ANY == _server_id.addr.ip) {
+    if ( _server_id.addr.empty()) {
         LOG(ERROR) << "Group " << _group_id 
                    << " Node can't started from IP_ANY";
         return -1;
@@ -972,8 +972,8 @@ void NodeImpl::snapshot(Closure* done) {
 }
 
 void NodeImpl::do_snapshot(Closure* done) {
-    LOG(INFO) << "node " << _group_id << ":" << _server_id 
-              << " starts to do snapshot";
+    VLOG(1) << "node " << _group_id << ":" << _server_id 
+            << " starts to do snapshot";
     if (_snapshot_executor) {
         _snapshot_executor->do_snapshot(done);
     } else {
@@ -1655,7 +1655,7 @@ void NodeImpl::pre_vote(std::unique_lock<raft_mutex_t>* lck, bool triggered) {
         options.max_retry = 0;
         options.connect_timeout_ms = FLAGS_raft_rpc_channel_connect_timeout_ms;
         brpc::Channel channel;
-        if (0 != channel.Init(iter->addr, &options)) {
+        if (0 != channel.Init(iter->addr.c_str(), &options)) {
             LOG(WARNING) << "node " << _group_id << ":" << _server_id
                          << " channel init failed, addr " << iter->addr;
             continue;
@@ -1761,7 +1761,7 @@ void NodeImpl::request_peers_to_vote(const std::set<PeerId>& peers,
         options.connect_timeout_ms = FLAGS_raft_rpc_channel_connect_timeout_ms;
         options.max_retry = 0;
         brpc::Channel channel;
-        if (0 != channel.Init(iter->addr, &options)) {
+        if (0 != channel.Init(iter->addr.c_str(), &options)) {
             LOG(WARNING) << "node " << _group_id << ":" << _server_id
                          << " channel init failed, addr " << iter->addr;
             continue;
@@ -2540,13 +2540,13 @@ void NodeImpl::handle_append_entries_request(brpc::Controller* cntl,
             if (entry.peers_size() > 0) {
                 log_entry->peers = new std::vector<PeerId>;
                 for (int i = 0; i < entry.peers_size(); i++) {
-                    log_entry->peers->push_back(entry.peers(i));
+                    log_entry->peers->push_back(PeerId::from_string(entry.peers(i)));
                 }
                 CHECK_EQ(log_entry->type, ENTRY_TYPE_CONFIGURATION);
                 if (entry.old_peers_size() > 0) {
                     log_entry->old_peers = new std::vector<PeerId>;
                     for (int i = 0; i < entry.old_peers_size(); i++) {
-                        log_entry->old_peers->push_back(entry.old_peers(i));
+                        log_entry->old_peers->push_back(PeerId::from_string(entry.old_peers(i)));
                     }
                 }
             } else {
