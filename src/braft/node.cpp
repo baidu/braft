@@ -33,6 +33,9 @@
 #include "braft/node_manager.h"
 #include "braft/snapshot_executor.h"
 #include "braft/errno.pb.h"
+#include "braft/sync_point.h"
+#include "butil/logging.h"
+
 
 namespace braft {
 
@@ -1623,9 +1626,9 @@ void NodeImpl::pre_vote(std::unique_lock<raft_mutex_t>* lck, bool triggered) {
                         " configuration is possibly out of date";
         return;
     }
-    if (!_conf.contains(_server_id)) {
+    if (_conf.empty()) {
         LOG(WARNING) << "node " << _group_id << ':' << _server_id
-                     << " can't do pre_vote as it is not in " << _conf.conf;
+                     << " can't do pre_vote as conf is emtpy";
         return;
     }
 
@@ -1682,9 +1685,9 @@ void NodeImpl::elect_self(std::unique_lock<raft_mutex_t>* lck,
                           bool old_leader_stepped_down) {
     LOG(INFO) << "node " << _group_id << ":" << _server_id
               << " term " << _current_term << " start vote and grant vote self";
-    if (!_conf.contains(_server_id)) {
+    if (_conf.empty()) {
         LOG(WARNING) << "node " << _group_id << ':' << _server_id
-                     << " can't do elect_self as it is not in " << _conf.conf;
+                     << " can't do elect_self as _conf is empty";
         return;
     }
     // cancel follower election timer
@@ -2146,7 +2149,6 @@ int NodeImpl::handle_pre_vote_request(const RequestVoteRequest* request,
         LogId last_log_id = _log_manager->last_log_id(true);
         lck.lock();
         // pre_vote not need ABA check after unlock&lock
-
         int64_t votable_time = _follower_lease.votable_time_from_now();
         bool grantable = (LogId(request->last_log_index(), request->last_log_term())
                         >= last_log_id);
@@ -3304,6 +3306,7 @@ void NodeImpl::ConfigurationCtx::next_stage() {
         // implementation.
     case STAGE_JOINT:
         _stage = STAGE_STABLE;
+        TEST_SYNC_POINT_CALLBACK("NodeImpl::ConfigurationCtx:StableStage:BeforeApplyConfiguration", _node);
         return _node->unsafe_apply_configuration(
                     Configuration(_new_peers), NULL, false);
     case STAGE_STABLE:
