@@ -64,14 +64,14 @@ int BallotBox::commit_at(
     int64_t last_committed_index = 0;
     const int64_t start_at = std::max(_pending_index, first_log_index);
     Ballot::PosHint pos_hint;
-    for (int64_t log_index = start_at; log_index <= last_log_index; ++log_index) {
+    for (int64_t log_index = last_log_index; log_index >= start_at; --log_index) {
         Ballot& bl = _pending_meta_queue[log_index - _pending_index];
         pos_hint = bl.grant(peer, pos_hint);
         if (bl.granted()) {
             last_committed_index = log_index;
+            break;
         }
     }
-
     if (last_committed_index == 0) {
         return 0;
     }
