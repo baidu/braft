@@ -12,7 +12,7 @@ It's widely used inside Baidu to build highly-available systems, such as:
 
 # Getting Started
 
-* Build [brpc](https://github.com/brpc/brpc/blob/master/docs/cn/getting_started.md) which is the main dependency of braft.
+* Build [brpc](https://github.com/brpc/brpc/blob/master/docs/en/getting_started.md) which is the main dependency of braft.
 
 * Compile braft with cmake
   
@@ -36,17 +36,17 @@ It's widely used inside Baidu to build highly-available systems, such as:
 
 # Docs
 
-* Read [overview](./docs/cn/overview.md) to know what you can do with braft.
-* Read [benchmark](./docs/cn/benchmark.md) to have a quick view about performance of braft
-* [Build Service based on braft](./docs/cn/server.md)
-* [Access Service based on braft](./docs/cn/client.md)
-* [Cli tools](./docs/cn/cli.md)
-* [Replication Model](./docs/cn/replication.md)
+* Read [overview](./docs/en/overview.md) to know what you can do with braft.
+* Read [benchmark](./docs/en/benchmark.md) to have a quick view about performance of braft
+* [Build Service based on braft](./docs/en/server.md)
+* [Access Service based on braft](./docs/en/client.md)
+* [Cli tools](./docs/en/cli.md)
+* [Replication Model](./docs/en/replication.md)
 * Consensus protocol:
-  * [RAFT](./docs/cn/raft_protocol.md)
-  * [Paxos](./docs/cn/paxos_protocol.md)
-  * [ZAB](./docs/cn/zab_protocol.md)
-  * [QJM](./docs/cn/qjm.md)
+  * [RAFT](./docs/en/raft_protocol.md)
+  * [Paxos](./docs/en/paxos_protocol.md)
+  * [ZAB](./docs/en/zab_protocol.md)
+  * [QJM](./docs/en/qjm.md)
 
 # Discussion
 
