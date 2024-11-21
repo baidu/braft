@@ -491,6 +491,7 @@ private:
 
     State _state;
     int64_t _current_term;
+    int64_t _disrupted_term;
     PeerId _leader_id;
     PeerId _voted_id;
     VoteBallotCtx _vote_ctx; // candidate vote ctx

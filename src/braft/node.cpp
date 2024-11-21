@@ -143,6 +143,7 @@ static inline int heartbeat_timeout(int election_timeout) {
 NodeImpl::NodeImpl(const GroupId& group_id, const PeerId& peer_id)
     : _state(STATE_UNINITIALIZED)
     , _current_term(0)
+    , _disrupted_term(0)
     , _group_id(group_id)
     , _server_id(peer_id)
     , _conf_ctx(this)
@@ -1808,6 +1809,7 @@ void NodeImpl::step_down(const int64_t term, bool wakeup_a_candidate,
     } else if (_state == STATE_FOLLOWER) {
         _pre_vote_ctx.reset(this);
     } else if (_state <= STATE_TRANSFERRING) {
+        _disrupted_term = _current_term;
         _stepdown_timer.stop();
         _ballot_box->clear_pending_tasks();
 
@@ -2207,7 +2209,6 @@ int NodeImpl::handle_request_vote_request(const RequestVoteRequest* request,
         _follower_lease.expire();
     }
 
-    bool disrupted = false;
     int64_t previous_term = _current_term;
     bool rejected_by_lease = false;
     do {
@@ -2227,7 +2228,7 @@ int NodeImpl::handle_request_vote_request(const RequestVoteRequest* request,
         lck.lock();
 
         // vote need ABA check after unlock&lock
-        if (previous_term != _current_term) {
+        if (previous_term != _current_term && previous_term != _disrupted_term) {
             LOG(WARNING) << "node " << _group_id << ":" << _server_id
                          << " raise term " << _current_term << " when get last_log_id";
             break;
@@ -2255,7 +2256,6 @@ int NodeImpl::handle_request_vote_request(const RequestVoteRequest* request,
             butil::Status status;
             status.set_error(EHIGHERTERMREQUEST, "Raft node receives higher term "
                     "request_vote_request.");
-            disrupted = (_state <= STATE_TRANSFERRING);
             step_down(request->term(), false, status);
         }
 
@@ -2280,10 +2280,15 @@ int NodeImpl::handle_request_vote_request(const RequestVoteRequest* request,
         }
     } while (0);
 
-    response->set_disrupted(disrupted);
+    bool granted = request->term() == _current_term && _voted_id == candidate_id;
+    response->set_granted(granted);
+    if (granted) {
+        response->set_disrupted(_disrupted_term == previous_term);
+    } else {
+        response->set_disrupted(false);
+    }
     response->set_previous_term(previous_term);
     response->set_term(_current_term);
-    response->set_granted(request->term() == _current_term && _voted_id == candidate_id);
     response->set_rejected_by_lease(rejected_by_lease);
     return 0;
 }
