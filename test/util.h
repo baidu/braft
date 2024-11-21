@@ -239,6 +239,7 @@ public:
         int64_t throttle_throughput_bytes = 10 * 1024 * 1024;
         int64_t check_cycle = 10;
         _throttle = new braft::ThroughputSnapshotThrottle(throttle_throughput_bytes, check_cycle);
+        _infinite_election_timeout_ms = 1 << 31;
     }
     ~Cluster() {
         stop_all();
@@ -496,6 +497,16 @@ WAIT:
         goto CHECK;
     }
 
+    void disable_election(braft::Node* node){
+        std::lock_guard<raft_mutex_t> guard(_mutex);
+        node->reset_election_timeout_ms(_infinite_election_timeout_ms, _max_clock_drift_ms);
+    }
+
+    void enable_election(braft::Node* node) {
+        std::lock_guard<raft_mutex_t> guard(_mutex);
+        node->reset_election_timeout_ms(_election_timeout_ms, _max_clock_drift_ms);
+    }
+
 private:
     void all_nodes(std::vector<butil::EndPoint>* addrs) {
         addrs->clear();
@@ -540,6 +551,7 @@ private:
     std::map<butil::EndPoint, brpc::Server*> _server_map;
     int32_t _election_timeout_ms;
     int32_t _max_clock_drift_ms;
+    int32_t _infinite_election_timeout_ms;
     raft_mutex_t _mutex;
     braft::SnapshotThrottle* _throttle;
 };

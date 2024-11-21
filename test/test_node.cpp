@@ -454,14 +454,19 @@ TEST_P(NodeTest, LeaderFailWithWitness) {
     }
     cond.wait();
 
+    std::vector<braft::Node*> follower_nodes;
+    cluster.followers(&follower_nodes);
+    ASSERT_EQ(2, follower_nodes.size());
+    for (auto node : follower_nodes){
+        cluster.disable_election(node);
+    }
+
     // stop leader
     butil::EndPoint old_leader = leader->node_id().peer_id.addr;
     LOG(WARNING) << "stop leader " << leader->node_id();
     cluster.stop(leader->node_id().peer_id.addr);
 
     // apply something when follower
-    std::vector<braft::Node*> nodes;
-    cluster.followers(&nodes);
     cond.reset(10);
     for (int i = 0; i < 10; i++) {
         butil::IOBuf data;
@@ -472,9 +477,13 @@ TEST_P(NodeTest, LeaderFailWithWitness) {
         task.data = &data;
         task.done = NEW_APPLYCLOSURE(&cond, -1);
         // node 0 is witness;
-        nodes[1]->apply(task);
+        follower_nodes[1]->apply(task);
     }
     cond.wait();
+
+    for (auto node : follower_nodes){
+        cluster.enable_election(node);
+    }
 
     // elect new leader
     cluster.wait_leader();
