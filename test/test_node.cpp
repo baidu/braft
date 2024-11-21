@@ -24,6 +24,7 @@ DECLARE_int32(raft_max_parallel_append_entries_rpc_num);
 DECLARE_bool(raft_enable_append_entries_cache);
 DECLARE_int32(raft_max_append_entries_cache_size);
 DECLARE_bool(raft_enable_witness_to_leader);
+DECLARE_bool(raft_enable_peer_not_in_conf_can_elec);
 
 }
 
@@ -3563,6 +3564,322 @@ TEST_P(NodeTest, readonly) {
     cluster.ensure_same();
 
     LOG(WARNING) << "cluster stop";
+    cluster.stop_all();
+}
+
+TEST_P(NodeTest, reject_specified_log_index) {
+    uint32_t port = 5006;
+    uint32_t port1 = port + 1;
+    uint32_t port2 = port1 + 1;
+
+    std::vector<braft::PeerId> peers;
+    braft::PeerId peer0;
+    peer0.addr.ip = butil::my_ip();
+    peer0.addr.port = port;
+    peer0.idx = 0;
+
+    // start cluster
+    peers.push_back(peer0);
+    Cluster cluster("unittest", peers);
+    ASSERT_EQ(0, cluster.start(peer0.addr));
+    LOG(NOTICE) << "start single cluster " << peer0;
+    cluster.wait_leader();
+    braft::Node* leader = cluster.leader();
+    LOG(NOTICE) << "leader is " << leader->node_id().peer_id;
+
+
+    bthread::CountdownEvent cond(1);
+    for (int i = 0; i < 1; i++) {
+        butil::IOBuf data;
+        char data_buf[128];
+        snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
+        data.append(data_buf);
+        braft::Task task;
+        task.data = &data;
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
+        leader->apply(task);
+    }
+    cond.wait();
+
+    // start peer1
+    braft::PeerId peer1;
+    peer1.addr.ip = butil::my_ip();
+    peer1.addr.port = port1;
+    peer1.idx = 0;
+
+    ASSERT_EQ(0, cluster.start(peer1.addr, true));
+    LOG(NOTICE) << "start peer " << peer1;
+    // wait until started successfully
+    usleep(1000* 1000);
+
+    // add peer1
+    cond.reset(1);
+    leader->add_peer(peer1, NEW_ADDPEERCLOSURE(&cond, 0));
+    cond.wait();
+    LOG(NOTICE) << "add peer " << peer1;
+
+    // start peer2
+    braft::PeerId peer2;
+    peer2.addr.ip = butil::my_ip();
+    peer2.addr.port = port2;
+    peer2.idx = 0;
+
+    ASSERT_EQ(0, cluster.start(peer2.addr, true));
+    LOG(NOTICE) << "start peer2 " << peer2;
+    // wait until started successfully
+    usleep(1000* 1000);
+
+    // add peer2
+    cond.reset(1);
+    leader->add_peer(peer2, NEW_ADDPEERCLOSURE(&cond, 0));
+    cond.wait();
+    LOG(NOTICE) << "add peer2 " << peer2;
+    usleep(3000* 1000);
+
+    std::vector<braft::PeerId> empty_peers;
+    leader->list_peers(&empty_peers);
+    ASSERT_EQ(3, empty_peers.size()); // 1 leader + 2 follower
+
+    braft::LogManagerStatus log_manager_status_1;
+    leader->get_log_mgr_status(&log_manager_status_1);
+    ASSERT_EQ(log_manager_status_1.last_index, log_manager_status_1.known_applied_index);
+
+    std::vector<braft::Node*> followers;
+    cluster.followers(&followers);
+
+    // ensure that the leader and follower log states are consistent
+    for (const auto& one : followers) {
+        LOG(INFO) << "check log status node:" << one->node_id();
+        braft::LogManagerStatus follower_log_manager_status;
+        one->get_log_mgr_status(&follower_log_manager_status);
+        ASSERT_EQ(follower_log_manager_status.last_index, follower_log_manager_status.known_applied_index);
+        ASSERT_EQ(follower_log_manager_status.known_applied_index, log_manager_status_1.known_applied_index);
+    }
+
+    const int64_t will_reject_log_index = log_manager_status_1.last_index + 1;
+    followers[0]->set_reject_log_index(will_reject_log_index);
+    ASSERT_EQ(will_reject_log_index, followers[0]->get_reject_log_index());
+
+    bthread::CountdownEvent cond_1(1);
+    for (int i = 0; i < 1; i++) {
+        butil::IOBuf data;
+        char data_buf[128];
+        snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
+        data.append(data_buf);
+        braft::Task task;
+        task.data = &data;
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
+        leader->apply(task);
+    }
+
+    usleep(1* 1000* 1000);
+
+    braft::LogManagerStatus log_manager_status_2;
+    leader->get_log_mgr_status(&log_manager_status_2);
+    ASSERT_EQ(log_manager_status_2.last_index, log_manager_status_1.last_index + 1);
+    ASSERT_EQ(log_manager_status_2.known_applied_index, log_manager_status_1.known_applied_index +1);
+
+    ASSERT_EQ(log_manager_status_2.known_applied_index, log_manager_status_2.last_index);
+    ASSERT_EQ(log_manager_status_2.known_applied_index, will_reject_log_index);
+
+
+    braft::LogManagerStatus log_manager_status_follower_1;
+    followers[0]->get_log_mgr_status(&log_manager_status_follower_1);
+    ASSERT_EQ(log_manager_status_follower_1.last_index, log_manager_status_follower_1.known_applied_index);
+    ASSERT_EQ(log_manager_status_follower_1.last_index, log_manager_status_2.last_index - 1);
+
+    // restore restriction receiving log
+    followers[0]->set_reject_log_index(0);
+    usleep(1* 1000* 1000);
+
+    braft::LogManagerStatus log_manager_status_follower_2;
+    followers[0]->get_log_mgr_status(&log_manager_status_follower_2);
+    ASSERT_EQ(log_manager_status_follower_2.last_index, log_manager_status_follower_2.known_applied_index);
+    ASSERT_EQ(log_manager_status_follower_2.last_index, log_manager_status_2.last_index);
+
+
+    LOG(INFO) << "will stop_all";
+    cluster.stop_all();
+}
+
+TEST_P(NodeTest, test_leader_exits_in_the_second_phase_of_joint_consensus) {
+    uint32_t port = 5006;
+    uint32_t port1 = port + 1;
+    uint32_t port2 = port1 + 1;
+    uint32_t port3 = port2 + 1;
+
+    std::vector<braft::PeerId> peers;
+    braft::PeerId peer0;
+    peer0.addr.ip = butil::my_ip();
+    peer0.addr.port = port;
+    peer0.idx = 0;
+
+    // start cluster
+    peers.push_back(peer0);
+    Cluster cluster("unittest", peers);
+    ASSERT_EQ(0, cluster.start(peer0.addr));
+    LOG(NOTICE) << "start single cluster " << peer0;
+    cluster.wait_leader();
+    braft::Node* leader = cluster.leader();
+    LOG(NOTICE) << "leader is " << leader->node_id().peer_id;
+
+
+    bthread::CountdownEvent cond(1);
+    for (int i = 0; i < 1; i++) {
+        butil::IOBuf data;
+        char data_buf[128];
+        snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
+        data.append(data_buf);
+        braft::Task task;
+        task.data = &data;
+        task.done = NEW_APPLYCLOSURE(&cond, 0);
+        leader->apply(task);
+    }
+    cond.wait();
+
+    // start peer1
+    braft::PeerId peer1;
+    peer1.addr.ip = butil::my_ip();
+    peer1.addr.port = port1;
+    peer1.idx = 0;
+
+    ASSERT_EQ(0, cluster.start(peer1.addr, true));
+    LOG(NOTICE) << "start peer " << peer1;
+    // wait until started successfully
+    usleep(1000* 1000);
+
+    // add peer1
+    cond.reset(1);
+    leader->add_peer(peer1, NEW_ADDPEERCLOSURE(&cond, 0));
+    cond.wait();
+    LOG(NOTICE) << "add peer " << peer1;
+
+    // start peer2
+    braft::PeerId peer2;
+    peer2.addr.ip = butil::my_ip();
+    peer2.addr.port = port2;
+    peer2.idx = 0;
+
+    ASSERT_EQ(0, cluster.start(peer2.addr, true));
+    LOG(NOTICE) << "start peer2 " << peer2;
+    // wait until started successfully
+    usleep(1000* 1000);
+
+    // add peer2
+    cond.reset(1);
+    leader->add_peer(peer2, NEW_ADDPEERCLOSURE(&cond, 0));
+    cond.wait();
+    LOG(NOTICE) << "add peer2 " << peer2;
+    usleep(2 * 1000* 1000);
+
+    std::vector<braft::PeerId> empty_peers;
+    leader->list_peers(&empty_peers);
+    ASSERT_EQ(3, empty_peers.size()); // 1 leader + 2 follower
+
+    usleep(2 * 1000* 1000);
+
+    braft::LogManagerStatus log_manager_status_1;
+    leader->get_log_mgr_status(&log_manager_status_1);
+    ASSERT_EQ(log_manager_status_1.last_index, log_manager_status_1.known_applied_index);
+
+    std::vector<braft::Node*> followers;
+    cluster.followers(&followers);
+
+    // ensure that the leader and follower log states are consistent
+    for (const auto& one : followers) {
+        LOG(INFO) << "check log status node:" << one->node_id();
+        braft::LogManagerStatus follower_log_manager_status;
+        one->get_log_mgr_status(&follower_log_manager_status);
+        ASSERT_EQ(follower_log_manager_status.last_index, follower_log_manager_status.known_applied_index);
+        ASSERT_EQ(follower_log_manager_status.known_applied_index, log_manager_status_1.known_applied_index);
+    }
+
+    // check log index
+    braft::LogManagerStatus log_manager_status_ld_1;
+    leader->get_log_mgr_status(&log_manager_status_ld_1);
+    ASSERT_EQ(log_manager_status_ld_1.last_index, log_manager_status_ld_1.known_applied_index);
+
+    std::vector<braft::Node*> followers_1;
+    cluster.followers(&followers_1);
+
+    ASSERT_EQ(2, followers_1.size());
+
+    // ensure that the leader and follower log states are consistent
+    for (const auto& one : followers_1) {
+        LOG(INFO) << "change_peers check log status node:" << one->node_id();
+
+        while(true) {
+          braft::LogManagerStatus follower_log_manager_status;
+          one->get_log_mgr_status(&follower_log_manager_status);
+
+          if (follower_log_manager_status.known_applied_index == log_manager_status_ld_1.known_applied_index) {
+            break;
+          } else {
+            LOG(INFO) << "change_peers check log status node:" << one->node_id() << " wait log";
+            usleep(100 * 1000);
+          }
+        }
+    }
+
+    const int64_t will_reject_log_index = log_manager_status_1.last_index + 2;
+
+    // start peer3
+    braft::PeerId peer3;
+    peer3.addr.ip = butil::my_ip();
+    peer3.addr.port = port3;
+    peer3.idx = 0;
+
+    ASSERT_EQ(0, cluster.start(peer3.addr, true));
+    LOG(NOTICE) << "start peer " << peer3;
+    // wait until started successfully
+    usleep(1000 * 1000);
+
+    braft::Configuration new_conf; // 0,1,3
+    new_conf.add_peer(peer0);
+    new_conf.add_peer(peer1);
+    new_conf.add_peer(peer3);
+
+
+    std::vector<braft::Node*> followers_2;
+    cluster.followers(&followers_2);
+    ASSERT_EQ(3, followers_2.size());
+
+    // followers_2[0] -> peer1 -> set_reject_log_index
+    // followers_2[1] -> peer2 -> not set_reject_log_index -> expect the current node to initiate an election
+    // followers_2[2] -> peer3 -> set_reject_log_index
+
+    followers_2[0]->set_reject_log_index(will_reject_log_index);
+    followers_2[2]->set_reject_log_index(will_reject_log_index);
+
+    // joint consensus
+    braft::SynchronizedClosure done;
+    leader->_impl->change_peers(new_conf, &done);
+    // done.wait();
+    usleep(1000 * 1000);
+    
+    cluster.stop(leader->node_id().peer_id.addr);
+
+    followers_2[0]->set_reject_log_index(0);
+    followers_2[2]->set_reject_log_index(0);
+
+    uint32_t sleep_count = 10;
+    while (sleep_count--) {
+      usleep(1000 * 1000);
+    }
+
+    // unable to elect leader
+    braft::Node* ld_node = cluster.leader();
+    ASSERT_EQ(nullptr, ld_node);
+
+
+    braft::FLAGS_raft_enable_peer_not_in_conf_can_elec = true;
+    usleep(5 * 1000 * 1000);
+
+    std::vector<braft::Node *> followers_4;
+    cluster.followers(&followers_4);
+    ASSERT_EQ(2, followers_4.size());
+
+    LOG(INFO) << "will stop_all";
     cluster.stop_all();
 }
 

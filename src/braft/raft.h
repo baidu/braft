@@ -45,6 +45,7 @@ class LeaderChangeContext;
 class FileSystemAdaptor;
 class SnapshotThrottle;
 class LogStorage;
+class LogManagerStatus;
 
 const PeerId ANY_PEER(butil::EndPoint(butil::IP_ANY, 0), 0);
 
@@ -762,6 +763,8 @@ public:
     // see from the website.
     void get_status(NodeStatus* status);
 
+    void get_log_mgr_status(LogManagerStatus* log_manager_status);
+
     // Make this node enter readonly mode.
     // Readonly mode should only be used to protect the system in some extreme cases.
     // For example, in a storage system, too many write requests flood into the system
@@ -788,6 +791,10 @@ public:
     //      - This node is a leader, and the count of writable nodes in the group
     //        is less than the majority.
     bool readonly();
+
+    void set_reject_log_index(const int64_t log_index);
+
+    int64_t get_reject_log_index() const;
 
 private:
     NodeImpl* _impl;
