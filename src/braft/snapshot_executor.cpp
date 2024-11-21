@@ -38,6 +38,8 @@ public:
 private:
     static void* continue_run(void* arg);
 
+    void set_meta();
+
     SnapshotExecutor* _se;
     SnapshotWriter* _writer;
     Closure* _done; // user done
@@ -308,6 +310,9 @@ SnapshotWriter* SaveSnapshotDone::start(const SnapshotMeta& meta) {
 void* SaveSnapshotDone::continue_run(void* arg) {
     SaveSnapshotDone* self = (SaveSnapshotDone*)arg;
     std::unique_ptr<SaveSnapshotDone> self_guard(self);
+    if (self->status().ok()) {
+        self->set_meta();
+    }
     // Must call on_snapshot_save_done to clear _saving_snapshot
     int ret = self->_se->on_snapshot_save_done(
         self->status(), self->_meta, self->_writer);
@@ -322,6 +327,14 @@ void* SaveSnapshotDone::continue_run(void* arg) {
         run_closure_in_bthread(self->_done, true);
     }
     return NULL;
+}
+
+void SaveSnapshotDone::set_meta(){
+    const int64_t last_include_index = snapshot_index();
+    _meta.set_last_included_index(last_include_index);
+    const int64_t last_include_term = _se->_log_manager->get_term(last_include_index);
+    CHECK(last_include_term > 0) << "last_included_index: " << last_include_index << " is out of range";
+    _meta.set_last_included_term(last_include_term);
 }
 
 void SaveSnapshotDone::Run() {
