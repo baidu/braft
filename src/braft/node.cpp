@@ -3475,6 +3475,14 @@ void NodeImpl::get_leader_lease_status(LeaderLeaseStatus* lease_status) {
     }
 }
 
+int64_t NodeImpl::last_committed_index() {
+    return _ballot_box->last_committed_index();
+}
+
+bool NodeImpl::can_linearizable_read(int64_t readindex) {
+    return FLAGS_raft_enable_leader_lease && is_leader_lease_valid() && (_fsm_caller->last_applied_index() >= readindex);
+}
+
 void NodeImpl::VoteBallotCtx::init(NodeImpl* node, bool triggered) {
     reset(node);
     _ballot.init(node->_conf.conf, node->_conf.stable() ? NULL : &(node->_conf.old_conf));
