@@ -2132,8 +2132,8 @@ int NodeImpl::handle_pre_vote_request(const RequestVoteRequest* request,
     bool granted = false;
     bool rejected_by_lease = false;
     do {
-        if (request->term() < _current_term) {
-            // ignore older term
+        if (is_leader_lease_valid() || request->term() < _current_term) {
+            // ignore older term or the leader lease is still valid.
             LOG(INFO) << "node " << _group_id << ":" << _server_id
                       << " ignore PreVote from " << request->server_id()
                       << " in term " << request->term()
