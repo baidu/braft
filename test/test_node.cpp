@@ -266,9 +266,16 @@ TEST_P(NodeTest, TripleNode) {
         brpc::Channel channel;
         brpc::ChannelOptions options;
         options.protocol = brpc::PROTOCOL_HTTP;
-
-        if (channel.Init(leader->node_id().peer_id.addr, &options) != 0) {
-            LOG(ERROR) << "Fail to initialize channel";
+        if (leader->node_id().peer_id.type_ == PeerId::Type::EndPoint) {
+            if (channel.Init(leader->node_id().peer_id.addr, &options) != 0) {
+                LOG(ERROR) << "Fail to initialize channel";
+            }
+        } else {
+            std::string naming_service_url;
+            HostNameAddr2NSUrl(leader->node_id().peer_id.hostname_addr, naming_service_url);
+            if (channel.Init(naming_service_url.c_str(), LOAD_BALANCER_NAME, &options) != 0) {
+                LOG(ERROR) << "Fail to initialize channel";
+            }
         }
 
         {
@@ -703,8 +710,16 @@ TEST_P(NodeTest, Leader_step_down_during_install_snapshot) {
         brpc::Channel channel;
         brpc::ChannelOptions options;
         options.protocol = brpc::PROTOCOL_HTTP;
-        if (channel.Init(leader->node_id().peer_id.addr, &options) != 0) {
-            LOG(ERROR) << "Fail to initialize channel";
+        if (leader->node_id().peer_id.type_ == PeerId::Type::EndPoint) {
+            if (channel.Init(leader->node_id().peer_id.addr, &options) != 0) {
+                LOG(ERROR) << "Fail to initialize channel";
+            }
+        } else {
+            std::string naming_service_url;
+            HostNameAddr2NSUrl(leader->node_id().peer_id.hostname_addr, naming_service_url);
+            if (channel.Init(naming_service_url.c_str(), LOAD_BALANCER_NAME, &options) != 0) {
+                LOG(ERROR) << "Fail to initialize channel";
+            }
         }
         {
             brpc::Controller cntl;
