@@ -42,7 +42,7 @@ static bvar::PerSecond<bvar::Adder<int64_t> > g_read_term_from_storage_second
 
 static bvar::LatencyRecorder g_storage_append_entries_latency(
                                     "raft_storage_append_entries");
-static bvar::LatencyRecorder g_nomralized_append_entries_latency(
+static bvar::LatencyRecorder g_normalized_append_entries_latency(
                                     "raft_storage_append_entries_normalized");
 static bvar::Adder<int64_t> g_storage_append_entries_concurrency(
                                     "raft_storage_append_entries_concurrency");
@@ -471,7 +471,7 @@ void LogManager::append_to_storage(std::vector<LogEntry*>* to_append,
         }
         g_storage_append_entries_latency << timer.u_elapsed();
         if (written_size) {
-            g_nomralized_append_entries_latency << timer.u_elapsed() * 1024 / written_size;
+            g_normalized_append_entries_latency << timer.u_elapsed() * 1024 / written_size;
         }
     }
     for (size_t j = 0; j < to_append->size(); ++j) {
