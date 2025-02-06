@@ -161,7 +161,7 @@ private:
     int filter_before_copy(LocalSnapshotWriter* writer, 
                            SnapshotReader* last_snapshot);
     void filter();
-    void copy_file(const std::string& filename);
+    void copy_files(std::span<std::string const> filenames);
 
     raft_mutex_t _mutex;
     bthread_t _tid;
