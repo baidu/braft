@@ -493,7 +493,7 @@ int NodeImpl::init(const NodeOptions& options) {
     _options = options;
 
     // check _server_id
-    if (butil::IP_ANY == _server_id.addr.ip) {
+    if (butil::IP_ANY == _server_id.addr.ip && !butil::is_endpoint_extended(_server_id.addr)) {
         LOG(ERROR) << "Group " << _group_id 
                    << " Node can't started from IP_ANY";
         return -1;

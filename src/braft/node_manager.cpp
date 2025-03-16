@@ -28,8 +28,18 @@ NodeManager::~NodeManager() {}
 
 bool NodeManager::server_exists(butil::EndPoint addr) {
     BAIDU_SCOPED_LOCK(_mutex);
-    if (addr.ip != butil::IP_ANY) {
-        butil::EndPoint any_addr(butil::IP_ANY, addr.port);
+
+    int port = addr.port;
+
+    if (butil::is_endpoint_extended(addr)) {
+        // No easy way of getting just the port for now in Brpc
+        std::string str(butil::endpoint2str(addr).c_str());
+        std::string port_str = str.substr(str.rfind(':') + 1);
+        port = std::stoi(port_str);
+    }
+
+    if (addr.ip != butil::IP_ANY || butil::is_endpoint_extended(addr)) {
+        butil::EndPoint any_addr(butil::IP_ANY, port);
         if (_addr_set.find(any_addr) != _addr_set.end()) {
             return true;
         }
@@ -166,4 +176,3 @@ void NodeManager::get_all_nodes(std::vector<scoped_refptr<NodeImpl> >* nodes) {
 }
 
 }  //  namespace braft
-

@@ -71,11 +71,36 @@ struct PeerId {
     bool is_witness() const {
         return role == WITNESS;
     }
+
+    void parse_ip_from_id(const std::string& str, size_t* end_pos) {
+        *end_pos = std::string::npos;
+        if (str.length() == 0) {
+            return;
+        }
+
+        if (str[0] == '[') {
+            *end_pos = str.find(']') + 1;
+        } else {
+            *end_pos = str.find(':');
+        }
+    }
+
     int parse(const std::string& str) {
         reset();
-        char ip_str[64];
         int value = REPLICA;
-        if (2 > sscanf(str.c_str(), "%[^:]%*[:]%d%*[:]%d%*[:]%d", ip_str, &addr.port, &idx, &value)) {
+
+        size_t end_pos = std::string::npos;
+        parse_ip_from_id(str, &end_pos);
+
+        if (end_pos == std::string::npos) {
+            reset();
+            return -1;
+        }
+
+        std::string ip_str = str.substr(0, end_pos);
+        int port;
+
+        if (1 > sscanf(str.c_str() + end_pos, "%*[:]%d%*[:]%d%*[:]%d", &port, &idx, &value)) {
             reset();
             return -1;
         }
@@ -84,7 +109,8 @@ struct PeerId {
             reset();
             return -1;
         }
-        if (0 != butil::str2ip(ip_str, &addr.ip)) {
+        std::string end_point_str = ip_str + ":" + std::to_string(port);
+        if (0 != butil::str2endpoint(end_point_str.c_str(), &addr)) {
             reset();
             return -1;
         }

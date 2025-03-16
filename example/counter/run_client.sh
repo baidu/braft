@@ -31,11 +31,16 @@ DEFINE_string crash_on_fatal 'true' 'Crash on fatal log'
 DEFINE_string log_each_request 'false' 'Print log for each request'
 DEFINE_string valgrind 'false' 'Run in valgrind'
 DEFINE_string use_bthread "true" "Use bthread to send request"
+DEFINE_string ip "" "IP address to use, or [ipv6]"
 
 FLAGS "$@" || exit 1
 
-# hostname prefers ipv6
-IP=`hostname -i | awk '{print $NF}'`
+if [ "$FLAGS_ip" = "" ] ; then
+    # hostname prefers ipv6
+    IP=`hostname -i | awk '{print $NF}'`
+else
+    IP=$FLAGS_ip
+fi
 
 if [ "$FLAGS_valgrind" == "true" ] && [ $(which valgrind) ] ; then
     VALGRIND="valgrind --tool=memcheck --leak-check=full"

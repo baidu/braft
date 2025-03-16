@@ -63,7 +63,34 @@ TEST_F(TestUsageSuits, PeerId) {
 
     braft::PeerId id3("1.2.3.4:1000:0");
     LOG(INFO) << "id:" << id3;
+
 }
+
+TEST_F(TestUsageSuits, BadIPv4) {
+    braft::PeerId id1(id1);
+    ASSERT_EQ(-1, id1.parse("[1.1]:1000:0"));
+    LOG(INFO) << "id: "<< id1.to_string();
+}
+
+
+TEST_F(TestUsageSuits, IPv6) {
+    braft::PeerId id1(id1);
+    ASSERT_EQ(0, id1.parse("[::1]:1000:0"));
+    ASSERT_TRUE(id1.to_string() == "[::1]:1000:0:0");
+
+    ASSERT_EQ(0, id1.parse("[::1]:1000:0:1"));
+    ASSERT_TRUE(id1.to_string() == "[::1]:1000:0:1");
+
+    LOG(INFO) << "id: "<< id1.to_string();
+}
+
+TEST_F(TestUsageSuits, BadIPv6) {
+    braft::PeerId id1(id1);
+    ASSERT_EQ(-1, id1.parse("[1.1.1.1]:1000:0"));
+    ASSERT_EQ(-1, id1.parse("[zzzz::]:1000:0"));
+    LOG(INFO) << "id: "<< id1.to_string();
+}
+
 
 TEST_F(TestUsageSuits, Configuration) {
     braft::Configuration conf1;

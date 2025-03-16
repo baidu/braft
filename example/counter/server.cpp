@@ -31,6 +31,7 @@ DEFINE_int32(snapshot_interval, 30, "Interval between each snapshot");
 DEFINE_string(conf, "", "Initial configuration of the replication group");
 DEFINE_string(data_path, "./data", "Path of data stored on");
 DEFINE_string(group, "Counter", "Id of the replication group");
+DEFINE_string(ip, "", "IP Address to use to serve requests");
 
 namespace example {
 class Counter;
@@ -74,6 +75,13 @@ public:
     // Starts this node
     int start() {
         butil::EndPoint addr(butil::my_ip(), FLAGS_port);
+        if (FLAGS_ip != "") {
+            std::string endpoint_str = FLAGS_ip + ":" + std::to_string(FLAGS_port);
+            if (0 != butil::str2endpoint(endpoint_str.c_str(), &addr)) {
+                LOG(ERROR) << "Fail to parse endpoint `" << endpoint_str << '\'';
+                return -1;
+            }
+        }
         braft::NodeOptions node_options;
         if (node_options.initial_conf.parse_from(FLAGS_conf) != 0) {
             LOG(ERROR) << "Fail to parse configuration `" << FLAGS_conf << '\'';
@@ -377,9 +385,19 @@ int main(int argc, char* argv[]) {
     // clients.
     // Notice the default options of server is used here. Check out details from
     // the doc of brpc if you would like change some options;
-    if (server.Start(FLAGS_port, NULL) != 0) {
-        LOG(ERROR) << "Fail to start Server";
-        return -1;
+    if (FLAGS_ip != "" && FLAGS_ip[0] == '[') {
+        butil::EndPoint ep;
+        butil::str2endpoint("[::]", FLAGS_port, &ep);
+        if (server.Start(ep, NULL) != 0) {
+            LOG(ERROR) << "Fail to start IPv6 Server";
+            return -1;
+        }
+                         
+    } else {
+        if (server.Start(FLAGS_port, NULL) != 0) {
+            LOG(ERROR) << "Fail to start Server";
+            return -1;
+        }
     }
 
     // It's ok to start Counter;
