@@ -15,5 +15,7 @@ target_link_libraries(braft_cli
                       braft-static
                       ${DYNAMIC_LIB}
                       "-Xlinker \"-)\""
+                      brpc
+                      pthread
                       )
 endif()
