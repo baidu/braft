@@ -60,15 +60,22 @@ private:
 class FirstSnapshotLoadDone : public LoadSnapshotClosure {
 public:
     FirstSnapshotLoadDone(SnapshotExecutor* se,
-                          SnapshotReader* reader)
+                          SnapshotReader* reader,
+                          std::vector<SnapshotMeta>& prev_snapshot_metas)
         : _se(se)
-        , _reader(reader) {
+        , _reader(reader) 
+        , _prev_snapshot_metas(prev_snapshot_metas) {
     }
     ~FirstSnapshotLoadDone() {
     }
 
     SnapshotReader* start() { return _reader; }
     void Run() {
+        if (status().ok()) {
+            for (auto snapshot_meta : _prev_snapshot_metas) {
+                _se->_log_manager->set_snapshot(&snapshot_meta);
+            }
+        }
         _se->on_snapshot_load_done(status());
         _event.signal();
     }
@@ -78,6 +85,7 @@ public:
 private:
     SnapshotExecutor* _se;
     SnapshotReader* _reader;
+    std::vector<SnapshotMeta> _prev_snapshot_metas;
     bthread::CountdownEvent _event;
 };
 
@@ -364,7 +372,7 @@ int SnapshotExecutor::init(const SnapshotExecutorOptions& options) {
         _snapshot_throttle = options.snapshot_throttle;
         _snapshot_storage->set_snapshot_throttle(options.snapshot_throttle);
     }
-    if (_snapshot_storage->init() != 0) {
+    if (_snapshot_storage->init(options.max_snapshot_cnt) != 0) {
         LOG(ERROR) << "node " << _node->node_id() 
                    << " fail to init snapshot storage, uri " << options.uri;
         return -1;
@@ -385,10 +393,33 @@ int SnapshotExecutor::init(const SnapshotExecutorOptions& options) {
         _snapshot_storage->close(reader);
         return -1;
     }
+
+    // Collect all previous snapshots except the latest one
+    // which is the one we are loading now.
+    // The previous snapshots are used to set the snapshot
+    std::vector<SnapshotMeta> prev_snapshot_metas;
+    int64_t last_included_index = 1;
+    do {
+        auto prev_reader = _snapshot_storage->open_earliest_snapshot_include_index(last_included_index);
+        CHECK(prev_reader != NULL);
+        SnapshotMeta prev_meta; 
+        if (prev_reader->load_meta(&prev_meta) != 0) {
+            LOG(ERROR) << "Fail to load meta from prev snapshot reader `" << options.uri << "'";
+            _snapshot_storage->close(prev_reader);
+            _snapshot_storage->close(reader);
+            return -1;
+        }
+        _snapshot_storage->close(prev_reader);
+        if (prev_meta.last_included_index() < _loading_snapshot_meta.last_included_index()) {
+            prev_snapshot_metas.push_back(prev_meta);
+        }
+        last_included_index = prev_meta.last_included_index() + 1;
+    } while (last_included_index < _loading_snapshot_meta.last_included_index());
+
     _loading_snapshot = true;
     _running_jobs.add_count(1);
     // Load snapshot ater startup
-    FirstSnapshotLoadDone done(this, reader);
+    FirstSnapshotLoadDone done(this, reader, prev_snapshot_metas);
     CHECK_EQ(0, _fsm_caller->on_snapshot_load(&done));
     done.wait_for_run();
     _snapshot_storage->close(reader);

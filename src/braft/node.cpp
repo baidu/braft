@@ -256,6 +256,7 @@ int NodeImpl::init_snapshot_storage() {
     opt.init_term = _current_term;
     opt.filter_before_copy_remote = _options.filter_before_copy_remote;
     opt.usercode_in_pthread = _options.usercode_in_pthread;
+    opt.max_snapshot_cnt = _options.max_snapshot_cnt;
     // not need to copy data file when it is witness.
     if (_options.witness) {
         opt.copy_file = false;
@@ -287,6 +288,7 @@ int NodeImpl::init_log_storage() {
     log_manager_options.log_storage = _log_storage;
     log_manager_options.configuration_manager = _config_manager;
     log_manager_options.fsm_caller = _fsm_caller;
+    log_manager_options.max_snapshot_cnt = _options.max_snapshot_cnt;
     return _log_manager->init(log_manager_options);
 }
 
@@ -418,6 +420,7 @@ int NodeImpl::bootstrap(const BootstrapOptions& options) {
     _options.log_uri = options.log_uri;
     _options.raft_meta_uri = options.raft_meta_uri;
     _options.snapshot_uri = options.snapshot_uri;
+    _options.max_snapshot_cnt = options.max_snapshot_cnt;
     _config_manager = new ConfigurationManager();
 
     // Create _fsm_caller first as log_manager needs it to report error

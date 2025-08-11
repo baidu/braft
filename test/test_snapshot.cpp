@@ -204,6 +204,72 @@ TEST_F(SnapshotTest, writer_and_reader) {
     FOR_EACH_FILE_SYSTEM_ADAPTOR_END;
 }
 
+TEST_F(SnapshotTest, writer_reader_with_multi_snapshot) {
+    const int max_snapshot_cnt = 3;
+    braft::FileSystemAdaptor* fs;
+    FOR_EACH_FILE_SYSTEM_ADAPTOR_BEGIN(fs);
+    if (fs == NULL) {
+        ::system("rm -rf data");
+    } else {
+        fs->delete_file("data", true);
+    }
+    braft::SnapshotStorage* storage = new braft::LocalSnapshotStorage("./data");
+    if (fs) {
+        ASSERT_EQ(storage->set_file_system_adaptor(fs), 0);
+    }
+    ASSERT_TRUE(storage);
+    ASSERT_EQ(0, storage->init(max_snapshot_cnt));
+    // empty snapshot
+    braft::SnapshotReader* reader = storage->open();
+    ASSERT_TRUE(reader == NULL);
+    std::vector<braft::PeerId> peers;
+    peers.push_back(braft::PeerId("1.2.3.4:1000"));
+    peers.push_back(braft::PeerId("1.2.3.4:2000"));
+    peers.push_back(braft::PeerId("1.2.3.4:3000"));
+    braft::SnapshotMeta meta;
+    meta.set_last_included_index(1000);
+    meta.set_last_included_term(2);
+    for (size_t i = 0; i < peers.size(); ++i) {
+        *meta.add_peers() = peers[i].to_string();
+    }
+    std::vector<int64_t> last_include_indexes;
+    std::vector<int64_t> last_terms;
+    for (int i = 0; i < max_snapshot_cnt * 2; i++) {
+        int64_t last_include_index = (i + 1) * 1000 + 100;
+        int64_t last_term = i + 1;
+        last_include_indexes.push_back(last_include_index);
+        last_terms.push_back(last_term);
+        meta.set_last_included_index(last_include_index);
+        meta.set_last_included_term(last_term);
+        braft::SnapshotWriter* writer = storage->create();
+        ASSERT_TRUE(writer != NULL);
+        ASSERT_EQ(0, writer->save_meta(meta));
+        ASSERT_EQ(0, storage->close(writer));
+        int64_t earliest_inex = 0;
+        for (int j = last_include_indexes.size() - 1; j >= 0; --j) {
+            int include_log_index =
+                last_include_indexes[j] - butil::fast_rand_less_than(1000);
+            reader = storage->open_earliest_snapshot_include_index(
+                include_log_index);
+            braft::SnapshotMeta load_meta;
+            if (j + max_snapshot_cnt >= last_include_indexes.size()) {
+                ASSERT_TRUE(reader != NULL);
+                ASSERT_EQ(0, reader->load_meta(&load_meta));
+                ASSERT_EQ(load_meta.last_included_index(),
+                          last_include_indexes[j]);
+                ASSERT_EQ(load_meta.last_included_term(), last_terms[j]);
+                earliest_inex = load_meta.last_included_index();
+                ASSERT_EQ(0, storage->close(reader));
+            } else {
+                ASSERT_TRUE(reader != NULL);
+                ASSERT_EQ(0, reader->load_meta(&load_meta));
+                ASSERT_EQ(load_meta.last_included_index(), earliest_inex);
+            }
+        }
+    }
+    FOR_EACH_FILE_SYSTEM_ADAPTOR_END;
+}
+
 TEST_F(SnapshotTest, copy) {
     braft::FileSystemAdaptor* fs;
     FOR_EACH_FILE_SYSTEM_ADAPTOR_BEGIN(fs);

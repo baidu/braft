@@ -39,6 +39,7 @@ struct LogManagerOptions {
     LogStorage* log_storage;
     ConfigurationManager* configuration_manager;
     FSMCaller* fsm_caller;  // To report log error
+    int max_snapshot_cnt;
 };
 
 struct LogManagerStatus {
@@ -216,15 +217,16 @@ friend class AppendBatcher;
     std::deque<LogEntry* /*FIXME*/> _logs_in_memory;
     int64_t _first_log_index;
     int64_t _last_log_index;
-    // the last snapshot's log_id
-    LogId _last_snapshot_id;
     // the virtual first log, for finding next_index of replicator, which 
     // can avoid install_snapshot too often in extreme case where a follower's
     // install_snapshot is slower than leader's save_snapshot
-    // [NOTICE] there should not be hole between this log_id and _last_snapshot_id,
+    // [NOTICE] there should not be hole between this log_id and _last_snapshot_ids,
     // or may cause some unexpect cases
     LogId _virtual_first_log_id;
 
+    // the last snapshots with included log_id
+    std::deque<LogId> _last_snapshot_ids;
+    int _max_snapshot_cnt;
     bthread::ExecutionQueueId<StableClosure*> _disk_queue;
 };
 

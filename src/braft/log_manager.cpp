@@ -61,6 +61,7 @@ LogManagerOptions::LogManagerOptions()
     : log_storage(NULL)
     , configuration_manager(NULL)
     , fsm_caller(NULL)
+    , max_snapshot_cnt(1)
 {}
 
 LogManager::LogManager()
@@ -72,6 +73,7 @@ LogManager::LogManager()
     , _first_log_index(0)
     , _last_log_index(0)
 {
+    _last_snapshot_ids.push_back(LogId(0,0));
     CHECK_EQ(0, start_disk_thread());
 }
 
@@ -97,6 +99,7 @@ int LogManager::init(const LogManagerOptions &options) {
     // after snapshot load finish.
     _disk_id.term = _log_storage->get_term(_last_log_index);
     _fsm_caller = options.fsm_caller;
+    _max_snapshot_cnt = options.max_snapshot_cnt;
     return 0;
 }
 
@@ -176,7 +179,7 @@ int64_t LogManager::last_log_index(bool is_flush) {
     if (!is_flush) {
         return _last_log_index;
     } else {
-        if (_last_log_index == _last_snapshot_id.index) {
+        if (_last_log_index == _last_snapshot_ids.back().index) {
             return _last_log_index;
         }
         LastLogIdClosure c;
@@ -193,10 +196,10 @@ LogId LogManager::last_log_id(bool is_flush) {
         if (_last_log_index >= _first_log_index) {
             return LogId(_last_log_index, unsafe_get_term(_last_log_index));
         }
-        return _last_snapshot_id;
+        return _last_snapshot_ids.back();
     } else {
-        if (_last_log_index == _last_snapshot_id.index) {
-            return _last_snapshot_id;
+        if (_last_log_index == _last_snapshot_ids.back().index) {
+            return _last_snapshot_ids.back();
         }
         LastLogIdClosure c;
         CHECK_EQ(0, bthread::execution_queue_execute(_disk_queue, &c));
@@ -624,7 +627,7 @@ void LogManager::set_snapshot(const SnapshotMeta* meta) {
               << meta->last_included_index()
               << " last_included_term=" <<  meta->last_included_term();
     std::unique_lock<raft_mutex_t> lck(_mutex);
-    if (meta->last_included_index() <= _last_snapshot_id.index) {
+    if (meta->last_included_index() <= _last_snapshot_ids.back().index) {
         return;
     }
     Configuration conf;
@@ -642,11 +645,9 @@ void LogManager::set_snapshot(const SnapshotMeta* meta) {
     _config_manager->set_snapshot(entry);
     int64_t term = unsafe_get_term(meta->last_included_index());
 
-    const LogId last_but_one_snapshot_id = _last_snapshot_id;
-    _last_snapshot_id.index = meta->last_included_index();
-    _last_snapshot_id.term = meta->last_included_term();
-    if (_last_snapshot_id > _applied_id) {
-        _applied_id = _last_snapshot_id;
+    const LogId last_snapshot_id(meta->last_included_index(), meta->last_included_term());
+    if (last_snapshot_id > _applied_id) {
+        _applied_id = last_snapshot_id;
     }
     // NOTICE: not to update disk_id here as we are not sure if this node really
     // has these logs on disk storage. Just leave disk_id as it was, which can keep
@@ -656,7 +657,9 @@ void LogManager::set_snapshot(const SnapshotMeta* meta) {
     if (term == 0) {
         // last_included_index is larger than last_index
         // FIXME: what if last_included_index is less than first_index?
-        _virtual_first_log_id = _last_snapshot_id;
+        _virtual_first_log_id = last_snapshot_id;
+        _last_snapshot_ids.clear();
+        _last_snapshot_ids.push_back(last_snapshot_id);
         truncate_prefix(meta->last_included_index() + 1, lck);
         return;
     } else if (term == meta->last_included_term()) {
@@ -664,15 +667,21 @@ void LogManager::set_snapshot(const SnapshotMeta* meta) {
         // We don't truncate log before the latest snapshot immediately since
         // some log around last_snapshot_index is probably needed by some
         // followers
-        if (last_but_one_snapshot_id.index > 0) {
+        _last_snapshot_ids.push_back(last_snapshot_id);
+        while (_last_snapshot_ids.size() > _max_snapshot_cnt) {
+            _virtual_first_log_id = _last_snapshot_ids.front();
+            _last_snapshot_ids.pop_front();
+        }
+        if (_virtual_first_log_id.index > 0) {
             // We have last snapshot index
-            _virtual_first_log_id = last_but_one_snapshot_id;
-            truncate_prefix(last_but_one_snapshot_id.index + 1, lck);
+            truncate_prefix(_virtual_first_log_id.index + 1, lck);
         }
         return;
     } else {
         // TODO: check the result of reset.
-        _virtual_first_log_id = _last_snapshot_id;
+        _virtual_first_log_id = last_snapshot_id;
+        _last_snapshot_ids.clear();
+        _last_snapshot_ids.push_back(last_snapshot_id);
         reset(meta->last_included_index() + 1, lck);
         return;
     }
@@ -681,9 +690,9 @@ void LogManager::set_snapshot(const SnapshotMeta* meta) {
 
 void LogManager::clear_bufferred_logs() {
     std::unique_lock<raft_mutex_t> lck(_mutex);
-    if (_last_snapshot_id.index != 0) {
-        _virtual_first_log_id = _last_snapshot_id;
-        truncate_prefix(_last_snapshot_id.index + 1, lck);
+    if (_last_snapshot_ids.front().index != 0) {
+        _virtual_first_log_id = _last_snapshot_ids.front();
+        truncate_prefix(_last_snapshot_ids.front().index + 1, lck);
     }
 }
 
@@ -709,8 +718,8 @@ int64_t LogManager::unsafe_get_term(const int64_t index) {
         return _virtual_first_log_id.term;
     }
     // check last_snapshot_id
-    if (index == _last_snapshot_id.index) {
-        return _last_snapshot_id.term;
+    if (index == _last_snapshot_ids.back().index) {
+        return _last_snapshot_ids.back().term;
     }
     // out of range, direct return NULL
     // check this after check last_snapshot_id, because it is likely that
@@ -737,8 +746,8 @@ int64_t LogManager::get_term(const int64_t index) {
         return _virtual_first_log_id.term;
     }
     // check last_snapshot_id
-    if (index == _last_snapshot_id.index) {
-        return _last_snapshot_id.term;
+    if (index == _last_snapshot_ids.back().index) {
+        return _last_snapshot_ids.back().term;
     }
     // out of range, direct return NULL
     // check this after check last_snapshot_id, because it is likely that
@@ -948,19 +957,21 @@ butil::Status LogManager::check_consistency() {
     BAIDU_SCOPED_LOCK(_mutex);
     CHECK_GT(_first_log_index, 0);
     CHECK_GE(_last_log_index, 0);
-    if (_last_snapshot_id == LogId(0, 0)) {
+    if (_last_snapshot_ids.back() == LogId(0, 0)) {
         if (_first_log_index == 1) {
             return butil::Status::OK();
         }
         return butil::Status(EIO, "Missing logs in (0, %" PRId64 ")", _first_log_index);
     } else {
-        if (_last_snapshot_id.index >= _first_log_index - 1
-                && _last_snapshot_id.index <= _last_log_index) {
+        if (_last_snapshot_ids.front().index >= _first_log_index - 1
+                && _last_snapshot_ids.back().index <= _last_log_index) {
             return butil::Status::OK();
         }
-        return butil::Status(EIO, "There's a gap between snapshot={%" PRId64 ", %" PRId64 "}"
+        return butil::Status(EIO, "There's a gap between first snapshot={%" PRId64 ", %" PRId64 "}"
+                                 " last snapshot ={%" PRId64 ", %" PRId64 "}"
                                  " and log=[%" PRId64 ", %" PRId64 "] ",
-                            _last_snapshot_id.index, _last_snapshot_id.term,
+                            _last_snapshot_ids.front().index, _last_snapshot_ids.front().term,
+                            _last_snapshot_ids.back().index, _last_snapshot_ids.back().term,
                             _first_log_index, _last_log_index);
     }
     CHECK(false) << "Can't reach here";

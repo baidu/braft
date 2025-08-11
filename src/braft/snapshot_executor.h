@@ -47,6 +47,7 @@ struct SnapshotExecutorOptions {
     bool copy_file = true;
     scoped_refptr<FileSystemAdaptor> file_system_adaptor;
     scoped_refptr<SnapshotThrottle> snapshot_throttle;
+    int max_snapshot_cnt;
 };
 
 // Executing Snapshot related stuff
@@ -173,6 +174,7 @@ inline SnapshotExecutorOptions::SnapshotExecutorOptions()
     , init_term(0)
     , filter_before_copy_remote(false)
     , usercode_in_pthread(false)
+    , max_snapshot_cnt(1)
 {}
 
 }  //  namespace braft

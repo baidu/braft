@@ -1795,6 +1795,108 @@ TEST_P(NodeTest, AutoSnapshot) {
     server.Join();
 }
 
+TEST_P(NodeTest, MultiSnapshot) {
+    brpc::Server server;
+    brpc::ServerOptions server_options;
+    int ret = braft::add_service(&server, "0.0.0.0:5006");
+    ASSERT_EQ(0, ret);
+    ASSERT_EQ(0, server.Start(5006, &server_options));
+    braft::PeerId peer;
+    peer.addr.ip = butil::my_ip();
+    peer.addr.port = 5006;
+    peer.idx = 0;
+    std::vector<braft::PeerId> peers;
+    peers.push_back(peer);
+    braft::NodeOptions options;
+    options.election_timeout_ms = 300;
+    options.initial_conf = braft::Configuration(peers);
+    options.fsm = new MockFSM(butil::EndPoint());
+    options.log_uri = "local://./data/log";
+    options.raft_meta_uri = "local://./data/raft_meta";
+    options.snapshot_uri = "local://./data/snapshot";
+    options.snapshot_interval_s = 0;
+    std::deque<int64_t> snapshot_indexes;
+    auto gen_and_check_snapshot = [&] (const int max_snapshot_cnt)
+    {
+        options.max_snapshot_cnt = max_snapshot_cnt;
+        braft::Node node("unittest", peer);
+        ASSERT_EQ(0, node.init(options));
+        bthread::CountdownEvent cond(10);
+        // wait node elect to leader
+        while (!node.is_leader()) {
+            usleep(1000);
+        }
+        int snapshot_trigger_times = max_snapshot_cnt + 1; 
+        while (snapshot_trigger_times) {
+            // apply something
+            cond.reset(10);
+            for (int i = 0; i < 10; i++) {
+                butil::IOBuf data;
+                char data_buf[128];
+                snprintf(data_buf, sizeof(data_buf), "hello: %d", i + 1);
+                data.append(data_buf);
+                braft::Task task;
+                task.data = &data;
+                task.done = NEW_APPLYCLOSURE(&cond, 0);
+                node.apply(task);
+            }
+            cond.wait();
+            // trigger snapshot
+            cond.reset(1);
+            node.snapshot(NEW_SNAPSHOTCLOSURE(&cond, 0));
+            cond.wait();
+            int64_t snapshot_index = static_cast<MockFSM*>(options.fsm)->snapshot_index;
+            ASSERT_GT(snapshot_index, 0);
+            if (snapshot_indexes.size()) {
+                ASSERT_GT(snapshot_index, snapshot_indexes.back())
+            }
+            snapshot_indexes.push_back(snapshot_index);
+            // trigger snapshot to clear virtual logs
+            cond.reset(1);
+            node.snapshot(NEW_SNAPSHOTCLOSURE(&cond, 0));
+            cond.wait();
+            std::vector<int64_t> expired_snapshot_indexes;
+            // confirm the expired snapshot index without log entry
+            while (snapshot_indexes.size() > max_snapshot_cnt) {
+                auto expired = snapshot_indexes.front();
+                snapshot_indexes.pop_front();
+                ASSERT_GT(node._impl->_log_manager->first_log_index(), expired + 1);
+                expired_snapshot_indexes.push_back(expired);
+            }
+            // confirm the expired snapshot index has same snapshot meta with the first snapshot
+            for (auto expired : expired_snapshot_indexes) {
+                auto reader = node._impl->_snapshot_executor->op_snapshot_storage->open_earliest_snapshot_include_index(expired);
+                braft::SnapshotMeta meta;
+                ASSERT_EQ(0, reader->load_meta(&meta));
+                ASSERT_EQ(meta.last_included_index(), snapshot_indexes.front());
+            }
+            --snapshot_trigger_times;
+        }
+        // confirm the maintained snapshot_index with log entry and related snapshot meta
+        for (auto snapshot_index : snapshot_indexes) {
+            ASSERT_GE(snapshot_index+1, node._impl->_log_manager->first_log_index());
+            auto reader = node._impl->_snapshot_executor->op_snapshot_storage->open_earliest_snapshot_include_index(snapshot_index);
+            braft::SnapshotMeta meta;
+            ASSERT_EQ(0, reader->load_meta(&meta));
+            ASSERT_EQ(meta.last_included_index(), snapshot_index);
+        }
+        // shutdown
+        cond.reset(1);
+        node.shutdown(NEW_SHUTDOWNCLOSURE(&cond, 0));
+        cond.wait();
+    };
+    gen_and_check_snapshot(1);
+    // Increase max snapshot cnt
+    gen_and_check_snapshot(4);
+    // Restart
+    gen_and_check_snapshot(4);
+    // Decrease max snapshot cnt
+    gen_and_check_snapshot(1);
+    // stop
+    server.Stop(200);
+    server.Join();
+}
+
 TEST_P(NodeTest, LeaderShouldNotChange) {
     std::vector<braft::PeerId> peers;
     for (int i = 0; i < 3; i++) {

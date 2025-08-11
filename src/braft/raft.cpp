@@ -319,6 +319,7 @@ BootstrapOptions::BootstrapOptions()
     , fsm(NULL)
     , node_owns_fsm(false)
     , usercode_in_pthread(false)
+    , max_snapshot_cnt(1)
 {}
 
 int bootstrap(const BootstrapOptions& options) {

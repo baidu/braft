@@ -497,6 +497,10 @@ struct NodeOptions {
     // Default: 3600 (1 hour)
     int snapshot_interval_s;
 
+    // Max snapshot count retained.
+    // Default: 1 
+    int max_snapshot_cnt;
+
     // We will regard a adding peer as caught up if the margin between the
     // last_log_index of this peer and the last_log_index of leader is less than
     // |catchup_margin|
@@ -614,6 +618,7 @@ inline NodeOptions::NodeOptions()
     , catchup_timeout_ms(0)
     , max_clock_drift_ms(1000)
     , snapshot_interval_s(3600)
+    , max_snapshot_cnt(1)
     , catchup_margin(1000)
     , usercode_in_pthread(false)
     , fsm(NULL)
@@ -827,6 +832,10 @@ struct BootstrapOptions {
 
     // Describe a specific SnapshotStorage in format ${type}://${parameters}
     std::string snapshot_uri;
+
+    // Max snapshot count retained.
+    // Default: 1 
+    int max_snapshot_cnt;
 
     // Construct default options
     BootstrapOptions();

@@ -188,11 +188,12 @@ public:
 
     static const char* _s_temp_path;
 
-    virtual int init();
+    virtual int init(const int max_snapshot_cnt);
     virtual SnapshotWriter* create() WARN_UNUSED_RESULT;
     virtual int close(SnapshotWriter* writer);
 
     virtual SnapshotReader* open() WARN_UNUSED_RESULT;
+    virtual SnapshotReader* open_earliest_snapshot_include_index(const int64_t last_include_index) WARN_UNUSED_RESULT;
     virtual int close(SnapshotReader* reader);
     virtual SnapshotReader* copy_from(const std::string& uri) WARN_UNUSED_RESULT;
     virtual SnapshotCopier* start_to_copy_from(const std::string& uri);
@@ -217,7 +218,8 @@ private:
     raft_mutex_t _mutex;
     std::string _path;
     bool _filter_before_copy_remote;
-    int64_t _last_snapshot_index;
+    int _max_snapshot_cnt = 1;
+    std::deque<int64_t> _prev_snapshot_indexes;
     std::map<int64_t, int> _ref_map;
     butil::EndPoint _addr;
     bool _copy_file = true;

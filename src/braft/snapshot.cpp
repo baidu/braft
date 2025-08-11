@@ -439,13 +439,14 @@ void LocalSnapshotReader::destroy_reader_in_file_service() {
 
 LocalSnapshotStorage::LocalSnapshotStorage(const std::string& path)
     : _path(path)
-    , _last_snapshot_index(0)
 {}
 
 LocalSnapshotStorage::~LocalSnapshotStorage() {
 }
 
-int LocalSnapshotStorage::init() {
+int LocalSnapshotStorage::init(const int max_snapshot_cnt) {
+    CHECK_GT(max_snapshot_cnt, 0);
+    _max_snapshot_cnt = max_snapshot_cnt;
     butil::File::Error e;
     if (_fs == NULL) {
         _fs = default_file_system();
@@ -467,7 +468,7 @@ int LocalSnapshotStorage::init() {
         }
     }
 
-    // delete old snapshot
+    // delete old snapshots beyond the max snapshot cnt
     DirReader* dir_reader = _fs->directory_reader(_path);
     if (!dir_reader->is_valid()) {
         LOG(WARNING) << "directory reader failed, maybe NOEXIST or PERMISSION. path: " << _path;
@@ -488,8 +489,7 @@ int LocalSnapshotStorage::init() {
 
     // get last_snapshot_index
     if (snapshots.size() > 0) {
-        size_t snapshot_count = snapshots.size();
-        for (size_t i = 0; i < snapshot_count - 1; i++) {
+        while (snapshots.size() > static_cast<size_t>(_max_snapshot_cnt)) {
             int64_t index = *snapshots.begin();
             snapshots.erase(index);
 
@@ -502,9 +502,12 @@ int LocalSnapshotStorage::init() {
                 return EIO;
             }
         }
-
-        _last_snapshot_index = *snapshots.begin();
-        ref(_last_snapshot_index);
+        for (auto retained : snapshots) {
+            _prev_snapshot_indexes.push_back(retained);
+            ref(retained);
+        }
+    } else {
+        _prev_snapshot_indexes.push_back(0);
     }
 
     return 0;
@@ -625,7 +628,8 @@ int LocalSnapshotStorage::close(SnapshotWriter* writer_base,
         int64_t old_index = 0;
         {
             BAIDU_SCOPED_LOCK(_mutex);
-            old_index = _last_snapshot_index;
+            CHECK_GT(_prev_snapshot_indexes.size(), 0);
+            old_index = _prev_snapshot_indexes.back();
         }
         int64_t new_index = writer->snapshot_index();
         if (new_index == old_index) {
@@ -654,13 +658,24 @@ int LocalSnapshotStorage::close(SnapshotWriter* writer_base,
         }
 
         ref(new_index);
+        int64_t expired_index = 0;
         {
             BAIDU_SCOPED_LOCK(_mutex);
-            CHECK_EQ(old_index, _last_snapshot_index);
-            _last_snapshot_index = new_index;
+            CHECK_EQ(old_index, _prev_snapshot_indexes.back());
+            // pop the first invalid dummy snapshot index
+            if (_prev_snapshot_indexes.front() == 0) {
+                _prev_snapshot_indexes.pop_front();
+            }
+            _prev_snapshot_indexes.push_back(new_index);
+            if (_prev_snapshot_indexes.size() > _max_snapshot_cnt) {
+                expired_index = _prev_snapshot_indexes.front();
+                _prev_snapshot_indexes.pop_front();
+            }
         }
-        // unref old_index, ref new_index
-        unref(old_index);
+        // unref expired index
+        if (expired_index) {
+            unref(expired_index);
+        }
     } while (0);
 
     if (ret != 0 && !keep_data_on_error) {
@@ -671,26 +686,42 @@ int LocalSnapshotStorage::close(SnapshotWriter* writer_base,
 }
 
 SnapshotReader* LocalSnapshotStorage::open() {
-    std::unique_lock<raft_mutex_t> lck(_mutex);
-    if (_last_snapshot_index != 0) {
-        const int64_t last_snapshot_index = _last_snapshot_index;
-        ++_ref_map[last_snapshot_index];
-        lck.unlock();
-        std::string snapshot_path(_path);
-        butil::string_appendf(&snapshot_path, "/" BRAFT_SNAPSHOT_PATTERN, last_snapshot_index);
-        LocalSnapshotReader* reader = new LocalSnapshotReader(snapshot_path, _addr, 
-                _fs.get(), _snapshot_throttle.get());
-        if (reader->init() != 0) {
-            CHECK(!lck.owns_lock());
-            unref(last_snapshot_index);
-            delete reader;
-            return NULL;
-        }
-        return reader;
-    } else {
+    int64_t last_snapshot_index = 0;
+    {
+        std::unique_lock<raft_mutex_t> lck(_mutex);
+        last_snapshot_index = _prev_snapshot_indexes.back();
+    }
+    if (last_snapshot_index == 0) {
         errno = ENODATA;
         return NULL;
     }
+    return open_earliest_snapshot_include_index(last_snapshot_index);
+}
+
+SnapshotReader* LocalSnapshotStorage::open_earliest_snapshot_include_index(
+    const int64_t last_include_index) {
+    CHECK_GT(last_include_index, 0);
+    std::unique_lock<raft_mutex_t> lck(_mutex);
+    for (auto prev_snapshot_index : _prev_snapshot_indexes) {
+        if (prev_snapshot_index >= last_include_index) {
+            ++_ref_map[prev_snapshot_index];
+            lck.unlock();
+            std::string snapshot_path(_path);
+            butil::string_appendf(&snapshot_path, "/" BRAFT_SNAPSHOT_PATTERN,
+                                  prev_snapshot_index);
+            LocalSnapshotReader* reader = new LocalSnapshotReader(
+                snapshot_path, _addr, _fs.get(), _snapshot_throttle.get());
+            if (reader->init() != 0) {
+                CHECK(!lck.owns_lock());
+                unref(prev_snapshot_index);
+                delete reader;
+                return NULL;
+            }
+            return reader;
+        }
+    }
+    errno = ENODATA;
+    return NULL;
 }
 
 int LocalSnapshotStorage::close(SnapshotReader* reader_) {

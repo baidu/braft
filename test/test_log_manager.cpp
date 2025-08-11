@@ -589,6 +589,7 @@ TEST_F(LogManagerTest, flush_and_get_last_id) {
 
 TEST_F(LogManagerTest, check_consistency) {
     system("rm -rf ./data");
+    const int max_snapshot_cnt = 3;
     {
         scoped_ptr<braft::ConfigurationManager> cm(
                                     new braft::ConfigurationManager);
@@ -598,6 +599,7 @@ TEST_F(LogManagerTest, check_consistency) {
         braft::LogManagerOptions opt;
         opt.log_storage = storage.get();
         opt.configuration_manager = cm.get();
+        opt.max_snapshot_cnt = max_snapshot_cnt;
         ASSERT_EQ(0, lm->init(opt));
         butil::Status st;
         st = lm->check_consistency();
@@ -608,14 +610,16 @@ TEST_F(LogManagerTest, check_consistency) {
         }
         st = lm->check_consistency();
         ASSERT_TRUE(st.ok()) << st;
-        meta.set_last_included_index(100);
-        meta.set_last_included_term(1);
-        lm->set_snapshot(&meta);
-        st = lm->check_consistency();
-        ASSERT_TRUE(st.ok()) << st;
-        lm->clear_bufferred_logs();
-        st = lm->check_consistency();
-        ASSERT_TRUE(st.ok()) << st;
+        for (int i = 0; i < 2 * max_snapshot_cnt; ++i) {
+            meta.set_last_included_index(i * 100 + 100);
+            meta.set_last_included_term(1);
+            lm->set_snapshot(&meta);
+            st = lm->check_consistency();
+            ASSERT_TRUE(st.ok()) << st;
+            lm->clear_bufferred_logs();
+            st = lm->check_consistency();
+            ASSERT_TRUE(st.ok()) << st;
+        }
     }
     {
         scoped_ptr<braft::ConfigurationManager> cm(

@@ -321,7 +321,7 @@ public:
     }
 
     // Initialize
-    virtual int init() = 0;
+    virtual int init(const int max_snapshot_cnt) = 0;
 
     // create new snapshot writer
     virtual SnapshotWriter* create() = 0;
@@ -331,6 +331,10 @@ public:
 
     // get lastest snapshot reader
     virtual SnapshotReader* open() = 0;
+
+    // get the earliest snapshot reader which includes the given index
+    virtual SnapshotReader* open_earliest_snapshot_include_index(
+            const int64_t last_include_index) = 0;
 
     // close snapshot reader
     virtual int close(SnapshotReader* reader) = 0;

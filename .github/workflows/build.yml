@@ -17,7 +17,7 @@ jobs:
       fail-fast: false
       matrix:
         compiler: [clang, gcc]
-        os: [ubuntu-20.04]
+        os: [ubuntu-22.04]
         build_tool: [cmake, bazel]
         with_test: [true, false]
         exclude:
