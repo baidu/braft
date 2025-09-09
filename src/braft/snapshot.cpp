@@ -620,6 +620,7 @@ int LocalSnapshotStorage::close(SnapshotWriter* writer_base,
         }
         ret = writer->sync();
         if (ret != 0) {
+            ret = EIO;
             break;
         }
         int64_t old_index = 0;
