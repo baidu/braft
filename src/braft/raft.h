@@ -265,6 +265,10 @@ public:
     // the very leader whom the follower starts to follow.
     // User can reset the node's information as it starts to follow some leader.
     virtual void on_start_following(const ::braft::LeaderChangeContext& ctx);
+
+    // Invoked when the leader start to send snapshot to |peer_id|
+    // Default: Do nothing
+    virtual void on_pre_send_snapshot(const PeerId& peer_id);
 };
 
 enum State {
@@ -604,6 +608,7 @@ struct NodeOptions {
     // Default: false
     bool witness = false;
     // Construct a default instance
+    bool send_data_to_witness = true;
     NodeOptions();
 
     int get_catchup_timeout_ms();
@@ -788,7 +793,7 @@ public:
     //      - This node is a leader, and the count of writable nodes in the group
     //        is less than the majority.
     bool readonly();
-
+    int change_witness_config(bool send);
 private:
     NodeImpl* _impl;
 };

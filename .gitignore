@@ -15,7 +15,7 @@
 /runtime
 /output
 /test/output
-
+/bld
 # Ignore hidden files
 .*
 *.swp

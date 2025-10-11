@@ -219,6 +219,7 @@ public:
     void leave_readonly_mode();
     bool readonly();
     int change_readonly_config(int64_t term, const PeerId& peer_id, bool readonly);
+    int change_witness_config(bool send_data_to_witness);
     void check_majority_nodes_readonly();
     void check_majority_nodes_readonly(const Configuration& conf);
 
@@ -241,6 +242,8 @@ public:
 
     bool disable_cli() const { return _options.disable_cli; }
     bool is_witness() const { return _options.witness; }
+    // Called when leader start to send snapshot to remote peer
+    void pre_send_snapshot(const PeerId& peer_id);
 private:
 friend class butil::RefCountedThreadSafe<NodeImpl>;
 

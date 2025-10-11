@@ -613,6 +613,7 @@ int NodeImpl::init(const NodeOptions& options) {
     rg_options.election_timeout_ms = _options.election_timeout_ms;
     rg_options.log_manager = _log_manager;
     rg_options.ballot_box = _ballot_box;
+    rg_options.send_data_to_witness = _options.send_data_to_witness;
     rg_options.node = this;
     rg_options.snapshot_throttle = _options.snapshot_throttle
         ? _options.snapshot_throttle->get()
@@ -1364,6 +1365,10 @@ void NodeImpl::on_error(const Error& e) {
         _state = STATE_ERROR;
     }
     lck.unlock();
+}
+
+void NodeImpl::pre_send_snapshot(const PeerId& peer_id) {
+    _fsm_caller->on_pre_send_snapshot(peer_id);
 }
 
 void NodeImpl::handle_vote_timeout() {
@@ -3381,6 +3386,11 @@ void NodeImpl::leave_readonly_mode() {
 bool NodeImpl::readonly() {
     BAIDU_SCOPED_LOCK(_mutex);
     return _node_readonly || _majority_nodes_readonly;
+}
+
+int NodeImpl::change_witness_config(bool send_data_to_witness){
+    _options.send_data_to_witness = send_data_to_witness;
+    return _replicator_group.change_witness_config(send_data_to_witness);
 }
 
 int NodeImpl::change_readonly_config(int64_t term, const PeerId& peer_id, bool readonly) {

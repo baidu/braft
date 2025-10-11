@@ -475,6 +475,7 @@ int FSMCaller::on_start_following(const LeaderChangeContext& start_following_con
     return 0;
 }
 
+
 int FSMCaller::on_stop_following(const LeaderChangeContext& stop_following_context) {
     ApplyTask task;
     task.type = STOP_FOLLOWING;
@@ -494,6 +495,10 @@ void FSMCaller::do_start_following(const LeaderChangeContext& start_following_co
 
 void FSMCaller::do_stop_following(const LeaderChangeContext& stop_following_context) {
     _fsm->on_stop_following(stop_following_context);
+}
+
+void FSMCaller::on_pre_send_snapshot(const PeerId& peer_id) {
+    _fsm->on_pre_send_snapshot(peer_id);
 }
 
 void FSMCaller::describe(std::ostream &os, bool use_html) {

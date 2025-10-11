@@ -46,6 +46,8 @@ DEFINE_int32(raft_retry_replicate_interval_ms, 1000,
              "Interval of retry to append entries or install snapshot");
 BRPC_VALIDATE_GFLAG(raft_retry_replicate_interval_ms,
                     brpc::PositiveInteger);
+DEFINE_bool(raft_use_conn_pool, false, "use conn pool for raft replicator");
+BRPC_VALIDATE_GFLAG(raft_use_conn_pool, ::brpc::PassValidate);
 
 DECLARE_bool(raft_enable_witness_to_leader);
 DECLARE_int64(raft_append_entry_high_lat_us);
@@ -115,6 +117,9 @@ int Replicator::start(const ReplicatorOptions& options, ReplicatorId *id) {
     Replicator* r = new Replicator();
     brpc::ChannelOptions channel_opt;
     channel_opt.connect_timeout_ms = FLAGS_raft_rpc_channel_connect_timeout_ms;
+    if (FLAGS_raft_use_conn_pool) {
+        channel_opt.connection_type = "pooled";
+    }
     channel_opt.timeout_ms = -1; // We don't need RPC timeout
     if (r->_sending_channel.Init(options.peer_id.addr, &channel_opt) != 0) {
         LOG(ERROR) << "Fail to init sending channel"
@@ -630,6 +635,11 @@ int Replicator::_prepare_entry(int offset, EntryMeta* em, butil::IOBuf *data) {
     } else {
         CHECK(entry->type != ENTRY_TYPE_CONFIGURATION) << "log_index=" << log_index;
     }
+    // use group-level configuration preferentially 
+    if (is_witness() && !_options.send_data_to_witness) {
+        entry->Release();
+        return 0;
+    } 
     if (!is_witness() || FLAGS_raft_enable_witness_to_leader) {
         em->set_data_len(entry->data.length());
         data->append(entry->data);
@@ -790,7 +800,7 @@ void Replicator::_install_snapshot() {
                                             add_one_more_task(true)) {
         return _block(butil::gettimeofday_us(), EBUSY);
     }
-    
+    node_impl->pre_send_snapshot(_options.peer_id);
     // pre-set replicator state to INSTALLING_SNAPSHOT, so replicator could be
     // blocked if something is wrong, such as throttled for a period of time 
     _st.st = INSTALLING_SNAPSHOT;
@@ -1224,6 +1234,21 @@ int Replicator::change_readonly_config(ReplicatorId id, bool readonly) {
     return r->_change_readonly_config(readonly);
 }
 
+int Replicator::change_witness_config(ReplicatorId id, bool send){
+    Replicator *r = NULL;
+    bthread_id_t dummy_id = { id };
+    if (bthread_id_lock(dummy_id, (void**)&r) != 0) {
+        return 0;
+    }
+    return r->_change_witness_config(send);
+}
+
+int Replicator::_change_witness_config(bool send){
+    _options.send_data_to_witness = send;
+    CHECK_EQ(0, bthread_id_unlock(_id)) << "Fail to unlock " << _id;
+    return 0;
+}
+
 int Replicator::_change_readonly_config(bool readonly) {
     if ((readonly && _readonly_index != 0) ||
         (!readonly && _readonly_index == 0)) {
@@ -1382,6 +1407,7 @@ int ReplicatorGroup::init(const NodeId& node_id, const ReplicatorGroupOptions& o
     _election_timeout_ms = options.election_timeout_ms;
     _common_options.log_manager = options.log_manager;
     _common_options.ballot_box = options.ballot_box;
+    _common_options.send_data_to_witness = options.send_data_to_witness;  
     _common_options.node = options.node;
     _common_options.term = 0;
     _common_options.group_id = node_id.group_id;
@@ -1549,9 +1575,15 @@ int ReplicatorGroup::find_the_next_candidate(
         }
         const int64_t next_index = Replicator::get_next_index(iter->id_and_status.id);
         const int consecutive_error_times = Replicator::get_consecutive_error_times(iter->id_and_status.id);
-        if (consecutive_error_times == 0 && next_index > max_index && !iter->peer_id.is_witness()) {
+        if (consecutive_error_times == 0 && next_index > max_index) {
             max_index = next_index;
             if (peer_id) {
+                *peer_id = iter->peer_id;
+            }
+        }
+        // transfer leadership to the non witness peer priority.
+        if (consecutive_error_times == 0  && next_index == max_index) {
+            if (peer_id && peer_id->is_witness()) {
                 *peer_id = iter->peer_id;
             }
         }
@@ -1580,7 +1612,18 @@ void ReplicatorGroup::list_replicators(
         out->push_back(std::make_pair(iter->first, iter->second.id));
     }
 }
- 
+int ReplicatorGroup::change_witness_config(bool send_data_to_witness){
+    _common_options.send_data_to_witness = send_data_to_witness;
+    for (std::map<PeerId, ReplicatorIdAndStatus>::const_iterator
+            iter = _rmap.begin();  iter != _rmap.end(); ++iter) {
+      int ret =  Replicator::change_witness_config(iter->second.id, send_data_to_witness);
+      if(ret !=0) {
+        return ret;
+      }
+    }
+    return 0;
+}
+
 int ReplicatorGroup::change_readonly_config(const PeerId& peer, bool readonly) {
     std::map<PeerId, ReplicatorIdAndStatus>::const_iterator iter = _rmap.find(peer);
     if (iter == _rmap.end()) {
