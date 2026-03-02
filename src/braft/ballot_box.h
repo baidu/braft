@@ -90,14 +90,22 @@ public:
 
     void get_status(BallotBoxStatus* ballot_box_status);
 
+    // Set trace context for AdvanceCommitIndex events.
+    void set_trace_context(const std::string& nid, int64_t term) {
+        _trace_nid = nid;
+        _trace_term = term;
+    }
+
 private:
 
     FSMCaller*                                      _waiter;
-    ClosureQueue*                                   _closure_queue;                            
+    ClosureQueue*                                   _closure_queue;
     raft_mutex_t                                    _mutex;
     butil::atomic<int64_t>                          _last_committed_index;
     int64_t                                         _pending_index;
     std::deque<Ballot>                              _pending_meta_queue;
+    std::string                                     _trace_nid;
+    int64_t                                         _trace_term;
 
 };
 

@@ -21,6 +21,7 @@
 #include "braft/util.h"
 #include "braft/fsm_caller.h"
 #include "braft/closure_queue.h"
+#include "braft/trace_logger.h"
 
 namespace braft {
 
@@ -29,6 +30,7 @@ BallotBox::BallotBox()
     , _closure_queue(NULL)
     , _last_committed_index(0)
     , _pending_index(0)
+    , _trace_term(0)
 {
 }
 
@@ -89,6 +91,14 @@ int BallotBox::commit_at(
    
     _pending_index = last_committed_index + 1;
     _last_committed_index.store(last_committed_index, butil::memory_order_relaxed);
+    BRAFT_TRACE_IF_ENABLED({
+        TraceState ts = TraceState::capture_weak(_trace_term, STATE_LEADER);
+        ts.commitIndex = last_committed_index;
+        TraceEvent("AdvanceCommitIndex")
+            .node(_trace_nid)
+            .state(ts)
+            .emit();
+    });
     lck.unlock();
     // The order doesn't matter
     _waiter->on_committed(last_committed_index);

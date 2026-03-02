@@ -91,6 +91,7 @@ friend class RaftStatImpl;
 friend class FollowerStableClosure;
 friend class ConfigurationChangeDone;
 friend class VoteBallotCtx;
+friend struct TraceState;
 public:
     NodeImpl(const GroupId& group_id, const PeerId& peer_id);
     NodeImpl();

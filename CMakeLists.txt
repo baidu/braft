@@ -9,6 +9,7 @@ INCLUDE(CPack)
 #option(EXAMPLE_LINK_SO "Whether examples are linked dynamically" OFF)
 option(BRPC_WITH_GLOG "With glog" OFF)
 option(WITH_DEBUG_SYMBOLS "With debug symbols" ON)
+option(WITH_BRAFT_TRACE "Enable TLA+ trace instrumentation" OFF)
 
 set(WITH_GLOG_VAL "0")
 if(BRPC_WITH_GLOG)
@@ -224,6 +225,10 @@ endif()
 endmacro(use_cxx11)
 
 use_cxx11()
+
+if(WITH_BRAFT_TRACE)
+    add_definitions(-DBRAFT_ENABLE_TRACE)
+endif()
 
 add_subdirectory(src)
 if(BUILD_UNIT_TESTS)

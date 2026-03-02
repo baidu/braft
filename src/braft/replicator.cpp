@@ -26,6 +26,7 @@
 #include "braft/ballot_box.h"                    // BallotBox 
 #include "braft/log_entry.h"                     // LogEntry
 #include "braft/snapshot_throttle.h"             // SnapshotThrottle
+#include "braft/trace_logger.h"
 
 namespace braft {
 
@@ -337,6 +338,15 @@ void Replicator::_on_heartbeat_returned(
     BRAFT_VLOG << ss.str() << " readonly " << readonly;
     r->_update_last_rpc_send_timestamp(rpc_send_time);
     r->_start_heartbeat_timer(start_time_us);
+    BRAFT_TRACE_IF_ENABLED(
+        TraceEvent("HandleHeartbeatResponse")
+            .node(TraceServerMap::instance().register_peer(r->_options.server_id))
+            .state(TraceState::capture_weak(r->_options.term, STATE_LEADER))
+            .msg_field("from", TraceServerMap::instance().register_peer(r->_options.peer_id))
+            .msg_field("to", TraceServerMap::instance().register_peer(r->_options.server_id))
+            .msg_field("term", response->term())
+            .emit()
+    );
     NodeImpl* node_impl = NULL;
     // Check if readonly config changed
     if ((readonly && r->_readonly_index == 0) ||
@@ -461,6 +471,16 @@ void Replicator::_on_rpc_returned(ReplicatorId id, brpc::Controller* cntl,
                               " which is not supposed to happen";
             }
         }
+        BRAFT_TRACE_IF_ENABLED(
+            TraceEvent("HandleReplicateResponse")
+                .node(TraceServerMap::instance().register_peer(r->_options.server_id))
+                .state(TraceState::capture_weak(r->_options.term, STATE_LEADER))
+                .msg_field("from", TraceServerMap::instance().register_peer(r->_options.peer_id))
+                .msg_field("to", TraceServerMap::instance().register_peer(r->_options.server_id))
+                .msg_field("term", response->term())
+                .msg_field("success", false)
+                .emit()
+        );
         // dummy_id is unlock in _send_heartbeat
         r->_send_empty_entries(false);
         return;
@@ -516,6 +536,17 @@ void Replicator::_on_rpc_returned(ReplicatorId id, brpc::Controller* cntl,
     }
     r->_has_succeeded = true;
     r->_notify_on_caught_up(0, false);
+    BRAFT_TRACE_IF_ENABLED(
+        TraceEvent("HandleReplicateResponse")
+            .node(TraceServerMap::instance().register_peer(r->_options.server_id))
+            .state(TraceState::capture_weak(r->_options.term, STATE_LEADER))
+            .msg_field("from", TraceServerMap::instance().register_peer(r->_options.peer_id))
+            .msg_field("to", TraceServerMap::instance().register_peer(r->_options.server_id))
+            .msg_field("term", response->term())
+            .msg_field("success", true)
+            .msg_field("matchIndex", rpc_last_log_index)
+            .emit()
+    );
     // dummy_id is unlock in _send_entries
     if (r->_timeout_now_index > 0 && r->_timeout_now_index < r->_min_flying_index()) {
         r->_send_timeout_now(false, false);
@@ -583,9 +614,20 @@ void Replicator::_send_empty_entries(bool is_heartbeat) {
         << " term " << _options.term
         << " prev_log_index " << request->prev_log_index()
         << " last_committed_index " << request->committed_index();
+    if (is_heartbeat) {
+        BRAFT_TRACE_IF_ENABLED(
+            TraceEvent("SendHeartbeat")
+                .node(TraceServerMap::instance().register_peer(_options.server_id))
+                .state(TraceState::capture_weak(_options.term, STATE_LEADER))
+                .msg_field("from", TraceServerMap::instance().register_peer(_options.server_id))
+                .msg_field("to", TraceServerMap::instance().register_peer(_options.peer_id))
+                .msg_field("term", _options.term)
+                .emit()
+        );
+    }
 
     google::protobuf::Closure* done = brpc::NewCallback(
-                is_heartbeat ? _on_heartbeat_returned : _on_rpc_returned, 
+                is_heartbeat ? _on_heartbeat_returned : _on_rpc_returned,
                 _id.value, cntl.get(), request.get(), response.get(),
                 butil::monotonic_time_ms());
 
@@ -704,8 +746,18 @@ void Replicator::_send_entries() {
     _st.st = APPENDING_ENTRIES;
     _st.first_log_index = _min_flying_index();
     _st.last_log_index = _next_index - 1;
+    BRAFT_TRACE_IF_ENABLED(
+        TraceEvent("SendReplicateEntries")
+            .node(TraceServerMap::instance().register_peer(_options.server_id))
+            .state(TraceState::capture_weak(_options.term, STATE_LEADER))
+            .msg_field("from", TraceServerMap::instance().register_peer(_options.server_id))
+            .msg_field("to", TraceServerMap::instance().register_peer(_options.peer_id))
+            .msg_field("term", _options.term)
+            .msg_field("prevLogIndex", request->prev_log_index())
+            .emit()
+    );
     google::protobuf::Closure* done = brpc::NewCallback(
-                _on_rpc_returned, _id.value, cntl.get(), 
+                _on_rpc_returned, _id.value, cntl.get(),
                 request.get(), response.get(), butil::monotonic_time_ms());
     RaftService_Stub stub(&_sending_channel);
     stub.append_entries(cntl.release(), request.release(), 
@@ -825,6 +877,7 @@ void Replicator::_install_snapshot() {
     // report error on failure
     if (_reader->load_meta(&meta) != 0) {
         std::string snapshot_path = _reader->get_path();
+        _close_reader();
         NodeImpl *node_impl = _options.node;
         node_impl->AddRef();
         CHECK_EQ(0, bthread_id_unlock(_id)) << "Fail to unlock " << _id;
@@ -851,6 +904,15 @@ void Replicator::_install_snapshot() {
               << " send InstallSnapshotRequest to " << _options.peer_id
               << " term " << _options.term << " last_included_term " << meta.last_included_term()
               << " last_included_index " << meta.last_included_index() << " uri " << uri;
+    BRAFT_TRACE_IF_ENABLED(
+        TraceEvent("SendInstallSnapshot")
+            .node(TraceServerMap::instance().register_peer(_options.server_id))
+            .state(TraceState::capture_weak(_options.term, STATE_LEADER))
+            .msg_field("from", TraceServerMap::instance().register_peer(_options.server_id))
+            .msg_field("to", TraceServerMap::instance().register_peer(_options.peer_id))
+            .msg_field("term", _options.term)
+            .emit()
+    );
 
     _install_snapshot_in_fly = cntl->call_id();
     _install_snapshot_counter++;
@@ -916,8 +978,20 @@ void Replicator::_on_install_snapshot_returned(
         ss << " success.";
         LOG(INFO) << ss.str();
     } while (0);
+    if (!cntl->Failed()) {
+        BRAFT_TRACE_IF_ENABLED(
+            TraceEvent("HandleInstallSnapshotResponse")
+                .node(TraceServerMap::instance().register_peer(r->_options.server_id))
+                .state(TraceState::capture_weak(r->_options.term, STATE_LEADER))
+                .msg_field("from", TraceServerMap::instance().register_peer(r->_options.peer_id))
+                .msg_field("to", TraceServerMap::instance().register_peer(r->_options.server_id))
+                .msg_field("term", response->term())
+                .msg_field("success", succ)
+                .emit()
+        );
+    }
 
-    // We don't retry installing the snapshot explicitly. 
+    // We don't retry installing the snapshot explicitly.
     // dummy_id is unlock in _send_entries
     if (!succ) {
         return r->_block(butil::gettimeofday_us(), cntl->ErrorCode());
