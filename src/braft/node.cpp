@@ -2226,11 +2226,32 @@ int NodeImpl::handle_request_vote_request(const RequestVoteRequest* request,
         LogId last_log_id = _log_manager->last_log_id(true);
         lck.lock();
 
-        // vote need ABA check after unlock&lock
+        // Term may have changed while mutex was released for last_log_id I/O.
+        // Since term is monotonically increasing, handle three cases:
         if (previous_term != _current_term) {
-            LOG(WARNING) << "node " << _group_id << ":" << _server_id
-                         << " raise term " << _current_term << " when get last_log_id";
-            break;
+            if (_current_term < previous_term) {
+                LOG(ERROR) << "node " << _group_id << ":" << _server_id
+                           << " term regressed from " << previous_term
+                           << " to " << _current_term
+                           << " which should never happen";
+                break;
+            }
+            if (_current_term > request->term()) {
+                LOG(WARNING) << "node " << _group_id << ":" << _server_id
+                             << " term changed from " << previous_term
+                             << " to " << _current_term
+                             << " (> request term " << request->term()
+                             << ") while getting last_log_id, reject stale vote";
+                break;
+            }
+            // _current_term advanced but still <= request->term();
+            // the vote request remains valid -- continue processing.
+            LOG(INFO) << "node " << _group_id << ":" << _server_id
+                      << " term changed from " << previous_term
+                      << " to " << _current_term
+                      << " (<= request term " << request->term()
+                      << "), vote request still valid";
+            previous_term = _current_term;
         }
 
         bool log_is_ok = (LogId(request->last_log_index(), request->last_log_term())
