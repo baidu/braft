@@ -47,7 +47,7 @@ namespace detail {
 typedef PercentileSamples<1022> CombinedPercentileSamples;
 
 static int64_t get_window_recorder_qps(void* arg) {
-    detail::Sample<Stat> s;
+    Sample<Stat> s;
     static_cast<RecorderWindow*>(arg)->get_span(1, &s);
     // Use floating point to avoid overflow.
     if (s.time_us <= 0) {
