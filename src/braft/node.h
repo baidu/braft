@@ -19,6 +19,7 @@
 #ifndef BRAFT_RAFT_NODE_H
 #define BRAFT_RAFT_NODE_H
 
+#include <deque>
 #include <set>
 #include <butil/atomic_ref_count.h>
 #include <butil/memory/ref_counted.h>
@@ -261,7 +262,8 @@ friend class butil::RefCountedThreadSafe<NodeImpl>;
 
     // step down to follower, status give the reason
     void step_down(const int64_t term, bool wakeup_a_candidate,
-                   const butil::Status& status);
+                   const butil::Status& status,
+                   std::deque<std::pair<Closure*, bool>>& drained_closures);
 
     // reset leader_id. 
     // When new_leader_id is NULL, it means this node just stop following a leader; 
@@ -271,7 +273,8 @@ friend class butil::RefCountedThreadSafe<NodeImpl>;
 
     // check weather to step_down when receiving append_entries/install_snapshot
     // requests.
-    void check_step_down(const int64_t term, const PeerId& server_id);
+    void check_step_down(const int64_t term, const PeerId& server_id,
+                         std::deque<std::pair<Closure*, bool>>& drained_closures);
 
     // pre vote before elect_self
     void pre_vote(std::unique_lock<raft_mutex_t>* lck, bool triggered);
@@ -304,7 +307,8 @@ friend class butil::RefCountedThreadSafe<NodeImpl>;
     static int execute_applying_tasks(
                 void* meta, bthread::TaskIterator<LogEntryAndClosure>& iter);
     void apply(LogEntryAndClosure tasks[], size_t size);
-    void check_dead_nodes(const Configuration& conf, int64_t now_ms);
+    void check_dead_nodes(const Configuration& conf, int64_t now_ms,
+                          std::deque<std::pair<Closure*, bool>>& drained_closures);
     void check_witness(const Configuration& conf);
     bool handle_out_of_order_append_entries(brpc::Controller* cntl,
                                             const AppendEntriesRequest* request,

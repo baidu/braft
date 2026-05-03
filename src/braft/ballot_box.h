@@ -65,6 +65,10 @@ public:
     // fail immediately, which the new leader will deal whether to commit or
     // truncate.
     int clear_pending_tasks();
+
+    // Drain all pending closures into |out| as (closure, usercode_in_pthread)
+    // pairs. Safe to call while NodeImpl._mutex is held.
+    void drain_pending_tasks(std::deque<std::pair<Closure*, bool>>& out);
     
     // Called when a candidate becomes the new leader, otherwise the behavior is
     // undefined.

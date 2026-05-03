@@ -603,6 +603,11 @@ struct NodeOptions {
     //     it may cause data lost because witness had truncated log entry before snapshot.
     // Default: false
     bool witness = false;
+
+    // If true, flush done closures after leader step down.
+    // Default: true
+    bool flush_done_closures_after_step_down = true;
+
     // Construct a default instance
     NodeOptions();
 

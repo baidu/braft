@@ -106,6 +106,15 @@ int BallotBox::clear_pending_tasks() {
     return 0;
 }
 
+void BallotBox::drain_pending_tasks(std::deque<std::pair<Closure*, bool>>& out) {
+    {
+        BAIDU_SCOPED_LOCK(_mutex);
+        _pending_meta_queue.clear();
+        _pending_index = 0;
+    }
+    _closure_queue->drain(out);
+}
+
 int BallotBox::reset_pending_index(int64_t new_pending_index) {
     BAIDU_SCOPED_LOCK(_mutex);
     CHECK(_pending_index == 0 && _pending_meta_queue.empty())

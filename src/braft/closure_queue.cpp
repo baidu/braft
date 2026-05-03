@@ -50,6 +50,21 @@ void ClosureQueue::clear() {
     }
 }
 
+void ClosureQueue::drain(std::deque<std::pair<Closure*, bool>>& out) {
+    std::deque<Closure*> tmp;
+    {
+        BAIDU_SCOPED_LOCK(_mutex);
+        tmp.swap(_queue);
+        _first_index = 0;
+    }
+    for (Closure* c : tmp) {
+        if (c) {
+            c->status().set_error(EPERM, "leader stepped down");
+            out.push_back(std::make_pair(c, _usercode_in_pthread));
+        }
+    }
+}
+
 void ClosureQueue::reset_first_index(int64_t first_index) {
     BAIDU_SCOPED_LOCK(_mutex);
     CHECK(_queue.empty());

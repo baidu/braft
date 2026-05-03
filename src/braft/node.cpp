@@ -36,7 +36,23 @@
 
 namespace braft {
 
-DEFINE_int32(raft_max_election_delay_ms, 1000, 
+// RAII guard that owns the drained closures and schedules them after _mutex
+// is released. Declare BEFORE the mutex lock so the destructor runs after.
+struct ClosureFlushGuard {
+    std::deque<std::pair<Closure*, bool>> closures;
+    ~ClosureFlushGuard() {
+        if (closures.empty()) { return; }
+        bool run = false;
+        for (std::pair<Closure*, bool>& p : closures) {
+            run_closure_in_bthread_nosig(p.first, p.second);
+            run = true;
+        }
+        closures.clear();
+        if (run) { bthread_flush(); }
+    }
+};
+
+DEFINE_int32(raft_max_election_delay_ms, 1000,
              "Max election delay time allowed by user");
 BRPC_VALIDATE_GFLAG(raft_max_election_delay_ms, brpc::PositiveInteger);
 
@@ -638,13 +654,14 @@ int NodeImpl::init(const NodeOptions& options) {
         _snapshot_timer.start();
     }
 
+    ClosureFlushGuard guard;
     if (!_conf.empty()) {
-        step_down(_current_term, false, butil::Status::OK());
+        step_down(_current_term, false, butil::Status::OK(), guard.closures);
     }
 
     // add node to NodeManager
     if (!global_node_manager->add(this)) {
-        LOG(ERROR) << "NodeManager add " << _group_id 
+        LOG(ERROR) << "NodeManager add " << _group_id
                    << ":" << _server_id << " failed";
         return -1;
     }
@@ -791,7 +808,8 @@ void NodeImpl::on_caughtup(const PeerId& peer, int64_t term,
     _conf_ctx.on_caughtup(version, peer, false);
 }
 
-void NodeImpl::check_dead_nodes(const Configuration& conf, int64_t now_ms) {
+void NodeImpl::check_dead_nodes(const Configuration& conf, int64_t now_ms,
+                                std::deque<std::pair<Closure*, bool>>& drained_closures) {
     std::vector<PeerId> peers;
     conf.list_peers(&peers);
     size_t alive_count = 0;
@@ -819,10 +837,11 @@ void NodeImpl::check_dead_nodes(const Configuration& conf, int64_t now_ms) {
                  << " conf: " << conf;
     butil::Status status;
     status.set_error(ERAFTTIMEDOUT, "Majority of the group dies");
-    step_down(_current_term, false, status);
+    step_down(_current_term, false, status, drained_closures);
 }
 
 void NodeImpl::handle_stepdown_timeout() {
+    ClosureFlushGuard guard;
     BAIDU_SCOPED_LOCK(_mutex);
 
     // check state
@@ -834,9 +853,9 @@ void NodeImpl::handle_stepdown_timeout() {
     }
     check_witness(_conf.conf);
     int64_t now = butil::monotonic_time_ms();
-    check_dead_nodes(_conf.conf, now);
+    check_dead_nodes(_conf.conf, now, guard.closures);
     if (!_conf.old_conf.empty()) {
-        check_dead_nodes(_conf.old_conf, now);
+        check_dead_nodes(_conf.old_conf, now, guard.closures);
     }
 }
 
@@ -848,7 +867,8 @@ void NodeImpl::check_witness(const Configuration& conf) {
                 << " conf: " << conf;
         butil::Status status;
         status.set_error(ETRANSFERLEADERSHIP, "Witness becomes leader temporarily");
-        step_down(_current_term, true, status);
+        ClosureFlushGuard guard;
+        step_down(_current_term, true, status, guard.closures);
     }
 }
 
@@ -919,6 +939,7 @@ void NodeImpl::change_peers(const Configuration& new_peers, Closure* done) {
 }
 
 butil::Status NodeImpl::reset_peers(const Configuration& new_peers) {
+    ClosureFlushGuard guard;
     BAIDU_SCOPED_LOCK(_mutex);
 
     if (new_peers.empty()) {
@@ -938,7 +959,7 @@ butil::Status NodeImpl::reset_peers(const Configuration& new_peers) {
         _conf.conf = new_peers;
         butil::Status status;
         status.set_error(ESETPEER, "Set peer from empty configuration");
-        step_down(_current_term + 1, false, status);
+        step_down(_current_term + 1, false, status, guard.closures);
         return butil::Status::OK();
     }
 
@@ -955,7 +976,7 @@ butil::Status NodeImpl::reset_peers(const Configuration& new_peers) {
     }
 
     Configuration new_conf(new_peers);
-    LOG(WARNING) << "node " << _group_id << ":" << _server_id 
+    LOG(WARNING) << "node " << _group_id << ":" << _server_id
                  << " set_peer from "
                  << _conf.conf << " to " << new_conf;
     // change conf and step_down
@@ -963,7 +984,7 @@ butil::Status NodeImpl::reset_peers(const Configuration& new_peers) {
     _conf.old_conf.reset();
     butil::Status status;
     status.set_error(ESETPEER, "Raft node set peer normally");
-    step_down(_current_term + 1, false, status);
+    step_down(_current_term + 1, false, status, guard.closures);
     return butil::Status::OK();
 }
 
@@ -987,6 +1008,7 @@ void NodeImpl::do_snapshot(Closure* done) {
 void NodeImpl::shutdown(Closure* done) {
     // Note: shutdown is probably invoked more than once, make sure this method
     // is idempotent
+    ClosureFlushGuard guard;
     {
         BAIDU_SCOPED_LOCK(_mutex);
 
@@ -1002,7 +1024,7 @@ void NodeImpl::shutdown(Closure* done) {
             if (_state <= STATE_FOLLOWER) {
                 butil::Status status;
                 status.set_error(ESHUTDOWN, "Raft node is going to quit.");
-                step_down(_current_term, _state == STATE_LEADER, status);
+                step_down(_current_term, _state == STATE_LEADER, status, guard.closures);
             }
 
             // change state to shutdown
@@ -1094,13 +1116,14 @@ void NodeImpl::handle_timeout_now_request(brpc::Controller* controller,
                                           TimeoutNowResponse* response,
                                           google::protobuf::Closure* done) {
     brpc::ClosureGuard done_guard(done);
+    ClosureFlushGuard guard;
     std::unique_lock<raft_mutex_t> lck(_mutex);
     if (request->term() != _current_term) {
         const int64_t saved_current_term = _current_term;
         if (request->term() > _current_term) {
             butil::Status status;
             status.set_error(EHIGHERTERMREQUEST, "Raft node receives higher term request.");
-            step_down(request->term(), false, status);
+            step_down(request->term(), false, status, guard.closures);
         }
         response->set_term(_current_term);
         response->set_success(false);
@@ -1352,13 +1375,14 @@ void NodeImpl::on_error(const Error& e) {
         // on_error of _fsm_caller is guaranteed to be executed once.
         _fsm_caller->on_error(e);
     }
+    ClosureFlushGuard guard;
     std::unique_lock<raft_mutex_t> lck(_mutex);
     // if it is leader, need to wake up a new one.
     // if it is follower, also step down to call on_stop_following
     if (_state <= STATE_FOLLOWER) {
         butil::Status status;
         status.set_error(EBADNODE, "Raft node(leader or candidate) is in error.");
-        step_down(_current_term, _state == STATE_LEADER, status);
+        step_down(_current_term, _state == STATE_LEADER, status, guard.closures);
     }
     if (_state < STATE_ERROR) {
         _state = STATE_ERROR;
@@ -1367,6 +1391,7 @@ void NodeImpl::on_error(const Error& e) {
 }
 
 void NodeImpl::handle_vote_timeout() {
+    ClosureFlushGuard guard;
     std::unique_lock<raft_mutex_t> lck(_mutex);
 
     // check state
@@ -1381,7 +1406,7 @@ void NodeImpl::handle_vote_timeout() {
                         " fail to get quorum vote-granted";
         butil::Status status;
         status.set_error(ERAFTTIMEDOUT, "Fail to get quorum vote-granted");
-        step_down(_current_term, false, status);
+        step_down(_current_term, false, status, guard.closures);
         pre_vote(&lck, false);
     } else {
         // retry vote
@@ -1394,6 +1419,7 @@ void NodeImpl::handle_vote_timeout() {
 void NodeImpl::handle_request_vote_response(const PeerId& peer_id, const int64_t term,
                                             const int64_t ctx_version,
                                             const RequestVoteResponse& response) {
+    ClosureFlushGuard guard;
     BAIDU_SCOPED_LOCK(_mutex);
 
     if (ctx_version != _vote_ctx.version()) {
@@ -1426,7 +1452,7 @@ void NodeImpl::handle_request_vote_response(const PeerId& peer_id, const int64_t
         butil::Status status;
         status.set_error(EHIGHERTERMRESPONSE, "Raft node receives higher term "
                 "request_vote_response.");
-        step_down(response.term(), false, status);
+        step_down(response.term(), false, status, guard.closures);
         return;
     }
 
@@ -1503,6 +1529,7 @@ struct OnRequestVoteRPCDone : public google::protobuf::Closure {
 void NodeImpl::handle_pre_vote_response(const PeerId& peer_id, const int64_t term,
                                         const int64_t ctx_version,
                                         const RequestVoteResponse& response) {
+    ClosureFlushGuard guard;
     std::unique_lock<raft_mutex_t> lck(_mutex);
 
     if (ctx_version != _pre_vote_ctx.version()) {
@@ -1535,7 +1562,7 @@ void NodeImpl::handle_pre_vote_response(const PeerId& peer_id, const int64_t ter
         butil::Status status;
         status.set_error(EHIGHERTERMRESPONSE, "Raft node receives higher term "
                 "pre_vote_response.");
-        step_down(response.term(), false, status);
+        step_down(response.term(), false, status, guard.closures);
         return;
     }
 
@@ -1790,8 +1817,9 @@ void NodeImpl::request_peers_to_vote(const std::set<PeerId>& peers,
 }
 
 // in lock
-void NodeImpl::step_down(const int64_t term, bool wakeup_a_candidate, 
-                         const butil::Status& status) {
+void NodeImpl::step_down(const int64_t term, bool wakeup_a_candidate,
+                         const butil::Status& status,
+                         std::deque<std::pair<Closure*, bool>>& drained_closures) {
     BRAFT_VLOG << "node " << _group_id << ":" << _server_id
               << " term " << _current_term 
               << " stepdown from " << state2str(_state)
@@ -1809,7 +1837,13 @@ void NodeImpl::step_down(const int64_t term, bool wakeup_a_candidate,
         _pre_vote_ctx.reset(this);
     } else if (_state <= STATE_TRANSFERRING) {
         _stepdown_timer.stop();
-        _ballot_box->clear_pending_tasks();
+        if (_options.flush_done_closures_after_step_down) {
+            std::deque<std::pair<Closure*, bool>> tmp;
+            _ballot_box->drain_pending_tasks(tmp);
+            drained_closures.insert(drained_closures.end(), tmp.begin(), tmp.end());
+        } else {
+            _ballot_box->clear_pending_tasks();
+        }
 
         // signal fsm leader stop immediately
         if (_state == STATE_LEADER) {
@@ -1895,20 +1929,21 @@ void NodeImpl::reset_leader_id(const PeerId& new_leader_id,
 }
 
 // in lock
-void NodeImpl::check_step_down(const int64_t request_term, const PeerId& server_id) {
+void NodeImpl::check_step_down(const int64_t request_term, const PeerId& server_id,
+                               std::deque<std::pair<Closure*, bool>>& drained_closures) {
     butil::Status status;
     if (request_term > _current_term) {
         status.set_error(ENEWLEADER, "Raft node receives message from "
-                "new leader with higher term."); 
-        step_down(request_term, false, status);
-    } else if (_state != STATE_FOLLOWER) { 
+                "new leader with higher term.");
+        step_down(request_term, false, status, drained_closures);
+    } else if (_state != STATE_FOLLOWER) {
         status.set_error(ENEWLEADER, "Candidate receives message "
                 "from new leader with the same term.");
-        step_down(request_term, false, status);
+        step_down(request_term, false, status, drained_closures);
     } else if (_leader_id.is_empty()) {
         status.set_error(ENEWLEADER, "Follower receives message "
                 "from new leader with the same term.");
-        step_down(request_term, false, status); 
+        step_down(request_term, false, status, drained_closures);
     }
     // save current leader
     if (_leader_id.is_empty()) { 
@@ -2175,6 +2210,7 @@ int NodeImpl::handle_pre_vote_request(const RequestVoteRequest* request,
 
 int NodeImpl::handle_request_vote_request(const RequestVoteRequest* request,
                                           RequestVoteResponse* response) {
+    ClosureFlushGuard guard;
     std::unique_lock<raft_mutex_t> lck(_mutex);
 
     if (!is_active_state(_state)) {
@@ -2256,7 +2292,7 @@ int NodeImpl::handle_request_vote_request(const RequestVoteRequest* request,
             status.set_error(EHIGHERTERMREQUEST, "Raft node receives higher term "
                     "request_vote_request.");
             disrupted = (_state <= STATE_TRANSFERRING);
-            step_down(request->term(), false, status);
+            step_down(request->term(), false, status, guard.closures);
         }
 
         // save
@@ -2264,7 +2300,7 @@ int NodeImpl::handle_request_vote_request(const RequestVoteRequest* request,
             butil::Status status;
             status.set_error(EVOTEFORCANDIDATE, "Raft node votes for some candidate, "
                     "step down to restart election_timer.");
-            step_down(request->term(), false, status);
+            step_down(request->term(), false, status, guard.closures);
             _voted_id = candidate_id;
             //TODO: outof lock
             status = _meta_storage->
@@ -2392,6 +2428,7 @@ void NodeImpl::handle_append_entries_request(brpc::Controller* cntl,
     std::vector<LogEntry*> entries;
     entries.reserve(request->entries_size());
     brpc::ClosureGuard done_guard(done);
+    ClosureFlushGuard guard;
     std::unique_lock<raft_mutex_t> lck(_mutex);
 
     // pre set term, to avoid get term in lock
@@ -2435,17 +2472,17 @@ void NodeImpl::handle_append_entries_request(brpc::Controller* cntl,
     }
 
     // check term and state to step down
-    check_step_down(request->term(), server_id);   
-     
+    check_step_down(request->term(), server_id, guard.closures);
+
     if (server_id != _leader_id) {
         LOG(ERROR) << "Another peer " << _group_id << ":" << server_id
-                   << " declares that it is the leader at term=" << _current_term 
+                   << " declares that it is the leader at term=" << _current_term
                    << " which was occupied by leader=" << _leader_id;
         // Increase the term by 1 and make both leaders step down to minimize the
         // loss of split brain
         butil::Status status;
-        status.set_error(ELEADERCONFLICT, "More than one leader in the same term."); 
-        step_down(request->term() + 1, false, status);
+        status.set_error(ELEADERCONFLICT, "More than one leader in the same term.");
+        step_down(request->term() + 1, false, status, guard.closures);
         response->set_success(false);
         response->set_term(request->term() + 1);
         return;
@@ -2573,11 +2610,12 @@ void NodeImpl::handle_append_entries_request(brpc::Controller* cntl,
 }
 
 int NodeImpl::increase_term_to(int64_t new_term, const butil::Status& status) {
+    ClosureFlushGuard guard;
     BAIDU_SCOPED_LOCK(_mutex);
     if (new_term <= _current_term) {
         return EINVAL;
     }
-    step_down(new_term, false, status);
+    step_down(new_term, false, status, guard.closures);
     return 0;
 }
 
@@ -2617,6 +2655,7 @@ void NodeImpl::handle_install_snapshot_request(brpc::Controller* cntl,
                         request->server_id().c_str());
         return;
     }
+    ClosureFlushGuard guard;
     std::unique_lock<raft_mutex_t> lck(_mutex);
     
     if (!is_active_state(_state)) {
@@ -2642,17 +2681,17 @@ void NodeImpl::handle_install_snapshot_request(brpc::Controller* cntl,
         return;
     }
     
-    check_step_down(request->term(), server_id);
+    check_step_down(request->term(), server_id, guard.closures);
 
     if (server_id != _leader_id) {
         LOG(ERROR) << "Another peer " << _group_id << ":" << server_id
-                   << " declares that it is the leader at term=" << _current_term 
+                   << " declares that it is the leader at term=" << _current_term
                    << " which was occupied by leader=" << _leader_id;
         // Increase the term by 1 and make both leaders step down to minimize the
         // loss of split brain
         butil::Status status;
-        status.set_error(ELEADERCONFLICT, "More than one leader in the same term."); 
-        step_down(request->term() + 1, false, status);
+        status.set_error(ELEADERCONFLICT, "More than one leader in the same term.");
+        step_down(request->term() + 1, false, status, guard.closures);
         response->set_success(false);
         response->set_term(request->term() + 1);
         return;
@@ -3308,13 +3347,15 @@ void NodeImpl::ConfigurationCtx::next_stage() {
                     Configuration(_new_peers), NULL, false);
     case STAGE_STABLE:
         {
-            bool should_step_down = 
+            bool should_step_down =
                 _new_peers.find(_node->_server_id) == _new_peers.end();
             butil::Status st = butil::Status::OK();
             reset(&st);
             if (should_step_down) {
+                ClosureFlushGuard guard_local;
                 _node->step_down(_node->_current_term, true,
-                        butil::Status(ELEADERREMOVED, "This node was removed"));
+                        butil::Status(ELEADERREMOVED, "This node was removed"),
+                        guard_local.closures);
             }
             return;
         }
@@ -3453,6 +3494,7 @@ void NodeImpl::get_leader_lease_status(LeaderLeaseStatus* lease_status) {
             break;
     }
 
+    ClosureFlushGuard guard;
     BAIDU_SCOPED_LOCK(_mutex);
     if (_state != STATE_LEADER) {
         lease_status->state = LEASE_EXPIRED;
@@ -3464,7 +3506,7 @@ void NodeImpl::get_leader_lease_status(LeaderLeaseStatus* lease_status) {
     if (internal_info.state != LeaderLease::VALID && internal_info.state != LeaderLease::DISABLED) {
         butil::Status status;
         status.set_error(ERAFTTIMEDOUT, "Leader lease expired");
-        step_down(_current_term, false, status);
+        step_down(_current_term, false, status, guard.closures);
         lease_status->state = LEASE_EXPIRED;
     } else if (internal_info.state == LeaderLease::VALID) {
         lease_status->term = internal_info.term;

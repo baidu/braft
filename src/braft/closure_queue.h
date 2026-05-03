@@ -30,6 +30,11 @@ public:
     // Clear all the pending closure and run done
     void clear();
 
+    // Drain all pending closures into |out| as (closure, usercode_in_pthread)
+    // pairs, marking each with EPERM. Unlike clear(), does not call push_rq or
+    // bthread_flush — safe to call while NodeImpl._mutex is held.
+    void drain(std::deque<std::pair<Closure*, bool>>& out);
+
     // Called when a candidate becomes the new leader, otherwise the behavior is
     // undefined.
     // Reset the first index of the coming pending closures to |first_index|

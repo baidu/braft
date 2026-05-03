@@ -719,7 +719,8 @@ TEST_P(NodeTest, Leader_step_down_during_install_snapshot) {
                 << " step_down because of some error";
     butil::Status status;
     status.set_error(braft::ERAFTTIMEDOUT, "Majority of the group dies");
-    leader->_impl->step_down(leader->_impl->_current_term, false, status);
+    std::deque<std::pair<braft::Closure*, bool>> _tmp_closures;
+    leader->_impl->step_down(leader->_impl->_current_term, false, status, _tmp_closures);
     cond.wait(); 
     
     // add peer1 again, success 
