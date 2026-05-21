@@ -16,11 +16,14 @@
 //          Xiong,Kai(xiongkai@baidu.com)
 
 #include <errno.h>
+#include <algorithm>
 #include <butil/time.h>
 #include <butil/logging.h>
 #include <butil/file_util.h>                         // butil::CreateDirectory
 #include <gflags/gflags.h>
 #include <brpc/reloadable_flags.h>
+#include <atomic>
+#include <memory>
 #include "braft/util.h"
 #include "braft/protobuf_file.h"
 #include "braft/local_storage.pb.h"
@@ -31,6 +34,100 @@ namespace braft {
 DEFINE_int32(raft_meta_write_batch, 128, 
              "Max number of tasks that can be written into db in a single batch");
 BRPC_VALIDATE_GFLAG(raft_meta_write_batch, brpc::PositiveInteger);
+
+// Warning: This design is predicated on the observation that, under heavy load testing, the time
+// required to synchronously flush `raft_meta` data to disk becomes excessive, potentially
+// triggering a Leader election. Our design is tailored to the following scenarios:
+// 1.  Under heavy load testing, asynchronous disk flushing is employed. Since the data has already
+// been written to the kernel's buffer cache, no data loss occurs even in the event of a process
+// crash; data loss would only result from an unexpected power failure.
+// 2.  When the system load is moderate, the design utilizes asynchronous flushing supplemented by a
+// dedicated background flushing thread (configured by default to flush to disk once per second).
+// 3.  Under very light load conditions, synchronous disk flushing remains enabled.
+// 4.  Ultimately, all these configurations are controlled externally. External system designers do
+// not adjust these parameters arbitrarily; rather, they configure specific parameters tailored to
+// the requirements of each distinct operational scenario.
+
+
+// Set to true after the first KVBasedMergedMetaStorageImpl::init() completes.
+// Validators use this to distinguish startup-time flag setting (allowed) from
+// post-init runtime changes (rejected).
+static std::atomic<bool> g_raft_meta_initialized{false};
+
+DEFINE_bool(raft_meta_enable_leveldb_tuning, false,
+             "Tune LevelDB options for raft meta DB (write_buffer_size, max_open_files, etc.). "
+             "Takes effect only at init() time; cannot be changed at runtime.");
+// LevelDB options are applied once during DB::Open, runtime changes have no effect.
+static bool validate_raft_meta_enable_leveldb_tuning(const char*, bool val) {
+    if (g_raft_meta_initialized.load(std::memory_order_acquire) &&
+        val != FLAGS_raft_meta_enable_leveldb_tuning) {
+        LOG(ERROR) << "raft_meta_enable_leveldb_tuning cannot be changed at runtime. "
+                   << "LevelDB options are applied only during init(). "
+                   << "Please set this flag at startup.";
+        return false;
+    }
+    return true;
+}
+BRPC_VALIDATE_GFLAG(raft_meta_enable_leveldb_tuning, validate_raft_meta_enable_leveldb_tuning);
+
+DEFINE_bool(raft_meta_enable_preserialize, false,
+             "Pre-serialize protobuf in set_term_and_votedfor() before submitting to the "
+             "execution queue, moving CPU work out of the queue handler hot path.");
+BRPC_VALIDATE_GFLAG(raft_meta_enable_preserialize, brpc::PassValidate);
+
+DEFINE_bool(raft_meta_force_no_sync, false,
+             "Skip fsync when writing raft metadata. "
+             "Under extreme load, synchronous fsync may take too long and trigger leader election. "
+             "Enabling this flag avoids that by writing to kernel buffer cache only. "
+             "Process crash will NOT lose data, but machine power failure WILL lose unsynced vote records. "
+             "Recommend enabling raft_meta_periodic_sync_enabled=true together.");
+
+DEFINE_bool(raft_meta_periodic_sync_enabled, false,
+             "Enable background periodic fsync for raft meta DB. "
+             "When enabled, normal writes use sync=false for performance, and "
+             "a background timer ensures data is fsynced periodically. "
+             "Note: there is still a data loss window (up to raft_meta_periodic_sync_interval_ms) "
+             "on machine power failure between two fsyncs.");
+
+// raft_meta_periodic_sync_enabled is read only at init() time to decide whether
+// to create the background sync timer.  Changing it at runtime has no effect
+// because the timer is not created/destroyed dynamically, so we reject any
+// runtime modification to avoid giving users a false sense of control.
+static bool validate_raft_meta_periodic_sync_enabled(const char*, bool val) {
+    if (g_raft_meta_initialized.load(std::memory_order_acquire) &&
+        val != FLAGS_raft_meta_periodic_sync_enabled) {
+        LOG(ERROR) << "raft_meta_periodic_sync_enabled cannot be changed at runtime. "
+                   << "The periodic sync timer is created only during init(). "
+                   << "Please set this flag at startup.";
+        return false;
+    }
+    return true;
+}
+BRPC_VALIDATE_GFLAG(raft_meta_periodic_sync_enabled, validate_raft_meta_periodic_sync_enabled);
+
+// Validator for force_no_sync: placed after periodic_sync_enabled so the flag is visible.
+static bool validate_raft_meta_force_no_sync(const char*, bool val) {
+    if (val && !FLAGS_raft_meta_periodic_sync_enabled) {
+        LOG(WARNING) << "raft_meta_force_no_sync is being set to true "
+                     << "while raft_meta_periodic_sync_enabled=false. "
+                     << "This silently overrides raft_sync/raft_sync_meta and "
+                     << "leaves writes non-durable against power failure. "
+                     << "Consider enabling raft_meta_periodic_sync_enabled.";
+    }
+    return true;  // always allow, just warn
+}
+BRPC_VALIDATE_GFLAG(raft_meta_force_no_sync, validate_raft_meta_force_no_sync);
+
+DEFINE_int32(raft_meta_periodic_sync_interval_ms, 1000,
+             "Interval (ms) for periodic fsync when raft_meta_periodic_sync_enabled "
+             "is true. Default 1000 (1 second). "
+             "NOTE: setting this to 0 at runtime does NOT pause syncing — the timer "
+             "continues to fire at its original interval and dirty writes are still "
+             "fsynced. To actually stop periodic syncing the process must be restarted "
+             "with raft_meta_periodic_sync_enabled=false. "
+             "Smaller values reduce the data loss window on power failure "
+             "but increase I/O overhead.");
+BRPC_VALIDATE_GFLAG(raft_meta_periodic_sync_interval_ms, brpc::NonNegativeInteger);
 
 static bvar::LatencyRecorder g_load_pb_raft_meta("raft_load_pb_raft_meta");
 static bvar::LatencyRecorder g_save_pb_raft_meta("raft_save_pb_raft_meta");
@@ -623,6 +720,75 @@ butil::Status KVBasedMergedMetaStorage::delete_meta(
     return _merged_impl->delete_meta(group);
 };
 
+// MetaPeriodicSyncTimer
+static int64_t get_data_loss_window_ms(void* arg) {
+    MetaPeriodicSyncTimer* timer = static_cast<MetaPeriodicSyncTimer*>(arg);
+    int64_t last_sync = timer->last_sync_time_ms();
+    if (last_sync == 0) {
+        // Never synced yet, return -1 to indicate unknown
+        return -1;
+    }
+    return butil::monotonic_time_ms() - last_sync;
+}
+
+MetaPeriodicSyncTimer::MetaPeriodicSyncTimer(leveldb::DB* db, const std::string& path)
+    : _db(db), _path(path), _dirty(false), _last_sync_time_ms(0) {
+    // Initialize bvar metrics with path-specific names to support multiple instances
+    std::string prefix = "raft_meta_periodic_sync_" + path;
+    // Replace '/' with '_' to make valid bvar names
+    std::replace(prefix.begin(), prefix.end(), '/', '_');
+
+    _sync_success_count = std::make_unique<bvar::Adder<int64_t>>(prefix + "_success");
+    _sync_failure_count = std::make_unique<bvar::Adder<int64_t>>(prefix + "_failure");
+    _data_loss_window_ms = std::make_unique<bvar::PassiveStatus<int64_t>>(
+        prefix + "_data_loss_window_ms", get_data_loss_window_ms, this);
+}
+
+MetaPeriodicSyncTimer::~MetaPeriodicSyncTimer() {
+    // unique_ptr will auto-cleanup bvar metrics
+}
+
+void MetaPeriodicSyncTimer::run() {
+    if (!_dirty.exchange(false, std::memory_order_acq_rel)) {
+        return;
+    }
+    leveldb::WriteOptions sync_options;
+    sync_options.sync = true;
+    // We submit an empty WriteBatch with sync=true to force a WAL fsync without
+    // writing any user data. This relies on LevelDB's behaviour of flushing and
+    // syncing the WAL even for an empty batch when sync=true is set (see
+    // leveldb/db/db_impl.cc, DBImpl::Write). This is not explicitly documented
+    // in the public API, but has been stable across all LevelDB versions we
+    // support. If LevelDB ever skips the sync for empty batches, previously
+    // non-synced writes could be lost on power failure.
+    leveldb::WriteBatch empty_batch;
+    leveldb::Status st = _db->Write(sync_options, &empty_batch);
+    if (!st.ok()) {
+        LOG(WARNING) << "Periodic sync failed for meta db, path: " << _path
+                     << ", error: " << st.ToString();
+        // Restore dirty flag so next timer tick will retry
+        _dirty.store(true, std::memory_order_release);
+        (*_sync_failure_count) << 1;
+    } else {
+        _last_sync_time_ms.store(butil::monotonic_time_ms(), std::memory_order_release);
+        (*_sync_success_count) << 1;
+    }
+}
+
+int MetaPeriodicSyncTimer::adjust_timeout_ms(int timeout_ms) {
+    const int current = FLAGS_raft_meta_periodic_sync_interval_ms;
+    if (current > 0) {
+        return current;
+    }
+    // Flag is 0: we cannot honour a zero-ms interval (the underlying timer
+    // does not support it), so we fall back to the original interval that was
+    // passed at init() time. The timer keeps firing and run() will still fsync
+    // if dirty=true. Setting this flag to 0 does NOT pause syncing — it is
+    // simply ignored. To stop periodic syncing, restart with
+    // raft_meta_periodic_sync_enabled=false.
+    return timeout_ms;
+}
+
 // KVBasedMergedMetaStorageImpl
 butil::Status KVBasedMergedMetaStorageImpl::init() {
     std::unique_lock<raft_mutex_t> lck(_mutex); 
@@ -645,7 +811,16 @@ butil::Status KVBasedMergedMetaStorageImpl::init() {
 
     leveldb::Options options;
     options.create_if_missing = true;
-    //options.error_if_exists = true;   
+    //options.error_if_exists = true;
+
+    if (FLAGS_raft_meta_enable_leveldb_tuning) {
+        // Raft meta DB stores tiny KV pairs (term+votedfor per group),
+        // tune for minimal I/O and compaction overhead.
+        options.write_buffer_size = 1 * 1024 * 1024;   // 1MB, enough for meta
+        options.max_open_files = 64;                    // tiny DB needs few fds
+        options.max_file_size = 1 * 1024 * 1024;        // 1MB sstable
+        options.compression = leveldb::kNoCompression;  // values too small to benefit
+    }
 
     leveldb::Status st;
     st = leveldb::DB::Open(options, _path.c_str(), &_db);
@@ -665,23 +840,64 @@ butil::Status KVBasedMergedMetaStorageImpl::init() {
                                        &execq_opt,
                                        KVBasedMergedMetaStorageImpl::run,
                                        this) != 0) {
-        status.set_error(EINVAL, "Fail to start execution_queue, path: %s", 
+        status.set_error(EINVAL, "Fail to start execution_queue, path: %s",
                          _path.c_str());
         return status;
-    }    
+    }
+
+    // Start periodic sync timer if enabled
+    if (FLAGS_raft_meta_periodic_sync_enabled) {
+        _periodic_sync_timer = std::make_unique<MetaPeriodicSyncTimer>(_db, _path);
+        if (_periodic_sync_timer->init(FLAGS_raft_meta_periodic_sync_interval_ms) != 0) {
+            LOG(ERROR) << "Fail to init periodic sync timer, path: " << _path;
+            _periodic_sync_timer.reset();
+            status.set_error(EINVAL, "Fail to init periodic sync timer, path: %s",
+                         _path.c_str());
+            return status;
+        } else {
+            _periodic_sync_timer->start();
+            LOG(INFO) << "Started periodic meta sync timer, interval_ms: "
+                      << FLAGS_raft_meta_periodic_sync_interval_ms
+                      << ", path: " << _path;
+        }
+    }
+
+    // Warn about unsafe flag combinations
+    if (FLAGS_raft_meta_force_no_sync && !FLAGS_raft_meta_periodic_sync_enabled) {
+        LOG(WARNING) << "UNSAFE CONFIG: raft_meta_force_no_sync=true but "
+                     << "raft_meta_periodic_sync_enabled=false. "
+                     << "Writes go to kernel buffer cache only, "
+                     << "process crash is safe but machine power failure "
+                     << "will lose unsynced vote records. "
+                     << "Recommend enabling raft_meta_periodic_sync_enabled=true. "
+                     << "path: " << _path;
+    }
 
     _is_inited = true;
+    g_raft_meta_initialized.store(true, std::memory_order_release);
     return status;
 }
 
-    
+
 void KVBasedMergedMetaStorageImpl::run_tasks(leveldb::WriteBatch& updates, 
                                                Closure* dones[], size_t size) {
     g_save_kv_raft_meta_batch_counter << size; 
     
-    leveldb::WriteOptions options;
-    options.sync = raft_sync_meta(); 
-    leveldb::Status st = _db->Write(options, &updates);
+    leveldb::Status st;
+    bool sync = raft_sync_meta() && (!FLAGS_raft_meta_force_no_sync);
+    if (!sync && !FLAGS_raft_meta_periodic_sync_enabled) {
+        LOG_EVERY_N(WARNING, 10000)
+            << "raft meta writes are NOT durable: "
+            << "force_no_sync=" << FLAGS_raft_meta_force_no_sync
+            << ", periodic_sync=" << FLAGS_raft_meta_periodic_sync_enabled
+            << ", raft_sync_meta=" << FLAGS_raft_sync_meta
+            << ". Process crash is safe, but machine power failure "
+            << "will lose unsynced vote records. "
+            << "path: " << _path;
+    }
+    leveldb::WriteOptions write_options;
+    write_options.sync = sync;
+    st = _db->Write(write_options, &updates);
     if (!st.ok()) {
         LOG(ERROR) << "Fail to write batch into db, path: " << _path
                    << ", error: " << st.ToString();
@@ -694,53 +910,61 @@ void KVBasedMergedMetaStorageImpl::run_tasks(leveldb::WriteBatch& updates,
             run_closure_in_bthread_nosig(dones[i]);
         }
     } else {
+        if (_periodic_sync_timer && !sync) {
+            _periodic_sync_timer->mark_dirty();
+        }
         for (size_t i = 0; i < size; ++i) {
             run_closure_in_bthread_nosig(dones[i]);
-        } 
+        }
     }
     bthread_flush();
 }
 
-int KVBasedMergedMetaStorageImpl::run(void* meta, 
+int KVBasedMergedMetaStorageImpl::run(void* meta,
                                 bthread::TaskIterator<WriteTask>& iter) {
     if (iter.is_queue_stopped()) {
         return 0;
     }
 
     KVBasedMergedMetaStorageImpl* mss = (KVBasedMergedMetaStorageImpl*)meta;
+    const bool optimized = FLAGS_raft_meta_enable_preserialize;
     const size_t batch_size = FLAGS_raft_meta_write_batch;
-    size_t cur_size = 0;
     leveldb::WriteBatch updates;
     DEFINE_SMALL_ARRAY(Closure*, dones, batch_size, 256);
+    size_t dones_count = 0;
+
+    // Serialize task value: optimized path uses pre-serialized data,
+    // non-optimized path serializes protobuf on the fly.
+    auto put_task = [optimized](leveldb::WriteBatch& batch,
+                                const WriteTask& task) {
+        leveldb::Slice key(task.vgid.data(), task.vgid.size());
+        if (optimized) {
+            leveldb::Slice value(task.serialized_value.data(),
+                                 task.serialized_value.size());
+            batch.Put(key, value);
+        } else {
+            StablePBMeta meta;
+            meta.set_term(task.term);
+            meta.set_votedfor(task.votedfor.to_string());
+            std::string meta_string;
+            meta.SerializeToString(&meta_string);
+            batch.Put(key, leveldb::Slice(meta_string.data(), meta_string.size()));
+        }
+    };
 
     for (; iter; ++iter) {
-        if (cur_size == batch_size) {
-            mss->run_tasks(updates, dones, cur_size); 
+        if (dones_count == batch_size) {
+            mss->run_tasks(updates, dones, dones_count);
             updates.Clear();
-            cur_size = 0;
+            dones_count = 0;
         }
-
-        const int64_t term = iter->term;
-        const PeerId votedfor = iter->votedfor;
-        const VersionedGroupId vgid = iter->vgid;
-        Closure* done = iter->done; 
-        // get key and value 
-        leveldb::Slice key(vgid.data(), vgid.size());  
-        StablePBMeta meta;
-        meta.set_term(term);
-        meta.set_votedfor(votedfor.to_string());
-        std::string meta_string;
-        meta.SerializeToString(&meta_string);
-        leveldb::Slice value(meta_string.data(), meta_string.size());
-
-        updates.Put(key, value);
-        dones[cur_size++] = done;
+        put_task(updates, *iter);
+        dones[dones_count++] = iter->done;
     }
-    if (cur_size > 0) {
-        mss->run_tasks(updates, dones, cur_size);
-        updates.Clear();
-        cur_size = 0;
+    if (dones_count > 0) {
+        mss->run_tasks(updates, dones, dones_count);
     }
+
     return 0;
 }
 
@@ -758,6 +982,14 @@ void KVBasedMergedMetaStorageImpl::set_term_and_votedfor(
     task.votedfor = peer_id;
     task.vgid = group;
     task.done = done;
+    if (FLAGS_raft_meta_enable_preserialize) {
+        // Pre-serialize protobuf to reduce CPU work inside execution queue handler
+        StablePBMeta meta;
+        meta.set_term(term);
+        meta.set_votedfor(peer_id.to_string());
+        meta.SerializeToString(&task.serialized_value);
+    }
+
     if (bthread::execution_queue_execute(_queue_id, task) != 0) {
         task.done->status().set_error(EIO, "Failed to put task into queue");
         return run_closure_in_bthread(task.done);

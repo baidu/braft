@@ -18,11 +18,15 @@
 #ifndef BRAFT_RAFT_META_H
 #define BRAFT_RAFT_META_H
 
+#include <atomic>
+#include <memory>
 #include <butil/memory/ref_counted.h>
 #include <leveldb/db.h>
 #include <leveldb/write_batch.h>
 #include <bthread/execution_queue.h>
+#include <bvar/bvar.h>
 #include "braft/storage.h"
+#include "braft/repeated_timer_task.h"
 
 namespace braft {
 
@@ -136,8 +140,44 @@ private:
     scoped_refptr<KVBasedMergedMetaStorageImpl> _merged_impl;
 };
 
+// Periodically fsync the LevelDB WAL to disk without blocking normal writes.
+class MetaPeriodicSyncTimer : public RepeatedTimerTask {
+public:
+    MetaPeriodicSyncTimer(leveldb::DB* db, const std::string& path);
+    ~MetaPeriodicSyncTimer();
+
+    // Called by run_tasks() after a successful write
+    void mark_dirty() { _dirty.store(true, std::memory_order_release); }
+
+    void wait_for_destroy() {
+        _destroy_event.wait();
+    }
+
+    // Accessor for bvar callback
+    int64_t last_sync_time_ms() const {
+        return _last_sync_time_ms.load(std::memory_order_acquire);
+    }
+
+protected:
+    void run() override;
+    void on_destroy() override { _destroy_event.signal(); }
+    int adjust_timeout_ms(int timeout_ms) override;
+
+private:
+    leveldb::DB* _db;
+    std::string _path;
+    std::atomic<bool> _dirty;
+    bthread::CountdownEvent _destroy_event;
+
+    // Metrics for monitoring data loss window
+    std::atomic<int64_t> _last_sync_time_ms;
+    std::unique_ptr<bvar::Adder<int64_t>> _sync_success_count;
+    std::unique_ptr<bvar::Adder<int64_t>> _sync_failure_count;
+    std::unique_ptr<bvar::PassiveStatus<int64_t>> _data_loss_window_ms;
+};
+
 // Inner class of KVBasedMergedMetaStorage
-class KVBasedMergedMetaStorageImpl : 
+class KVBasedMergedMetaStorageImpl :
             public butil::RefCountedThreadSafe<KVBasedMergedMetaStorageImpl> {
 friend class scoped_refptr<KVBasedMergedMetaStorageImpl>;
 
@@ -146,6 +186,11 @@ public:
         : _is_inited(false), _path(path), _db(nullptr) {}
     KVBasedMergedMetaStorageImpl() {}
     virtual ~KVBasedMergedMetaStorageImpl() {
+        if (_periodic_sync_timer) {
+            _periodic_sync_timer->stop();
+            _periodic_sync_timer->destroy();
+            _periodic_sync_timer->wait_for_destroy();
+        }
         if (_db) {
             delete _db;
             _db = nullptr;
@@ -157,6 +202,7 @@ public:
         int64_t term;
         PeerId votedfor;
         VersionedGroupId vgid;
+        std::string serialized_value;  // pre-serialized protobuf
         Closure* done;
     };
 
@@ -191,6 +237,7 @@ private:
     bool _is_inited;
     std::string _path;
     leveldb::DB* _db;
+    std::unique_ptr<MetaPeriodicSyncTimer> _periodic_sync_timer;
 };
 
 }
