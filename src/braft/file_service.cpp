@@ -29,6 +29,8 @@ namespace braft {
 
 DEFINE_bool(raft_file_check_hole, false, "file service check hole switch, default disable");
 
+static bvar::Adder<int64_t> g_send_snapshot_data_in_byte("raft_leader_send_snapshot_data_in_byte");
+
 void FileServiceImpl::get_file(::google::protobuf::RpcController* controller,
                                const ::braft::GetFileRequest* request,
                                ::braft::GetFileResponse* response,
@@ -74,6 +76,7 @@ void FileServiceImpl::get_file(::google::protobuf::RpcController* controller,
 
     response->set_eof(is_eof);
     response->set_read_size(read_count);      
+    g_send_snapshot_data_in_byte << read_count;
     // skip empty data
     if (buf.size() == 0) {
         return;

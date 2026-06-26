@@ -44,6 +44,8 @@ BRPC_VALIDATE_GFLAG(raft_enable_throttle_when_install_snapshot,
 
 DECLARE_int32(raft_rpc_channel_connect_timeout_ms);
 
+static bvar::Adder<int64_t> g_follower_receive_snapshot_data_in_byte("raft_follower_receive_snapshot_data_in_byte");
+
 RemoteFileCopier::RemoteFileCopier()
     : _reader_id(0)
     , _throttle(NULL)
@@ -302,6 +304,7 @@ void RemoteFileCopier::Session::on_rpc_returned() {
     if (_response.has_read_size() && (_response.read_size() != 0)
             && FLAGS_raft_allow_read_partly_when_install_snapshot) {
         _request.set_count(_response.read_size());
+        g_follower_receive_snapshot_data_in_byte << _response.read_size();
     }
     if (_file) {
         FileSegData data(_cntl.response_attachment());
