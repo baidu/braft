@@ -49,14 +49,14 @@ static void* sender(void* arg) {
             butil::Status st = braft::rtb::refresh_leader(
                         FLAGS_group, FLAGS_timeout_ms);
             if (!st.ok()) {
-                // Not sure about the leader, sleep for a while and the ask again.
+                // Not sure about the leader, sleep for a while and then ask again.
                 LOG(WARNING) << "Fail to refresh_leader : " << st;
                 bthread_usleep(FLAGS_timeout_ms * 1000L);
             }
             continue;
         }
 
-        // Now we known who is the leader, construct Stub and then sending
+        // Now we know who is the leader, construct Stub and then sending
         // rpc
         brpc::Channel channel;
         if (channel.Init(leader.addr, NULL) != 0) {

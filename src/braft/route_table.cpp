@@ -190,11 +190,11 @@ butil::Status refresh_leader(const GroupId& group, int timeout_ms) {
         cntl.set_timeout_ms(timeout_ms);
         GetLeaderRequest request;
         request.set_group_id(group);
-        GetLeaderResponse respones;
+        GetLeaderResponse response;
         CliService_Stub stub(&channel);
-        stub.get_leader(&cntl, &request, &respones, NULL);
+        stub.get_leader(&cntl, &request, &response, NULL);
         if (!cntl.Failed()) {
-            update_leader(group, respones.leader_id());
+            update_leader(group, response.leader_id());
             return butil::Status::OK();
         }
         if (error.ok()) {

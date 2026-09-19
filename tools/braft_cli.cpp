@@ -225,7 +225,7 @@ int main(int argc , char* argv[]) {
                         "  change_peers --group=$group_id "
                                        "--conf=$current_conf --new_peers=$new_peers\n"
                         "  reset_peer --group=$group_id "
-                                     "--peer==$target_peer --new_peers=$new_peers\n"
+                                     "--peer=$target_peer --new_peers=$new_peers\n"
                         "  snapshot --group=$group_id --peer=$target_peer\n"
                         "  transfer_leader --group=$group_id --peer=$target_leader --conf=$current_conf\n",
                         proc_name);
