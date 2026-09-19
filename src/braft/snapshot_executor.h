@@ -82,7 +82,7 @@ public:
                           google::protobuf::Closure* done);
 
     // Interrupt the downloading if possible.
-    // This is called when the term of node increased to |new_term|, which
+    // This is called when the term of node increases to |new_term|, which
     // happens when receiving RPC from new peer. In this case, it's hard to
     // determine whether to keep downloading snapshot as the new leader
     // possibly contains the missing logs and is going to send AppendEntries. To
@@ -91,16 +91,16 @@ public:
     // let the new leader decide whether to install a new snapshot or continue 
     // appending log entries.
     //
-    // NOTE: we can't interrupt the snapshot insalling which has finsihed
-    // downloading and is reseting the State Machine.
+    // NOTE: we can't interrupt the snapshot installing which has finished
+    // downloading and is resetting the State Machine.
     void interrupt_downloading_snapshot(int64_t new_term);
 
     // Return true if this is currently installing a snapshot, either
     // downloading or loading.
     bool is_installing_snapshot() const { 
-        // 1: acquire fence makes this thread sees the latest change when seeing
-        //    the lastest _loading_snapshot
-        // _downloading_snapshot is NULL when then downloading was successfully 
+        // 1: acquire fence makes this thread see the latest change when seeing
+        //    the latest _loading_snapshot
+        // _downloading_snapshot is NULL when the downloading was successfully 
         // interrupted or installing has finished
         return _downloading_snapshot.load(butil::memory_order_acquire/*1*/);
     }
@@ -157,7 +157,7 @@ friend class InstallSnapshotDone;
     LogManager* _log_manager;
     // The ownership of _downloading_snapshot is a little messy:
     // - Before we start to replace the FSM with the downloaded one. The
-    //   ownership belongs with the downloding thread
+    //   ownership belongs with the downloading thread
     // - After we push the load task to FSMCaller, the ownership belongs to the
     //   closure which is called after the Snapshot replaces FSM
     butil::atomic<DownloadingSnapshot*> _downloading_snapshot;

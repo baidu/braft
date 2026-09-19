@@ -109,14 +109,14 @@ public:
     //  success return last memory and logstorage index, empty return 0
     int64_t last_log_index(bool is_flush = false);
     
-    // Return the id the last log.
+    // Return the id of the last log.
     LogId last_log_id(bool is_flush = false);
 
     void get_configuration(int64_t index, ConfigurationEntry* conf);
 
     // Check if |current| should be updated to the latest configuration
-    // Returns true and |current| is assigned to the lastest configuration, returns
-    // false otherweise
+    // Returns true and |current| is assigned to the latest configuration, returns
+    // false otherwise
     bool check_and_set_configuration(ConfigurationEntry* current);
 
     // Wait until there are more logs since |last_log_index| and |on_new_log| 
@@ -132,7 +132,7 @@ public:
     
     
     // Set the applied id, indicating that the log before applied_id (inclded)
-    // can be droped from memory logs
+    // can be dropped from memory logs
     void set_applied_id(const LogId& applied_id);
 
     // Check the consistency between log and snapshot, which must satisfy ANY
@@ -221,8 +221,8 @@ friend class AppendBatcher;
     // the virtual first log, for finding next_index of replicator, which 
     // can avoid install_snapshot too often in extreme case where a follower's
     // install_snapshot is slower than leader's save_snapshot
-    // [NOTICE] there should not be hole between this log_id and _last_snapshot_id,
-    // or may cause some unexpect cases
+    // [NOTICE] there should not be a hole between this log_id and _last_snapshot_id,
+    // or may cause some unexpected cases
     LogId _virtual_first_log_id;
 
     bthread::ExecutionQueueId<StableClosure*> _disk_queue;
