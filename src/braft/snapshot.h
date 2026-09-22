@@ -168,6 +168,7 @@ private:
     bool _cancelled;
     bool _filter_before_copy_remote;
     bool _copy_file = true;
+    bool _owns_writer = true;
     FileSystemAdaptor* _fs;
     SnapshotThrottle* _throttle;
     LocalSnapshotWriter* _writer;
@@ -196,6 +197,8 @@ public:
     virtual int close(SnapshotReader* reader);
     virtual SnapshotReader* copy_from(const std::string& uri) WARN_UNUSED_RESULT;
     virtual SnapshotCopier* start_to_copy_from(const std::string& uri);
+    virtual SnapshotCopier* start_to_copy_from(const std::string& uri,
+                                               SnapshotWriter* writer);
     virtual int close(SnapshotCopier* copier);
     virtual int set_filter_before_copy_remote();
     virtual int set_file_system_adaptor(FileSystemAdaptor* fs);
@@ -207,6 +210,7 @@ public:
     void set_server_addr(butil::EndPoint server_addr) { _addr = server_addr; }
     bool has_server_addr() { return _addr != butil::EndPoint(); }
     void set_copy_file(bool copy_file) { _copy_file = copy_file; }
+    virtual int64_t last_snapshot_index() { return _last_snapshot_index; }
 private:
     SnapshotWriter* create(bool from_empty) WARN_UNUSED_RESULT;
     int destroy_snapshot(const std::string& path);

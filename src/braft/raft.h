@@ -92,6 +92,8 @@ inline const char* errortype2str(ErrorType t) {
         return "SnapshotError";
     case ERROR_TYPE_STATE_MACHINE:
         return "StateMachineError";
+    case ERROR_TYPE_LEARNER:
+        return "LearnerError";
     }
     return "Unknown";
 }
@@ -228,6 +230,17 @@ public:
     // Default: Load nothing and returns error.
     virtual int on_snapshot_load(::braft::SnapshotReader* reader);
 
+    // user defined function to load a snapshot fetched from other peers (used
+    // by a learner). The learner does not run the state machine, so by default
+    // this method reports an error unless the user implements it.
+    // success return 0, fail return errno
+    virtual int on_snapshot_fetched(::braft::SnapshotReader* reader);
+
+    // Invoked when the learner is reset (e.g. by set_read_barrier). The user
+    // should clear the state machine so that it can be rebuilt from the
+    // fetched snapshot/logs. Default: Do nothing.
+    virtual void on_reset();
+
     // Invoked when the belonging node becomes the leader of the group at |term|
     // Default: Do nothing
     virtual void on_leader_start(int64_t term);
@@ -273,15 +286,16 @@ enum State {
     STATE_TRANSFERRING = 2,
     STATE_CANDIDATE = 3,
     STATE_FOLLOWER = 4,
-    STATE_ERROR = 5,
-    STATE_UNINITIALIZED = 6,
-    STATE_SHUTTING = 7,
-    STATE_SHUTDOWN = 8,
+    STATE_LEARNER = 5,
+    STATE_ERROR = 6,
+    STATE_UNINITIALIZED = 7,
+    STATE_SHUTTING = 8,
+    STATE_SHUTDOWN = 9,
     STATE_END,
 };
 
 inline const char* state2str(State state) {
-    const char* str[] = {"LEADER", "TRANSFERRING", "CANDIDATE", "FOLLOWER", 
+    const char* str[] = {"LEADER", "TRANSFERRING", "CANDIDATE", "FOLLOWER", "LEARNER",
                          "ERROR", "UNINITIALIZED", "SHUTTING", "SHUTDOWN", };
     if (state < STATE_END) {
         return str[(int)state - 1];
@@ -380,7 +394,7 @@ struct NodeStatus {
     NodeStatus()
         : state(STATE_END), readonly(false), term(0), committed_index(0), known_applied_index(0)
         , pending_index(0), pending_queue_size(0), applying_index(0), first_index(0)
-        , last_index(-1), disk_index(0)
+        , last_index(-1), disk_index(0), last_snapshot_index(0)
     {}
 
     State state;
@@ -422,6 +436,9 @@ struct NodeStatus {
 
     // The max log in disk.
     int64_t disk_index;
+
+    // The last snapshot index of the node.
+    int64_t last_snapshot_index;
 
     // Stable followers are peers in current configuration.
     // If the node is not leader, this map is empty.
@@ -605,6 +622,21 @@ struct NodeOptions {
     bool witness = false;
     // Construct a default instance
     NodeOptions();
+
+    // Interval between two fetch-log attempts of a learner, in milliseconds.
+    // Default: 5
+    int fetch_log_interval_ms = 5;
+
+    // Timeout of fetching logs/snapshot from remote peers for a learner, in
+    // seconds.
+    // Default: 60
+    int fetch_log_timeout_s = 60;
+
+    // If true, a learner automatically loads and applies the committed logs to
+    // its state machine. If false, the learner only replicates logs without
+    // running the state machine until resume() is called.
+    // Default: true
+    bool learner_auto_load_applied_logs = true;
 
     int get_catchup_timeout_ms();
 };
@@ -833,7 +865,57 @@ struct BootstrapOptions {
 
 };
 
-// Bootstrap a non-empty raft node, 
+class LearnerImpl;
+// A Learner replicates logs and snapshots from a raft group but does not
+// participate in leader election or voting. It's used for read-only replicas,
+// cross-datacenter synchronization, backup, etc.
+class Learner {
+public:
+    Learner(const GroupId& group_id, const PeerId& peer_id);
+    virtual ~Learner();
+
+    // get node id
+    NodeId node_id();
+
+    // init learner
+    int init(const NodeOptions& options);
+
+    // shutdown local replica.
+    // done is user defined function, maybe response to client or clean some resource
+    // [NOTE] code after apply can't access resource in done
+    void shutdown(Closure* done);
+
+    // Block the thread until the learner is successfully stopped.
+    void join();
+
+    // user trigger snapshot
+    // done is user defined function, maybe response to client
+    // User can choose to save local snapshot or fetch remote snapshot
+    // in on_snapshot_save fsm function.
+    void snapshot(Closure* done);
+
+    // user set read barrier index.
+    // Learner stops applying tasks when exceeds barrier index.
+    butil::Status set_read_barrier(const int64_t index);
+
+    // user trigger resume.
+    // done is user defined function, maybe handle some errors.
+    // Load snapshot and continue apply entries.
+    void resume(Closure* done);
+
+    // user trigger reset.
+    // done is user defined function, maybe handle some errors.
+    // Stop apply entries, and reset the state machine.
+    void reset(Closure* done);
+
+    // Get the internal status of this learner, the information is mostly the
+    // same as we see from the website.
+    void get_status(NodeStatus* status);
+private:
+    LearnerImpl* _impl;
+};
+
+// Bootstrap a non-empty raft node,
 int bootstrap(const BootstrapOptions& options);
 
 // Attach raft services to |server|, this makes the raft services share the same

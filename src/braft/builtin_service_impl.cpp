@@ -24,6 +24,7 @@
 #include "braft/node.h"
 #include "braft/replicator.h"
 #include "braft/node_manager.h"
+#include "braft/learner.h"
 
 namespace braft {
 
@@ -41,10 +42,13 @@ void RaftStatImpl::default_method(::google::protobuf::RpcController* controller,
     brpc::Controller* cntl = (brpc::Controller*)controller;
     std::string group_id = cntl->http_request().unresolved_path();
     std::vector<scoped_refptr<NodeImpl> > nodes;
+    std::vector<scoped_refptr<LearnerImpl> > learner_nodes;
     if (group_id.empty()) {
         global_node_manager->get_all_nodes(&nodes);
+        global_node_manager->get_all_learner_nodes(&learner_nodes);
     } else {
         global_node_manager->get_nodes_by_group_id(group_id, &nodes);
+        global_node_manager->get_learners_by_group_id(group_id, &learner_nodes);
     }
     const bool html = brpc::UseHTML(cntl->http_request());
     if (html) {
@@ -59,7 +63,7 @@ void RaftStatImpl::default_method(::google::protobuf::RpcController* controller,
            << brpc::TabsHead() << "</head><body>";
         cntl->server()->PrintTabsBody(os, "raft");
     }
-    if (nodes.empty()) {
+    if (nodes.empty() && learner_nodes.empty()) {
         if (html) {
             os << "</body></html>";
         }
@@ -81,6 +85,20 @@ void RaftStatImpl::default_method(::google::protobuf::RpcController* controller,
             prev_group_id = group_id;
         }
         nodes[i]->describe(os, html);
+        os << newline;
+    }
+    for (size_t i = 0; i < learner_nodes.size(); ++i) {
+        const NodeId node_id = learner_nodes[i]->node_id();
+        group_id = node_id.group_id;
+        if (group_id != prev_group_id) {
+            if (html) {
+                os << "<h1>" << group_id << "</h1>";
+            } else {
+                os << "[" << group_id << "]" << newline;
+            }
+            prev_group_id = group_id;
+        }
+        learner_nodes[i]->describe(os, html);
         os << newline;
     }
     if (html) {

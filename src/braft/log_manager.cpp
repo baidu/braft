@@ -700,6 +700,123 @@ LogEntry* LogManager::get_entry_from_memory(const int64_t index) {
     return entry;
 }
 
+int LogManager::get_entries_from_memory(const int64_t& first_index, const int& num,
+                                        std::deque<LogEntry *> *log_entries) {
+    CHECK(log_entries);
+    if (_logs_in_memory.empty()) {
+        return 0;
+    }
+    int64_t first_mem_index = _logs_in_memory.front()->id.index;
+    int64_t last_mem_index = _logs_in_memory.back()->id.index;
+    CHECK_EQ(last_mem_index - first_mem_index + 1, static_cast<int64_t>(_logs_in_memory.size()));
+
+    int64_t start_index = std::max(first_mem_index, first_index);
+    int64_t end_index = std::min(last_mem_index, first_index + num - 1);
+    if (start_index > end_index) {
+        return 0;
+    }
+
+    int64_t start_pos = start_index - first_mem_index;
+    int count = 0;
+    for (std::deque<LogEntry*>::iterator it = _logs_in_memory.begin() + start_pos;
+            it != _logs_in_memory.end() && count <= end_index - start_index; ++it) {
+        LogEntry* entry = *it;
+        entry->AddRef();
+        log_entries->push_back(entry);
+        ++count;
+    }
+
+    return count;
+}
+
+int LogManager::get_entries(const int64_t& first_index, const int& num, const size_t& max_size,
+                            std::vector<LogEntry* >* entries) {
+    std::unique_lock<raft_mutex_t> lck(_mutex);
+
+    // out of range, direct return NULL
+    if (first_index > _last_log_index || first_index < _first_log_index) {
+        BRAFT_VLOG << "Node " << _fsm_caller->node_id()
+            << " fail to get_entries, index " << first_index
+            << " out of range [" << _first_log_index << ", " << _last_log_index << "]";
+        return 0;
+    }
+
+    int64_t last_index = std::min(first_index + num - 1, _last_log_index);
+
+    std::deque<LogEntry*> mem_entries;
+    int ret_size = get_entries_from_memory(first_index, num, &mem_entries);
+    lck.unlock();
+
+    int rc = 0;
+    size_t entries_length = 0;
+    int64_t first_mem_index = ret_size > 0 ? mem_entries[0]->id.index : first_index;
+    for (int64_t index = first_index; index < first_mem_index; ++index) {
+        if (entries_length >= max_size) {
+            break;
+        }
+        g_read_entry_from_storage << 1;
+        LogEntry* entry = _log_storage->get_entry(index);
+        if (!entry) {
+            LOG(ERROR) << "Node " << _fsm_caller->node_id()
+                << " corrupted entry at index=" << index
+                << ", first_index=" << first_index
+                << ", last_index=" << last_index;
+            rc = -1;
+            break;
+        }
+        entries->push_back(entry);
+        entries_length += entry->data.length();
+    }
+
+    while (!mem_entries.empty()) {
+        if (rc != 0 || entries_length >= max_size) {
+            break;
+        }
+        LogEntry* entry = mem_entries.front();
+        entries->push_back(entry);
+        entries_length += entry->data.length();
+
+        mem_entries.pop_front();
+    }
+
+    for (int64_t index = first_mem_index + ret_size; index <= last_index; ++index) {
+        if (rc != 0 || entries_length >= max_size) {
+            break;
+        }
+        g_read_entry_from_storage << 1;
+        LogEntry* entry = _log_storage->get_entry(index);
+        if (!entry) {
+            LOG(ERROR) << "Node " << _fsm_caller->node_id()
+                << " corrupted entry at index=" << index
+                << ", first_index=" << first_index
+                << ", last_index=" << last_index;
+            rc = -1;
+            break;
+        }
+        entries->push_back(entry);
+        entries_length += entry->data.length();
+    }
+
+    while (!mem_entries.empty()) {
+        LogEntry* entry = mem_entries.front();
+        entry->Release();
+        mem_entries.pop_front();
+    }
+    if (rc != 0) {
+        for (size_t i = 0; i < entries->size(); ++i) {
+            (*entries)[i]->Release();
+        }
+        entries->clear();
+    } else {
+        rc = entries->size();
+    }
+    BRAFT_VLOG << "Node " << _fsm_caller->node_id()
+        << "get_entries, index:" << first_index  << ", num:" << num
+        << ", range [" << _first_log_index << ", " << _last_log_index << "]";
+
+    return rc;
+}
+
 int64_t LogManager::unsafe_get_term(const int64_t index) {
     if (index == 0) {
         return 0;
@@ -818,6 +935,19 @@ void LogManager::set_applied_id(const LogId& applied_id) {
     LogId clear_id = std::min(_disk_id, _applied_id);
     lck.unlock();
     return clear_memory_logs(clear_id);
+}
+
+void LogManager::reset_applied_id() {
+    std::unique_lock<raft_mutex_t> lck(_mutex);  // Race with set_disk_id
+    LogId clear_id = std::min(_disk_id, _applied_id);
+    _applied_id = LogId(0, 0);
+    lck.unlock();
+    return clear_memory_logs(clear_id);
+}
+
+void LogManager::clear_logs(LogId* id) {
+    LogId clear_id = std::min(_disk_id, *id);
+    clear_memory_logs(clear_id);
 }
 
 void LogManager::shutdown() {
@@ -961,6 +1091,29 @@ butil::Status LogManager::check_consistency() {
         return butil::Status(EIO, "There's a gap between snapshot={%" PRId64 ", %" PRId64 "}"
                                  " and log=[%" PRId64 ", %" PRId64 "] ",
                             _last_snapshot_id.index, _last_snapshot_id.term,
+                            _first_log_index, _last_log_index);
+    }
+    CHECK(false) << "Can't reach here";
+    return butil::Status(-1, "Impossible condition");
+}
+
+butil::Status LogManager::check_snapshot_consistency(const LogId& last_snapshot_id) {
+    BAIDU_SCOPED_LOCK(_mutex);
+    CHECK_GT(_first_log_index, 0);
+    CHECK_GE(_last_log_index, 0);
+    if (last_snapshot_id == LogId(0, 0)) {
+        if (_first_log_index == 1) {
+            return butil::Status::OK();
+        }
+        return butil::Status(EIO, "Missing logs in (0, %" PRId64 ")", _first_log_index);
+    } else {
+        if (last_snapshot_id.index >= _first_log_index - 1
+                && last_snapshot_id.index <= _last_log_index) {
+            return butil::Status::OK();
+        }
+        return butil::Status(EIO, "There's a gap between snapshot={%" PRId64 ", %" PRId64 "}"
+                                 " and log=[%" PRId64 ", %" PRId64 "] ",
+                            last_snapshot_id.index, last_snapshot_id.term,
                             _first_log_index, _last_log_index);
     }
     CHECK(false) << "Can't reach here";

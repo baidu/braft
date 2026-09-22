@@ -24,6 +24,7 @@
 #include "braft/snapshot.h"
 #include "braft/storage.h"
 #include "braft/raft.pb.h"
+#include "braft/snapshot_service.pb.h"
 #include "braft/fsm_caller.h"
 #include "braft/log_manager.h"
 
@@ -47,6 +48,28 @@ struct SnapshotExecutorOptions {
     bool copy_file = true;
     scoped_refptr<FileSystemAdaptor> file_system_adaptor;
     scoped_refptr<SnapshotThrottle> snapshot_throttle;
+
+    bool learner_auto_load_applied_logs = true;
+};
+
+class SnapshotExecutor;
+struct SnapshotFetcherCtx {
+    bthread_t tid;
+    bthread_id_t resource_id;
+    int64_t max_index;
+    GroupId group_id;
+    PeerId peer_id;
+    SnapshotExecutor* se;
+    SnapshotWriter* writer;
+    Closure* done;
+
+    SnapshotFetcherCtx()
+        : tid(INVALID_BTHREAD)
+        , resource_id(INVALID_BTHREAD_ID)
+        , max_index(INT64_MAX)
+        , se(NULL)
+        , writer(NULL)
+        , done(NULL) {}
 };
 
 // Executing Snapshot related stuff
@@ -81,6 +104,19 @@ public:
                           InstallSnapshotResponse* response,
                           google::protobuf::Closure* done);
 
+    // Fetch snapshot from remote node and restore.
+    // Return 0 if fetch and restore successful.
+    int fetch_snapshot(const GroupId& group_id, const PeerId& peer_id,
+                       const int64_t max_snapshot_index);
+    void fetch_snapshot(const GroupId& group_id, const PeerId& peer_id,
+                        const int64_t max_snapshot_index,
+                        SnapshotWriter* writer, Closure* done);
+    void cancel_fetch_snapshot(const bool is_wait);
+
+    void handle_tail_snapshot(brpc::Controller* cntl,
+                              const TailSnapshotRequest* request,
+                              TailSnapshotResponse* response);
+
     // Interrupt the downloading if possible.
     // This is called when the term of node increased to |new_term|, which
     // happens when receiving RPC from new peer. In this case, it's hard to
@@ -108,6 +144,11 @@ public:
     // Return the backing snapshot storage
     SnapshotStorage* snapshot_storage() { return _snapshot_storage; }
 
+    int64_t last_snapshot_index() {
+        std::unique_lock<raft_mutex_t> lck(_mutex);
+        return _last_snapshot_index;
+    }
+
     void describe(std::ostream& os, bool use_html);
 
     // Shutdown the SnapshotExecutor and all the following jobs would be refused
@@ -117,15 +158,28 @@ public:
     // failure)
     void join();
 
+    int load_snapshot(int64_t commited_index, Closure* done);
+    void check_consistency();
+    butil::Status check_snapshot_consistency();
+
 private:
 friend class SaveSnapshotDone;
 friend class FirstSnapshotLoadDone;
+friend class SnapshotLoadDone;
 friend class InstallSnapshotDone;
+friend class FetchSnapshotDone;
+
+    static void unlock_snapshot_fetcher_id(bthread_id_t context_id);
+    int fetch_snapshot(const GroupId& group_id, const PeerId& peer_id,
+                       const int64_t snapshot_index,
+                       const bthread_id_t& context_id,
+                       bool load_snapshot);
 
     void on_snapshot_load_done(const butil::Status& st);
     int on_snapshot_save_done(const butil::Status& st,
-                              const SnapshotMeta& meta, 
+                              const SnapshotMeta& meta,
                               SnapshotWriter* writer);
+    void on_load_fetched_snapshot_done(const butil::Status& st);
 
     struct DownloadingSnapshot {
         const InstallSnapshotRequest* request;
@@ -140,7 +194,16 @@ friend class InstallSnapshotDone;
             SnapshotMeta* meta);
     void load_downloading_snapshot(DownloadingSnapshot* ds,
                                   const SnapshotMeta& meta);
+    int load_fetched_snapshot(const std::string& uri, bool load_snapshot);
+    int start_reader_expire_timer();
+    int reset_reader_expire_timer();
+    void destroy_fetch_snapshot_reader();
+    void unsafe_destroy_fetch_snapshot_reader();
+    static void* run_snapshot_fetcher(void* arg);
+    static void on_snapshot_reader_expired(void* arg);
     void report_error(int error_code, const char* fmt, ...);
+    static bool destroy_snapshot_fetcher_id(const bthread_id_t& id);
+    bool reset_snapshot_fetcher_id(const bthread_id_t& id);
 
     raft_mutex_t _mutex;
     int64_t _last_snapshot_term;
@@ -164,6 +227,9 @@ friend class InstallSnapshotDone;
     SnapshotMeta _loading_snapshot_meta;
     bthread::CountdownEvent _running_jobs;
     scoped_refptr<SnapshotThrottle> _snapshot_throttle;
+    SnapshotReader* _fetch_snapshot_reader;
+    bthread_timer_t _reader_expire_timer;
+    bthread_id_t _snapshot_fetcher_id;
 };
 
 inline SnapshotExecutorOptions::SnapshotExecutorOptions() 

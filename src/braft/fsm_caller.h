@@ -81,6 +81,7 @@ struct FSMCallerOptions {
         , node(NULL)
         , usercode_in_pthread(false)
         , bootstrap_id()
+        , state_machine_running(true)
     {}
     LogManager *log_manager;
     StateMachine *fsm;
@@ -89,6 +90,7 @@ struct FSMCallerOptions {
     NodeImpl* node;
     bool usercode_in_pthread;
     LogId bootstrap_id;
+    bool state_machine_running;
 };
 
 class SaveSnapshotClosure : public Closure {
@@ -103,6 +105,17 @@ public:
     virtual SnapshotReader* start() = 0;
 };
 
+class FetchSnapshotClosure : public LoadSnapshotClosure {
+public:
+    FetchSnapshotClosure(bool load_snapshot) : _load_snapshot(load_snapshot) {}
+    virtual ~FetchSnapshotClosure() {}
+    bool load_snapshot() {
+        return _load_snapshot;
+    }
+private:
+    bool _load_snapshot;
+};
+
 class BAIDU_CACHELINE_ALIGNMENT FSMCaller {
 public:
     FSMCaller();
@@ -110,6 +123,7 @@ public:
     int init(const FSMCallerOptions& options);
     int shutdown();
     BRAFT_MOCK int on_committed(int64_t committed_index);
+    BRAFT_MOCK int on_snapshot_fetched(FetchSnapshotClosure* done);
     BRAFT_MOCK int on_snapshot_load(LoadSnapshotClosure* done);
     BRAFT_MOCK int on_snapshot_save(SaveSnapshotClosure* done);
     int on_leader_stop(const butil::Status& status);
@@ -123,6 +137,14 @@ public:
     int64_t applying_index() const;
     void describe(std::ostream& os, bool use_html);
     void join();
+
+    BRAFT_MOCK int on_reset(Closure* done);
+    void do_reset(Closure* done);
+    void set_state_machine_running(int64_t commited_index);
+
+    const NodeId& node_id() {
+        return _node_id;
+    }
 private:
 
 friend class IteratorImpl;
@@ -132,10 +154,13 @@ friend class IteratorImpl;
         COMMITTED,
         SNAPSHOT_SAVE,
         SNAPSHOT_LOAD,
+        SNAPSHOT_FETCHED,
         LEADER_STOP,
         LEADER_START,
         START_FOLLOWING,
         STOP_FOLLOWING,
+        RESET,
+        RESUME,
         ERROR,
     };
 
@@ -175,6 +200,7 @@ friend class IteratorImpl;
     void do_cleared(int64_t log_index, Closure* done, int error_code);
     void do_snapshot_save(SaveSnapshotClosure* done);
     void do_snapshot_load(LoadSnapshotClosure* done);
+    void do_snapshot_fetched(LoadSnapshotClosure* done);
     void do_on_error(OnErrorClousre* done);
     void do_leader_stop(const butil::Status& status);
     void do_leader_start(const LeaderStartContext& leader_start_context);
@@ -191,10 +217,12 @@ friend class IteratorImpl;
     int64_t _last_applied_term;
     google::protobuf::Closure* _after_shutdown;
     NodeImpl* _node;
+    NodeId _node_id;
     TaskType _cur_task;
     butil::atomic<int64_t> _applying_index;
     Error _error;
     bool _queue_started;
+    bool _state_machine_running;
 };
 
 };

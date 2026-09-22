@@ -590,6 +590,28 @@ SnapshotCopier* LocalSnapshotStorage::start_to_copy_from(const std::string& uri)
     return copier;
 }
 
+SnapshotCopier* LocalSnapshotStorage::start_to_copy_from(const std::string& uri,
+                                                         SnapshotWriter* writer) {
+    LocalSnapshotCopier* copier = new LocalSnapshotCopier(_copy_file);
+    copier->_storage = this;
+    copier->_filter_before_copy_remote = _filter_before_copy_remote;
+    copier->_fs = _fs.get();
+    copier->_throttle = _snapshot_throttle.get();
+    if (writer) {
+        copier->_writer = static_cast<LocalSnapshotWriter*>(writer);
+        copier->_owns_writer = false;
+        copier->_filter_before_copy_remote = false;
+    }
+    if (copier->init(uri) != 0) {
+        LOG(ERROR) << "Fail to init copier from " << uri
+                   << " path: " << _path;
+        delete copier;
+        return NULL;
+    }
+    copier->start();
+    return copier;
+}
+
 int LocalSnapshotStorage::close(SnapshotCopier* copier) {
     delete copier;
     return 0;
@@ -745,6 +767,7 @@ LocalSnapshotCopier::LocalSnapshotCopier(bool copy_file):
     , _cancelled(false)
     , _filter_before_copy_remote(false)
     , _copy_file(copy_file)
+    , _owns_writer(true)
     , _fs(NULL)
     , _throttle(NULL)
     , _writer(NULL)
@@ -788,14 +811,14 @@ void LocalSnapshotCopier::copy() {
         _writer->set_error(error_code(), error_cstr());
     }
     if (_writer) {
-        // set_error for copier only when failed to close writer and copier was 
-        // ok before this moment 
-        if (_storage->close(_writer, _filter_before_copy_remote) != 0 && ok()) {
+        // set_error for copier only when failed to close writer and copier was
+        // ok before this moment
+        if (_owns_writer && _storage->close(_writer, _filter_before_copy_remote) != 0 && ok()) {
             set_error(EIO, "Fail to close writer");
         }
         _writer = NULL;
     }
-    if (ok()) {
+    if (_owns_writer && ok()) {
         _reader = _storage->open();
     }
 }
@@ -918,13 +941,15 @@ int LocalSnapshotCopier::filter_before_copy(LocalSnapshotWriter* writer,
 }
 
 void LocalSnapshotCopier::filter() {
-    _writer = (LocalSnapshotWriter*)_storage->create(!_filter_before_copy_remote);
+    if (!_writer) {
+        _writer = (LocalSnapshotWriter*)_storage->create(!_filter_before_copy_remote);
+    }
     if (_writer == NULL) {
         set_error(EIO, "Fail to create snapshot writer");
         return;
     }
 
-    if (_filter_before_copy_remote) {
+    if (_filter_before_copy_remote && _owns_writer) {
         SnapshotReader* reader = _storage->open();
         if (filter_before_copy(_writer, reader) != 0) {
             LOG(WARNING) << "Fail to filter writer before copying"

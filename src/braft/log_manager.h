@@ -94,6 +94,14 @@ public:
     //  success return ptr, fail return null
     LogEntry* get_entry(const int64_t index);
 
+    // Get at most |num| log entries starting from |first_index|, stopping early
+    // when accumulated data size reaches |max_size|. Used by learner to read
+    // committed logs in batch.
+    // Returns:
+    //  the number of fetched entries on success (>=0), -1 on error
+    int get_entries(const int64_t& first_index, const int& num, const size_t& max_size,
+                    std::vector<LogEntry*>* entries);
+
     // Get the log term at |index|
     // Returns:
     //  success return term > 0, fail return 0
@@ -144,10 +152,21 @@ public:
     // Returns butil::Status::OK if valid, a specific error otherwise
     butil::Status check_consistency();
 
+    // Check the consistency between the given snapshot and the log, used by
+    // learner to verify a fetched snapshot before loading it.
+    butil::Status check_snapshot_consistency(const LogId& last_snapshot_id);
+
     void describe(std::ostream& os, bool use_html);
 
     // Get the internal status of LogManager.
     void get_status(LogManagerStatus* status);
+
+    // Reset the applied id to (0, 0), used by learner reset.
+    void reset_applied_id();
+
+    // Clear memory logs before |logid| (inclusive), used by learner which
+    // does not run the state machine.
+    void clear_logs(LogId* logid);
 
 private:
 friend class AppendBatcher;
@@ -176,6 +195,9 @@ friend class AppendBatcher;
     void set_disk_id(const LogId& disk_id);
 
     LogEntry* get_entry_from_memory(const int64_t index);
+
+    int get_entries_from_memory(const int64_t& first_index, const int& num,
+                                std::deque<LogEntry*>* log_entries);
 
     WaitId notify_on_new_log(int64_t expected_last_log_index, WaitMeta* wm);
 

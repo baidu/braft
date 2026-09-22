@@ -50,6 +50,16 @@ public:
                      const ::braft::TimeoutNowRequest* request,
                      ::braft::TimeoutNowResponse* response,
                      ::google::protobuf::Closure* done);
+
+    void explore(google::protobuf::RpcController* controller,
+                 const ExploreRequest* request,
+                 ExploreResponse* response,
+                 google::protobuf::Closure* done);
+
+    void read_committed_logs(google::protobuf::RpcController* controller,
+                             const ReadCommittedLogsRequest* request,
+                             ReadCommittedLogsResponse* response,
+                             google::protobuf::Closure* done);
 private:
     butil::EndPoint _addr;
 };

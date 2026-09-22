@@ -315,8 +315,14 @@ public:
 
     virtual int set_snapshot_throttle(SnapshotThrottle* st) {
         (void)st;
-        CHECK(false) << butil::class_name_str(*this) 
+        CHECK(false) << butil::class_name_str(*this)
                      << " doesn't support snapshot throttle";
+        return -1;
+    }
+
+    virtual int64_t last_snapshot_index() {
+        CHECK(false) << butil::class_name_str(*this)
+                     << " doesn't support last snapshot index";
         return -1;
     }
 
@@ -338,6 +344,15 @@ public:
     // Copy snapshot from uri and open it as a SnapshotReader
     virtual SnapshotReader* copy_from(const std::string& uri) WARN_UNUSED_RESULT = 0;
     virtual SnapshotCopier* start_to_copy_from(const std::string& uri) = 0;
+    // Copy snapshot from uri into the given |writer| (used by learner to fetch
+    // snapshot into a pre-created writer). Default implementation is not
+    // supported.
+    virtual SnapshotCopier* start_to_copy_from(const std::string& uri,
+                                               SnapshotWriter* writer) {
+        CHECK(false) << butil::class_name_str(*this)
+                     << " doesn't support start_to_copy_from with writer";
+        return NULL;
+    }
     virtual int close(SnapshotCopier* copier) = 0;
 
     // Create an instance of this kind of SnapshotStorage with the parameters encoded 
