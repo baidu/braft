@@ -46,9 +46,11 @@ FSMCaller::FSMCaller()
     , _last_applied_term(0)
     , _after_shutdown(NULL)
     , _node(NULL)
+    , _node_id("", PeerId())
     , _cur_task(IDLE)
     , _applying_index(0)
     , _queue_started(false)
+    , _state_machine_running(true)
 {
 }
 
@@ -101,6 +103,18 @@ int FSMCaller::run(void* meta, bthread::TaskIterator<ApplyTask>& iter) {
                     caller->do_snapshot_load((LoadSnapshotClosure*)iter->done);
                 }
                 break;
+            case SNAPSHOT_FETCHED: {
+                bool load_snapshot = ((FetchSnapshotClosure*)iter->done)->load_snapshot();
+                if (load_snapshot && caller->_state_machine_running) {
+                    caller->on_snapshot_load((LoadSnapshotClosure*)iter->done);
+                    break;
+                }
+                caller->_cur_task = SNAPSHOT_FETCHED;
+                if (caller->pass_by_status(iter->done)) {
+                    caller->do_snapshot_fetched((LoadSnapshotClosure*)iter->done);
+                }
+                break;
+            }
             case LEADER_STOP:
                 caller->_cur_task = LEADER_STOP;
                 caller->do_leader_stop(*(iter->status));
@@ -119,6 +133,14 @@ int FSMCaller::run(void* meta, bthread::TaskIterator<ApplyTask>& iter) {
                 caller->_cur_task = STOP_FOLLOWING;
                 caller->do_stop_following(*(iter->leader_change_context));
                 delete iter->leader_change_context;
+                break;
+            case RESET:
+                caller->_cur_task = RESET;
+                caller->do_reset(iter->done);
+                break;
+            case RESUME:
+                caller->_state_machine_running = true;
+                caller->on_committed(iter->committed_index);
                 break;
             case ERROR:
                 caller->_cur_task = ERROR;
@@ -154,6 +176,13 @@ bool FSMCaller::pass_by_status(Closure* done) {
     return true;
 }
 
+void FSMCaller::set_state_machine_running(int64_t committed_index) {
+    ApplyTask t;
+    t.type = RESUME;
+    t.committed_index = committed_index;
+    bthread::execution_queue_execute(_queue_id, t);
+}
+
 int FSMCaller::init(const FSMCallerOptions &options) {
     if (options.log_manager == NULL || options.fsm == NULL 
             || options.closure_queue == NULL) {
@@ -167,8 +196,10 @@ int FSMCaller::init(const FSMCallerOptions &options) {
     _last_applied_index.store(options.bootstrap_id.index,
                               butil::memory_order_relaxed);
     _last_applied_term = options.bootstrap_id.term;
+    _state_machine_running = options.state_machine_running;
     if (_node) {
         _node->AddRef();
+        _node_id = _node->node_id();
     }
     
     bthread::ExecutionQueueOptions execq_opt;
@@ -264,6 +295,14 @@ void FSMCaller::do_committed(int64_t committed_index) {
     if (!_error.status().ok()) {
         return;
     }
+
+    if (!_state_machine_running) {
+        int64_t committed_term = _log_manager->get_term(committed_index);
+        LogId committed_id(committed_index, committed_term);
+        _log_manager->clear_logs(&committed_id);
+        return;
+    }
+
     int64_t last_applied_index = _last_applied_index.load(
                                         butil::memory_order_relaxed);
 
@@ -300,7 +339,7 @@ void FSMCaller::do_committed(int64_t committed_index) {
         Iterator iter(&iter_impl);
         _fsm->on_apply(iter);
         LOG_IF(ERROR, iter.valid())
-                << "Node " << _node->node_id() 
+                << "Node " << _node_id
                 << " Iterator is still valid, did you return before iterator "
                    " reached the end?";
         // Try move to next in case that we pass the same log twice.
@@ -327,6 +366,12 @@ int FSMCaller::on_snapshot_save(SaveSnapshotClosure* done) {
 
 void FSMCaller::do_snapshot_save(SaveSnapshotClosure* done) {
     CHECK(done);
+
+    if (!_state_machine_running) {
+        done->status().set_error(EINVAL, "state machine is not running");
+        done->Run();
+        return;
+    }
 
     int64_t last_applied_index = _last_applied_index.load(butil::memory_order_relaxed);
 
@@ -355,6 +400,13 @@ void FSMCaller::do_snapshot_save(SaveSnapshotClosure* done) {
 
     _fsm->on_snapshot_save(writer, done);
     return;
+}
+
+int FSMCaller::on_snapshot_fetched(FetchSnapshotClosure* done) {
+    ApplyTask task;
+    task.type = SNAPSHOT_FETCHED;
+    task.done = done;
+    return bthread::execution_queue_execute(_queue_id, task);
 }
 
 int FSMCaller::on_snapshot_load(LoadSnapshotClosure* done) {
@@ -425,6 +477,33 @@ void FSMCaller::do_snapshot_load(LoadSnapshotClosure* done) {
     _last_applied_index.store(meta.last_included_index(),
                               butil::memory_order_release);
     _last_applied_term = meta.last_included_term();
+    done->Run();
+}
+
+void FSMCaller::do_snapshot_fetched(LoadSnapshotClosure* done) {
+    //TODO done_guard
+    SnapshotReader* reader = done->start();
+    if (!reader) {
+        done->status().set_error(EINVAL, "open SnapshotReader failed");
+        done->Run();
+        return;
+    }
+
+    SnapshotMeta meta;
+    int ret = reader->load_meta(&meta);
+    if (0 != ret) {
+        done->status().set_error(ret, "SnapshotReader load_meta failed.");
+        done->Run();
+        return;
+    }
+
+    ret = _fsm->on_snapshot_fetched(reader);
+    if (ret != 0) {
+        done->status().set_error(ret, "StateMachine on_snapshot_fetched failed");
+        done->Run();
+        return;
+    }
+
     done->Run();
 }
 
@@ -515,6 +594,9 @@ void FSMCaller::describe(std::ostream &os, bool use_html) {
     case SNAPSHOT_LOAD:
         os << "Loading snapshot";
         break;
+    case SNAPSHOT_FETCHED:
+        os << "Fetching snapshot";
+        break;
     case ERROR:
         os << "Notifying error";
         break;
@@ -529,6 +611,12 @@ void FSMCaller::describe(std::ostream &os, bool use_html) {
         break;
     case STOP_FOLLOWING:
         os << "Notifying stop following";
+        break;
+    case RESET:
+        os << "snapshot reset";
+        break;
+    case RESUME:
+        os << "snapshot resume";
         break;
     }
     os << newline;
@@ -547,6 +635,41 @@ void FSMCaller::join() {
     if (_queue_started) {
         bthread::execution_queue_join(_queue_id);
         _queue_started = false;
+    }
+}
+
+int FSMCaller::on_reset(Closure* done) {
+    ApplyTask t;
+    t.type = RESET;
+    t.done = done;
+    if (bthread::execution_queue_execute(_queue_id, t) != 0) {
+        return -1;
+    }
+    return 0;
+}
+
+void FSMCaller::do_reset(Closure* done) {
+    if (!_state_machine_running) {
+        if (done) {
+            run_closure_in_bthread(done);
+        }
+        return;
+    }
+    if (!_fsm) {
+        if (done) {
+            done->status().set_error(EINVAL, "fms is NULL");
+            run_closure_in_bthread(done);
+        }
+        return;
+    }
+    _fsm->on_reset();
+    _last_applied_index = 0;
+    _applying_index = 0;
+    _last_applied_term = 0;
+    _state_machine_running = false;
+    _log_manager->reset_applied_id();
+    if (done) {
+        run_closure_in_bthread(done);
     }
 }
 

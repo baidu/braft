@@ -30,6 +30,7 @@
 #include "braft/ballot_box.h"
 #include "braft/storage.h"
 #include "braft/raft_service.h"
+#include "braft/snapshot_service.h"
 #include "braft/fsm_caller.h"
 #include "braft/replicator.h"
 #include "braft/util.h"
@@ -177,6 +178,25 @@ public:
                                     const TimeoutNowRequest* request,
                                     TimeoutNowResponse* response,
                                     google::protobuf::Closure* done);
+
+    // handle received Explore
+    int handle_explore(const ExploreRequest* request, ExploreResponse* response);
+
+    // handle received ReadCommittedLogs
+    void handle_read_committed_logs(brpc::Controller* cntl,
+                                    const ReadCommittedLogsRequest* request,
+                                    ReadCommittedLogsResponse* response);
+
+    // handle received TailSnapshot
+    void handle_tail_snapshot(brpc::Controller* cntl,
+                              const TailSnapshotRequest* request,
+                              TailSnapshotResponse* response);
+
+    // Fetch snapshot from |peer_id| into |writer|, |done| is called when finished.
+    void fetch_snapshot(const PeerId& peer_id, const int64_t max_snapshot_index,
+                        SnapshotWriter* writer, Closure* done);
+    void cancel_fetch_snapshot();
+
     // timer func
     void handle_election_timeout();
     void handle_vote_timeout();

@@ -1,0 +1,22 @@
+syntax="proto2";
+
+import "braft/raft.proto";
+
+package braft;
+option cc_generic_services = true;
+
+message TailSnapshotRequest {
+    required string group_id = 1;
+    required string peer_id = 2;
+    optional int64 last_snapshot_index = 3;
+}
+
+message TailSnapshotResponse {
+    required bool success = 1;
+    required SnapshotMeta meta = 2;
+    required string uri = 3;
+}
+
+service SnapshotService {
+    rpc tail_snapshot(TailSnapshotRequest) returns (TailSnapshotResponse);
+};

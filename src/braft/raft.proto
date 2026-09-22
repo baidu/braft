@@ -91,6 +91,32 @@ message TimeoutNowResponse {
     required bool success = 2;
 }
 
+message ExploreRequest {
+    required string group_id = 1;
+    required string peer_id = 2;
+}
+
+message ExploreResponse {
+    required bool success = 1;
+    optional int64 last_snapshot_index = 2;
+    optional int64 last_committed_index = 3;
+    optional string server_id = 4;
+    optional string leader_id = 5;
+    optional int64 first_log_index = 6;
+}
+
+message ReadCommittedLogsRequest {
+    required string group_id = 1;
+    required string peer_id = 2;
+    required int64 first_index = 3;
+    optional int64 count = 4;
+}
+
+message ReadCommittedLogsResponse {
+    required bool success = 1;
+    repeated EntryMeta entries = 2;
+}
+
 service RaftService {
     rpc pre_vote(RequestVoteRequest) returns (RequestVoteResponse);
 
@@ -101,5 +127,9 @@ service RaftService {
     rpc install_snapshot(InstallSnapshotRequest) returns (InstallSnapshotResponse);
 
     rpc timeout_now(TimeoutNowRequest) returns (TimeoutNowResponse);
+
+    rpc explore(ExploreRequest) returns (ExploreResponse);
+
+    rpc read_committed_logs(ReadCommittedLogsRequest) returns (ReadCommittedLogsResponse);
 };
 

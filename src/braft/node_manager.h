@@ -25,6 +25,7 @@
 namespace braft {
 
 class NodeImpl;
+class LearnerImpl;
 
 class NodeManager {
 public:
@@ -34,21 +35,33 @@ public:
 
     // add raft node
     bool add(NodeImpl* node);
+    // add learner node
+    bool add(LearnerImpl* node);
 
     // remove raft node
     bool remove(NodeImpl* node);
+    // remove learner node
+    bool remove(LearnerImpl* node);
 
     // get node by group_id and peer_id
     scoped_refptr<NodeImpl> get(const GroupId& group_id, const PeerId& peer_id);
 
+    // get learner by group_id and peer_id
+    scoped_refptr<LearnerImpl> get_learner(const GroupId& group_id, const PeerId& peer_id);
+
     // get all the nodes of |group_id|
-    void get_nodes_by_group_id(const GroupId& group_id, 
+    void get_nodes_by_group_id(const GroupId& group_id,
                                std::vector<scoped_refptr<NodeImpl> >* nodes);
 
+    // get all the learner nodes of |group_id|
+    void get_learners_by_group_id(const GroupId& group_id,
+                               std::vector<scoped_refptr<LearnerImpl> >* learner_nodes);
+
     void get_all_nodes(std::vector<scoped_refptr<NodeImpl> >* nodes);
+    void get_all_learner_nodes(std::vector<scoped_refptr<LearnerImpl> >* learner_nodes);
 
     // Add service to |server| at |listen_addr|
-    int add_service(brpc::Server* server, 
+    int add_service(brpc::Server* server,
                     const butil::EndPoint& listen_addr);
 
     // Return true if |addr| is reachable by a RPC Server
@@ -62,19 +75,25 @@ private:
     ~NodeManager();
     DISALLOW_COPY_AND_ASSIGN(NodeManager);
     friend struct DefaultSingletonTraits<NodeManager>;
-    
+
     // TODO(chenzhangyi01): replace std::map with FlatMap
     // To make implementation simplicity, we use two maps here, although
     // it works practically with only one GroupMap
     typedef std::map<NodeId, scoped_refptr<NodeImpl> > NodeMap;
+    typedef std::map<NodeId, scoped_refptr<LearnerImpl> > LearnerMap;
     typedef std::multimap<GroupId, NodeImpl* > GroupMap;
+    typedef std::multimap<GroupId, LearnerImpl* > LearnerGroupMap;
     struct Maps {
         NodeMap node_map;
+        LearnerMap learner_map;
         GroupMap group_map;
+        LearnerGroupMap learner_group_map;
     };
     // Functor to modify DBD
     static size_t _add_node(Maps&, const NodeImpl* node);
     static size_t _remove_node(Maps&, const NodeImpl* node);
+    static size_t _add_learner(Maps&, const LearnerImpl* node);
+    static size_t _remove_learner(Maps&, const LearnerImpl* node);
 
     butil::DoublyBufferedData<Maps> _nodes;
 

@@ -19,13 +19,20 @@
 #include "braft/node.h"
 #include "braft/storage.h"
 #include "braft/snapshot.h"
+#include "braft/snapshot_service.pb.h"
 
 namespace braft {
 
-DEFINE_int32(raft_do_snapshot_min_index_gap, 1, 
+DEFINE_int32(raft_do_snapshot_min_index_gap, 1,
              "Will do snapshot only when actual gap between applied_index and"
              " last_snapshot_index is equal to or larger than this value");
 BRPC_VALIDATE_GFLAG(raft_do_snapshot_min_index_gap, brpc::PositiveInteger);
+DEFINE_int32(raft_tail_snapshot_req_timeout_ms, 500,
+             "Timeout of tail snapshot rpc requests");
+DEFINE_int32(raft_fetch_snapshot_reader_expire_time_s, 900,
+             "Survival time of fetch snapshot reader");
+BRPC_VALIDATE_GFLAG(raft_fetch_snapshot_reader_expire_time_s,
+                    ::brpc::PositiveInteger);
 
 class SaveSnapshotDone : public SaveSnapshotClosure {
 public:
@@ -55,6 +62,72 @@ public:
 private:
     SnapshotExecutor* _se;
     SnapshotReader* _reader;
+};
+
+class FetchSnapshotDone : public FetchSnapshotClosure {
+public:
+    FetchSnapshotDone(SnapshotExecutor* se,
+                      SnapshotReader* reader,
+                      bool load_snapshot)
+        : FetchSnapshotClosure(load_snapshot)
+        , _se(se)
+        , _reader(reader) {}
+
+    virtual ~FetchSnapshotDone() {
+        if (_reader) {
+            _se->snapshot_storage()->close(_reader);
+        }
+    }
+
+    SnapshotReader* start() { return _reader; }
+
+    virtual void Run() {
+        _se->on_load_fetched_snapshot_done(status());
+        _event.signal();
+    }
+
+    void wait_for_run() {
+        _event.wait();
+    }
+private:
+    SnapshotExecutor* _se;
+    SnapshotReader* _reader;
+    bthread::CountdownEvent _event;
+};
+
+class SnapshotLoadDone : public LoadSnapshotClosure {
+public:
+    SnapshotLoadDone(SnapshotExecutor* se,
+                     SnapshotReader* reader, FSMCaller* fsm_caller,
+                     int64_t commited_index, Closure* done)
+        : _se(se)
+        , _reader(reader)
+        , _fsm_caller(fsm_caller)
+        , _commited_index(commited_index)
+        , _done(done) {
+    }
+    ~SnapshotLoadDone() {
+    }
+
+    SnapshotReader* start() { return _reader; }
+    void Run() {
+        _se->_snapshot_storage->close(_reader);
+        _se->on_snapshot_load_done(status());
+        if (status().ok() && _fsm_caller) {
+            _fsm_caller->set_state_machine_running(_commited_index);
+        }
+        if (_done) {
+            _done->status() = status();
+            _done->Run();
+        }
+        delete this;
+    }
+private:
+    SnapshotExecutor* _se;
+    SnapshotReader* _reader;
+    FSMCaller* _fsm_caller;
+    int64_t _commited_index;
+    Closure* _done;
 };
 
 class FirstSnapshotLoadDone : public LoadSnapshotClosure {
@@ -96,6 +169,9 @@ SnapshotExecutor::SnapshotExecutor()
     , _downloading_snapshot(NULL)
     , _running_jobs(0)
     , _snapshot_throttle(NULL)
+    , _fetch_snapshot_reader(NULL)
+    , _reader_expire_timer(bthread_timer_t())
+    , _snapshot_fetcher_id(INVALID_BTHREAD_ID)
 {
 }
 
@@ -228,9 +304,13 @@ int SnapshotExecutor::on_snapshot_save_done(
     if (ret == 0) {
         _last_snapshot_index = meta.last_included_index();
         _last_snapshot_term = meta.last_included_term();
+        // A new snapshot has been saved, the cached fetch snapshot reader (if
+        // any) points to a stale snapshot. Destroy it so that subsequent
+        // tail_snapshot requests from learners serve the latest snapshot.
+        unsafe_destroy_fetch_snapshot_reader();
         lck.unlock();
         ss << "snapshot_save_done, last_included_index=" << meta.last_included_index()
-           << " last_included_term=" << meta.last_included_term(); 
+           << " last_included_term=" << meta.last_included_term();
         LOG(INFO) << ss.str();
         _log_manager->set_snapshot(&meta);
         lck.lock();
@@ -385,6 +465,13 @@ int SnapshotExecutor::init(const SnapshotExecutorOptions& options) {
         _snapshot_storage->close(reader);
         return -1;
     }
+    if (!options.learner_auto_load_applied_logs) {
+        _last_snapshot_index = _loading_snapshot_meta.last_included_index();
+        _last_snapshot_term = _loading_snapshot_meta.last_included_term();
+        _log_manager->set_snapshot(&_loading_snapshot_meta);
+        _snapshot_storage->close(reader);
+        return 0;
+    }
     _loading_snapshot = true;
     _running_jobs.add_count(1);
     // Load snapshot ater startup
@@ -397,6 +484,51 @@ int SnapshotExecutor::init(const SnapshotExecutorOptions& options) {
         return -1;
     }
     return 0;
+}
+
+int SnapshotExecutor::load_snapshot(int64_t commited_index, Closure* done) {
+    // check _snapshot_storage is not 0 before call
+    SnapshotReader* reader = _snapshot_storage->open();
+    if (reader == NULL) {
+        _fsm_caller->set_state_machine_running(commited_index);
+        if (done != NULL) {
+            done->Run();
+        }
+        return 0;
+    }
+    if (reader->load_meta(&_loading_snapshot_meta) != 0) {
+        LOG(ERROR) << "Fail to load meta";
+        _snapshot_storage->close(reader);
+        return -1;
+    }
+    _loading_snapshot = true;
+    _running_jobs.add_count(1);
+
+    SnapshotLoadDone* load_done = new SnapshotLoadDone(
+            this, reader, _fsm_caller, commited_index, done);
+    CHECK_EQ(0, _fsm_caller->on_snapshot_load(load_done));
+    return 0;
+}
+
+void SnapshotExecutor::check_consistency() {
+    butil::Status st = _log_manager->check_consistency();
+    CHECK_EQ(true, st.ok());
+}
+
+butil::Status SnapshotExecutor::check_snapshot_consistency() {
+    SnapshotReader* reader = _snapshot_storage->open();
+    if (reader == NULL) {
+        return butil::Status::OK();
+    }
+    SnapshotMeta meta;
+    if (reader->load_meta(&meta) != 0) {
+        _snapshot_storage->close(reader);
+        return butil::Status(-1, "fail to load meta");
+    }
+    butil::Status st = _log_manager->check_snapshot_consistency(
+            LogId(meta.last_included_index(), meta.last_included_term()));
+    _snapshot_storage->close(reader);
+    return st;
 }
 
 void SnapshotExecutor::install_snapshot(brpc::Controller* cntl,
@@ -503,6 +635,508 @@ void SnapshotExecutor::load_downloading_snapshot(DownloadingSnapshot* ds,
         LOG(WARNING) << "node " << _node->node_id() << " fail to call on_snapshot_load";
         install_snapshot_done->status().set_error(EHOSTDOWN, "This raft node is down");
         return install_snapshot_done->Run();
+    }
+}
+void SnapshotExecutor::unlock_snapshot_fetcher_id(bthread_id_t context_id) {
+    if (context_id != INVALID_BTHREAD_ID) {
+        bthread_id_unlock(context_id);
+    }
+}
+
+void* SnapshotExecutor::run_snapshot_fetcher(void* arg) {
+    SnapshotFetcherCtx* ctx = NULL;
+    bthread_id_t context_id = { (uint64_t)arg };
+    if (bthread_id_lock(context_id, (void**)&ctx) != 0) {
+        LOG(INFO) << "run_snapshot_fetcher error, thread id invalid";
+        return NULL;
+    }
+    GroupId group_id = ctx->group_id;
+    PeerId peer_id = ctx->peer_id;
+    Closure* done = ctx->done;
+    SnapshotExecutor* se = ctx->se;
+    unlock_snapshot_fetcher_id(context_id);
+
+    int ret = se->fetch_snapshot(group_id, peer_id, 0, context_id, false);
+    if (ret != ECANCELED && destroy_snapshot_fetcher_id(context_id)) {
+        done->status().set_error(ret, "Fail to fetch snapshot");
+        done->Run();
+    }
+    return NULL;
+}
+
+bool SnapshotExecutor::destroy_snapshot_fetcher_id(const bthread_id_t& id) {
+    SnapshotFetcherCtx* snapshot_fetcher_ctx = NULL;
+    if (bthread_id_lock(id, (void**)&snapshot_fetcher_ctx) != 0) {
+        return false;
+    }
+    SnapshotExecutor* se = snapshot_fetcher_ctx->se;
+    if (!se->reset_snapshot_fetcher_id(id)) {
+        bthread_id_unlock(id);
+        return false;
+    }
+    bthread_id_unlock_and_destroy(id);
+    delete snapshot_fetcher_ctx;
+    return true;
+}
+
+bool SnapshotExecutor::reset_snapshot_fetcher_id(const bthread_id_t& id) {
+    std::unique_lock<raft_mutex_t> lck(_mutex);
+    if (_snapshot_fetcher_id != id) {
+        return false;
+    }
+    _snapshot_fetcher_id = INVALID_BTHREAD_ID;
+    return true;
+}
+void SnapshotExecutor::fetch_snapshot(const GroupId& group_id, const PeerId& peer_id,
+                                      const int64_t max_snapshot_index,
+                                      SnapshotWriter* writer, Closure* done) {
+    brpc::ClosureGuard done_guard(done);
+    if (writer == NULL) {
+        if (done) {
+            done->status().set_error(EINVAL, "Argument invalid.");
+        }
+        return;
+    }
+
+    std::unique_lock<raft_mutex_t> lck(_mutex);
+    if (_stopped) {
+        if (done) {
+            done->status().set_error(EHOSTDOWN, "Node is stopped");
+        }
+        return;
+    }
+    if (_snapshot_fetcher_id != INVALID_BTHREAD_ID) {
+        if (done) {
+            done->status().set_error(EINVAL, "Fetching snapshot now");
+        }
+        return;
+    }
+
+    SnapshotFetcherCtx* snapshot_fetcher_ctx = new SnapshotFetcherCtx();
+    CHECK(snapshot_fetcher_ctx);
+    snapshot_fetcher_ctx->max_index = max_snapshot_index;
+    snapshot_fetcher_ctx->group_id = group_id;
+    snapshot_fetcher_ctx->peer_id = peer_id;
+    snapshot_fetcher_ctx->se = this;
+    snapshot_fetcher_ctx->writer = writer;
+    snapshot_fetcher_ctx->done = done;
+    if (bthread_id_create(&snapshot_fetcher_ctx->resource_id,
+                          snapshot_fetcher_ctx, NULL) != 0) {
+        delete snapshot_fetcher_ctx;
+        if (done) {
+            done->status().set_error(EINVAL, "Fail to create bthread_id");
+        }
+        return;
+    }
+    _snapshot_fetcher_id = snapshot_fetcher_ctx->resource_id;
+
+    if (bthread_start_background(&snapshot_fetcher_ctx->tid, NULL,
+                run_snapshot_fetcher,
+                reinterpret_cast<void*>(_snapshot_fetcher_id.value)) != 0) {
+        bthread_id_cancel(_snapshot_fetcher_id);
+        _snapshot_fetcher_id = INVALID_BTHREAD_ID;
+        delete snapshot_fetcher_ctx;
+        PLOG(ERROR) << "Fail to start bthread";
+        if (done) {
+            done->status().set_error(EINVAL, "start bthread failed");
+        }
+        return;
+    }
+    done_guard.release();
+}
+void SnapshotExecutor::cancel_fetch_snapshot(const bool is_wait) {
+    std::unique_lock<raft_mutex_t> lck(_mutex);
+    if (_snapshot_fetcher_id == INVALID_BTHREAD_ID) {
+        LOG(INFO) << "Snapshot fetcher has been canceled";
+        return;
+    }
+    if (_downloading_snapshot.load(butil::memory_order_relaxed) == NULL && _cur_copier) {
+        _cur_copier->cancel();
+    }
+    bthread_id_t context_id = _snapshot_fetcher_id;
+    _snapshot_fetcher_id = INVALID_BTHREAD_ID;
+    lck.unlock();
+
+    SnapshotFetcherCtx* snapshot_fetcher_ctx = NULL;
+    if (bthread_id_lock(context_id, (void**)&snapshot_fetcher_ctx) != 0) {
+        LOG(INFO) << "Snapshot fetcher has been canceled";
+        return;
+    }
+    bthread_t tid = snapshot_fetcher_ctx->tid;
+    Closure* done = snapshot_fetcher_ctx->done;
+    bthread_id_unlock_and_destroy(context_id);
+    delete snapshot_fetcher_ctx;
+
+    bthread_stop(tid);
+    if (done) {
+        done->status().set_error(ECANCELED, "Snapshot fetcher canceled");
+        done->Run();
+    }
+
+    if (is_wait) {
+        bthread_join(tid, NULL);
+    }
+}
+
+int SnapshotExecutor::fetch_snapshot(const GroupId& group_id, const PeerId& peer_id,
+                                     const int64_t max_snapshot_index) {
+    return fetch_snapshot(group_id, peer_id, max_snapshot_index, INVALID_BTHREAD_ID, true);
+}
+
+int SnapshotExecutor::fetch_snapshot(const GroupId& group_id, const PeerId& peer_id,
+                                     const int64_t snapshot_index,
+                                     const bthread_id_t& context_id,
+                                     bool load_snapshot) {
+    if (group_id.empty() || peer_id.is_empty()) {
+        LOG(INFO) << "Fail to fetch snapshot with empty group_id or peer_id";
+        return -1;
+    }
+
+    // get remote uri
+    TailSnapshotRequest request;
+    TailSnapshotResponse response;
+    brpc::Controller cntl;
+
+    brpc::Channel channel;
+    brpc::ChannelOptions channel_opt;
+    channel_opt.connection_type = brpc::CONNECTION_TYPE_SINGLE;
+    if (channel.Init(peer_id.addr, &channel_opt) != 0) {
+        LOG(INFO) << "Fail to init fetch_snapshot channel"
+                  << ", group_id:" << group_id << ", peer_id:" << peer_id;
+        return -1;
+    }
+
+    request.set_group_id(group_id);
+    request.set_peer_id(peer_id.to_string());
+    if (snapshot_index != 0) {
+        request.set_last_snapshot_index(snapshot_index);
+    }
+    SnapshotService_Stub stub(&channel);
+    cntl.set_timeout_ms(FLAGS_raft_tail_snapshot_req_timeout_ms);
+    stub.tail_snapshot(&cntl, &request, &response, NULL);
+    if (cntl.Failed() || !response.success()) {
+        LOG(INFO) << "Fail to request tail_snapshot, group_id:" << group_id
+                  << ", peer_id:" << peer_id
+                  << ", last_snapshot_index:" << snapshot_index
+                  << ", errmsg:" << cntl.ErrorText().c_str();
+        return -1;
+    }
+
+    int64_t last_included_index = response.meta().last_included_index();
+    const std::string& uri = response.uri();
+    SnapshotFetcherCtx* snapshot_fetcher_ctx = NULL;
+    if (context_id != INVALID_BTHREAD_ID &&
+            bthread_id_lock(context_id, (void**)&snapshot_fetcher_ctx) != 0) {
+        LOG(INFO) << "Fail to fetch snapshot, is canceled, group_id:" << group_id;
+        return ECANCELED;
+    }
+
+    std::unique_lock<raft_mutex_t> lck(_mutex);
+    if (context_id == INVALID_BTHREAD_ID && _saving_snapshot) {
+        LOG(INFO) << "Fail to fetch snapshot, is saving snapshot, group_id:" << group_id;
+        return -1;
+    }
+    // avoid generated a fresh snapshot when tailing snapshot
+    if (last_included_index <= _last_snapshot_index) {
+        LOG(INFO) << "Fail to fetch snapshot, remote snapshot index "
+            << last_included_index << " is less than local index " << _last_snapshot_index
+            << ", group_id:" << group_id;
+        lck.unlock();
+        unlock_snapshot_fetcher_id(context_id);
+        return -1;
+    }
+    SnapshotWriter* writer = NULL;
+    // learner may fetch snapshot to load,
+    // snapshot can be fetched only when index is less than last applied index
+    if (snapshot_fetcher_ctx) {
+        writer = snapshot_fetcher_ctx->writer;
+        CHECK(writer);
+        if (last_included_index > snapshot_fetcher_ctx->max_index) {
+            LOG(INFO) << "Fail to fetch snapshot, remote snapshot index "
+                << last_included_index << " is greater than max snapshot index "
+                << snapshot_fetcher_ctx->max_index << ", group_id:" << group_id;
+            lck.unlock();
+            unlock_snapshot_fetcher_id(context_id);
+            return -1;
+        }
+    }
+    LOG(INFO) << "Tailed snapshot, snapshot_index:" << last_included_index << ", uri:" << uri
+              << ", group_id:" << group_id;
+    if (_downloading_snapshot.load(butil::memory_order_relaxed) != NULL) {
+        LOG(INFO) << "Fail to fetch snapshot, installing now, snapshot_index:"
+                  << last_included_index << ", group_id:" << group_id;
+        lck.unlock();
+        unlock_snapshot_fetcher_id(context_id);
+        return -1;
+    }
+    if (_cur_copier) {
+        LOG(INFO) << "Fail to fetch snapshot, fetching now, snapshot_index:"
+                  << last_included_index << ", group_id:" << group_id;
+        lck.unlock();
+        unlock_snapshot_fetcher_id(context_id);
+        return -1;
+    }
+
+    if (_snapshot_throttle && !_snapshot_throttle->add_one_more_task(false)) {
+        LOG(WARNING) << "Fail to fetch snapshot, controlled by flow, group_id:" << group_id;
+        lck.unlock();
+        unlock_snapshot_fetcher_id(context_id);
+        return -1;
+    }
+    _cur_copier = _snapshot_storage->start_to_copy_from(uri, writer);
+    if (_cur_copier == NULL) {
+        if (_snapshot_throttle) {
+            _snapshot_throttle->finish_one_task(false);
+        }
+        LOG(WARNING) << "Fail to fetch snapshot, copy error, group_id:" << group_id;
+        lck.unlock();
+        unlock_snapshot_fetcher_id(context_id);
+        return -1;
+    }
+    _running_jobs.add_count(1);
+    lck.unlock();
+    unlock_snapshot_fetcher_id(context_id);
+
+    _cur_copier->join();
+    // when copying finished or canceled, more fetch_snapshot tasks are allowed
+    if (_snapshot_throttle) {
+        _snapshot_throttle->finish_one_task(false);
+    }
+
+    if (context_id != INVALID_BTHREAD_ID) {
+        std::unique_lock<raft_mutex_t> lck(_mutex);
+        int error_code = _cur_copier->error_code();
+        _snapshot_storage->close(_cur_copier);
+        _cur_copier = NULL;
+        lck.unlock();
+
+        SnapshotFetcherCtx* snapshot_fetcher_ctx = NULL;
+        if (bthread_id_lock(context_id, (void**)&snapshot_fetcher_ctx) != 0) {
+            LOG(INFO) << "Fail to fetch snapshot, is canceled, group_id:" << group_id;
+            _running_jobs.signal();
+            return ECANCELED;
+        }
+
+        error_code = writer->error_code() != 0 ? writer->error_code() : error_code;
+        LOG(INFO) << "Finish fetch snapshot, group_id:" << group_id
+            << ", index:" << last_included_index << ", errno:" << error_code;
+        unlock_snapshot_fetcher_id(context_id);
+        _running_jobs.signal();
+        return error_code;
+    }
+    return load_fetched_snapshot(uri, load_snapshot);
+}
+
+int SnapshotExecutor::load_fetched_snapshot(const std::string& uri, bool load_snapshot) {
+    std::unique_lock<raft_mutex_t> lck(_mutex);
+    SnapshotReader* reader = _cur_copier->get_reader();
+    if (!_cur_copier->ok()) {
+        if (reader) {
+            _snapshot_storage->close(reader);
+        }
+        _snapshot_storage->close(_cur_copier);
+        _cur_copier = NULL;
+        _running_jobs.signal();
+        LOG(WARNING) << "Fail to copy snapshot from " << uri;
+        return -1;
+    }
+    _snapshot_storage->close(_cur_copier);
+    _cur_copier = NULL;
+    if (reader == NULL || !reader->ok()) {
+        if (reader) {
+            _snapshot_storage->close(reader);
+        }
+        LOG(WARNING) << "Fail to copy snapshot from " << uri;
+        _running_jobs.signal();
+        return -1;
+    }
+    SnapshotMeta meta;
+    if (reader->load_meta(&meta) != 0) {
+        _snapshot_storage->close(reader);
+        _running_jobs.signal();
+        return -1;
+    }
+
+    if (_last_snapshot_index >= meta.last_included_index()) {
+        LOG(INFO) << "Fail to fetch snapshot, remote snapshot index "
+            << meta.last_included_index() << " is less than local index "
+            << _last_snapshot_index;
+        _snapshot_storage->close(reader);
+        _running_jobs.signal();
+        return -1;
+    }
+    _loading_snapshot = true;
+    _loading_snapshot_meta = meta;
+    lck.unlock();
+
+    int ret = 0;
+    FetchSnapshotDone fetch_snapshot_done(this, reader, load_snapshot);
+    ret = _fsm_caller->on_snapshot_fetched(&fetch_snapshot_done);
+    if (ret != 0) {
+        LOG(FATAL) << "Fail to call fsm_caller when snapshot fetched, uri:" << uri;
+        fetch_snapshot_done.status().set_error(EHOSTDOWN, "This raft node is down");
+        fetch_snapshot_done.Run();
+        return -1;
+    }
+    fetch_snapshot_done.wait_for_run();
+    return 0;
+}
+
+void SnapshotExecutor::on_load_fetched_snapshot_done(const butil::Status& st) {
+    std::unique_lock<raft_mutex_t> lck(_mutex);
+
+    CHECK(_loading_snapshot);
+    if (st.ok()) {
+        _last_snapshot_index = _loading_snapshot_meta.last_included_index();
+        _last_snapshot_term = _loading_snapshot_meta.last_included_term();
+        _log_manager->set_snapshot(&_loading_snapshot_meta);
+    }
+    if (_node) {
+        LOG(INFO) << "node " << _node->node_id()
+                  << " fetch_snapshot_done, "
+                  << _loading_snapshot_meta.ShortDebugString();
+    } else {
+        LOG(INFO) << "fetch_snapshot_done, "
+                  << _loading_snapshot_meta.ShortDebugString();
+    }
+    lck.unlock();
+    if (_node) {
+        // FIXME: race with set_peer, not sure if this is fine
+        _node->update_configuration_after_installing_snapshot();
+    }
+    lck.lock();
+    _loading_snapshot = false;
+    lck.unlock();
+
+    _running_jobs.signal();
+}
+
+void SnapshotExecutor::handle_tail_snapshot(brpc::Controller* cntl,
+                                            const TailSnapshotRequest* request,
+                                            TailSnapshotResponse* response) {
+    bool openned_before = true;
+    std::unique_lock<raft_mutex_t> lck(_mutex);
+
+    PeerId server_id;
+    server_id.parse(request->peer_id());
+    int64_t last_snapshot_index = _snapshot_storage->last_snapshot_index();
+    if (request->has_last_snapshot_index()
+            && request->last_snapshot_index() != last_snapshot_index) {
+        LOG(WARNING) << "node " << request->group_id() << ":" << server_id
+                     << " refuse to handle TailSnapshotRequest, required snapshot "
+                     << request->last_snapshot_index() << " is not the last one:"
+                     << last_snapshot_index;
+        cntl->SetFailed(EINVAL, "Required snapshot is not in service");
+        return;
+    }
+
+    if (_fetch_snapshot_reader == NULL) {
+        _fetch_snapshot_reader = _snapshot_storage->open();
+        openned_before = false;
+    }
+
+    if (!_fetch_snapshot_reader) {
+        LOG(WARNING) << "node " << request->group_id() << ":" << server_id
+                     << " refuse to handle TailSnapshotRequest"
+                     << " because open reader failed";
+        cntl->SetFailed(EIO, "Fail to open snapshot reader");
+        return;
+    }
+    std::string uri = _fetch_snapshot_reader->generate_uri_for_copy();
+    if (uri.empty()) {
+        LOG(WARNING) << "node " << request->group_id() << ":" << server_id
+                     << " refuse to handle TailSnapshotRequest"
+                     << " because snapshot uri is empty";
+        unsafe_destroy_fetch_snapshot_reader();
+        cntl->SetFailed(EIO, "Fail to generate uri for copy");
+        return;
+    }
+    SnapshotMeta meta;
+    // unnecessary to report error on failure,
+    // because node works well even if failed to fetch snapshot
+    if (_fetch_snapshot_reader->load_meta(&meta) != 0) {
+        std::string snapshot_path = _fetch_snapshot_reader->get_path();
+        LOG(ERROR) << "Fail to load meta from " << snapshot_path;
+        unsafe_destroy_fetch_snapshot_reader();
+        cntl->SetFailed(EIO, "Fail to generate uri for copy");
+        return;
+    }
+    int rc = 0;
+    if (openned_before) {
+        rc = reset_reader_expire_timer();
+    } else {
+        rc = start_reader_expire_timer();
+    }
+    if (rc != 0) {
+        unsafe_destroy_fetch_snapshot_reader();
+        LOG(ERROR) << "Fail to start gc timer for snapshot " << meta.last_included_index();
+        cntl->SetFailed(EINVAL, "Fail to start gc timer for reader");
+        return;
+    }
+    LOG(INFO) << "node " << request->group_id() << ":" << server_id
+              << " send TailSnapshotResponse,"
+              << " last_included_term " << meta.last_included_term()
+              << " last_included_index " << meta.last_included_index() << " uri " << uri;
+
+    response->set_success(true);
+    response->mutable_meta()->CopyFrom(meta);
+    response->set_uri(uri);
+}
+
+int SnapshotExecutor::reset_reader_expire_timer() {
+    CHECK_NE(_reader_expire_timer, bthread_timer_t());
+    if (bthread_timer_del(_reader_expire_timer) != 0) {
+        _reader_expire_timer = bthread_timer_t();
+        return -1;
+    }
+
+    if (bthread_timer_add(&_reader_expire_timer,
+                          butil::seconds_from_now(FLAGS_raft_fetch_snapshot_reader_expire_time_s),
+                          on_snapshot_reader_expired,
+                          (void *)this) != 0) {
+        _reader_expire_timer = bthread_timer_t();
+        _running_jobs.signal();
+        return -1;
+    }
+    return 0;
+}
+
+int SnapshotExecutor::start_reader_expire_timer() {
+    if (_reader_expire_timer != bthread_timer_t()) {
+        return -1;
+    }
+
+    if (bthread_timer_add(&_reader_expire_timer,
+                          butil::seconds_from_now(FLAGS_raft_fetch_snapshot_reader_expire_time_s),
+                          on_snapshot_reader_expired,
+                          (void *)this) == 0) {
+        _running_jobs.add_count(1);
+        return 0;
+    }
+    return -1;
+}
+
+void SnapshotExecutor::on_snapshot_reader_expired(void* arg) {
+    SnapshotExecutor* se = static_cast<SnapshotExecutor*>(arg);
+    se->destroy_fetch_snapshot_reader();
+    se->_running_jobs.signal();
+}
+
+void SnapshotExecutor::destroy_fetch_snapshot_reader() {
+    std::unique_lock<raft_mutex_t> lck(_mutex);
+    unsafe_destroy_fetch_snapshot_reader();
+}
+
+void SnapshotExecutor::unsafe_destroy_fetch_snapshot_reader() {
+    if (_reader_expire_timer != bthread_timer_t() &&
+            bthread_timer_del(_reader_expire_timer) == 0) {
+        _running_jobs.signal();
+    }
+    _reader_expire_timer = bthread_timer_t();
+
+    if (_fetch_snapshot_reader != NULL) {
+        _snapshot_storage->close(_fetch_snapshot_reader);
+        _fetch_snapshot_reader = NULL;
     }
 }
 
@@ -677,7 +1311,9 @@ void SnapshotExecutor::shutdown() {
     const int64_t saved_term = _term;
     _stopped = true;
     lck.unlock();
+    cancel_fetch_snapshot(true);
     interrupt_downloading_snapshot(saved_term);
+    unsafe_destroy_fetch_snapshot_reader();
 }
 
 void SnapshotExecutor::join() {
