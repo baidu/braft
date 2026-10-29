@@ -778,11 +778,22 @@ int SegmentLogStorage::append_entries(const std::vector<LogEntry*>& entries, IOM
         last_segment = segment;
     }
     now = butil::cpuwide_time_us();
-    last_segment->sync(_enable_sync, has_conf);
+    const int sync_ret = last_segment->sync(_enable_sync, has_conf);
+    const int sync_errno = errno;
     if (FLAGS_raft_trace_append_entry_latency && metric) {
         delta_time_us = butil::cpuwide_time_us() - now;
         metric->sync_segment_time_us += delta_time_us;
         g_sync_segment_latency << delta_time_us; 
+    }
+    if (sync_ret != 0) {
+        // The entries may be lost: after a failed fsync the kernel can drop
+        // the dirty pages, and a later fsync can succeed without them. Report
+        // none of the batch as appended, so that LogManager reports EIO and
+        // no entry of this batch is committed.
+        LOG(ERROR) << "Fail to sync segment, path: " << _path
+                   << ", entries: " << entries.size()
+                   << ", " << berror(sync_errno);
+        return 0;
     }
     return entries.size();
 }
