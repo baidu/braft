@@ -1373,3 +1373,67 @@ TEST_F(LogStorageTest, data_corrupt) {
     delete configuration_manager;
 }
 
+static int append_data_entries(braft::LogStorage* storage,
+                               int64_t first_index, int count) {
+    std::vector<braft::LogEntry*> entries;
+    for (int i = 0; i < count; i++) {
+        int64_t index = first_index + i;
+        braft::LogEntry* entry = new braft::LogEntry();
+        entry->type = braft::ENTRY_TYPE_DATA;
+        entry->id.term = 1;
+        entry->id.index = index;
+
+        char data_buf[128];
+        snprintf(data_buf, sizeof(data_buf), "hello, world: %" PRId64, index);
+        entry->data.append(data_buf);
+        entries.push_back(entry);
+    }
+    const int ret = storage->append_entries(entries, NULL);
+    for (size_t i = 0; i < entries.size(); i++) {
+        delete entries[i];
+    }
+    return ret;
+}
+
+TEST_F(LogStorageTest, append_entries_fails_when_sync_fails) {
+    ::system("rm -rf data");
+    braft::FLAGS_raft_sync = true;
+    braft::SegmentLogStorage* storage = new braft::SegmentLogStorage("./data");
+    braft::ConfigurationManager* configuration_manager = new braft::ConfigurationManager;
+    ASSERT_EQ(0, storage->init(configuration_manager));
+
+    ASSERT_EQ(5, append_data_entries(storage, 1, 5));
+
+    // Make the next sync of the open segment fail: point its fd at a pipe,
+    // where writes succeed and fsync/fdatasync fail with EINVAL. The entries
+    // of the next batch never reach the segment file, as when the device
+    // drops the dirty pages after a failed fsync.
+    ASSERT_TRUE(storage->_open_segment != NULL);
+    const int segment_fd = storage->_open_segment->_fd;
+    const int saved_fd = dup(segment_fd);
+    ASSERT_LE(0, saved_fd);
+    int pipe_fds[2];
+    ASSERT_EQ(0, pipe(pipe_fds));
+    ASSERT_LE(0, dup2(pipe_fds[1], segment_fd));
+
+    // None of a batch whose sync failed is reported as appended.
+    ASSERT_EQ(0, append_data_entries(storage, 6, 5));
+
+    ASSERT_LE(0, dup2(saved_fd, segment_fd));
+    close(saved_fd);
+    close(pipe_fds[0]);
+    close(pipe_fds[1]);
+    delete storage;
+    delete configuration_manager;
+
+    // After a restart only the first batch is in the log.
+    storage = new braft::SegmentLogStorage("./data");
+    configuration_manager = new braft::ConfigurationManager;
+    ASSERT_EQ(0, storage->init(configuration_manager));
+    ASSERT_EQ(1, storage->first_log_index());
+    ASSERT_EQ(5, storage->last_log_index());
+
+    delete storage;
+    delete configuration_manager;
+    braft::FLAGS_raft_sync = false;
+}
